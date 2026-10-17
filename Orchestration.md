@@ -1,6 +1,6 @@
 # ZTronScrollView · Orchestration (resume here)
 
-Last updated: 2026-10-18 · Status: **M0 done · MC package done (spike + tag pending) · M1 done → next: M2 design**
+Last updated: 2026-10-18 · Status: **M0 done · MC package done (spike + tag pending) · M1 done · M2 designed → next: MC spike, then M2 build**
 
 ## Resume in a new session (cheapest path)
 1. Launch in `/Users/admin/Documents/ZTronScrollView` with the role's model (SPEC O2, l.897–918):
@@ -19,7 +19,8 @@ Last updated: 2026-10-18 · Status: **M0 done · MC package done (spike + tag pe
 | M1 physics | done | `scripts/test-physics.sh` → 99 tests / 16 suites green |
 | M1 availability | done | `scripts/test.sh -only-testing:ZTronScrollViewTests` → 16 tests green (iPhone 18 Pro, iOS 27.0) |
 | M1 design note | done | `docs/design/design-note.md` (S14.1), `docs/design/M1-physics.md` |
-| M2 … M10 | todo | |
+| M2 design | done | `docs/design/M2-render.md` (decisions R1–R7, test list §11, device risks §12) |
+| M2 build … M10 | todo | |
 
 Commits: `1aa3321` M0 · `21ae371` MC package + M1.
 
@@ -55,7 +56,7 @@ Commits: `1aa3321` M0 · `21ae371` MC package + M1.
 - D9 `onGeometryChange` capability = iOS 16 only for the `(newValue)` overload; the `(old, new)` overload is iOS 18.
 
 ## Next steps (in order; kickoff prompts are ready to paste)
-1. [ ] **M2 design** — Architect (Fable), one session, ~2–3% weekly:
+1. [x] **M2 design** — done 2026-10-18 (Fable, 61 K tokens = 2% of the Fable bucket, 0 pts all-models). Prompt kept for reference:
    ```
    Architect session. Write docs/design/M2-render.md (≤3 pages): ZTronScrollState storage (Observation 17+ /
    one ObservableObject per channel 15–16; hot vs cold separation), target vs presentation, frame clock driver
@@ -79,8 +80,21 @@ Commits: `1aa3321` M0 · `21ae371` MC package + M1.
    Done when: spike tests ran on 4 OSes, §6 filled, `git tag ScrollArbitration-1.0.0`, committed.
    Out of scope: library code. Budget ~3% weekly; 2 failed attempts → advisor once → stop and hand off.
    ```
-3. [ ] **M2 build** — Builder (Sonnet + Opus advisor) from M2-render.md; Debugger (Opus, high) only if render
-   counts fail. Run UI tests on iOS 27.0 and 17.5, preferred and forced-fallback paths.
+3. [ ] **M2 build** — Builder (Sonnet + Opus advisor), 2–3 sessions; Debugger (Opus, high) only if render counts fail:
+   ```
+   M2 · Render path · Builder
+   Read: docs/design/M2-render.md (all), docs/SPEC.md l.83–105 (S4). Nothing else up front.
+   Do (one session each, commit between): (a) §1–2, §8–9 ZTronScrollState + ZTronScrollReader + unit tests §11;
+   (b) §3–7 clock, layout host, transform host, probe, coordinate spaces; (c) §10 Demo project + render-proof
+   screen + UI tests + new scripts/test-demo-ui.sh <destination> [--forced] (filtered, like test.sh).
+   First resolve M2-render.md open questions Q1–Q5 below by taking the doc's proposal unless a test disproves it.
+   Done when: unit tests green on both OS paths; UI proof green on iOS 27.0 + 17.5, preferred + forced.
+   ```
+   M2 open questions (from the architect): Q1 name of the transaction-driven offset setter (proposed
+   `scroll(to: CGPoint)`; clashes conceptually with `proxy.scrollTo(id)`); Q2 `ZTronScrollGeometry` lazy view vs
+   Equatable snapshot struct (spec: mirrors `ScrollGeometry`); Q3 `.transaction{}` + `addAnimationCompletion`
+   catching model-driven `withAnimation` is unverified — 2-frame settle detector stays as safety net everywhere;
+   Q4 `scripts/test-demo-ui.sh` (assumed above); Q5 whether the proof also exercises `ignoredByLayout()`.
 4. [ ] M3 (pan/decay/bounce/delegate/arbitration) … M10 per SPEC O4 (l.970–990).
 
 ## Open items
@@ -103,7 +117,8 @@ Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (run ≤2 simulators 
 - 2026-10-14: one ultracode workflow (11 Opus/Fable agents, 1.64 M subagent tokens, 55 min) built MC + M1 and
   exhausted the weekly limit during its last fix agent. Don't fan out builders: follow SPEC O2 routing (Sonnet
   builds, Fable designs, Opus debugs) and O5 (workflows only for parity/demo batches, small, exemplar first).
-- Separate "Weekly · Fable" bucket exists on this plan (0% used on 2026-10-18).
+- Separate "Weekly · Fable" bucket exists on this plan: Fable design work did not move the all-models % (2026-10-18).
+  So run every Architect step on Fable (O2) — it is the cheapest place for thinking-heavy work right now.
 
 ## Session log
 | Date | Session | Work | Weekly % |
