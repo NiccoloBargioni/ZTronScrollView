@@ -1,12 +1,12 @@
 # STATE
 Status: RUNNING
-Current: MC + M1 (parallel lanes)
+Current: M2 design (MC spike + freeze still pending)
 
 | Milestone | Status | Budget % | Used % (my readings) | Notes |
 |---|---|---|---|---|
 | M0 | done | 0–1 | | repo, scripts, hook, agents, CLAUDE.md, skeleton packages; host + iOS 27 sim tests green |
-| MC | todo | 3–5 | | |
-| M1 | todo | 6–9 | | |
+| MC | partial | 3–5 | | package + 39 contract tests done; spike + tag ScrollArbitration-1.0.0 todo |
+| M1 | done | 6–9 | | physics 99 tests, availability 16 tests, design note; weekly limit hit in fix round (recovered 2026-10-18) |
 | M2 | todo | 7–10 | | |
 | M3 | todo | 8–10 | | |
 | M4 | todo | 5–7 | | |
