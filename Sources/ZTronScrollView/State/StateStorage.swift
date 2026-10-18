@@ -170,6 +170,8 @@ final class ChannelStorage: StateStorage {
     let zoomChannel = ZoomChannel()
     let metricsChannel = MetricsChannel()
     let phaseChannel = PhaseChannel()
+    /// Payload-free; published when target offset or target zoom changes (not presentation).
+    let targetChannel = ObservableObjectPublisher()
     /// Non-nil only while a reader discovers its channels.
     var recorder: ChannelRecorder?
     private let gate = BatchGate()
@@ -180,16 +182,23 @@ final class ChannelStorage: StateStorage {
         case .zoom: return zoomChannel.objectWillChange
         case .metrics: return metricsChannel.objectWillChange
         case .phase: return phaseChannel.objectWillChange
+        case .target: return targetChannel
         }
     }
 
     /// `!=`-guarded write; sends `objectWillChange` before mutating (Combine semantics), once per batch per channel.
+    @discardableResult
     private func write<C: ObservableObject, T: Equatable>(
         _ object: C, _ keyPath: ReferenceWritableKeyPath<C, T>, _ channel: StateChannel, _ new: T
-    ) where C.ObjectWillChangePublisher == ObservableObjectPublisher {
-        guard object[keyPath: keyPath] != new else { return }
+    ) -> Bool where C.ObjectWillChangePublisher == ObservableObjectPublisher {
+        guard object[keyPath: keyPath] != new else { return false }
         if gate.shouldPublish(channel.rawValue) { object.objectWillChange.send() }
         object[keyPath: keyPath] = new
+        return true
+    }
+
+    private func publishTarget() {
+        if gate.shouldPublish(StateChannel.target.rawValue) { targetChannel.send() }
     }
 
     private func read<T>(_ channel: StateChannel, _ value: T) -> T {
@@ -199,7 +208,7 @@ final class ChannelStorage: StateStorage {
 
     var targetOffset: CGPoint {
         get { read(.offset, offsetChannel.target) }
-        set { write(offsetChannel, \.target, .offset, newValue) }
+        set { if write(offsetChannel, \.target, .offset, newValue) { publishTarget() } }
     }
     var presentationOffset: CGPoint {
         get { read(.offset, offsetChannel.presentation) }
@@ -207,7 +216,7 @@ final class ChannelStorage: StateStorage {
     }
     var targetZoom: CGFloat {
         get { read(.zoom, zoomChannel.target) }
-        set { write(zoomChannel, \.target, .zoom, newValue) }
+        set { if write(zoomChannel, \.target, .zoom, newValue) { publishTarget() } }
     }
     var presentationZoom: CGFloat {
         get { read(.zoom, zoomChannel.presentation) }

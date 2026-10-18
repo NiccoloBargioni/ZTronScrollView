@@ -72,6 +72,24 @@ struct LayoutHostTests {
         _ = w
     }
 
+    @Test(arguments: OSPath.allCases) func presentationWritesDoNotWakeTransformHost(path: OSPath) {
+        let s = makeState(path)
+        let w = withOSPath(path) { host(ZTronScrollView(.vertical, state: s) { Color.red.frame(height: 1000) }) }
+        pump(0.1)
+        ZTronRenderCounters.reset()
+        for y in stride(from: 10.0, through: 100.0, by: 10) {
+            s.batch {
+                s.storage.presentationOffset = CGPoint(x: 0, y: y)
+                s.storage.presentationZoom = 1 + y / 1000
+            }
+            pump(0.03)
+        }
+        #expect(ZTronRenderCounters.value("transformHost.body") == 0)
+        s.track(offset: CGPoint(x: 0, y: 50), zoom: 1); pump(0.1)
+        #expect(ZTronRenderCounters.value("transformHost.body") > 0)
+        _ = w
+    }
+
     @Test(arguments: OSPath.allCases) func contentSpaceFramesStableWhileScrolling(path: OSPath) {
         let s = makeState(path)
         final class Box { var frames: [CGRect] = [] }

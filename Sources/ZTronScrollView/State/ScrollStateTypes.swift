@@ -31,6 +31,8 @@ struct ScrollMetrics: Equatable, Sendable {
 /// The observation granularity on the fallback path: one `ObservableObject` per channel.
 enum StateChannel: Int, CaseIterable, Sendable, Hashable {
     case offset, zoom, metrics, phase
+    /// Target offset/zoom only (presentation writes never publish it): the transform host's wake-up channel.
+    case target
 }
 
 /// Plain (never observed) mailbox the transform effect writes each interpolated frame (design §6). Lock-protected:

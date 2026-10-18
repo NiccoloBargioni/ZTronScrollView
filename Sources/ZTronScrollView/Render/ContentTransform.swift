@@ -61,7 +61,7 @@ struct TransformHost: ViewModifier {
 
     func body(content: Content) -> some View {
         if let storage = state.storage as? ChannelStorage {
-            relay.subscribe(to: [.offset, .zoom, .metrics, .phase], of: storage)
+            relay.subscribe(to: [.target, .metrics, .phase], of: storage)
         }
         #if DEBUG
         ZTronRenderCounters.increment("transformHost.body")
