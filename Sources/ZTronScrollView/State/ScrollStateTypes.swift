@@ -135,10 +135,30 @@ public enum ZTronRenderCounters {
     private static var counts: [String: Int] = [:]
     public static func increment(_ key: String) { counts[key, default: 0] += 1 }
     public static func value(_ key: String) -> Int { counts[key] ?? 0 }
-    public static func reset() { counts.removeAll(); notes.removeAll() }
+    public static func reset() { counts.removeAll(); notes.removeAll(); events.removeAll(); eventSeq = 0 }
     public static var snapshot: [String: Int] { counts }
     /// Free-form DEBUG notes (e.g. the frame that incremented `resize.jumpFrames`); cleared by `reset()`.
     public static var notes: [String: String] = [:]
+
+    // MARK: DEBUG event log (resize ordering probe; temporary instrumentation)
+    /// Ring buffer of the last `eventCapacity` state events, each "<seq>@t<turn> <text>". `turn` is a run-loop-turn id:
+    /// events recorded before the next main-queue hop share it, so same-turn events are distinguishable from later ones.
+    public static var events: [String] = []
+    public static var eventCapacity = 40
+    private static var eventSeq = 0
+    private static var eventTurn = 0
+    private static var eventTurnPending = false
+    public static func event(_ s: String) {
+        eventSeq += 1
+        if !eventTurnPending {
+            eventTurnPending = true
+            DispatchQueue.main.async { eventTurn += 1; eventTurnPending = false }
+        }
+        events.append("\(eventSeq)@t\(eventTurn) \(s)")
+        if events.count > eventCapacity { events.removeFirst(events.count - eventCapacity) }
+    }
+    /// The joined log, for an accessibility value / info string.
+    public static var eventsJoined: String { events.joined(separator: " | ") }
 }
 #endif
 

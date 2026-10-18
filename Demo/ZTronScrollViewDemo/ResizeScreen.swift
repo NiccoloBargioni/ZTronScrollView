@@ -271,6 +271,7 @@ struct ResizeScreen: View {
         #if DEBUG
         counters = ZTronRenderCounters.snapshot
         note = ZTronRenderCounters.notes["resize.jump"] ?? ""
+        note += " events{" + ZTronRenderCounters.eventsJoined + "}"   // DEBUG event log (resize ordering probe)
         #endif
         let r = ResizeProbe.centre(state)
         let o = state.contentOffset, i = state.adjustedContentInset

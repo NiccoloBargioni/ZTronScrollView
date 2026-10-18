@@ -252,10 +252,13 @@ final class ResizeUITests: XCTestCase {
         return CGPoint(x: 0.1 + (p.x - a.x) / (b.x - a.x) * 0.8, y: 0.1 + (p.y - a.y) / (b.y - a.y) * 0.8)
     }
 
-    /// Centre of the unobscured viewport in screen space: scroller frame inset by the adjusted content insets.
+    /// Centre of the unobscured viewport in screen space. The XCUI frame of `scrollerView` (the scroll view itself; the
+    /// screen's outer "scroller" wraps the nav stack) already EXCLUDES the safe area: the viewport root ignores it inside
+    /// the container, so the frame is the unobscured rect (portrait 16:9 box: frame y=62,h=226 vs vh=288). Its centre is
+    /// the visible centre (== f.minX - il + cx); adding `il`/`it` again would double count. contentInset is 0 in the demo.
     private func visibleCentre(_ app: XCUIApplication, _ i: Info) -> CGPoint {
-        let f = app.descendants(matching: .any)["scrollerView"].frame   // the scroll view itself (the screen's outer "scroller" wraps the nav stack)
-        return CGPoint(x: f.minX + i["il"] + (f.width - i["il"] - i["ir"]) / 2, y: f.minY + i["it"] + (f.height - i["it"] - i["ib"]) / 2)
+        let f = app.descendants(matching: .any)["scrollerView"].frame
+        return CGPoint(x: f.midX, y: f.midY)
     }
 
     private func dist(_ a: CGPoint?, _ b: CGPoint?) -> Double {

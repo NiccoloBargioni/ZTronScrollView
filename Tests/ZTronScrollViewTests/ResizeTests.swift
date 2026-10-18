@@ -401,4 +401,141 @@ struct ResizeStateTests {
         s.setContentOffset(.zero, animated: false)
         #expect(s.resizeIntent == nil)
     }
+
+    // MARK: (B) the user's full-screen tree: several geometry updates per rotation in ONE run-loop turn
+
+    /// Runs `body` as one run-loop turn of the state: SwiftUI delivers the updates synchronously, the end-of-turn hop
+    /// runs afterwards (here: directly).
+    func turn(_ s: ZTronScrollState, _ body: () -> Void) { body(); s.endOfTurn() }
+
+    /// The intent of the drawn state (ZTronMapKit normalized centre + scale, via the library mapping).
+    func drawnIntent(_ s: ZTronScrollState) -> ResizeIntent {
+        let m = s.peek.metrics
+        return ResizeMath.intent(offset: s.contentOffset, scale: s.zoomScale,
+                                 in: .init(viewport: m.viewportSize, contentSize: m.contentSize, insets: m.adjustedContentInset),
+                                 header: m.headerObscured, focus: .center, alignment: s.contentAlignment)
+    }
+
+    /// Settles a resize the way the demo's full-screen tree does: the probe reports the final size only (the
+    /// transition never passes through the effect), the watch closes on the first tick ("never animated").
+    func settle(_ s: ZTronScrollState, size: CGSize, t: inout TimeInterval) {
+        s.probe.record(s.peek.targetOffset, s.peek.targetZoom, size: size)
+        for _ in 0..<4 { t += 1; s.step(to: date(t)) }
+        #expect(!s.peek.metrics.resize.isOpen)
+    }
+
+    /// One rotation of the user's tree as measured on iOS 27.0 (NavigationStack > GeometryReader > two-axis scroller,
+    /// image as wide as the GeometryReader), all in ONE turn: the new orientation's safe area lands on the OLD size,
+    /// the GeometryReader width loses the side inset and the content reflows (idle), then the size changes and the
+    /// content reflows again (open).
+    struct MeasuredRotation { var preSafe: EdgeInsets; var preContent: CGSize; var size: CGSize; var safe: EdgeInsets; var content: CGSize }
+    static let user2ToLandscape = MeasuredRotation(
+        preSafe: EdgeInsets(top: 0, leading: 62, bottom: 20, trailing: 0), preContent: CGSize(width: 340, height: 1020),
+        size: CGSize(width: 874, height: 402), safe: EdgeInsets(top: 0, leading: 62, bottom: 20, trailing: 62), content: CGSize(width: 750, height: 2250))
+    static let user2ToPortrait = MeasuredRotation(
+        preSafe: EdgeInsets(top: 62, leading: 0, bottom: 0, trailing: 0), preContent: CGSize(width: 874, height: 2622),
+        size: CGSize(width: 402, height: 874), safe: EdgeInsets(top: 62, leading: 0, bottom: 34, trailing: 0), content: CGSize(width: 402, height: 1206))
+
+    func replay(_ s: ZTronScrollState, _ r: MeasuredRotation, t: inout TimeInterval) {
+        let oldSize = s.peek.metrics.viewportSize
+        turn(s) {
+            s.setViewport(vp(oldSize.width, oldSize.height, r.preSafe))   // 'vp inset'
+            s.setContentSize(r.preContent)                                 // 'cs idle'
+            s.setViewport(vp(r.size.width, r.size.height, r.safe))        // 'vp size': the commit opens
+            s.setContentSize(r.content)                                    // 'cs open'
+        }
+        #expect(s.peek.metrics.resize.isOpen)
+        settle(s, size: r.size, t: &t)
+    }
+
+    /// The measured sequence with the real numbers, 4 rotations: odd rotations preserve the normalized centre of the
+    /// drawn state (no clamp is needed in this tree), even rotations restore the offset and zoom exactly.
+    @Test(arguments: OSPath.allCases) func userTree2MeasuredSequenceRestoresExactly(path: OSPath) {
+        let s = makeState(path)
+        s.scrollAxes = [.horizontal, .vertical]
+        s.zoomLimits = ZoomLimits(min: .absolute(1), max: .absolute(4))
+        s.setContentSize(CGSize(width: 402, height: 1206))
+        s.setViewport(vp(402, 874, EdgeInsets(top: 62, leading: 0, bottom: 34, trailing: 0)))
+        s.setZoomScale(2.2254, animated: false)
+        let o0 = CGPoint(x: 67.38, y: 1293.49)
+        s.setContentOffset(o0, animated: false)
+        #expect(s.contentOffset == o0 && s.zoomScale == 2.2254)
+        let n0 = drawnIntent(s).normalizedCenter
+        #expect(abs(n0.x - 0.3) < 1e-3 && abs(n0.y - 0.65) < 1e-3, "the zoomed detail at (30 %, 65 %): \(n0)")
+        var t: TimeInterval = 0
+        for n in 1...4 {
+            replay(s, n % 2 == 1 ? Self.user2ToLandscape : Self.user2ToPortrait, t: &t)
+            #expect(s.resizeIntent != nil, "n=\(n)")
+            #expect(s.zoomScale == 2.2254, "n=\(n) zoom \(s.zoomScale)")
+            if n % 2 == 1 {
+                let n1 = drawnIntent(s).normalizedCenter
+                #expect(abs(n1.x - n0.x) < 1e-6 && abs(n1.y - n0.y) < 1e-6, "n=\(n) \(n1) vs \(n0)")
+            } else {
+                #expect(abs(s.contentOffset.x - o0.x) < 1e-6 && abs(s.contentOffset.y - o0.y) < 1e-6, "n=\(n) \(s.contentOffset)")
+            }
+        }
+    }
+
+    /// The safe area of the new orientation settles AFTER the size change, in the same turn: folded into the open commit
+    /// (the resize stays open), the target realises the intent against the NEW insets.
+    @Test(arguments: OSPath.allCases) func insetOnlyChangeWhileResizeOpenFoldsIntoTheCommit(path: OSPath) {
+        let s = makeState(path)
+        s.scrollAxes = [.horizontal, .vertical]
+        s.zoomLimits = ZoomLimits(min: .absolute(1), max: .absolute(4))
+        let content = CGSize(width: 1500, height: 3000), l = CGSize(width: 852, height: 393)
+        s.setContentSize(content)
+        s.setViewport(vp(393, 852, EdgeInsets(top: 59, leading: 0, bottom: 34, trailing: 0)))
+        s.setZoomScale(2, animated: false)
+        s.setContentOffset(CGPoint(x: 400, y: 1200), animated: false)
+        let n0 = drawnIntent(s)
+        let newInsets = EdgeInsets(top: 0, leading: 59, bottom: 21, trailing: 59)
+        var t: TimeInterval = 0
+        turn(s) {
+            s.setViewport(vp(l.width, l.height, EdgeInsets(top: 0, leading: 59, bottom: 21, trailing: 0)))
+            #expect(s.peek.metrics.resize.isOpen)
+            s.setViewport(vp(l.width, l.height, newInsets))
+            #expect(s.peek.metrics.resize.isOpen, "the inset-only change did not close the resize")
+            #expect(s.peek.metrics.resize.current.insets == newInsets && s.adjustedContentInset == newInsets)
+        }
+        settle(s, size: l, t: &t)
+        let e = ResizeMath.realize(n0, viewport: l, content: content, insets: newInsets, header: 0, focus: .center,
+                                   limits: s.zoomLimits, alignment: s.contentAlignment)
+        #expect(abs(s.contentOffset.x - e.offset.x) < 1e-6 && abs(s.contentOffset.y - e.offset.y) < 1e-6, "\(s.contentOffset) vs \(e.offset)")
+        #expect(s.zoomScale == 2 && e.scale == 2)
+        // and it is NOT the offset of the first (incomplete) insets
+        let e0 = ResizeMath.realize(n0, viewport: l, content: content, insets: EdgeInsets(top: 0, leading: 59, bottom: 21, trailing: 0),
+                                    header: 0, focus: .center, limits: s.zoomLimits, alignment: s.contentAlignment)
+        #expect(abs(e0.offset.x - e.offset.x) > 1)
+    }
+
+    /// A content change with no resize in the same turn is an app action (the list grew): the offset is kept (UIKit
+    /// `.sizeChanges` rule) and the sticky intent is dropped, so the next rotation preserves the centre of the CURRENT
+    /// state, not the stale intent.
+    @Test(arguments: OSPath.allCases) func idleContentChangeWithoutResizeKeepsOffsetAndDropsTheIntent(path: OSPath) {
+        let s = makeState(path)
+        s.scrollAxes = [.horizontal, .vertical]
+        let p = CGSize(width: 393, height: 852), l = CGSize(width: 852, height: 393)
+        s.setContentSize(CGSize(width: 1200, height: 3000))
+        s.setViewport(vp(p.width, p.height))
+        s.setContentOffset(CGPoint(x: 300, y: 1000), animated: false)
+        var t: TimeInterval = 0
+        turn(s) { s.setViewport(vp(l.width, l.height)) }
+        settle(s, size: l, t: &t)
+        #expect(s.resizeIntent != nil)
+        let stale = s.resizeIntent!
+        let o1 = s.contentOffset
+        let taller = CGSize(width: 1200, height: 4000)
+        turn(s) { s.setContentSize(taller) }
+        #expect(s.contentOffset == o1, "growing list keeps the offset")
+        #expect(s.resizeIntent == nil, "the sticky intent is stale")
+        let nCur = drawnIntent(s).normalizedCenter
+        turn(s) { s.setViewport(vp(p.width, p.height)) }
+        settle(s, size: p, t: &t)
+        let n2 = drawnIntent(s).normalizedCenter
+        #expect(abs(n2.x - nCur.x) < 1e-6 && abs(n2.y - nCur.y) < 1e-6, "\(n2) vs \(nCur)")
+        #expect(abs(s.contentOffset.y - 1000) < 1e-6 && abs(s.contentOffset.x - 300) < 1e-6)
+        let staleY = ResizeMath.realize(stale, viewport: p, content: taller, insets: EdgeInsets(), header: 0, focus: .center,
+                                        limits: s.zoomLimits, alignment: s.contentAlignment).offset.y
+        #expect(abs(s.contentOffset.y - staleY) > 100, "not the stale intent (\(staleY))")
+    }
 }

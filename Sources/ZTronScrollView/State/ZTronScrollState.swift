@@ -95,6 +95,20 @@ public final class ZTronScrollState {
     /// for every following resize until the user or code moves the view (`beginIntervention()`). Never re-derived
     /// from a clamped post-resize state, so an even number of rotations restores the offset and scale exactly.
     private(set) var resizeIntent: ResizeIntent?
+    /// What was actually DRAWN before the first idle geometry mutation of the current run-loop turn (ZTronMapKit
+    /// discipline, D16/D17). SwiftUI can deliver one rotation as several updates in ONE turn (the new safe area on the
+    /// old size, the GeometryReader's reflowed content, then the size): a resize opening later in that turn captures
+    /// its intent from this origin, not from the half-mutated metrics. Cleared by `endOfTurn()` (main-queue hop).
+    private struct TurnOrigin {
+        var snapshot: ResizeCommit.Snapshot
+        var header: CGFloat
+        var offset: CGPoint
+        var zoom: CGFloat
+    }
+    private var turnOrigin: TurnOrigin?
+    private var turnHopPending = false
+    private var resizeOpenedThisTurn = false
+    private var idleGeometryChangedThisTurn = false
 
     /// Chooses the storage once; the path never flips afterwards (R6).
     public init() {
@@ -219,8 +233,65 @@ public final class ZTronScrollState {
     /// The user or code is about to move the view: any resize in flight commits and the sticky intent is dropped.
     private func beginIntervention() {
         resizeIntent = nil
+        turnOrigin = nil                      // the new offset is the truth for the rest of this turn
+        idleGeometryChangedThisTurn = false
+        #if DEBUG
+        closeReason = "intervention"
+        #endif
         if isResizeOpen { closeResize() }
     }
+
+    // MARK: Turn origin (D16/D17: the resize intent is captured from the drawn geometry)
+
+    /// Called BEFORE an idle geometry mutation (content size or insets while no resize is open, whether or not motion
+    /// runs): remembers the drawn geometry and presentation once per turn, so a viewport size change later in the same
+    /// turn captures its intent from what is on screen, and schedules the end-of-turn hop.
+    private func noteIdleGeometryChange(before old: StorageSnapshot) {
+        let m = old.metrics
+        guard !isResizeOpen, m.viewportSize.width > 0, m.viewportSize.height > 0 else { return }
+        if turnOrigin == nil, m.contentSize.width > 0, m.contentSize.height > 0 {
+            turnOrigin = TurnOrigin(snapshot: m.resize.current, header: m.headerObscured,
+                                    offset: old.presentationOffset, zoom: old.presentationZoom)
+            #if DEBUG
+            dbg("origin captured vp:\(f(m.resize.current.viewport)) content:\(f(m.resize.current.contentSize)) insets:\(f(m.resize.current.insets)) o:\(f(old.presentationOffset)) z:\(f(old.presentationZoom))")
+            #endif
+        }
+        idleGeometryChangedThisTurn = true
+        scheduleTurnHop()
+    }
+
+    /// One main-queue hop per turn: everything SwiftUI delivers synchronously in this turn runs before `endOfTurn()`.
+    private func scheduleTurnHop() {
+        guard !turnHopPending else { return }
+        turnHopPending = true
+        DispatchQueue.main.async { [weak self] in MainActor.assumeIsolated { self?.endOfTurn() } }
+    }
+
+    /// The run-loop turn ended: the origin is gone (the next turn draws the mutated geometry). An idle geometry change
+    /// that was NOT part of a resize is an app action (a list grew, bars changed): the sticky intent is stale and the
+    /// next resize captures from the drawn state; the offset itself followed the `.sizeChanges` rule (kept / clamped, D16).
+    func endOfTurn() {
+        turnHopPending = false
+        turnOrigin = nil
+        if idleGeometryChangedThisTurn, !resizeOpenedThisTurn, !isResizeOpen, resizeIntent != nil {
+            resizeIntent = nil
+            #if DEBUG
+            dbg("intent dropped at end of turn")
+            #endif
+        }
+        idleGeometryChangedThisTurn = false
+        resizeOpenedThisTurn = false
+    }
+
+    #if DEBUG
+    // DEBUG event-log instrumentation (resize ordering probe; temporary).
+    private var closeReason = "?"
+    private func dbg(_ s: String) { ZTronRenderCounters.event(s) }
+    private func f(_ v: CGFloat) -> String { String(format: "%.1f", v) }
+    private func f(_ s: CGSize) -> String { "\(f(s.width))x\(f(s.height))" }
+    private func f(_ p: CGPoint) -> String { "(\(f(p.x)),\(f(p.y)))" }
+    private func f(_ e: EdgeInsets) -> String { "[\(f(e.top)),\(f(e.leading)),\(f(e.bottom)),\(f(e.trailing))]" }
+    #endif
 
     private func writeBoth(offset: CGPoint, zoom: CGFloat) {
         storage.targetOffset = offset
@@ -283,10 +354,17 @@ public final class ZTronScrollState {
                     storage.targetOffset = r.offset
                     storage.targetZoom = r.scale
                 }
+                #if DEBUG
+                dbg("cs open \(f(old.metrics.contentSize))->\(f(size)) vp:\(f(old.metrics.viewportSize)) wroteTarget:\(r.offset != old.targetOffset || r.scale != old.targetZoom) o:\(f(r.offset)) z:\(f(r.scale))")
+                #endif
                 return
             }
+            noteIdleGeometryChange(before: old)
             syncCommit(&m, open: false)
             storage.metrics = m
+            #if DEBUG
+            if !(idle && hadContent) { dbg("cs idle-skip \(f(old.metrics.contentSize))->\(f(size)) vp:\(f(old.metrics.viewportSize)) idle:\(idle) hadContent:\(hadContent) wroteOffset=false") }
+            #endif
             guard idle, hadContent else { return }
             #if DEBUG
             ZTronRenderCounters.increment("resize.contentSizeIdle")   // a content-size change with no resize open
@@ -303,6 +381,9 @@ public final class ZTronScrollState {
                 o = gNew.clamped(o, at: z)
             }
             if o != old.presentationOffset { unanimated { writeBoth(offset: o, zoom: z) } }
+            #if DEBUG
+            dbg("cs idle \(f(old.metrics.contentSize))->\(f(size)) vp:\(f(old.metrics.viewportSize)) wroteOffset:\(o != old.presentationOffset) \(f(old.presentationOffset))->\(f(o)) z:\(f(z))")
+            #endif
         }
         resolveZoomLimits()
     }
@@ -390,11 +471,38 @@ public final class ZTronScrollState {
             return
         }
 
-        if !hadViewport || !sizeChanged {
-            // First layout and inset-only changes: no center rule. At the start edge stays at the start edge.
+        if hadViewport, !sizeChanged, isResizeOpen {
+            // An inset-only change while a resize is in flight (the safe area of the new orientation settling after the
+            // size change): folded into the open commit, never closing it early. The intent is realised against the
+            // unobscured viewport, so the committed target is re-resolved with the new insets; `previous` is kept and
+            // metrics + target are written in ONE unanimated block (as in `setContentSize`'s open branch).
             batch {
                 let s = storage.snapshot()
-                if isResizeOpen { closeResize() }
+                syncCommit(&m, open: true)
+                let r = ResizeMath.resolve(size: m.resize.current.viewport, offset: s.targetOffset, scale: s.targetZoom,
+                                           insetsAnimated: m.resize.current.insets, commit: m.resize, limits: zoomLimits,
+                                           alignment: contentAlignment, paging: isPagingEnabled ? scrollAxes : [])
+                #if DEBUG
+                dbg("vp inset folded \(f(size)) insets \(f(old.adjustedContentInset))->\(f(m.adjustedContentInset)) o:\(f(r.offset)) z:\(f(r.scale))")
+                #endif
+                unanimated {
+                    storage.metrics = m
+                    storage.targetOffset = r.offset
+                    storage.targetZoom = r.scale
+                }
+                if insetsChanged { notifyAdjustedInsetChange() }
+            }
+            resolveZoomLimits()
+            return
+        }
+        if !hadViewport || !sizeChanged {
+            // First layout and inset-only changes: no center rule. At the start edge stays at the start edge.
+            if hadViewport { noteIdleGeometryChange(before: before) }
+            batch {
+                let s = storage.snapshot()
+                #if DEBUG
+                dbg((hadViewport ? "vp inset" : "vp first") + " \(f(old.viewportSize))->\(f(size)) insets \(f(old.adjustedContentInset))->\(f(m.adjustedContentInset)) insetsChanged:\(insetsChanged)")
+                #endif
                 syncCommit(&m, open: false)
                 storage.metrics = m
                 if insetsChanged { notifyAdjustedInsetChange() }
@@ -413,6 +521,7 @@ public final class ZTronScrollState {
         // A viewport size change: the center rule.
         #if DEBUG
         ZTronRenderCounters.increment("resize.viewport")
+        dbg("vp size \(f(old.viewportSize))->\(f(size)) insets \(f(old.adjustedContentInset))->\(f(m.adjustedContentInset)) content:\(f(old.contentSize)) wasOpen:\(isResizeOpen) origin:\(turnOrigin != nil) motion:\(motion != nil) tx:\(transactionToken != nil) intentReused:\(resizeIntent != nil)")
         #endif
         if motion != nil || transactionToken != nil {
             if transactionToken != nil, let p = probe.pending {
@@ -427,6 +536,7 @@ public final class ZTronScrollState {
             // What the target / presentation values are expressed in, and which values capture the anchor.
             var offset = s.presentationOffset, scale = s.presentationZoom
             var cap = commitOld.current
+            var header = old.headerObscured
             if isResizeOpen {
                 if let p = probe.pending {
                     cap = ResizeMath.presented(commitOld, size: p.size)
@@ -434,12 +544,18 @@ public final class ZTronScrollState {
                 } else {
                     offset = s.targetOffset; scale = s.targetZoom   // not rendered yet: the unclamped target is exact
                 }
+            } else if let origin = turnOrigin {
+                // Same turn as an idle content / inset change (the user's tree: NavigationStack > GeometryReader >
+                // scroller): what is on screen is the origin, not the half-mutated metrics (D16). The transition
+                // interpolates from it too.
+                cap = origin.snapshot; offset = origin.offset; scale = origin.zoom; header = origin.header
             }
+            turnOrigin = nil
             let al = contentAlignment
             let focus = sizeChangesAnchor ?? .center
             // D17: the intent is captured once, from the state before the first resize, and reused while sticky.
             let intent = resizeIntent
-                ?? ResizeMath.intent(offset: offset, scale: scale, in: cap, header: old.headerObscured, focus: focus, alignment: al)
+                ?? ResizeMath.intent(offset: offset, scale: scale, in: cap, header: header, focus: focus, alignment: al)
             resizeIntent = intent
 
             var c = ResizeCommit()
@@ -465,6 +581,8 @@ public final class ZTronScrollState {
             resizeIdleTicks = 0
             resizeStableTicks = 0
             resizeLast = nil
+            resizeOpenedThisTurn = true
+            scheduleTurnHop()
             if insetsChanged { notifyAdjustedInsetChange() }
             unanimated {
                 storage.metrics = m
@@ -483,15 +601,24 @@ public final class ZTronScrollState {
         let cur = storage.snapshot().metrics.resize.current
         guard let p = probe.pending else {
             resizeIdleTicks += 1
+            #if DEBUG
+            if resizeIdleTicks >= 4 { closeReason = "tick-never-rendered"; dbg("tick never-rendered -> close") }
+            #endif
             if resizeIdleTicks >= 4 { closeResize() }   // never rendered
             return
         }
         let animating = abs(p.size.width - cur.viewport.width) > 0.01 || abs(p.size.height - cur.viewport.height) > 0.01
         if animating {
+            #if DEBUG
+            if !resizeSawAnimation { dbg("tick animating-start probe:\(f(p.size)) committed:\(f(cur.viewport))") }
+            #endif
             resizeSawAnimation = true
             resizeStableTicks = 0
             if storage.phase == .idle { storage.phase = .animating }
         } else if !resizeSawAnimation {
+            #if DEBUG
+            closeReason = "tick-never-animated"; dbg("tick never-animated probe:\(f(p.size)) -> close")
+            #endif
             closeResize()
             return
         }
@@ -499,6 +626,9 @@ public final class ZTronScrollState {
         storage.presentationZoom = p.zoom
         if !animating {
             if let l = resizeLast, l.0 == p.offset, l.1 == p.zoom { resizeStableTicks += 1 } else { resizeStableTicks = 0 }
+            #if DEBUG
+            if resizeStableTicks >= 2 { closeReason = "tick-stable"; dbg("tick stable probe:\(f(p.size)) -> close") }
+            #endif
             if resizeStableTicks >= 2 { closeResize() }
         }
         resizeLast = (p.offset, p.zoom)
@@ -525,6 +655,10 @@ public final class ZTronScrollState {
                 writeBoth(offset: r.offset, zoom: r.scale)
                 if storage.phase == .animating, motion == nil, transactionToken == nil { storage.phase = .idle }
             }
+            #if DEBUG
+            dbg("close reason:\(closeReason) vp:\(f(m.resize.current.viewport)) content:\(f(m.contentSize)) o:\(f(r.offset)) z:\(f(r.scale)) target:\(f(s.targetOffset))")
+            closeReason = "?"
+            #endif
             if motion == nil, transactionToken == nil, !storage.isTracking, !storage.isZooming { storage.isClockRunning = false }
         }
         resolveZoomLimits()
