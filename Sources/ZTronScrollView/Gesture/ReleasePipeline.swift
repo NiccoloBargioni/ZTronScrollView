@@ -67,7 +67,7 @@ extension ZTronScrollState {
             guard enabled, !r.zeroVelocity else { return 0 }
             // The tracker and DragGesture speak finger motion; content offset moves the opposite way.
             let v = -ReleasePipeline.velocity(tracker: t, liftTime: lift, fallback: fallback)
-            return ReleasePipeline.accelerated(v, caughtVelocity: caught, caughtAt: r.caughtAt, liftTime: lift, settings.fling)
+            return ReleasePipeline.accelerated(v, caughtVelocity: caught, caughtAt: r.caughtAt, liftTime: now(), settings.fling)  // state clock (D14)
         }
         let enabledX = env.isScrollEnabled && env.axes.contains(.horizontal) && (r.lock == nil || r.lock == .horizontal)
         let enabledY = env.isScrollEnabled && env.axes.contains(.vertical) && (r.lock == nil || r.lock == .vertical)

@@ -187,6 +187,14 @@ struct ReleasePipelineTests {
         #expect(abs((d.seenVelocity?.y ?? 0) - 2.0) < 0.2)
     }
 
+    /// D14: the gesture's event clock differs from the state clock; the catch duration uses the state clock only.
+    @Test(arguments: OSPath.allCases) func catchAccelerationIgnoresEventClockOffset(path: OSPath) {
+        let (s, d) = make(path)
+        let r = request(CGPoint(x: 0, y: 300), lift: 5000) { $0.caughtAt = 99.9; $0.caughtVelocity = CGVector(dx: 0, dy: 1000) }
+        s.endDrag(r, tracker: tracker(vy: 1000, lift: 5000), env: Self.env, settings: ReleaseSettings())
+        #expect(abs((d.seenVelocity?.y ?? 0) - 2.0) < 0.2)
+    }
+
     @Test(arguments: OSPath.allCases) func lockedAxisAndZeroVelocityCancel(path: OSPath) {
         let (s, d) = make(path)
         s.endDrag(request(CGPoint(x: 0, y: 300)) { $0.zeroVelocity = true }, tracker: tracker(vy: 3000), env: Self.env, settings: ReleaseSettings())
