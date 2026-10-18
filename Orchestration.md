@@ -30,7 +30,7 @@ blocked on a user decision** → next: step 4 below (M5 build).
 | M5 design | done | `docs/design/M5-resize.md` (+ orchestrator resolutions C1–C3, Q1–Q3 at the end) |
 | M6–M9 designs | done | `docs/design/{M6-targets,M7-observation,M8-chrome,M8b-refresh-header,M9-virtualization}.md`, each ending with "Orchestrator resolutions" (read those first) and a builder-session split with file ownership + sequencing |
 | M5 (a) state + render | done | `docs/progress/M5-s1.md`: ResizeMath/Commit, TransformHost above layout host (C1 gate: Proof 6/6, demo UI 20/20 on 27.0), 134 unit tests on 27.0 + 17.5 |
-| M5 (b) gestures + demo | todo | PanCoordinator rebase, ResizeScreen, ResizeUITests |
+| M5 (b) gestures + demo | partial | `docs/progress/M5-s2.md` (D16 normalized centre for reflowing content, ResizeScreen + ResizeUITests green on 27.0 pref/forced + 17.5 pref; worktree branch `worktree-agent-af22bd0534b975499`); PanCoordinator rebase still todo |
 | M6 … M10 | todo | SPEC O4 l.970–990 |
 
 Test totals now: `ZTronScrollViewTests` **118** green on iOS 27.0 and 17.5 (both OS paths) · M2 `ProofUITests` 6/6 ·
