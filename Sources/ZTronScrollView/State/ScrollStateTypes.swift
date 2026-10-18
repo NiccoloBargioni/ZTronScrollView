@@ -11,6 +11,11 @@ public enum ZTronDecelerationRate: Sendable, Equatable {
     case normal, fast
 }
 
+/// A zoom limit: an absolute scale, or relative to the content's fit / fill scale (recomputed on resize).
+public enum ZTronZoomScale: Equatable, Sendable {
+    case absolute(CGFloat), fit, fill
+}
+
 /// UIScrollViewDelegate twin (SPEC S11), complete list; every method is optional. Call order matches UIKit:
 /// willBeginDragging -> didScroll... -> willEndDragging -> didEndDragging(willDecelerate:) ->
 /// [willBeginDecelerating -> didScroll... -> didEndDecelerating]. `didScroll` fires at most once per frame / batch.

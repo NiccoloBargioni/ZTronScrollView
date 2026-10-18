@@ -1,5 +1,6 @@
 import SwiftUI
 import Testing
+import ZTronScrollPhysics
 @testable import ZTronScrollView
 
 @MainActor
@@ -55,9 +56,11 @@ struct TransformTests {
         s.setViewport(ViewportMetrics(size: CGSize(width: 844, height: 390), safeArea: EdgeInsets()))
         #expect(CGPoint(x: s.contentOffset.x + 422, y: s.contentOffset.y + 195) == before)
         #expect(s.peek.targetOffset == s.contentOffset)
-        // zoomed
+        // zoomed (a scale outside the zoom range is clamped on resize, so the range must allow it)
+        s.zoomLimits = ZoomLimits(min: .absolute(1), max: .absolute(4))
         s.track(offset: CGPoint(x: 100, y: 800), zoom: 2)
-        let u = CGPoint(x: (100 + 422) / 2, y: (800 + 195) / 2.0)
+        // zoom is enabled, so content centers: 780 pt of content in 844 pt leaves a 32 pt pad on the left
+        let u = CGPoint(x: (100 + 422 - 32) / 2, y: (800 + 195) / 2.0)
         s.setViewport(ViewportMetrics(size: CGSize(width: 390, height: 844), safeArea: EdgeInsets()))
         #expect(s.zoomScale == 2)
         #expect(CGPoint(x: (s.contentOffset.x + 195) / 2, y: (s.contentOffset.y + 422) / 2) == u)

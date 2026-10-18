@@ -3,6 +3,7 @@ import Foundation
 import Observation
 import SwiftUI
 import Testing
+import ZTronScrollPhysics
 @testable import ZTronScrollView
 
 /// Counts real change signals from a storage, whichever path it uses.
@@ -120,6 +121,7 @@ struct StateStorageTests {
             s.now = { t }
             s.setMetrics(ScrollMetrics(viewportSize: CGSize(width: 100, height: 200), contentSize: CGSize(width: 300, height: 900)))
             s.setContentOffset(CGPoint(x: 10, y: 20), animated: false)
+            s.zoomLimits = ZoomLimits(min: .absolute(1), max: .absolute(4))
             s.setZoomScale(2, animated: false)
             s.setContentOffset(CGPoint(x: 50, y: 400), animated: true)
             t += 0.2

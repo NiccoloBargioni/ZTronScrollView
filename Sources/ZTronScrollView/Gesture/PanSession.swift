@@ -156,6 +156,16 @@ struct PanSession: Equatable {
         }
     }
 
+    /// One-finger lift after a pinch (design M4 §4): the baseline is rebuilt so that
+    /// `offset(baseline, translation) == presentation`. Only while dragging; no effects.
+    mutating func rebase(presentation: CGPoint, translation: CGSize, env: PanEnvironment) {
+        guard case var .dragging(drag) = phase else { return }
+        drag.baseline = Self.baseline(presentation: presentation, translation: translation, env: env,
+                                      coefficient: rubberBandCoefficient)
+        drag.current = presentation
+        phase = .dragging(drag)
+    }
+
     /// Owner decision for an `.askOwner` effect.
     mutating func decided(_ owner: ScrollOwner, env: PanEnvironment) -> [PanEffect] {
         guard case let .awaitingDecision(pending) = phase else { return [] }

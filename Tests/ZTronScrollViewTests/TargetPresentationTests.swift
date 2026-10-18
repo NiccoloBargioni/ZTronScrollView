@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Testing
+import ZTronScrollPhysics
 @testable import ZTronScrollView
 
 @MainActor
@@ -118,6 +119,7 @@ struct TargetPresentationTests {
 
     @Test(arguments: OSPath.allCases) func zoomKeepsVisibleCenter(path: OSPath) {
         let (s, _) = make(path)
+        s.zoomLimits = ZoomLimits(min: .absolute(1), max: .absolute(4))
         s.setContentOffset(CGPoint(x: 50, y: 100), animated: false)
         // center in content space: (50+50, 100+100) = (100, 200)
         s.setZoomScale(2, animated: false)

@@ -16,6 +16,8 @@ struct StorageSnapshot: Equatable {
     var isTracking = false
     var isDragging = false
     var isDecelerating = false
+    var isZooming = false
+    var isZoomBouncing = false
 }
 
 /// Hot values: `target*`/`presentation*`. Cold values: metrics, phase, flags, clock (SPEC S4.5).
@@ -35,6 +37,8 @@ protocol StateStorage: AnyObject {
     var isTracking: Bool { get set }
     var isDragging: Bool { get set }
     var isDecelerating: Bool { get set }
+    var isZooming: Bool { get set }
+    var isZoomBouncing: Bool { get set }
     func snapshot() -> StorageSnapshot
     /// Batches nest; at most one publish per channel (fallback) per outermost batch.
     func beginBatch()
@@ -154,6 +158,20 @@ final class ObservationStorage: StateStorage, Observable {
             registrar.withMutation(of: self, keyPath: \.isDecelerating) { v.isDecelerating = newValue }
         }
     }
+    var isZooming: Bool {
+        get { registrar.access(self, keyPath: \.isZooming); return v.isZooming }
+        set {
+            guard newValue != v.isZooming else { return }
+            registrar.withMutation(of: self, keyPath: \.isZooming) { v.isZooming = newValue }
+        }
+    }
+    var isZoomBouncing: Bool {
+        get { registrar.access(self, keyPath: \.isZoomBouncing); return v.isZoomBouncing }
+        set {
+            guard newValue != v.isZoomBouncing else { return }
+            registrar.withMutation(of: self, keyPath: \.isZoomBouncing) { v.isZoomBouncing = newValue }
+        }
+    }
 
     func snapshot() -> StorageSnapshot { v }
     // Observation observers are one-shot per property, so a batch needs no extra coalescing.
@@ -186,6 +204,8 @@ final class PhaseChannel: ObservableObject {
     var isTracking = false
     var isDragging = false
     var isDecelerating = false
+    var isZooming = false
+    var isZoomBouncing = false
 }
 
 /// Collects the channels touched by tracked reads (reader channel discovery on the fallback path).
@@ -285,6 +305,14 @@ final class ChannelStorage: StateStorage {
         get { read(.phase, phaseChannel.isDecelerating) }
         set { write(phaseChannel, \.isDecelerating, .phase, newValue) }
     }
+    var isZooming: Bool {
+        get { read(.phase, phaseChannel.isZooming) }
+        set { write(phaseChannel, \.isZooming, .phase, newValue) }
+    }
+    var isZoomBouncing: Bool {
+        get { read(.phase, phaseChannel.isZoomBouncing) }
+        set { write(phaseChannel, \.isZoomBouncing, .phase, newValue) }
+    }
 
     func snapshot() -> StorageSnapshot {
         StorageSnapshot(targetOffset: offsetChannel.target, targetZoom: zoomChannel.target,
@@ -293,7 +321,8 @@ final class ChannelStorage: StateStorage {
                         isScrollAnimating: phaseChannel.isScrollAnimating,
                         isZoomAnimating: phaseChannel.isZoomAnimating, isClockRunning: phaseChannel.isClockRunning,
                         isTracking: phaseChannel.isTracking, isDragging: phaseChannel.isDragging,
-                        isDecelerating: phaseChannel.isDecelerating)
+                        isDecelerating: phaseChannel.isDecelerating,
+                        isZooming: phaseChannel.isZooming, isZoomBouncing: phaseChannel.isZoomBouncing)
     }
     func beginBatch() { gate.begin() }
     func endBatch() { gate.end() }

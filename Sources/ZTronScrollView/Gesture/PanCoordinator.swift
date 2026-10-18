@@ -26,14 +26,32 @@ final class PanCoordinator: ObservableObject {
     private(set) var participant: ArbitrationParticipant?
     /// The sequence caught motion and the owner is not decided yet (sticky `isMovingWithoutFinger`, design §12 Q3).
     private(set) var caughtUndecided = false
+    /// Pinch state machine (design M4 §1); the coordinator is the only object touching both sessions.
+    var pinch = PinchSession()
+    var isPinching: Bool { pinch.isActive }
+    /// Last pan translation / start seen, for the one-finger-lift rebase.
+    private var lastPanTranslation = CGSize.zero
+    /// Pan continued by hand from the remaining finger after the DragGesture died on the second finger (R1).
+    private var synthesizedPanStart: CGPoint?
     #if DEBUG
     var effectsLog: [PanEffect] = []
+    var pinchLog: [PinchEffect] = []
     #endif
 
     init(state: ZTronScrollState, axes: Axis.Set) {
         self.state = state
         self.axes = axes
+        if ZTronAvailability.isAvailable(.spatialEvents) {
+            pinch.centroidSource = .spatial
+        } else if ZTronAvailability.isAvailable(.magnifyGesture) {
+            pinch.centroidSource = .startLocationPlusDrag
+        } else {
+            pinch.centroidSource = .dragOnly
+        }
     }
+
+    /// Solver geometry shared by the pan bounds and the pinch.
+    func makeZoomGeometry() -> ZoomGeometry { state.makeZoomGeometry() }
 
     /// Called by the registration modifier on every body evaluation; cheap unless the arbiter instance changed.
     func setArbiter(_ arbiter: (any ScrollArbiter)?) {
@@ -56,11 +74,8 @@ final class PanCoordinator: ObservableObject {
         let s = state.peek
         let m = s.metrics
         let z = s.presentationZoom
-        let gx = AxisGeometry(viewportLength: m.viewportSize.width, unscaledContentLength: m.contentSize.width,
-                              alignment: state.contentAlignment.x)
-        let gy = AxisGeometry(viewportLength: m.viewportSize.height, unscaledContentLength: m.contentSize.height,
-                              alignment: state.contentAlignment.y)
-        let bx = gx.bounds(at: z), by = gy.bounds(at: z)
+        let bounds = makeZoomGeometry().bounds(at: z)
+        let bx = bounds.x, by = bounds.y
         var env = PanEnvironment()
         env.axes = axes
         env.isScrollEnabled = state.isScrollEnabled && settings.isScrollEnabled && nativeScrollEnabled
@@ -102,6 +117,13 @@ final class PanCoordinator: ObservableObject {
         case (.idle, .touchDown), (.idle, .dragChanged), (.released, .touchDown): tracker.reset()
         default: break
         }
+        switch event {
+        case let .dragChanged(translation, _, _):
+            lastPanTranslation = translation
+            synthesizedPanStart = nil
+        case .touchesEnded, .cancelled, .dragEnded: synthesizedPanStart = nil
+        default: break
+        }
         var env = environment()
         var effects = session.handle(event, env: env)
         if case let .dragChanged(translation, start, time) = event {
@@ -141,11 +163,17 @@ final class PanCoordinator: ObservableObject {
                 // nothing (a Slider on a vertical-only view) must leave the content interactive.
                 pendingBegin = true
             case let .setOffset(p):
+                // A pinch (or its bounce) owns the offset; the pan keeps tracking its translation.
+                if isPinching || state.isZoomBouncing { break }
                 if pendingBegin, hypot(p.x - state.peek.presentationOffset.x, p.y - state.peek.presentationOffset.y) > 0.01 {
                     pendingBegin = false
                     state.beginDragging()
                 }
                 state.writeDragOffset(p)
+            case .release where isPinching || state.isZoomBouncing:
+                // Combined release: the pinch decides where the content goes; the pan just ends.
+                if pendingBegin { pendingBegin = false; state.beginDragging() }
+                state.endDragWithoutDeceleration()
             case let .release(r):
                 if pendingBegin { pendingBegin = false; state.beginDragging() }
                 var release = ReleaseSettings()
@@ -162,6 +190,88 @@ final class PanCoordinator: ObservableObject {
                 if owner == .container { state.catchLocksContent = false }
                 queue.insert(contentsOf: session.decided(owner, env: env), at: 0)
             }
+        }
+    }
+
+    // MARK: Pinch
+
+    func makePinchEnvironment() -> PinchEnvironment {
+        let s = state.peek
+        var e = PinchEnvironment()
+        e.limits = state.resolvedZoom
+        e.isZoomEnabled = state.isZoomEnabled
+        e.bouncesZoom = state.bouncesZoom
+        e.presentationScale = s.presentationZoom
+        e.presentationOffset = s.presentationOffset
+        e.geometry = makeZoomGeometry()
+        e.isMovingWithoutFinger = (state.phase == .decelerating || state.phase == .animating) && !state.isTracking
+        if case .dragging = session.phase { e.panDragActive = true }
+        return e
+    }
+
+    func handlePinch(_ event: PinchEvent) {
+        let env = makePinchEnvironment()
+        applyPinch(pinch.handle(event, env: env), env: env, event: event)
+    }
+
+    /// 18+ after the DragGesture died on the second finger: feed the remaining finger's location as pan samples.
+    func synthesizePan(location: CGPoint, time: TimeInterval) {
+        guard let start = synthesizedPanStart else { return }
+        let t = CGSize(width: location.x - start.x, height: location.y - start.y)
+        let startLocation = start
+        let keep = start
+        handle(.dragChanged(translation: t, startLocation: startLocation, time: time))
+        synthesizedPanStart = keep
+    }
+
+    private func applyPinch(_ effects: [PinchEffect], env: PinchEnvironment, event: PinchEvent) {
+        for fx in effects {
+            #if DEBUG
+            pinchLog.append(fx)
+            #endif
+            switch fx {
+            case .catchMotion:
+                state.interrupt(); state.catchLocksContent = true
+            case .beginZooming:
+                // Two fingers are zoom intent: an undecided pan is ours (the pinch never calls the arbiter).
+                if case .awaitingDecision = session.phase {
+                    caughtUndecided = false
+                    apply(session.decided(.participant, env: environment()), env: environment())
+                }
+                state.beginZooming()
+            case let .setZoom(scale, offset):
+                state.writePinch(scale: scale, offset: offset)
+            case let .bounce(req):
+                let time = req.time.isFinite ? req.time : state.now()
+                let m = ZoomSolver.bounceBack(from: req.scale, limits: env.limits, lastCentroid: req.lastCentroid,
+                                              offset: req.offset, geometry: env.geometry, at: time)
+                state.beginZoomBounce(m, at: time)
+            case let .endZooming(scale):
+                state.endZooming(atScale: scale)
+            case let .handOffToPan(remaining):
+                handOffToPan(remaining: remaining, time: eventTime(event))
+            }
+        }
+    }
+
+    private func eventTime(_ event: PinchEvent) -> TimeInterval {
+        switch event {
+        case let .began(_, t), let .changed(_, _, t), let .fingerCountChanged(_, _, t), let .panTranslation(_, t),
+             let .ended(t), let .frame(t): return t
+        case .cancelled: return state.now()
+        }
+    }
+
+    /// One finger lifted: the pan continues from the remaining finger without a jump (design M4 §4).
+    private func handOffToPan(remaining: CGPoint?, time: TimeInterval) {
+        if case .dragging = session.phase {
+            session.rebase(presentation: state.peek.presentationOffset, translation: lastPanTranslation,
+                           env: environment())
+        } else if let remaining {
+            // The DragGesture died when the second finger landed: restart the pan right at the remaining finger.
+            handle(.touchDown(location: remaining, time: time, touchCount: 1))
+            handle(.dragChanged(translation: .zero, startLocation: remaining, time: time))
+            synthesizedPanStart = remaining
         }
     }
 }
