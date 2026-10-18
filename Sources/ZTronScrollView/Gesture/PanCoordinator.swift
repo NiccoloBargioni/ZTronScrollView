@@ -1,5 +1,6 @@
 import SwiftUI
 import ZTronScrollPhysics
+import ScrollArbitration
 
 /// Cold per-event settings merged by the adapter from the environment and the state's UIKit knobs.
 struct PanSettings: Equatable {
@@ -21,6 +22,10 @@ final class PanCoordinator: ObservableObject {
     private(set) var session = PanSession()
     private var tracker = PointVelocityTracker()
     private var pendingBegin = false
+    /// Arbitration participant; nil without an arbiter in the environment (then nothing of S12 "Inside a pager" runs).
+    private(set) var participant: ArbitrationParticipant?
+    /// The sequence caught motion and the owner is not decided yet (sticky `isMovingWithoutFinger`, design §12 Q3).
+    private(set) var caughtUndecided = false
     #if DEBUG
     var effectsLog: [PanEffect] = []
     #endif
@@ -28,6 +33,18 @@ final class PanCoordinator: ObservableObject {
     init(state: ZTronScrollState, axes: Axis.Set) {
         self.state = state
         self.axes = axes
+    }
+
+    /// Called by the registration modifier on every body evaluation; cheap unless the arbiter instance changed.
+    func setArbiter(_ arbiter: (any ScrollArbiter)?) {
+        if let arbiter {
+            if let p = participant, p.arbiter === arbiter { return }
+            participant?.unregister()
+            participant = ArbitrationParticipant(arbiter: arbiter, coordinator: self)
+        } else if participant != nil {
+            participant?.unregister()
+            participant = nil
+        }
     }
 
     var isSequenceActive: Bool {
@@ -60,7 +77,7 @@ final class PanCoordinator: ObservableObject {
         env.viewport = m.viewportSize
         env.isMovingWithoutFinger = (state.phase == .decelerating || state.phase == .animating) && !state.isTracking
         env.interruptedVelocity = state.lastInterruptedVelocity
-        env.hasArbiter = false
+        env.hasArbiter = participant != nil
         #if DEBUG
         if env.isMovingWithoutFinger { ZTronRenderCounters.increment("pan.movingAtEvent") }
         #endif
@@ -93,6 +110,10 @@ final class PanCoordinator: ObservableObject {
         // The catch's interrupt() changes what the recognition sample must read.
         if effects.contains(.catchMotion) { apply(effects, env: env); effects = []; env = environment() }
         apply(effects, env: env)
+        switch session.phase {
+        case .idle, .released: caughtUndecided = false
+        default: break
+        }
     }
 
     /// The system cancelled the gesture (or the view went away) while a sequence is active.
@@ -113,7 +134,7 @@ final class PanCoordinator: ObservableObject {
                 #if DEBUG
                 ZTronRenderCounters.increment("pan.catch")
                 #endif
-                state.interrupt(); state.catchLocksContent = true
+                state.interrupt(); state.catchLocksContent = true; caughtUndecided = true
             case .beginTracking: state.beginTracking()
             case .beginDragging:
                 // willBeginDragging (and the hit-test gate) wait for the first real movement: a drag that moves
@@ -133,9 +154,13 @@ final class PanCoordinator: ObservableObject {
                 release.displayScale = settings.displayScale
                 state.endDrag(r, tracker: tracker, env: env, settings: release)
             case .endSequence: pendingBegin = false; state.endTracking()
-            case .askOwner:
-                // No arbiter yet (part c): we own the gesture.
-                queue.insert(contentsOf: session.decided(.participant, env: env), at: 0)
+            case let .askOwner(start, translation, touchCount):
+                // Once per sequence, at the hysteresis. No participant (cannot happen: hasArbiter) owns the swipe.
+                let owner = participant?.owner(startLocation: start, translation: translation, touchCount: touchCount)
+                    ?? .participant
+                caughtUndecided = false
+                if owner == .container { state.catchLocksContent = false }
+                queue.insert(contentsOf: session.decided(owner, env: env), at: 0)
             }
         }
     }

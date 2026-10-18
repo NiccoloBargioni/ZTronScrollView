@@ -1,4 +1,5 @@
 import SwiftUI
+import ScrollArbitration
 
 /// How the pan and the observer attach to the viewport. The default is chosen empirically per OS (design §8).
 enum PanGestureMode: String {
@@ -45,6 +46,7 @@ struct PanGestureAdapter: ViewModifier {
         let send: @MainActor (PanEvent) -> Void = { [coordinator] in coordinator.handle($0) }
         return content
             .modifier(NativeEnabledBridge(coordinator: coordinator))
+            .modifier(ArbitrationRegistration(coordinator: coordinator))
             .modifier(GestureAttach(mode: mode, pan: pan(send: send), observer: observerGestureBox(send: send)))
     }
 
@@ -88,13 +90,26 @@ struct GestureAttach<P: Gesture>: ViewModifier {
 
     @ViewBuilder
     func body(content: Content) -> some View {
-        switch mode {
-        case .simultaneous:
-            content.simultaneousGesture(observer).simultaneousGesture(pan)
-        case .gesture:
-            content.gesture(observer.simultaneously(with: pan))
-        case .high:
-            content.highPriorityGesture(observer.simultaneously(with: pan))
+        if #available(iOS 18, *) {
+            // Named so a pager's UIKit pan can run alongside (SPEC S12, S16).
+            let n = scrollArbitrationGestureName
+            switch mode {
+            case .simultaneous:
+                content.simultaneousGesture(observer, name: n).simultaneousGesture(pan, name: n)
+            case .gesture:
+                content.gesture(observer.simultaneously(with: pan), name: n)
+            case .high:
+                content.highPriorityGesture(observer.simultaneously(with: pan), name: n)
+            }
+        } else {
+            switch mode {
+            case .simultaneous:
+                content.simultaneousGesture(observer).simultaneousGesture(pan)
+            case .gesture:
+                content.gesture(observer.simultaneously(with: pan))
+            case .high:
+                content.highPriorityGesture(observer.simultaneously(with: pan))
+            }
         }
     }
 }
