@@ -367,7 +367,23 @@ with Xcode 26.6.
 | 17.5 | n/a | n/a | | | | |
 | 18.x | | | n/a | | | |
 | 26.x | | | n/a | | | |
-| 27.0 | | | n/a | | | |
+| 27.0 | yes: container ⇔ pan began, participant ⇔ pan never began (possible>failed), 7 UI tests green | yes: 3 taps fired the button (button=1, foreign=0); drags from the button never fired it (button=0) | n/a | 0.00 (max over ~90 sequences) | yes: decided=1 in every drag; first asker both ways (container 66, participant 16, none 5 = taps/pinch without a drag) | see notes A-C below |
 
 A "no" either changes this contract before the tag or names the ZTronPages fallback (its EG-11 / EG-13 rows).
 Also to record: `scripts/test-arbitration.sh` green on Xcode 27 and on Xcode 26.6 (user action).
+
+### Spike notes (all OS)
+
+- **A. Touch hooks.** SwiftUI hosting views swallow `touchesBegan`: overriding `touchesBegan/Ended/Cancelled` on the
+  paging `UIScrollView` is never called, not even for taps. The spike observes touches with a never-recognizing
+  `UIGestureRecognizer` added to the scroll view (`cancelsTouchesInView = false`, no delays, delegate answers
+  simultaneous = true). ZTronPages' container must do the same (or equivalent); section 5's "override touchesBegan"
+  wording is superseded.
+- **B. Early sample.** The container's first `containerOwner` call (from `gestureRecognizerShouldBegin`) can carry a
+  translation of 0-1 pt, and 7-10 pt at best (observed `dt=-1,0`, `-7,4`, `-10,4`). Rule 1 judged on such a
+  sample is noisy near the tolerance: the 40 degree row (tolerance 30) is therefore recorded, not asserted (the
+  outcome depended on which side asked first); 55 and 90 degrees are asserted and always `.participant`. No contract
+  change needed, but a container that cares should ask late (e.g. from the first `changed` instead of
+  `shouldBegin`) or accept that a decision made on a near-zero sample defers to rules 3-6.
+- **C. Toggle presses.** A `Toggle` tap shows `UILongPressGestureRecognizer` in `.began` (foreign=1) on iOS 27.0;
+  the `Button` does not.
