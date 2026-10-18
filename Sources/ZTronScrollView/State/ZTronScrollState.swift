@@ -127,6 +127,40 @@ public final class ZTronScrollState {
     }
 
     func setMetrics(_ metrics: ScrollMetrics) { batch { storage.metrics = metrics } }
+
+    /// Measured, unscaled content size (cold, `!=`-guarded by the storage).
+    func setContentSize(_ size: CGSize) {
+        batch { var m = storage.snapshot().metrics; m.contentSize = size; storage.metrics = m }
+    }
+
+    /// Where content sits on an axis where it is smaller than the viewport (design §5). Not observed.
+    var contentAlignment: UnitPoint = .topLeading
+
+    /// Viewport size / safe-area change (SPEC S7). Motion stops at its presentation value, then the content point at
+    /// the old visible center is placed at the new one: o' = pad' + s*u - c'. Runs in the ambient (system) transaction
+    /// so the transform effect animates in lockstep with the rotation. Offsets are not clamped in M2.
+    func setViewport(_ viewport: ViewportMetrics) {
+        let before = storage.snapshot()
+        var m = before.metrics
+        m.viewportSize = viewport.size
+        m.contentInsets = viewport.safeArea
+        guard m != before.metrics else { return }
+        let hadViewport = before.metrics.viewportSize.width > 0 && before.metrics.viewportSize.height > 0
+        if hadViewport, motion != nil || transactionToken != nil { interrupt() }
+        batch {
+            let s = storage.snapshot()
+            storage.metrics = m
+            guard hadViewport, viewport.size.width > 0, viewport.size.height > 0 else { return }
+            let old = s.metrics, z = s.presentationZoom
+            let c0 = ContentGeometry.visibleCenter(old.viewportSize, old.contentInsets)
+            let c1 = ContentGeometry.visibleCenter(m.viewportSize, m.contentInsets)
+            let p0 = ContentGeometry.pad(viewport: old.viewportSize, content: old.contentSize, scale: z, alignment: contentAlignment)
+            let p1 = ContentGeometry.pad(viewport: m.viewportSize, content: m.contentSize, scale: z, alignment: contentAlignment)
+            let u = CGPoint(x: (s.presentationOffset.x + c0.x - p0.width) / z, y: (s.presentationOffset.y + c0.y - p0.height) / z)
+            let o = CGPoint(x: p1.width + z * u.x - c1.x, y: p1.height + z * u.y - c1.y)
+            writeBoth(offset: o, zoom: z)
+        }
+    }
     func setPhase(_ phase: ZTronScrollPhase) { batch { storage.phase = phase } }
 
     /// Frame clock tick. No-op while nothing runs.

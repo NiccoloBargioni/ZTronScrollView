@@ -33,15 +33,23 @@ enum StateChannel: Int, CaseIterable, Sendable, Hashable {
     case offset, zoom, metrics, phase
 }
 
-/// Plain (never observed) mailbox the transform effect writes each interpolated frame (design §6).
-@MainActor
-final class PresentationBox {
-    var pending: (offset: CGPoint, zoom: CGFloat)?
-    var frames = 0
+/// Plain (never observed) mailbox the transform effect writes each interpolated frame (design §6). Lock-protected:
+/// `GeometryEffect.effectValue` is not main-actor isolated, so `record` must be callable from any thread.
+final class PresentationBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _pending: (offset: CGPoint, zoom: CGFloat)?
+    private var _frames = 0
+
+    var pending: (offset: CGPoint, zoom: CGFloat)? {
+        get { lock.lock(); defer { lock.unlock() }; return _pending }
+        set { lock.lock(); defer { lock.unlock() }; _pending = newValue }
+    }
+    var frames: Int { lock.lock(); defer { lock.unlock() }; return _frames }
 
     func record(_ offset: CGPoint, _ zoom: CGFloat) {
-        pending = (offset, zoom)
-        frames += 1
+        lock.lock(); defer { lock.unlock() }
+        _pending = (offset, zoom)
+        _frames += 1
     }
 }
 

@@ -1,0 +1,58 @@
+import SwiftUI
+
+/// Proposes nil on scrollable axes (content takes its ideal size) and the viewport length on the others; fills the
+/// parent's proposal itself; places the content at the origin (design §4).
+@available(iOS 16, *)
+struct ScrollContentLayout: Layout {
+    let axes: Axis.Set
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        CGSize(width: proposal.width ?? 0, height: proposal.height ?? 0)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let p = ProposedViewSize(width: axes.contains(.horizontal) ? nil : bounds.width,
+                                 height: axes.contains(.vertical) ? nil : bounds.height)
+        for sub in subviews { sub.place(at: bounds.origin, anchor: .topLeading, proposal: p) }
+    }
+}
+
+/// Path selection is an `if` on `let` flags fixed at state creation around the placeholder, so the content's
+/// identity never changes (R6).
+struct ContentLayoutHost: ViewModifier {
+    let axes: Axis.Set
+    let useLayout: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if useLayout, #available(iOS 16, *) {
+            ScrollContentLayout(axes: axes) { content }
+        } else {
+            content
+                .fixedSize(horizontal: axes.contains(.horizontal), vertical: axes.contains(.vertical))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+    }
+}
+
+// MARK: Content size measurement (unscaled: below the transform)
+
+struct ContentSizeKey: PreferenceKey {
+    static let defaultValue: CGSize = .zero
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) { value = nextValue() }
+}
+
+struct ContentSizeMeasure: ViewModifier {
+    let state: ZTronScrollState
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if state.usesGeometryChange, #available(iOS 16, *) {
+            content.onGeometryChange(for: CGSize.self, of: { $0.size }, action: { state.setContentSize($0) })
+        } else {
+            content
+                .background(GeometryReader { Color.clear.preference(key: ContentSizeKey.self, value: $0.size) })
+                .onPreferenceChange(ContentSizeKey.self) { state.setContentSize($0) }
+        }
+    }
+}
