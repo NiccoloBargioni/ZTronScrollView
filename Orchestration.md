@@ -26,7 +26,7 @@ on a user decision** → next: step 1 below.
 | M3 (b) gestures + demo | done | catch fixed; fling acceleration on the state clock (D14). iOS <18 catch observer is now gated (`CatchArming`: attached only while content moves or a seen touch is down), so UIKit controls work on 17.5. PanUITests 7/7 on 17.5 and 27.0, preferred and forced; demo UI 14/14 on 27.0 |
 | M3 (c) arbitration | done | participant + 9 unit tests; demo pager stand-in (`PagerScreen`, ReferenceScrollArbiter) + `PagerUITests` green on 27.0; demo now links ScrollArbitration (`M3-s3.md`) |
 | M4 (a) zoom state + PinchSession | done | `Gesture/PinchSession.swift`, `zoomRange`, solver-based `setZoomScale` (`M4-s1.md`) |
-| M4 (b) pinch adapter + demo | todo | `docs/design/M4-zoom.md` session (b) |
+| M4 (b) pinch adapter + demo | done* | pinch adapter, double tap, ZoomScreen, ZoomUITests 6/6 on 27.0 pref+forced, 17.5 pref; full-suite 27 forced / 17.5 forced pending (`M4-s2.md`) |
 | M5 … M10 | todo | SPEC O4 l.970–990 |
 
 Test totals now: `ZTronScrollViewTests` **118** green on iOS 27.0 and 17.5 (both OS paths) · M2 `ProofUITests` 6/6 ·
@@ -37,7 +37,7 @@ physics 99 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-c
    Leftovers → step 2.
 2. [x] **M3 leftovers + M3 (c)** — done (see `M3-s3.md`): fling acceleration fixed; demo pager + UI test green (27.0, 14/14 demo UI tests). 17.5 Toggle bug fixed by gating the fallback observer (`M3-s3.md`).
    Open: 17.5 `testControlsUsable` (catch observer on <18 steals Toggle touches; fix idea in `M3-s3.md`) — schedule a small Debugger/Builder step.
-3. [ ] **M4 (b)** — Builder: pinch adapter + demo + UI tests (`docs/design/M4-zoom.md` session (b); `M4-s1.md` open
+3. [x] **M4 (b)** (done; confirm remaining UI configs, see M4-s2.md) — Builder: pinch adapter + demo + UI tests (`docs/design/M4-zoom.md` session (b); `M4-s1.md` open
    items: rebase the pan baseline at bounce settle, feed `synthesizePan(location:time:)` and finger-count events).
 4. [ ] **M5 rotation/resize** — Architect on Fable, one session (design + implement), SPEC S7 l.237–252.
 5. [ ] **M6–M10** — per SPEC O4. Write a Fable design doc first for each (`docs/design/M<n>-*.md`), then builders.
