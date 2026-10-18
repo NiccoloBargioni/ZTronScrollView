@@ -270,8 +270,14 @@ public final class ZTronScrollState {
                 let r = ResizeMath.retarget(scale: old.targetZoom, old: before.current, new: c.current, u: u,
                                             header: c.header, focus: c.focus, alignment: contentAlignment)
                 m.resize = c
-                storage.metrics = m
-                unanimated { storage.targetOffset = r.offset; storage.targetZoom = r.scale }
+                // Commit and target in ONE unanimated write: the measurement arrives inside the system's rotation
+                // transaction, and a metrics publish made there would let the offset animate behind the commit (a
+                // frame drawn with the new content size and the old offset, D16).
+                unanimated {
+                    storage.metrics = m
+                    storage.targetOffset = r.offset
+                    storage.targetZoom = r.scale
+                }
                 return
             }
             syncCommit(&m, open: false)
@@ -355,8 +361,11 @@ public final class ZTronScrollState {
             m.resize.anchorNew = u
             let r = ResizeMath.retarget(scale: s.targetZoom, old: before.current, new: m.resize.current, u: u,
                                         header: m.resize.header, focus: m.resize.focus, alignment: contentAlignment)
-            storage.metrics = m
-            unanimated { storage.targetOffset = r.offset; storage.targetZoom = r.scale }
+            unanimated {
+                storage.metrics = m
+                storage.targetOffset = r.offset
+                storage.targetZoom = r.scale
+            }
         }
     }
 
