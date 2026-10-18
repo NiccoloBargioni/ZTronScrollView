@@ -365,7 +365,7 @@ with Xcode 26.6.
 | 15.x (user) | n/a | n/a | | | | |
 | 16.x (user) | n/a | n/a | | | | |
 | 17.5 | n/a | n/a | | | | |
-| 18.x | | | n/a | | | |
+| 18.x (18.6) | yes: container ⇔ pan began, participant ⇔ never began; all drag tests green | PARTIAL/no on the state criterion: the Button still fires on taps (button=1) and never on drags (button=0), but an unnamed `UIKitResponderGestureRecognizer` is observed in `.began/.changed` during every plain tap (and during drags that start on the button) | n/a | 0.00 | yes: decided=1 in every drag; first asker both ways (container 66, participant 16, none 5) | see note D |
 | 26.x | | | n/a | | | |
 | 27.0 | yes: container ⇔ pan began, participant ⇔ pan never began (possible>failed), 7 UI tests green | yes: 3 taps fired the button (button=1, foreign=0); drags from the button never fired it (button=0) | n/a | 0.00 (max over ~90 sequences) | yes: decided=1 in every drag; first asker both ways (container 66, participant 16, none 5 = taps/pinch without a drag) | see notes A-C below |
 
@@ -387,3 +387,9 @@ Also to record: `scripts/test-arbitration.sh` green on Xcode 27 and on Xcode 26.
   `shouldBegin`) or accept that a decision made on a near-zero sample defers to rules 3-6.
 - **C. Toggle presses.** A `Toggle` tap shows `UILongPressGestureRecognizer` in `.began` (foreign=1) on iOS 27.0;
   the `Button` does not.
+- **D. Q2 on 18.6.** The press of a SwiftUI `Button` is not invisible to a recognizer-state check: an unnamed
+  `UIKitResponderGestureRecognizer` reaches `.began` on every tap on iOS 18.6 (not on 27.0). Behavior is still right
+  (taps fire the button, a drag that starts on it does not fire it and goes to the owner). ZTronPages rule 5 must
+  therefore not depend on "no foreign recognizer reached began" for the Button; it can depend on the observed
+  outcomes (button fires on tap, never on a drag) and on `owner(...)` alone. Proposed fallback for its EG-11/EG-13
+  rows: key rule 5 on the arbiter's answer, not on recognizer state.

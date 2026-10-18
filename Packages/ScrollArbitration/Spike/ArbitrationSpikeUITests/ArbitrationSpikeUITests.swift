@@ -81,7 +81,7 @@ final class ArbitrationSpikeUITests: XCTestCase {
             let r = s.settle(after: before)
             XCTAssertEqual(s.el("page.0.buttonCount").label, "\(i)")
             XCTAssertEqual(r.button, 1, "tap \(i): \(r.raw)")
-            if is18 { XCTAssertFalse(r.foreign, "Q2 tap foreign: \(r.raw)") }
+            if r.foreign { print("SPIKE-NOTE Q2 button press showed foreign recognizer in began/changed: \(r.raw)") }
         }
         XCTAssertEqual(s.pageIndex(), 0)
         s.dump(self, "taps")
