@@ -91,7 +91,10 @@ public final class ZTronScrollState {
     private var resizeIdleTicks = 0
     private var resizeStableTicks = 0
     private var resizeLast: (CGPoint, CGFloat)?
-    private var pendingReflow: (id: AnyHashable, rel: CGPoint)?
+    /// Sticky resize intent (D17): captured from the last user/programmatic state before the first resize and reused
+    /// for every following resize until the user or code moves the view (`beginIntervention()`). Never re-derived
+    /// from a clamped post-resize state, so an even number of rotations restores the offset and scale exactly.
+    private(set) var resizeIntent: ResizeIntent?
 
     /// Chooses the storage once; the path never flips afterwards (R6).
     public init() {
@@ -209,8 +212,14 @@ public final class ZTronScrollState {
 
     /// Finger (M3): target and presentation.
     func track(offset: CGPoint, zoom: CGFloat) {
-        if isResizeOpen { closeResize() }
+        beginIntervention()
         batch { unanimated { writeBoth(offset: offset, zoom: zoom) } }
+    }
+
+    /// The user or code is about to move the view: any resize in flight commits and the sticky intent is dropped.
+    private func beginIntervention() {
+        resizeIntent = nil
+        if isResizeOpen { closeResize() }
     }
 
     private func writeBoth(offset: CGPoint, zoom: CGFloat) {
@@ -260,16 +269,12 @@ public final class ZTronScrollState {
             var m = old.metrics
             m.contentSize = size
             if isResizeOpen {
-                let before = m.resize
                 syncCommit(&m, open: true)
-                var c = m.resize
-                // Re-derive the target for the reflowed content (D16): the registry target's point when M6 has one,
-                // else the normalized centre of the whole content; at fit stays at fit. Idempotent per content size.
-                let u = pendingReflowAnchor(default: nil, content: size) ?? ResizeMath.denormalized(c.normalizedAnchor, in: size)
-                c.anchorNew = u
-                let r = ResizeMath.retarget(scale: old.targetZoom, old: before.current, new: c.current, u: u,
-                                            header: c.header, focus: c.focus, alignment: contentAlignment)
-                m.resize = c
+                // The reflowed content size is placed by the same intent (D17): the normalized centre is relative to
+                // the zoomed content, so the drawn centre follows the reflow; at fit stays at fit.
+                let r = ResizeMath.resolve(size: m.resize.current.viewport, offset: old.targetOffset, scale: old.targetZoom,
+                                           insetsAnimated: m.resize.current.insets, commit: m.resize, limits: zoomLimits,
+                                           alignment: contentAlignment, paging: isPagingEnabled ? scrollAxes : [])
                 // Commit and target in ONE unanimated write: the measurement arrives inside the system's rotation
                 // transaction, and a metrics publish made there would let the offset animate behind the commit (a
                 // frame drawn with the new content size and the old offset, D16).
@@ -350,29 +355,9 @@ public final class ZTronScrollState {
         }
     }
 
-    /// Registry callback (M6): the frame of a target changed; re-derives a pending reflow anchor.
-    func targetFrameDidChange(_ id: AnyHashable) {
-        guard isResizeOpen, let p = pendingReflow, p.id == id else { return }
-        let s = storage.snapshot()
-        batch {
-            var m = s.metrics
-            guard let u = pendingReflowAnchor(default: nil, content: m.contentSize) else { return }
-            let before = m.resize
-            m.resize.anchorNew = u
-            let r = ResizeMath.retarget(scale: s.targetZoom, old: before.current, new: m.resize.current, u: u,
-                                        header: m.resize.header, focus: m.resize.focus, alignment: contentAlignment)
-            unanimated {
-                storage.metrics = m
-                storage.targetOffset = r.offset
-                storage.targetZoom = r.scale
-            }
-        }
-    }
-
-    private func pendingReflowAnchor(default d: CGPoint?, content: CGSize) -> CGPoint? {
-        guard let p = pendingReflow, let f = targetRegistry?.frame(of: p.id) else { return d }
-        return CGPoint(x: f.origin.x + p.rel.x * f.width, y: f.origin.y + p.rel.y * f.height)
-    }
+    /// Registry callback (M6). Since D17 the resize preserves the normalized centre of the whole content (ZTronMapKit
+    /// geometry); a target's own reflow no longer re-anchors it.
+    func targetFrameDidChange(_ id: AnyHashable) {}
 
     /// Viewport size / safe-area change (SPEC S7). Motion stops at its presentation value, then the content point at
     /// the old visible center is placed at the new one (see `ResizeMath`). The commit itself never animates: the
@@ -452,9 +437,10 @@ public final class ZTronScrollState {
             }
             let al = contentAlignment
             let focus = sizeChangesAnchor ?? .center
-            let g0 = ResizeMath.geometry(viewport: cap.viewport, content: cap.contentSize, insets: cap.insets, alignment: al)
-            let c0 = ResizeMath.unobscuredPoint(viewport: cap.viewport, insets: cap.insets, header: old.headerObscured, at: focus)
-            let u = ResizeMath.anchor(offset: offset, scale: scale, center: c0, pad: g0.alignmentPadding(at: scale))
+            // D17: the intent is captured once, from the state before the first resize, and reused while sticky.
+            let intent = resizeIntent
+                ?? ResizeMath.intent(offset: offset, scale: scale, in: cap, header: old.headerObscured, focus: focus, alignment: al)
+            resizeIntent = intent
 
             var c = ResizeCommit()
             syncCommit(&m, open: false)
@@ -463,19 +449,14 @@ public final class ZTronScrollState {
             c.header = m.headerObscured
             c.focus = focus
             c.isOpen = true
-            c.anchorOld = u
-            c.anchorNew = u
-            c.normalizedAnchor = ResizeMath.normalized(u, in: cap.contentSize)
+            c.intent = intent
             if isPagingEnabled {
                 func index(_ o: CGFloat, _ len: CGFloat) -> Int? { len > 0 ? Int((o / len).rounded()) : nil }
                 if scrollAxes.contains(.horizontal) { c.pagingIndex.x = index(offset.x, cap.viewport.width) }
                 if scrollAxes.contains(.vertical) { c.pagingIndex.y = index(offset.y, cap.viewport.height) }
             }
-            pendingReflow = nil
-            if let reg = targetRegistry, let t = reg.nearestTarget(to: u), t.frame.width > 0, t.frame.height > 0 {
-                pendingReflow = (t.id, CGPoint(x: (u.x - t.frame.minX) / t.frame.width, y: (u.y - t.frame.minY) / t.frame.height))
-            }
-            let r = ResizeMath.retarget(scale: scale, old: cap, new: c.current, u: u, header: c.header, focus: focus, alignment: al)
+            let r = ResizeMath.resolve(size: c.current.viewport, offset: offset, scale: scale, insetsAnimated: c.current.insets,
+                                       commit: c, limits: zoomLimits, alignment: al, paging: isPagingEnabled ? scrollAxes : [])
             m.resize = c
             m.resizeGeneration = old.resizeGeneration &+ 1
             probe.pending = nil
@@ -529,7 +510,6 @@ public final class ZTronScrollState {
         guard isResizeOpen else { return }
         isResizeOpen = false
         resizeLast = nil
-        pendingReflow = nil
         batch {
             let s = storage.snapshot()
             var m = s.metrics
@@ -539,7 +519,7 @@ public final class ZTronScrollState {
             syncCommit(&m, open: false)
             m.resize.isOpen = false
             m.resize.pagingIndex = .init()
-            m.resize.anchorOld = m.resize.anchorNew
+            m.resize.intent = nil
             unanimated {
                 storage.metrics = m
                 writeBoth(offset: r.offset, zoom: r.scale)
@@ -653,7 +633,7 @@ public final class ZTronScrollState {
     /// damped spring (omega = 10/s), v0 = 0.
     public func setContentOffset(_ offset: CGPoint, animated: Bool) {
         guard offset.x.isFinite, offset.y.isFinite else { return }
-        if isResizeOpen { closeResize() }
+        beginIntervention()
         batch {
             cancelMotion()
             let s = storage.snapshot()
@@ -676,7 +656,7 @@ public final class ZTronScrollState {
     /// `didEndScrollingAnimation`.
     public func setZoomScale(_ scale: CGFloat, animated: Bool) {
         guard scale.isFinite, scale > 0 else { return }
-        if isResizeOpen { closeResize() }
+        beginIntervention()
         batch {
             cancelMotion()
             let s = storage.snapshot()
@@ -691,7 +671,7 @@ public final class ZTronScrollState {
 
     /// UIKit `zoom(to:animated:)`: fits `rect` (unscaled content coordinates) in the visible area and centers it.
     public func zoom(to rect: CGRect, animated: Bool) {
-        if isResizeOpen { closeResize() }
+        beginIntervention()
         batch {
             cancelMotion()
             let s = storage.snapshot()
@@ -726,7 +706,7 @@ public final class ZTronScrollState {
     /// interpolates and the probe feeds presentation (parts b/c wire the clock and effect).
     public func scroll(to offset: CGPoint) {
         guard offset.x.isFinite, offset.y.isFinite, offset != storage.snapshot().targetOffset else { return }
-        if isResizeOpen { closeResize() }
+        beginIntervention()
         batch {
             cancelMotion()
             generation += 1
@@ -772,7 +752,7 @@ public final class ZTronScrollState {
     var catchLocksContent = false
 
     func beginTracking() {
-        if isResizeOpen { closeResize() }
+        beginIntervention()
         batch {
             storage.isTracking = true
             storage.phase = .tracking
@@ -805,7 +785,7 @@ public final class ZTronScrollState {
     /// Finger write: target and presentation, unanimated; `didScroll` coalesced to the next `step(to:)` / flush.
     func writeDragOffset(_ p: CGPoint) {
         guard p.x.isFinite, p.y.isFinite else { return }
-        if isResizeOpen { closeResize() }
+        beginIntervention()
         batch(deferScroll: true) {
             unanimated {
                 storage.targetOffset = p
@@ -840,7 +820,7 @@ public final class ZTronScrollState {
     /// Pinch recognized: `isZooming`, phase `.interacting`, the clock flushes didZoom/didScroll. `willBeginZooming`
     /// waits for the first write that changes the scale.
     func beginZooming() {
-        if isResizeOpen { closeResize() }
+        beginIntervention()
         batch {
             storage.isZooming = true
             storage.phase = .interacting
@@ -853,7 +833,7 @@ public final class ZTronScrollState {
     /// Finger write: unanimated; `didZoom` + `didScroll` coalesce to the next `step(to:)` (render-time transform only).
     func writePinch(scale: CGFloat, offset: CGPoint) {
         guard scale.isFinite, scale > 0, offset.x.isFinite, offset.y.isFinite else { return }
-        if isResizeOpen { closeResize() }
+        beginIntervention()
         if willBeginZoomingPending, scale != storage.snapshot().presentationZoom {
             willBeginZoomingPending = false
             didBeginZooming = true

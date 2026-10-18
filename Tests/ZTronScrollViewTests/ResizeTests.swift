@@ -16,40 +16,73 @@ struct ResizeMathTests {
     let al = UnitPoint.center
     func snap(_ v: CGSize, _ c: CGSize, _ i: EdgeInsets = EdgeInsets()) -> ResizeCommit.Snapshot { .init(viewport: v, contentSize: c, insets: i) }
 
-    /// Commit from V0 to V1 with target values re-derived exactly as setViewport does.
+    /// Commit from `a` to `b` with the intent captured from (`offset`, `scale`) in `a`, exactly as setViewport does.
     func commit(from a: ResizeCommit.Snapshot, to b: ResizeCommit.Snapshot, offset: CGPoint, scale: CGFloat,
-                insets: Bool = true) -> (ResizeCommit, CGPoint, CGFloat, CGPoint) {
-        let g = ResizeMath.geometry(viewport: a.viewport, content: a.contentSize, insets: a.insets, alignment: al)
-        let c0 = ResizeMath.unobscuredCenter(viewport: a.viewport, insets: a.insets, header: 0)
-        let u = ResizeMath.anchor(offset: offset, scale: scale, center: c0, pad: g.alignmentPadding(at: scale))
-        let r = ResizeMath.retarget(scale: scale, old: a, new: b, u: u, header: 0, focus: .center, alignment: al)
+                intent: ResizeIntent? = nil, limits: ZoomLimits = ZoomLimits(min: .absolute(0.01), max: .absolute(8)))
+        -> (ResizeCommit, CGPoint, CGFloat, ResizeIntent) {
+        let n = intent ?? ResizeMath.intent(offset: offset, scale: scale, in: a, header: 0, focus: .center, alignment: al)
         var c = ResizeCommit()
-        c.current = b; c.previous = a; c.anchorOld = u; c.anchorNew = u; c.isOpen = true
-        return (c, r.offset, r.scale, u)
+        c.current = b; c.previous = a; c.intent = n; c.isOpen = true
+        let r = ResizeMath.resolve(size: b.viewport, offset: offset, scale: scale, insetsAnimated: b.insets, commit: c,
+                                   limits: limits, alignment: al, paging: [])
+        return (c, r.offset, r.scale, n)
     }
 
-    @Test func anchorRoundTripAtFitZoomedAndSmallContent() {
-        let limits = ZoomLimits(min: .fit, max: .absolute(4))
-        let cases: [(CGSize, CGFloat, CGPoint)] = [
-            (CGSize(width: 400, height: 1200), 2.5, CGPoint(x: 300, y: 900)),
-            (CGSize(width: 100, height: 100), 1, .zero),
-            (CGSize(width: 400, height: 300), 1.5, CGPoint(x: 100, y: 50)),
-        ]
-        for (content, scale, offset) in cases {
-            let a = snap(CGSize(width: 390, height: 800), content, EdgeInsets(top: 40, leading: 0, bottom: 30, trailing: 0))
-            let b = snap(CGSize(width: 800, height: 390), content, EdgeInsets(top: 0, leading: 40, bottom: 0, trailing: 30))
-            let (c, o, s, u) = commit(from: a, to: b, offset: offset, scale: scale)
-            let r = ResizeMath.resolve(size: b.viewport, offset: o, scale: s, insetsAnimated: b.insets, commit: c,
-                                       limits: ZoomLimits(min: .absolute(0.01), max: .absolute(8)), alignment: al, paging: [])
-            _ = limits
-            let g = ResizeMath.geometry(viewport: b.viewport, content: content, insets: b.insets, alignment: al)
-            let center = ResizeMath.unobscuredCenter(viewport: b.viewport, insets: b.insets, header: 0)
-            let seen = ResizeMath.anchor(offset: r.offset, scale: r.scale, center: center, pad: g.alignmentPadding(at: r.scale))
-            // equal unless clamped at an edge: then the offset is within bounds
-            let bnds = g.bounds(at: r.scale)
-            #expect(r.offset.x >= bnds.x.min - 1e-9 && r.offset.x <= bnds.x.max + 1e-9)
-            #expect(r.offset.y >= bnds.y.min - 1e-9 && r.offset.y <= bnds.y.max + 1e-9)
-            if r.offset == o { #expect(abs(seen.x - u.x) < 1e-9 && abs(seen.y - u.y) < 1e-9) }
+    // MARK: ZTronMapKit geometry, verbatim (D17)
+
+    @Test func centreGeometryVerbatim() {
+        let k = CGSize(width: 400, height: 1000), v = CGSize(width: 200, height: 300)
+        let n = CenterGeometry.normalizedCenter(contentOffset: CGPoint(x: 100, y: 400), viewport: v, contentSize: k)!
+        #expect(abs(n.x - 0.5) < 1e-12 && abs(n.y - 0.55) < 1e-12)
+        let o = CenterGeometry.contentOffset(normalizedCenter: n, viewport: v, contentSize: k)
+        #expect(abs(o.x - 100) < 1e-9 && abs(o.y - 400) < 1e-9)
+        // clamped into [0, content - viewport]; smaller-than-viewport axis -> 0
+        #expect(CenterGeometry.contentOffset(normalizedCenter: CGPoint(x: 1, y: 0), viewport: v, contentSize: k) == CGPoint(x: 200, y: 0))
+        #expect(CenterGeometry.contentOffset(normalizedCenter: CGPoint(x: 0.5, y: 0.5), viewport: v, contentSize: CGSize(width: 100, height: 100)) == .zero)
+        #expect(CenterGeometry.normalizedCenter(contentOffset: .zero, viewport: v, contentSize: CGSize(width: 0, height: 100)) == nil)
+        #expect(CenterGeometry.contentOffset(normalizedCenter: CGPoint(x: CGFloat.nan, y: CGFloat.infinity), viewport: CGSize(width: -1, height: 10), contentSize: k) == .zero)
+    }
+
+    @Test func libraryOffsetMappingRoundTrips() {
+        let ins = EdgeInsets(top: 40, leading: 10, bottom: 30, trailing: 20)
+        let pad = CGPoint(x: 5, y: 0)
+        let o = CGPoint(x: -10, y: 123)
+        let m = ResizeMath.mapKitOffset(o, insets: ins, header: 15, pad: pad)
+        #expect(m == CGPoint(x: -5, y: 178))
+        #expect(ResizeMath.libraryOffset(m, insets: ins, header: 15, pad: pad) == o)
+        #expect(ResizeMath.unobscuredViewport(CGSize(width: 390, height: 800), insets: ins, header: 15) == CGSize(width: 360, height: 715))
+    }
+
+    /// (A): realising the sticky intent in the original geometry gives back the original offset and scale exactly,
+    /// whatever clamping happened in between (fit, zoomed, every edge, content smaller than the viewport).
+    @Test func intentRoundTripsThroughEvenRotations() {
+        let lim = ZoomLimits(min: .fit, max: .absolute(4))
+        let ins = EdgeInsets(top: 59, leading: 0, bottom: 34, trailing: 0)
+        let insL = EdgeInsets(top: 0, leading: 59, bottom: 21, trailing: 59)
+        let a = CGSize(width: 393, height: 852), b = CGSize(width: 852, height: 393)
+        for content in [CGSize(width: 393, height: 3000), CGSize(width: 1200, height: 900), CGSize(width: 200, height: 100)] {
+            let gA = ResizeMath.geometry(viewport: a, content: content, insets: ins, alignment: al)
+            let fit = ResizeMath.fitScale(content: content, viewport: a, insets: ins)!
+            for scale in [fit, 1, 2.5, 4] {
+                let range = lim.resolve(unscaledContentSize: content, viewportSize: a, insets: ResizeMath.axisInsets(ins))
+                guard range.contains(scale) else { continue }
+                let bnds = gA.bounds(at: scale)
+                let offsets = [CGPoint(x: bnds.x.min, y: bnds.y.min), CGPoint(x: bnds.x.max, y: bnds.y.max),
+                               CGPoint(x: bnds.x.min, y: bnds.y.max), CGPoint(x: bnds.x.max, y: bnds.y.min),
+                               CGPoint(x: (bnds.x.min + bnds.x.max) / 2, y: bnds.y.min + (bnds.y.max - bnds.y.min) * 0.9)]
+                for o0 in offsets {
+                    let sA = snap(a, content, ins), sB = snap(b, content, insL)
+                    let (_, o1, s1, n) = commit(from: sA, to: sB, offset: o0, scale: scale, limits: lim)
+                    let gB = ResizeMath.geometry(viewport: b, content: content, insets: insL, alignment: al)
+                    let bb = gB.bounds(at: s1)
+                    #expect(o1.x >= bb.x.min - 1e-9 && o1.x <= bb.x.max + 1e-9 && o1.y >= bb.y.min - 1e-9 && o1.y <= bb.y.max + 1e-9)
+                    // back with the SAME intent (sticky), not one re-derived from the clamped landscape state
+                    let (_, o2, s2, _) = commit(from: sB, to: sA, offset: o1, scale: s1, intent: n, limits: lim)
+                    #expect(abs(o2.x - o0.x) < 1e-6 && abs(o2.y - o0.y) < 1e-6, "content=\(content) s=\(scale) o0=\(o0) o2=\(o2)")
+                    #expect(abs(s2 - scale) < 1e-9)
+                    if scale == fit { #expect(abs(s1 - ResizeMath.fitScale(content: content, viewport: b, insets: insL)!) < 1e-12) }
+                }
+            }
         }
     }
 
@@ -57,14 +90,12 @@ struct ResizeMathTests {
         let content = CGSize(width: 400, height: 800)
         let a = snap(CGSize(width: 400, height: 800), content), b = snap(CGSize(width: 800, height: 400), content)
         let lim = ZoomLimits(min: .fit, max: .absolute(4))
-        let (c, o, s, _) = commit(from: a, to: b, offset: .zero, scale: 1)
-        let r = ResizeMath.resolve(size: b.viewport, offset: o, scale: s, insetsAnimated: b.insets, commit: c, limits: lim, alignment: al, paging: [])
-        #expect(abs(r.scale - 0.5) < 1e-9)
-        let (c2, o2, s2, _) = commit(from: a, to: b, offset: .zero, scale: 2)
-        let r2 = ResizeMath.resolve(size: b.viewport, offset: o2, scale: s2, insetsAnimated: b.insets, commit: c2, limits: lim, alignment: al, paging: [])
-        #expect(r2.scale == 2)
-        let r3 = ResizeMath.resolve(size: b.viewport, offset: o2, scale: 9, insetsAnimated: b.insets, commit: c2, limits: lim, alignment: al, paging: [])
-        #expect(r3.scale == 4)
+        let (_, _, s, _) = commit(from: a, to: b, offset: .zero, scale: 1, limits: lim)
+        #expect(abs(s - 0.5) < 1e-9)
+        let (_, _, s2, _) = commit(from: a, to: b, offset: .zero, scale: 2, limits: lim)
+        #expect(s2 == 2)
+        let (_, _, s3, _) = commit(from: a, to: b, offset: .zero, scale: 9, limits: lim)
+        #expect(s3 == 4)
     }
 
     @Test func invarianceAcrossTheCommit() {
@@ -74,7 +105,7 @@ struct ResizeMathTests {
         let lim = ZoomLimits(min: .fit, max: .absolute(4))
         for (offset, scale) in [(CGPoint(x: 0, y: 500), CGFloat(1)), (CGPoint(x: 0, y: 0), 1), (CGPoint(x: 100, y: 800), 2)] {
             var old = ResizeCommit(); old.current = a; old.previous = a
-            let (new, o, s, _) = commit(from: a, to: b, offset: offset, scale: scale)
+            let (new, o, s, _) = commit(from: a, to: b, offset: offset, scale: scale, limits: lim)
             for _ in 0..<200 {
                 let t = CGFloat.random(in: 0...1, using: &rng)
                 let size = CGSize(width: a.viewport.width + (b.viewport.width - a.viewport.width) * t,
@@ -99,43 +130,15 @@ struct ResizeMathTests {
         }
     }
 
-    // MARK: D16 normalized centre (ported from ZTronMapKit ContentGeometry.normalizedCenter / contentOffset)
-
-    @Test func normalizedCentreClampsAndCentresDegenerateAxes() {
-        let k = CGSize(width: 400, height: 1000)
-        let n = ResizeMath.normalized(CGPoint(x: 100, y: 400), in: k)
-        #expect(abs(n.x - 0.25) < 1e-12 && abs(n.y - 0.4) < 1e-12)
-        let d = ResizeMath.denormalized(n, in: CGSize(width: 800, height: 2000))
-        #expect(abs(d.x - 200) < 1e-9 && abs(d.y - 800) < 1e-9)
-        // beyond the content (top-leading alignment, content smaller than the viewport) -> clamped to [0, 1]
-        let c = ResizeMath.normalized(CGPoint(x: 600, y: -5), in: k)
-        #expect(c.x == 1 && c.y == 0)
-        // no content on an axis -> 0.5 (nothing to preserve, whole axis visible)
-        #expect(ResizeMath.normalized(CGPoint(x: 10, y: 10), in: CGSize(width: 0, height: 100)).x == 0.5)
-    }
-
-    /// Reflow commit as the state builds it: viewport first (content unchanged), then the reflowed content size with
-    /// `anchorNew = n * newContent` (`ResizeStateTests` covers the sequence through the state).
-    func reflowCommit(from a: ResizeCommit.Snapshot, to b: ResizeCommit.Snapshot, offset: CGPoint, scale: CGFloat)
-        -> (ResizeCommit, CGPoint, CGFloat, CGPoint) {
-        let g = ResizeMath.geometry(viewport: a.viewport, content: a.contentSize, insets: a.insets, alignment: al)
-        let c0 = ResizeMath.unobscuredCenter(viewport: a.viewport, insets: a.insets, header: 0)
-        let u = ResizeMath.anchor(offset: offset, scale: scale, center: c0, pad: g.alignmentPadding(at: scale))
-        let n = ResizeMath.normalized(u, in: a.contentSize)
-        let uNew = ResizeMath.denormalized(n, in: b.contentSize)
-        let r = ResizeMath.retarget(scale: scale, old: a, new: b, u: uNew, header: 0, focus: .center, alignment: al)
-        var c = ResizeCommit()
-        c.current = b; c.previous = a; c.anchorOld = u; c.anchorNew = uNew; c.normalizedAnchor = n; c.isOpen = true
-        return (c, r.offset, r.scale, n)
-    }
+    // MARK: Reflowing content (D16/D17): the normalized centre is relative to the zoomed content
 
     /// Normalized centre of what F draws at `size` under `c`.
     func drawnNormalized(_ c: ResizeCommit, size: CGSize, offset: CGPoint, scale: CGFloat, limits: ZoomLimits) -> (n: CGPoint, r: (offset: CGPoint, scale: CGFloat, pad: CGPoint), content: CGSize) {
         let p = ResizeMath.presented(c, size: size)
         let r = ResizeMath.resolve(size: size, offset: offset, scale: scale, insetsAnimated: c.current.insets, commit: c, limits: limits, alignment: al, paging: [])
-        let centre = ResizeMath.unobscuredCenter(viewport: size, insets: p.insets, header: 0)
-        let u = ResizeMath.anchor(offset: r.offset, scale: r.scale, center: centre, pad: r.pad)
-        return (CGPoint(x: u.x / p.contentSize.width, y: u.y / p.contentSize.height), r, p.contentSize)
+        let n = ResizeMath.intent(offset: r.offset, scale: r.scale, in: .init(viewport: size, contentSize: p.contentSize, insets: p.insets),
+                                  header: 0, focus: .center, alignment: al).normalizedCenter
+        return (n, r, p.contentSize)
     }
 
     @Test func reflowKeepsNormalizedCentreAtEveryT() {
@@ -145,36 +148,32 @@ struct ResizeMathTests {
         let lim = ZoomLimits(min: .absolute(1), max: .absolute(4))
         let cases: [(CGPoint, CGFloat)] = [(CGPoint(x: 0, y: 2100 * 0.4 - 473), 1), (CGPoint(x: 210, y: 1200), 2), (CGPoint(x: 0, y: -48), 1)]
         for (offset, scale) in cases {
-            let (c, o, s, n) = reflowCommit(from: a, to: b, offset: offset, scale: scale)
+            let (c, o, s, n) = commit(from: a, to: b, offset: offset, scale: scale, limits: lim)
             for t in stride(from: 0.0, through: 1.0, by: 0.1) {
                 let size = CGSize(width: ResizeMath.lerp(a.viewport.width, b.viewport.width, t), height: ResizeMath.lerp(a.viewport.height, b.viewport.height, t))
                 let d = drawnNormalized(c, size: size, offset: o, scale: s, limits: lim)
                 let g = ResizeMath.geometry(viewport: size, content: d.content, insets: ResizeMath.presented(c, size: size).insets, alignment: al)
                 let bnds = g.bounds(at: d.r.scale)
                 #expect(d.r.offset.y >= bnds.y.min - 1e-9 && d.r.offset.y <= bnds.y.max + 1e-9)
-                // preserved to < 1 pt of the drawn content, unless clamped at a bound
-                let ey = abs(d.n.y - n.y) * d.content.height * d.r.scale
+                let ey = abs(d.n.y - n.normalizedCenter.y) * d.content.height * d.r.scale
                 let onBound = abs(d.r.offset.y - bnds.y.min) < 1e-6 || abs(d.r.offset.y - bnds.y.max) < 1e-6
                 #expect(ey < 1 || onBound, "t=\(t) offset=\(offset) ey=\(ey)")
-                #expect(abs(d.n.x - n.x) * d.content.width < 1, "x preserved")
+                #expect(abs(d.n.x - n.normalizedCenter.x) * d.content.width < 1, "x preserved")
                 #expect(d.r.scale == scale, "absolute limits: scale kept")
             }
         }
     }
 
     @Test func reflowSmallerThanViewportCentresAndClampsOnlyAsNeeded() {
-        // Short content (height 100 at width 420) that the viewport can show whole; zoom enabled -> centred.
         let a = snap(CGSize(width: 420, height: 912), CGSize(width: 420, height: 100))
         let b = snap(CGSize(width: 776, height: 420), CGSize(width: 776, height: 185))
         let lim = ZoomLimits(min: .absolute(1), max: .absolute(4))
-        let (c, o, s, n) = reflowCommit(from: a, to: b, offset: CGPoint(x: 0, y: 0), scale: 1)
-        #expect(abs(n.y - 0.5) < 1e-9 && abs(n.x - 0.5) < 1e-9)
+        let (c, o, s, n) = commit(from: a, to: b, offset: CGPoint(x: 0, y: 0), scale: 1, limits: lim)
+        #expect(abs(n.normalizedCenter.y - 0.5) < 1e-9 && abs(n.normalizedCenter.x - 0.5) < 1e-9)
         let d = drawnNormalized(c, size: b.viewport, offset: o, scale: s, limits: lim)
         #expect(abs(d.n.y - 0.5) < 1e-9 && d.r.offset.y == 0 && abs(d.r.pad.y - (420 - 185) / 2) < 1e-9)
-        // Near the bottom in landscape, back to portrait: the normalized centre would need a negative offset -> clamped to the edge
-        let (c2, o2, s2, _) = reflowCommit(from: b, to: a, offset: CGPoint(x: 0, y: 3880 - 420 - 20), scale: 1)
-        let d2 = drawnNormalized(c2, size: a.viewport, offset: o2, scale: s2, limits: lim)
-        #expect(d2.r.offset.y == 0)
+        let (_, o2, _, _) = commit(from: b, to: a, offset: CGPoint(x: 0, y: 3880 - 420 - 20), scale: 1, limits: lim)
+        #expect(o2.y == 0)
     }
 
     @Test func reflowFitStaysFit() {
@@ -182,9 +181,8 @@ struct ResizeMathTests {
         let b = snap(CGSize(width: 776, height: 420), CGSize(width: 776, height: 3880))
         let lim = ZoomLimits(min: .fit, max: .absolute(4))
         let fitA = ResizeMath.fitScale(content: a.contentSize, viewport: a.viewport, insets: a.insets)!
-        let (c, o, s, _) = reflowCommit(from: a, to: b, offset: .zero, scale: fitA)
-        let d = drawnNormalized(c, size: b.viewport, offset: o, scale: s, limits: lim)
-        #expect(abs(d.r.scale - 420 / 3880) < 1e-9)
+        let (_, _, s, _) = commit(from: a, to: b, offset: .zero, scale: fitA, limits: lim)
+        #expect(abs(s - 420 / 3880) < 1e-9)
     }
 
     @Test func insetChangeRules() {
@@ -290,13 +288,14 @@ struct ResizeStateTests {
             s.setContentSize(CGSize(width: 776, height: 3880))
             s.setContentSize(CGSize(width: 776, height: 3880))   // idempotent
             let c = s.peek.metrics.resize
-            #expect(abs(c.anchorNew.y - n0.y * 3880) < 1e-6 && abs(c.anchorNew.x - n0.x * 776) < 1e-6)
+            #expect(c.intent != nil && abs(c.intent!.normalizedCenter.y - n0.y) < 1e-6)
             let r = ResizeMath.resolve(size: mid, offset: s.peek.targetOffset, scale: s.peek.targetZoom,
                                        insetsAnimated: c.current.insets, commit: c, limits: s.zoomLimits,
                                        alignment: s.contentAlignment, paging: [])
             let pm = ResizeMath.presented(c, size: mid)
-            let um = ResizeMath.anchor(offset: r.offset, scale: r.scale, center: ResizeMath.unobscuredCenter(viewport: mid, insets: pm.insets, header: 0), pad: r.pad)
-            #expect(abs(um.y / pm.contentSize.height - n0.y) * pm.contentSize.height * r.scale < 1, "mid-transition")
+            let um = ResizeMath.intent(offset: r.offset, scale: r.scale, in: .init(viewport: mid, contentSize: pm.contentSize, insets: pm.insets),
+                                       header: 0, focus: .center, alignment: s.contentAlignment).normalizedCenter
+            #expect(abs(um.y - n0.y) * pm.contentSize.height * r.scale < 1, "mid-transition")
             s.closeResize()
             let n1 = normalizedCentre(s)
             #expect(abs(n1.y - n0.y) * 3880 * zoom < 1, "y=\(y) zoom=\(zoom) n0=\(n0) n1=\(n1)")
@@ -320,7 +319,7 @@ struct ResizeStateTests {
         s.setViewport(vp(776, 420))
         s.setContentSize(CGSize(width: 1500, height: 1000))   // unchanged: no-op
         let c = s.peek.metrics.resize
-        #expect(c.anchorOld == c.anchorNew && abs(c.normalizedAnchor.x - c.anchorOld.x / 1500) < 1e-12)
+        #expect(c.intent != nil && abs(c.intent!.normalizedCenter.x - (300 + 210) / 1500) < 1e-12)
         s.closeResize()
         #expect(abs(s.contentOffset.x + 388 - (300 + 210)) < 1e-9 && abs(s.contentOffset.y + 210 - (200 + 456)) < 1e-9)
     }
@@ -335,5 +334,71 @@ struct ResizeStateTests {
         s.setViewport(vp(300, 800))
         s.closeResize()
         #expect(s.contentOffset.x == 300)
+    }
+
+    // MARK: (A) even rotations restore the initial offset and scale (D17 sticky intent)
+
+    /// Portrait <-> landscape N times through the full watch (probe at the final size, ticks until the commit closes).
+    func rotate(_ s: ZTronScrollState, to size: CGSize, safe: EdgeInsets, content: CGSize?, t: inout TimeInterval) {
+        s.setViewport(vp(size.width, size.height, safe))
+        if let content { s.setContentSize(content) }
+        s.probe.record(s.peek.targetOffset, s.peek.targetZoom, size: size)
+        for _ in 0..<4 { t += 1; s.step(to: date(t)) }
+        #expect(!s.peek.metrics.resize.isOpen)
+    }
+
+    @Test(arguments: OSPath.allCases) func evenRotationsRestoreOffsetAndZoomExactly(path: OSPath) {
+        let p = CGSize(width: 393, height: 852), l = CGSize(width: 852, height: 393)
+        let sp = EdgeInsets(top: 59, leading: 0, bottom: 34, trailing: 0), sl = EdgeInsets(top: 0, leading: 59, bottom: 21, trailing: 59)
+        // (fixed content, reflowed landscape content)
+        let shapes: [(CGSize, CGSize?)] = [(CGSize(width: 393, height: 3000), nil), (CGSize(width: 1200, height: 900), nil),
+                                           (CGSize(width: 393, height: 1965), CGSize(width: 852, height: 4260))]
+        for (content, reflowed) in shapes {
+            for zoom in [CGFloat(0), 1, 2.5] {      // 0 = at fit
+                let s = makeState(path)
+                s.zoomLimits = ZoomLimits(min: .fit, max: .absolute(4))
+                s.setContentSize(content)
+                s.setViewport(vp(p.width, p.height, sp))
+                let z = zoom == 0 ? s.zoomScale : zoom
+                if zoom != 0 { s.setZoomScale(zoom, animated: false) }
+                let g = s.makeZoomGeometry()
+                let b = g.bounds(at: z)
+                let offsets = [CGPoint(x: b.x.min, y: b.y.min), CGPoint(x: b.x.max, y: b.y.max),
+                               CGPoint(x: b.x.min + (b.x.max - b.x.min) * 0.3, y: b.y.min + (b.y.max - b.y.min) * 0.95)]
+                for o0 in offsets {
+                    s.setContentOffset(o0, animated: false)
+                    let z0 = s.zoomScale, o0 = s.contentOffset
+                    var t: TimeInterval = 0
+                    for n in 1...4 {
+                        let landscape = n % 2 == 1
+                        rotate(s, to: landscape ? l : p, safe: landscape ? sl : sp, content: landscape ? reflowed : (reflowed == nil ? nil : content), t: &t)
+                        if !landscape {
+                            #expect(abs(s.contentOffset.x - o0.x) < 1e-6 && abs(s.contentOffset.y - o0.y) < 1e-6,
+                                    "n=\(n) content=\(content) z=\(z0) o0=\(o0) got \(s.contentOffset)")
+                            #expect(s.zoomScale == z0, "n=\(n) zoom \(s.zoomScale) != \(z0)")
+                        } else {
+                            #expect(s.resizeIntent != nil)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test(arguments: OSPath.allCases) func interactionBetweenRotationsResetsTheIntent(path: OSPath) {
+        let s = makeState(path)
+        s.setContentSize(CGSize(width: 393, height: 3000))
+        s.setViewport(vp(393, 852))
+        s.setContentOffset(CGPoint(x: 0, y: 2148), animated: false)   // bottom edge
+        var t: TimeInterval = 0
+        rotate(s, to: CGSize(width: 852, height: 393), safe: EdgeInsets(), content: nil, t: &t)
+        #expect(s.resizeIntent != nil)
+        s.track(offset: CGPoint(x: 0, y: 1000), zoom: 1)              // a pan: the intent is dropped
+        #expect(s.resizeIntent == nil)
+        rotate(s, to: CGSize(width: 393, height: 852), safe: EdgeInsets(), content: nil, t: &t)
+        // back in portrait the centre of the panned view (1000 + 196.5) is preserved, not the pre-rotation offset
+        #expect(abs(s.contentOffset.y - (1196.5 - 426)) < 1e-6)
+        s.setContentOffset(.zero, animated: false)
+        #expect(s.resizeIntent == nil)
     }
 }

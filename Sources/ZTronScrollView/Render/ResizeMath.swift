@@ -56,26 +56,6 @@ enum ResizeMath {
         return min(1, max(0, t))
     }
 
-    /// Unscaled content point at `center`: `u = (o + c - pad) / s`.
-    static func anchor(offset: CGPoint, scale: CGFloat, center: CGPoint, pad: CGPoint) -> CGPoint {
-        let s = scale > 0 && scale.isFinite ? scale : 1
-        return CGPoint(x: (offset.x + center.x - pad.x) / s, y: (offset.y + center.y - pad.y) / s)
-    }
-
-    /// `u / content` per axis, clamped into [0, 1]; 0.5 on an axis without content (ZTronMapKit `normalizedCenter`).
-    static func normalized(_ u: CGPoint, in content: CGSize) -> CGPoint {
-        func axis(_ v: CGFloat, _ len: CGFloat) -> CGFloat {
-            guard len > 0, len.isFinite, v.isFinite else { return 0.5 }
-            return min(1, max(0, v / len))
-        }
-        return CGPoint(x: axis(u.x, content.width), y: axis(u.y, content.height))
-    }
-
-    /// The content point at normalized `n` of `content` (ZTronMapKit `contentOffset(normalizedCenter:)` numerator).
-    static func denormalized(_ n: CGPoint, in content: CGSize) -> CGPoint {
-        CGPoint(x: n.x * max(0, content.width), y: n.y * max(0, content.height))
-    }
-
     static func isAtFit(_ scale: CGFloat, fit: CGFloat) -> Bool {
         guard fit > 0, fit.isFinite else { return false }
         return abs(scale / fit - 1) <= 1e-4
@@ -92,20 +72,63 @@ enum ResizeMath {
         return f
     }
 
-    /// Re-expresses a target in a new geometry: the content point `u` goes to the focus of `new`; at fit stays at fit.
-    /// Neither the offset nor the scale is clamped (the effect clamps while the commit is open).
-    static func retarget(scale: CGFloat, old: ResizeCommit.Snapshot, new: ResizeCommit.Snapshot, u: CGPoint,
-                         header: CGFloat, focus: UnitPoint, alignment: UnitPoint) -> (offset: CGPoint, scale: CGFloat) {
-        var s = scale
-        if let f0 = fitScale(content: old.contentSize, viewport: old.viewport, insets: old.insets),
-           isAtFit(scale, fit: f0),
-           let f1 = fitScale(content: new.contentSize, viewport: new.viewport, insets: new.insets) {
-            s = f1
-        }
-        let g = geometry(viewport: new.viewport, content: new.contentSize, insets: new.insets, alignment: alignment)
+    // MARK: ZTronMapKit mapping (D17)
+
+    /// ZTronMapKit's `viewport`: the unobscured area (insets and the scaling header removed), never negative.
+    static func unobscuredViewport(_ v: CGSize, insets: EdgeInsets, header: CGFloat) -> CGSize {
+        let h = max(0, header.isFinite ? header : 0)
+        return CGSize(width: max(0, v.width - insets.leading - insets.trailing),
+                      height: max(0, v.height - insets.top - insets.bottom - h))
+    }
+
+    /// Unobscured start edge per axis (`insets.start`, plus the header on y).
+    private static func unobscuredStart(insets: EdgeInsets, header: CGFloat) -> CGPoint {
+        CGPoint(x: insets.leading, y: insets.top + max(0, header.isFinite ? header : 0))
+    }
+
+    /// Library offset `o` (`x_v = s*x_c + pad - o`) -> ZTronMapKit offset `o' = o + start - pad` (`x_u = s*x_c - o'`,
+    /// measured from the unobscured start edge; `0` when the content fits and is aligned by `pad`).
+    static func mapKitOffset(_ o: CGPoint, insets: EdgeInsets, header: CGFloat, pad: CGPoint) -> CGPoint {
+        let st = unobscuredStart(insets: insets, header: header)
+        return CGPoint(x: o.x + st.x - pad.x, y: o.y + st.y - pad.y)
+    }
+
+    /// Inverse of `mapKitOffset`.
+    static func libraryOffset(_ o: CGPoint, insets: EdgeInsets, header: CGFloat, pad: CGPoint) -> CGPoint {
+        let st = unobscuredStart(insets: insets, header: header)
+        return CGPoint(x: o.x - st.x + pad.x, y: o.y - st.y + pad.y)
+    }
+
+    /// The resize intent captured from (`offset`, `scale`) drawn in `snap`: ZTronMapKit `normalizedCenter` of the
+    /// zoomed content (`0.5` on an axis without content) and the scale, flagged "at fit" when it equals the fit.
+    static func intent(offset: CGPoint, scale: CGFloat, in snap: ResizeCommit.Snapshot, header: CGFloat, focus: UnitPoint,
+                       alignment: UnitPoint) -> ResizeIntent {
+        let s = scale > 0 && scale.isFinite ? scale : 1
+        let g = geometry(viewport: snap.viewport, content: snap.contentSize, insets: snap.insets, alignment: alignment)
+        let o = mapKitOffset(offset, insets: snap.insets, header: header, pad: g.alignmentPadding(at: s))
+        let v = unobscuredViewport(snap.viewport, insets: snap.insets, header: header)
+        let k = CGSize(width: snap.contentSize.width * s, height: snap.contentSize.height * s)
+        let n = CenterGeometry.normalizedPoint(contentOffset: o, viewport: v, contentSize: k, focus: focus)
+            ?? CGPoint(x: 0.5, y: 0.5)
+        let fit = fitScale(content: snap.contentSize, viewport: snap.viewport, insets: snap.insets)
+        return ResizeIntent(normalizedCenter: n, scale: s, atFit: fit.map { isAtFit(s, fit: $0) } ?? false)
+    }
+
+    /// Scale, offset (library convention, clamped by ZTronMapKit `contentOffset(normalizedCenter:)`) and alignment
+    /// padding that realise `intent` in the geometry (`viewport`, `content`, `insets`).
+    static func realize(_ intent: ResizeIntent, viewport: CGSize, content: CGSize, insets: EdgeInsets, header: CGFloat,
+                        focus: UnitPoint, limits: ZoomLimits, alignment: UnitPoint)
+        -> (offset: CGPoint, scale: CGFloat, pad: CGPoint) {
+        var s = intent.scale
+        if intent.atFit, let f = fitScale(content: content, viewport: viewport, insets: insets) { s = f }
+        let range = limits.resolve(unscaledContentSize: content, viewportSize: viewport, insets: axisInsets(insets))
+        s = min(max(s, range.lowerBound), range.upperBound)
+        let g = geometry(viewport: viewport, content: content, insets: insets, alignment: alignment)
         let pad = g.alignmentPadding(at: s)
-        let c = unobscuredPoint(viewport: new.viewport, insets: new.insets, header: header, at: focus)
-        return (CGPoint(x: pad.x + s * u.x - c.x, y: pad.y + s * u.y - c.y), s)
+        let v = unobscuredViewport(viewport, insets: insets, header: header)
+        let k = CGSize(width: content.width * s, height: content.height * s)
+        let o = CenterGeometry.contentOffset(normalizedPoint: intent.normalizedCenter, viewport: v, contentSize: k, focus: focus)
+        return (libraryOffset(o, insets: insets, header: header, pad: pad), s, pad)
     }
 
     /// The geometry actually drawn at `size` under `commit` (interpolated content size and insets).
@@ -116,8 +139,10 @@ enum ResizeMath {
                                      insets: lerp(commit.previous.insets, commit.current.insets, t))
     }
 
-    /// F: the offset, scale and alignment padding drawn when the container is `size` big (design M5 section 3). A pure
-    /// function of `size`, the committed target (`offset`, `scale`) and the commit; clamped to the bounds.
+    /// F: the offset, scale and alignment padding drawn when the container is `size` big (design M5 section 3, D17).
+    /// A pure function of `size` and the commit's intent (ZTronMapKit `contentOffset(normalizedCenter:)` against the
+    /// interpolated content size and insets); without an intent (commit closed) the target (`offset`, `scale`) is
+    /// re-expressed by the same rule. Clamped to the bounds.
     static func resolve(size: CGSize, offset: CGPoint, scale: CGFloat, insetsAnimated: EdgeInsets, commit: ResizeCommit,
                         limits: ZoomLimits, alignment: UnitPoint, paging: Axis.Set)
         -> (offset: CGPoint, scale: CGFloat, pad: CGPoint) {
@@ -125,30 +150,15 @@ enum ResizeMath {
         let t = progress(size: size, from: prev.viewport, to: cur.viewport)
         let content = lerp(prev.contentSize, cur.contentSize, t)
         let insets = plus(lerp(prev.insets, cur.insets, t), insetsAnimated, minus: cur.insets)
-
-        // The anchored content point, from the committed target in the committed geometry.
-        let gCur = geometry(viewport: cur.viewport, content: cur.contentSize, insets: cur.insets, alignment: alignment)
-        let cCur = unobscuredPoint(viewport: cur.viewport, insets: cur.insets, header: commit.header, at: commit.focus)
-        let uC = anchor(offset: offset, scale: scale, center: cCur, pad: gCur.alignmentPadding(at: scale))
-        let u = CGPoint(x: uC.x + (commit.anchorOld.x - commit.anchorNew.x) * (1 - t),
-                        y: uC.y + (commit.anchorOld.y - commit.anchorNew.y) * (1 - t))
-
-        // Scale: at fit stays at fit (recomputed for the drawn size), always inside the limits.
-        var s = scale
-        if let f0 = fitScale(content: cur.contentSize, viewport: cur.viewport, insets: cur.insets), isAtFit(scale, fit: f0),
-           let f = fitScale(content: content, viewport: size, insets: insets) {
-            s = f
-        }
-        let range = limits.resolve(unscaledContentSize: content, viewportSize: size, insets: axisInsets(insets))
-        s = min(max(s, range.lowerBound), range.upperBound)
-
-        let g = geometry(viewport: size, content: content, insets: insets, alignment: alignment)
-        let pad = g.alignmentPadding(at: s)
-        let c = unobscuredPoint(viewport: size, insets: insets, header: commit.header, at: commit.focus)
-        var o = CGPoint(x: pad.x + s * u.x - c.x, y: pad.y + s * u.y - c.y)
+        let intent = commit.intent
+            ?? self.intent(offset: offset, scale: scale, in: cur, header: commit.header, focus: commit.focus, alignment: alignment)
+        let r = realize(intent, viewport: size, content: content, insets: insets, header: commit.header, focus: commit.focus,
+                        limits: limits, alignment: alignment)
+        var o = r.offset
         if paging.contains(.horizontal), let k = commit.pagingIndex.x { o.x = CGFloat(k) * size.width }
         if paging.contains(.vertical), let k = commit.pagingIndex.y { o.y = CGFloat(k) * size.height }
-        return (g.clamped(o, at: s), s, pad)
+        let g = geometry(viewport: size, content: content, insets: insets, alignment: alignment)
+        return (g.clamped(o, at: r.scale), r.scale, r.pad)
     }
 
     /// Inset-only change (keyboard, bars): nil `anchor` keeps the offset, except at the start edge where the content

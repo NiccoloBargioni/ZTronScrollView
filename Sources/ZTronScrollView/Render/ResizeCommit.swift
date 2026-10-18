@@ -18,14 +18,9 @@ struct ResizeCommit: Equatable, Sendable {
     var previous = Snapshot()
     /// Scaling-header height at commit (unobscured center only).
     var header: CGFloat = 0
-    /// Unscaled content point kept at the focus point: `anchorOld` at the start of the transition, `anchorNew` at the
-    /// end. They differ only for a registry-target reflow.
-    var anchorOld = CGPoint.zero
-    var anchorNew = CGPoint.zero
-    /// `anchorOld` normalized to the content size it was captured in, clamped into [0, 1]^2 (D16, ported from
-    /// ZTronMapKit's `normalizedCenter`). Content that reflows with the viewport is re-anchored from it:
-    /// `anchorNew = normalizedAnchor * newContentSize`. Equals `anchorOld / contentSize` for fixed-size content.
-    var normalizedAnchor = CGPoint(x: 0.5, y: 0.5)
+    /// What the resize preserves (D17, ZTronMapKit geometry): the normalized centre of the zoomed content and the scale.
+    /// Sticky across consecutive resizes (`ZTronScrollState.resizeIntent`); nil once the commit is closed.
+    var intent: ResizeIntent?
     /// Page kept current when paging is enabled.
     var pagingIndex = Paging()
     /// The point of the unobscured rect that is preserved (center unless `defaultScrollAnchor(for: .sizeChanges)`).

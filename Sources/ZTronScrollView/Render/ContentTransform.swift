@@ -80,13 +80,14 @@ struct ContentTransform: GeometryEffect {
         probe?.record(r.offset, r.scale, size: size)
         #if DEBUG
         if Thread.isMainThread {
-            let c = ResizeMath.unobscuredPoint(viewport: size, insets: insets, header: commit.header, at: commit.focus)
-            let u = ResizeMath.anchor(offset: r.offset, scale: r.scale, center: c, pad: r.pad)
             let open = commit.isOpen
-            let content = open ? ResizeMath.presented(commit, size: size).contentSize : commit.current.contentSize
+            let p = open ? ResizeMath.presented(commit, size: size) : commit.current
+            let snap = ResizeCommit.Snapshot(viewport: size, contentSize: p.contentSize, insets: insets)
+            let n = ResizeMath.intent(offset: r.offset, scale: r.scale, in: snap, header: commit.header, focus: commit.focus,
+                                      alignment: alignment).normalizedCenter
             MainActor.assumeIsolated {
                 ZTronRenderCounters.increment("transform.effect")
-                ResizeJumpMonitor.record(size: size, centre: u, content: content, scale: r.scale, resizing: open)
+                ResizeJumpMonitor.record(size: size, normalized: n, content: p.contentSize, scale: r.scale, resizing: open)
             }
         }
         #endif
@@ -102,11 +103,9 @@ struct ContentTransform: GeometryEffect {
 @MainActor
 enum ResizeJumpMonitor {
     private static var last: (size: CGSize, n: CGPoint, desc: String)?
-    static func record(size: CGSize, centre: CGPoint, content: CGSize, scale: CGFloat, resizing: Bool) {
-        let n = CGPoint(x: content.width > 0 ? centre.x / content.width : 0.5,
-                        y: content.height > 0 ? centre.y / content.height : 0.5)
-        let desc = String(format: "size=%.0fx%.0f k=%.0fx%.0f u=%.1f,%.1f n=%.4f,%.4f s=%.3f open=%d",
-                          size.width, size.height, content.width, content.height, centre.x, centre.y, n.x, n.y, scale, resizing ? 1 : 0)
+    static func record(size: CGSize, normalized n: CGPoint, content: CGSize, scale: CGFloat, resizing: Bool) {
+        let desc = String(format: "size=%.0fx%.0f k=%.0fx%.0f n=%.4f,%.4f s=%.3f open=%d",
+                          size.width, size.height, content.width, content.height, n.x, n.y, scale, resizing ? 1 : 0)
         defer { last = (size, n, desc) }
         guard let l = last else { return }
         let sizeChanged = abs(l.size.width - size.width) > 0.01 || abs(l.size.height - size.height) > 0.01
