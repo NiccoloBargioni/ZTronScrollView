@@ -21,7 +21,7 @@ final class ProofUITests: XCTestCase {
         app.buttons["Snapshot"].tap()
         Thread.sleep(forTimeInterval: 0.5)
         var out: [String: Int] = [:]
-        for key in ["content.body", "transformHost.body", "transform.effect", "clock.tick", "didScroll",
+        for key in ["content.body", "transformHost.body", "transform.effect", "clock.tick", "clock.dupTick", "didScroll",
                     "reader.zoom", "reader.offset"] {
             let v = app.staticTexts["counter.\(key)"].value as? String ?? "?"
             out[key] = Int(v) ?? -2
@@ -47,6 +47,7 @@ final class ProofUITests: XCTestCase {
         let ticks = Double(c["clock.tick"]!)
         XCTAssertEqual(Double(c["transformHost.body"]!), ticks, accuracy: ticks * 0.1 + 3, "transform wakes every frame")
         XCTAssertEqual(c["didScroll"], c["clock.tick"])
+        XCTAssertEqual(c["clock.dupTick"], 0, "one step per frame")
     }
 
     func testWithAnimationScroll() {
@@ -58,6 +59,7 @@ final class ProofUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(c["transform.effect"]!, 20)
         XCTAssertLessThanOrEqual(c["transformHost.body"]!, 4)
         XCTAssertGreaterThanOrEqual(c["clock.tick"]!, 20)
+        XCTAssertEqual(c["clock.dupTick"], 0, "one step per frame")
     }
 
     func testZoomOnlyReaderSilentDuringPan() {
