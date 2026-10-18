@@ -95,8 +95,9 @@ final class ArbitratedPagingScrollView: UIScrollView, UIGestureRecognizerDelegat
         let t = pan.translation(in: pageViews[p])
         let owner = arbiters[p].containerOwner(ofDragFrom: touchDownPoint, translation: CGSize(width: t.x, height: t.y),
                                                touchCount: pan.numberOfTouches)
-        recorder.onChange?()
-        return owner == .container && super.gestureRecognizerShouldBegin(gestureRecognizer)
+        let result = owner == .container && super.gestureRecognizerShouldBegin(gestureRecognizer)
+        recorder.mutate { $0.shouldBegin.append(owner == .container ? (result ? "container-yes" : "container-superNo") : "participant-no") }
+        return result
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,

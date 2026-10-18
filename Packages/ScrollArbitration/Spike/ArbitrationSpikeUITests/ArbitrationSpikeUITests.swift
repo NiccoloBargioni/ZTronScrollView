@@ -11,9 +11,8 @@ final class ArbitrationSpikeUITests: XCTestCase {
 
     /// Finger moves leftwards (page 0) or rightwards (page 1); 90 moves up.
     private func runDrag(_ name: String, dx: CGFloat, dy: CGFloat, page: Int, canFollow: Bool) {
-        s.launch()
-        if page == 1 { s.goToPageOne() }
-        s.setSwitch("page.\(page).canFollow", on: canFollow)
+        s.launch(extra: ["-startPage", "\(page)", "-canFollow\(page)", canFollow ? "1" : "0"])
+        XCTAssertEqual(s.pageIndex(), page)
         let sign: CGFloat = page == 0 ? -1 : 1
         let vector = dx == 0 ? CGVector(dx: 0, dy: -120) : CGVector(dx: sign * dx, dy: dy)
         let before = s.count()
@@ -89,8 +88,7 @@ final class ArbitrationSpikeUITests: XCTestCase {
 
     func testDragStartingOnButton() {
         for canFollow in [false, true] {
-            s.launch()
-            s.setSwitch("page.0.canFollow", on: canFollow)
+            s.launch(extra: ["-canFollow0", canFollow ? "1" : "0"])
             let before = s.count()
             s.drag(from: s.app.buttons["page.0.button"], CGVector(dx: -120, dy: 0))
             let r = s.settle(after: before)
@@ -107,9 +105,7 @@ final class ArbitrationSpikeUITests: XCTestCase {
     }
 
     func testParticipantMovingRule3() {
-        s.launch()
-        s.setSwitch("page.0.moving", on: true)
-        s.setSwitch("page.0.canFollow", on: false)
+        s.launch(extra: ["-moving0", "1", "-canFollow0", "0"])
         let before = s.count()
         s.drag(from: s.el("page.0.box"), CGVector(dx: -120, dy: 0))
         let r = s.settle(after: before)
@@ -119,8 +115,7 @@ final class ArbitrationSpikeUITests: XCTestCase {
     }
 
     func testFlingThenHold() {
-        s.launch()
-        s.setSwitch("page.0.canFollow", on: false)
+        s.launch(extra: ["-canFollow0", "0"])
         let start = s.pager.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.88))
         start.press(forDuration: 0.02, thenDragTo: start.withOffset(CGVector(dx: -250, dy: 0)), withVelocity: .fast, thenHoldForDuration: 0)
         let hold = s.pager.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9))

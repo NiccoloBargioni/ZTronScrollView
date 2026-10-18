@@ -40,7 +40,9 @@ final class SpikeApp {
 
     func launch(extra: [String] = []) {
         app.terminate()
-        app.launchArguments = extra
+        var args = extra
+        if let mode = ProcessInfo.processInfo.environment["SPIKE_MODE"] { args += ["-gestureMode", mode] }
+        app.launchArguments = args
         app.launch()
         XCTAssertTrue(pager.waitForExistence(timeout: 10))
     }
@@ -57,8 +59,10 @@ final class SpikeApp {
         if !sw.waitForExistence(timeout: 5) { print("SPIKEDEBUG \(app.debugDescription)") }
         func isOn() -> Bool { "\(sw.value ?? "0")" == "1" }
         if isOn() == on { return }
+        func waitFor() { let d = Date().addingTimeInterval(1.2); while isOn() != on && Date() < d { usleep(100_000) } }
         sw.tap()
-        if isOn() != on { sw.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap() }
+        waitFor()
+        if isOn() != on { sw.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap(); waitFor() }
         XCTAssertEqual(isOn(), on, "switch \(id)")
     }
 

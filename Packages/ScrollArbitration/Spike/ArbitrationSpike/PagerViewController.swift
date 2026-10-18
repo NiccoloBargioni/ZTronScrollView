@@ -13,6 +13,7 @@ final class PagerViewController: UIViewController, UIScrollViewDelegate {
     private let lineHost = UIView()
     private let clearButton = UIButton(type: .system)
     private var lineLabels: [UILabel] = []
+    private var didApplyStartPage = false
 
     private var currentPage: Int { max(0, min(2, Int((scrollView.contentOffset.x / max(1, scrollView.bounds.width)).rounded()))) }
 
@@ -71,7 +72,8 @@ final class PagerViewController: UIViewController, UIScrollViewDelegate {
         let footer: CGFloat = 80
         let pagerFrame = CGRect(x: safe.minX, y: safe.minY, width: safe.width, height: safe.height - footer)
         if scrollView.frame != pagerFrame {
-            let index = currentPage
+            let index = didApplyStartPage ? currentPage : UserDefaults.standard.integer(forKey: "startPage")
+            didApplyStartPage = true
             scrollView.frame = pagerFrame
             scrollView.contentSize = CGSize(width: pagerFrame.width * 3, height: pagerFrame.height)
             for (i, h) in hostings.enumerated() {

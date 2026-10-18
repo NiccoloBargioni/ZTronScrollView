@@ -21,6 +21,7 @@ struct SequenceRecord {
     var panStarted = false
     var panEnded = false
     var foreignNames: Set<String> = []
+    var shouldBegin: [String] = []
 }
 
 /// Fed by the pager (UIKit side), the stand-in pages (SwiftUI side) and the arbiters' logs.
@@ -74,7 +75,7 @@ struct SequenceRecord {
         let foreign = r.foreignNames.isEmpty ? "" : " fn=" + r.foreignNames.sorted().joined(separator: ",")
         return "seq=\(r.id) first=\(o.first) owner=\(o.owner) decided=\(o.decided) pan=\(r.panStates.joined(separator: ">")) "
             + "pagerMoved=\(r.pagerMoved ? 1 : 0) page=\(r.pageBefore)>\(r.pageAfter) box=\(r.boxMoved ? 1 : 0) "
-            + "button=\(r.buttonTaps) delta=\(delta) pEnd=\(pEnd) dt=\(o.dt) foreign=\(r.foreignNames.isEmpty ? 0 : 1)\(foreign)"
+            + "button=\(r.buttonTaps) delta=\(delta) sb=\(r.shouldBegin.isEmpty ? "-" : r.shouldBegin.joined(separator: ",")) pEnd=\(pEnd) dt=\(o.dt) foreign=\(r.foreignNames.isEmpty ? 0 : 1)\(foreign)"
     }
 
     // MARK: SwiftUI side

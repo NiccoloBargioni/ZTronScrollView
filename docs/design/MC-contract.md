@@ -364,7 +364,7 @@ with Xcode 26.6.
 |---|---|---|---|---|---|---|
 | 15.x (user) | n/a | n/a | | | | |
 | 16.x (user) | n/a | n/a | | | | |
-| 17.5 | n/a | n/a | | | | |
+| 17.5 | n/a | n/a | NO: with the participant's unnamed SwiftUI gestures (touch observer `DragGesture(minimumDistance: 0)` + pan) attached via `.simultaneousGesture`, the paging pan never reaches `gestureRecognizerShouldBegin` (sb empty) and ends `possible>failed` even when the arbiter answers `.container` (canFollow off, 0/20 deg); pager never moved. Participant drags and the cached decision behave (decided=1, participant first). | 0.00 | yes: decided=1; participant always asked first (24), container never (its pan is blocked) | see note E |
 | 18.x (18.6) | yes: container ⇔ pan began, participant ⇔ never began; all drag tests green | PARTIAL/no on the state criterion: the Button still fires on taps (button=1) and never on drags (button=0), but an unnamed `UIKitResponderGestureRecognizer` is observed in `.began/.changed` during every plain tap (and during drags that start on the button) | n/a | 0.00 | yes: decided=1 in every drag; first asker both ways (container 66, participant 16, none 5) | see note D |
 | 26.x | | | n/a | | | |
 | 27.0 | yes: container ⇔ pan began, participant ⇔ pan never began (possible>failed), 7 UI tests green | yes: 3 taps fired the button (button=1, foreign=0); drags from the button never fired it (button=0) | n/a | 0.00 (max over ~90 sequences) | yes: decided=1 in every drag; first asker both ways (container 66, participant 16, none 5 = taps/pinch without a drag) | see notes A-C below |
@@ -393,3 +393,12 @@ Also to record: `scripts/test-arbitration.sh` green on Xcode 27 and on Xcode 26.
   therefore not depend on "no foreign recognizer reached began" for the Button; it can depend on the observed
   outcomes (button fires on tap, never on a drag) and on `owner(...)` alone. Proposed fallback for its EG-11/EG-13
   rows: key rule 5 on the arbiter's answer, not on recognizer state.
+- **E. Q3 on 17.5 (observed failure mode).** A SwiftUI page that attaches a recognized `DragGesture` makes the
+  hosting view's `UIKitGestureRecognizer` take the touch and the paging pan fails before the container can be
+  consulted, so `.container` answers cannot move the pager. Observer taps still end cleanly (pEnd=1). Toggle taps
+  by XCUI also did not register on 17.5, so the spike presets toggles by launch arguments
+  (`-canFollow<i>`, `-moving<i>`, `-startPage`). Untested alternatives (`-gestureMode gesture|high`, via
+  `TEST_RUNNER_SPIKE_MODE`) hung the 17.5 runner. Suggested fallback (ZTronPages EG-11/EG-13): on iOS 15-17 the
+  participant must hand the drag to the container itself, i.e. the participant ends its own DragGesture (state
+  reset) when `owner(...)` answers `.container` and the container is driven by its own recognizer outside the
+  SwiftUI page (or the pager is a SwiftUI-driven pan, not a UIScrollView). Needs a device/Xcode 26.6 run on 15/16.

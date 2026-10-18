@@ -39,7 +39,14 @@ struct StandInPage: View {
     let arbiter: ReferenceScrollArbiter
     let recorder: SequenceRecorder
     @Environment(\.scrollArbiter) private var envArbiter
-    @StateObject private var model = StandInModel()
+
+    init(index: Int, arbiter: ReferenceScrollArbiter, recorder: SequenceRecorder) {
+        self.index = index
+        self.arbiter = arbiter
+        self.recorder = recorder
+        _model = StateObject(wrappedValue: StandInModel(index: index))
+    }
+    @StateObject private var model: StandInModel
     @State private var committed = CGSize.zero
     @State private var dragging = CGSize.zero
     @State private var scale: CGFloat = 1
