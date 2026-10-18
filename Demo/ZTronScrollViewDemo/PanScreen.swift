@@ -14,11 +14,12 @@ final class PanProbe: ZTronScrollViewDelegate {
         minY = min(minY, state.contentOffset.y)
         maxY = max(maxY, state.contentOffset.y)
     }
-    func scrollViewWillBeginDragging(_ state: ZTronScrollState) { order.append("willBeginDragging") }
+    private var stamp: String { String(format: "@%.3f", Date().timeIntervalSince1970) }
+    func scrollViewWillBeginDragging(_ state: ZTronScrollState) { order.append("willBeginDragging\(stamp)") }
     func scrollViewDidEndDragging(_ state: ZTronScrollState, willDecelerate decelerate: Bool) {
-        order.append("didEndDragging(\(decelerate))")
+        order.append("didEndDragging(\(decelerate))\(stamp)")
     }
-    func scrollViewDidEndDecelerating(_ state: ZTronScrollState) { order.append("didEndDecelerating") }
+    func scrollViewDidEndDecelerating(_ state: ZTronScrollState) { order.append("didEndDecelerating\(stamp)") }
     func reset() { minY = 0; maxY = 0; order = [] }
 }
 
@@ -85,6 +86,6 @@ struct PanScreen: View {
         #if DEBUG
         snapshot = ZTronRenderCounters.snapshot
         #endif
-        stateInfo = "phase=\(state.phase.rawValue) y=\(Int(state.contentOffset.y)) minY=\(Int(probe.minY)) maxY=\(Int(probe.maxY)) order=\(probe.order.joined(separator: ","))"
+        stateInfo = "phase=\(state.phase.rawValue) y=\(Int(state.contentOffset.y)) minY=\(Int(probe.minY)) maxY=\(Int(probe.maxY)) order=\(probe.order.joined(separator: ",")) \(snapshot.keys.filter { $0.hasPrefix("lag=") }.joined(separator: ","))"
     }
 }

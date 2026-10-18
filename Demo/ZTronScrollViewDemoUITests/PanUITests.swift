@@ -84,7 +84,7 @@ final class PanUITests: XCTestCase {
         fling(app, frame: frame)
         let t1 = Date()
         tapPoint.tap()
-        print("PAN timing fling=\(t1.timeIntervalSince(t0)) tap=\(Date().timeIntervalSince(t1))")
+        print("PAN timing t0=\(t0.timeIntervalSince1970) fling=\(t1.timeIntervalSince(t0)) tap=\(Date().timeIntervalSince(t1))")
         Thread.sleep(forTimeInterval: 0.5)
         let i = info(app)
         let j = info(app)

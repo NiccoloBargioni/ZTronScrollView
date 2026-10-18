@@ -23,7 +23,7 @@ on a user decision** → next: step 1 below.
 | M1 physics + availability | done | `scripts/test-physics.sh` → 99 tests; design note `docs/design/design-note.md` |
 | M2 render path + proof | done | 0 `content.body` during animated + `withAnimation` scrolls, clock idle at rest, on 27.0 + 17.5, preferred + forced (`docs/progress/M2-s3.md`) |
 | M3 (a) pan state + release | done | `Gesture/{PanSession,ReleasePipeline}.swift`, delegate, `ZTronScrollPhaseReader` (`M3-s1.md`) |
-| M3 (b) gestures + demo | partial | 6/7 PanUITests on 27.0 preferred; catch test fails; 17.5 + forced not run (`M3-s2.md`) |
+| M3 (b) gestures + demo | partial | catch fixed (release motion on state clock; iOS 27 event times are uptime-based). PanUITests 27.0 7/7 both paths; 17.5 6/7 both paths (toggle tap in testControlsUsable open); latent fling-acceleration time-base bug open (`M3-s2.md`) |
 | M3 (c) arbitration | partial | participant + 9 unit tests done; demo pager stand-in + UI test todo (`M3-s3.md`) |
 | M4 (a) zoom state + PinchSession | done | `Gesture/PinchSession.swift`, `zoomRange`, solver-based `setZoomScale` (`M4-s1.md`) |
 | M4 (b) pinch adapter + demo | todo | `docs/design/M4-zoom.md` session (b) |
