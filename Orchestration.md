@@ -33,18 +33,13 @@ Test totals now: `ZTronScrollViewTests` **118** green on iOS 27.0 and 17.5 (both
 physics 99 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-contract,M2-render,M3-pan,M4-zoom}.md`.
 
 ## Next steps (in order; prompts are ready to paste)
-1. [ ] **M3 (b) catch test** — Debugger (Opus, high), per SPEC O2 escalation:
-   ```
-   Debug only. Problem: PanUITests.testCatchDuringDecelerationDoesNotFireButton fails on iOS 27.0 (preferred,
-   simultaneous mode): the Button fires and the fling isn't stopped; pan.catch = 0 but pan.movingAtEvent = 1.
-   Repro: scripts/test-demo-ui.sh 'id=897F9D8D-B10D-4D91-8E22-417A2B9D70AA' -only-testing:ZTronScrollViewDemoUITests/PanUITests
-   Evidence: docs/progress/M3-s2.md "Open" — read the pan.ev.* counters first; then try the DragGesture(min 0) observer
-   via -ZTronForceAllFallbacks; consider a slower demo fling (XCUI waits for quiescence before tapping).
-   Fix the root cause with the smallest patch; keep the test strict. Then run PanUITests on 27.0 --forced and on 17.5
-   (id=7279872B-2799-489C-8D6F-03B4829B6737) both paths; record the working gesture mode per OS in M3-s2.md.
-   Keep ZTronScrollViewTests (118) and ProofUITests (6) green. Reply in ≤10 lines.
-   ```
-2. [ ] **M3 (c) finish** — Builder: demo pager stand-in + UI test (`docs/design/M3-pan.md` §10 M3-c; `M3-s3.md` open items).
+1. [x] **M3 (b) catch test** — fixed by the Debugger (948b299): release motions start on the state clock (D14).
+   Leftovers → step 2.
+2. [ ] **M3 leftovers + M3 (c) finish** — Builder (template below): (i) fling acceleration never applies on 18+:
+   `accelerated()` subtracts `caughtAt` (`Date()` from the catch observer) from `liftTime` (gesture event clock) —
+   apply D14 + a unit test; (ii) 17.5 `PanUITests.testControlsUsable` fails at PanUITests.swift:125 (toggle tap
+   leaves "0"; never run on 17.5 before — 2 attempts, else record); (iii) demo pager stand-in + UI test
+   (`docs/design/M3-pan.md` §10 M3-c; `M3-s3.md` open items).
 3. [ ] **M4 (b)** — Builder: pinch adapter + demo + UI tests (`docs/design/M4-zoom.md` session (b); `M4-s1.md` open
    items: rebase the pan baseline at bounce settle, feed `synthesizePan(location:time:)` and finger-count events).
 4. [ ] **M5 rotation/resize** — Architect on Fable, one session (design + implement), SPEC S7 l.237–252.
@@ -103,6 +98,9 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
 - D12 Default gesture mode is `.simultaneousGesture` (27.0: `high` breaks Button/Slider). DEBUG launch arg
   `-ZTronPanGestureMode gesture|simultaneous|high`; `-ZTronForceAllFallbacks` forces the 15–16 paths.
 - D13 Default zoom range is 1…1 (UIKit); zoom bounce phase is `.decelerating`; content centers when zoom is enabled.
+- D14 Gesture event times (`DragGesture.Value.time`, spatial events) are on a different clock from the state clock
+  (uptime-based on iOS 27). Use them only for deltas *inside* the velocity tracker; anything compared with or
+  scheduled on the state clock uses `state.now()`.
 
 ## Environment
 Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (≤ 2 simulators at once). Runtimes: iOS 17.5,
