@@ -135,8 +135,10 @@ public enum ZTronRenderCounters {
     private static var counts: [String: Int] = [:]
     public static func increment(_ key: String) { counts[key, default: 0] += 1 }
     public static func value(_ key: String) -> Int { counts[key] ?? 0 }
-    public static func reset() { counts.removeAll() }
+    public static func reset() { counts.removeAll(); notes.removeAll() }
     public static var snapshot: [String: Int] { counts }
+    /// Free-form DEBUG notes (e.g. the frame that incremented `resize.jumpFrames`); cleared by `reset()`.
+    public static var notes: [String: String] = [:]
 }
 #endif
 

@@ -130,7 +130,11 @@ struct ResizeScreen: View {
                     Button("Zoom") { zoomIn() }.accessibilityIdentifier("Zoom")
                     Button("Edge") { edge() }.accessibilityIdentifier("Edge")
                     Button("Reset") { resetCounters() }.accessibilityIdentifier("Reset")
+                }
+                HStack {
                     Button("Mid") { middle() }.accessibilityIdentifier("Mid")
+                    Button("Top") { nearEdge(top: true) }.accessibilityIdentifier("Top")
+                    Button("Bottom") { nearEdge(top: false) }.accessibilityIdentifier("Bottom")
                 }
                 Text(info).font(.caption2).lineLimit(3)
                     .background(Color.white.opacity(0.8))
@@ -147,12 +151,23 @@ struct ResizeScreen: View {
         resetCounters()
     }
 
-    /// 2.5x around content point (700, 450).
+    /// 1.6x around content point (700, 450); reflow variant: around (50 %, 40 %) of the content.
     private func zoomIn() {
         state.stopScrollingAndZooming()
-        let s: CGFloat = 1.6, v = state.geometry.containerSize
-        state.zoom(to: CGRect(x: 700 - v.width / s / 2, y: 450 - v.height / s / 2, width: v.width / s, height: v.height / s),
+        let s: CGFloat = 1.6, v = state.geometry.containerSize, k = state.geometry.contentSize
+        let p = Self.reflow ? CGPoint(x: k.width / 2, y: k.height * 0.4) : CGPoint(x: 700, y: 450)
+        state.zoom(to: CGRect(x: p.x - v.width / s / 2, y: p.y - v.height / s / 2, width: v.width / s, height: v.height / s),
                    animated: false)
+        resetCounters()
+    }
+
+    /// Zoom 1, 20 pt inside the top (or bottom) edge: the centre is close to, but not at, a bound.
+    private func nearEdge(top: Bool) {
+        state.stopScrollingAndZooming()
+        state.setZoomScale(1, animated: false)
+        let v = state.geometry.containerSize, i = state.adjustedContentInset, k = state.geometry.contentSize
+        let y = top ? -i.top + 20 : k.height + i.bottom - v.height - 20
+        state.setContentOffset(CGPoint(x: -i.leading, y: y), animated: false)
         resetCounters()
     }
 
@@ -185,17 +200,19 @@ struct ResizeScreen: View {
     }
 
     private func snapshot() {
-        var counters: [String: Int] = [:]
+        var counters: [String: Int] = [:], note = ""
         #if DEBUG
         counters = ZTronRenderCounters.snapshot
+        note = ZTronRenderCounters.notes["resize.jump"] ?? ""
         #endif
         let r = ResizeProbe.centre(state)
         let o = state.contentOffset, i = state.adjustedContentInset
         let pre = probe.beforeResize ?? CGPoint(x: -1, y: -1)
-        info = String(format: "z=%.4f ox=%.2f oy=%.2f ux=%.2f uy=%.2f cx=%.2f cy=%.2f vw=%.1f vh=%.1f it=%.1f il=%.1f ib=%.1f ir=%.1f phase=%d preux=%.2f preuy=%.2f resizes=%d jump=%d body=%d effect=%d min=%.4f cw=%.2f ch=%.2f",
+        info = String(format: "z=%.4f ox=%.2f oy=%.2f ux=%.2f uy=%.2f cx=%.2f cy=%.2f vw=%.1f vh=%.1f it=%.1f il=%.1f ib=%.1f ir=%.1f phase=%d preux=%.2f preuy=%.2f resizes=%d jump=%d body=%d effect=%d min=%.4f cw=%.2f ch=%.2f cidle=%d vp=%d",
                       state.zoomScale, o.x, o.y, r.u.x, r.u.y, r.c.x, r.c.y, r.size.width, r.size.height,
                       i.top, i.leading, i.bottom, i.trailing, state.phase.rawValue, pre.x, pre.y, probe.resizes,
                       counters["resize.jumpFrames"] ?? 0, counters["content.body"] ?? 0, counters["transform.effect"] ?? 0,
-                      state.minimumZoomScale, state.geometry.contentSize.width, state.geometry.contentSize.height)
+                      state.minimumZoomScale, state.geometry.contentSize.width, state.geometry.contentSize.height,
+                      counters["resize.contentSizeIdle"] ?? 0, counters["resize.viewport"] ?? 0) + " note=" + note
     }
 }

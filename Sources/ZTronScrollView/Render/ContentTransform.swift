@@ -83,9 +83,10 @@ struct ContentTransform: GeometryEffect {
             let c = ResizeMath.unobscuredPoint(viewport: size, insets: insets, header: commit.header, at: commit.focus)
             let u = ResizeMath.anchor(offset: r.offset, scale: r.scale, center: c, pad: r.pad)
             let open = commit.isOpen
+            let content = open ? ResizeMath.presented(commit, size: size).contentSize : commit.current.contentSize
             MainActor.assumeIsolated {
                 ZTronRenderCounters.increment("transform.effect")
-                ResizeJumpMonitor.record(size: size, centre: u, scale: r.scale, resizing: open)
+                ResizeJumpMonitor.record(size: size, centre: u, content: content, scale: r.scale, resizing: open)
             }
         }
         #endif
@@ -95,18 +96,24 @@ struct ContentTransform: GeometryEffect {
 
 #if DEBUG
 /// DEBUG `resize.jumpFrames` (design M5 section 10): a drawn frame during a viewport resize (size changed since the
-/// previous evaluation, or the resize commit is open) whose visible-centre content point moved by more than 1 viewport
-/// point. Content clamped at an edge legitimately counts.
+/// previous evaluation, or the resize commit is open) whose visible-centre content point, normalized to the content
+/// size drawn in that frame (D16: reflowing content keeps its normalized centre), moved by more than 1 viewport point.
+/// Content clamped at an edge legitimately counts.
 @MainActor
 enum ResizeJumpMonitor {
-    private static var last: (size: CGSize, centre: CGPoint)?
-    static func record(size: CGSize, centre: CGPoint, scale: CGFloat, resizing: Bool) {
-        defer { last = (size, centre) }
+    private static var last: (size: CGSize, n: CGPoint, desc: String)?
+    static func record(size: CGSize, centre: CGPoint, content: CGSize, scale: CGFloat, resizing: Bool) {
+        let n = CGPoint(x: content.width > 0 ? centre.x / content.width : 0.5,
+                        y: content.height > 0 ? centre.y / content.height : 0.5)
+        let desc = String(format: "size=%.0fx%.0f k=%.0fx%.0f u=%.1f,%.1f n=%.4f,%.4f s=%.3f open=%d",
+                          size.width, size.height, content.width, content.height, centre.x, centre.y, n.x, n.y, scale, resizing ? 1 : 0)
+        defer { last = (size, n, desc) }
         guard let l = last else { return }
         let sizeChanged = abs(l.size.width - size.width) > 0.01 || abs(l.size.height - size.height) > 0.01
         guard sizeChanged || resizing else { return }
-        if hypot(centre.x - l.centre.x, centre.y - l.centre.y) * scale > 1 {
+        if hypot((n.x - l.n.x) * content.width, (n.y - l.n.y) * content.height) * scale > 1 {
             ZTronRenderCounters.increment("resize.jumpFrames")
+            ZTronRenderCounters.notes["resize.jump"] = "[\(l.desc)] -> [\(desc)]"
         }
     }
 }

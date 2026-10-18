@@ -12,9 +12,10 @@ final class ResizeUITests: XCTestCase {
 
     override func tearDown() { XCUIDevice.shared.orientation = .portrait }
 
-    private func launch() -> XCUIApplication {
+    private func launch(reflow: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-ZTronScreen", "resize"] + (forced ? ["-ZTronForceAllFallbacks"] : [])
+            + (reflow ? ["-ZTronResizeReflow"] : [])
         app.launch()
         Thread.sleep(forTimeInterval: 0.8)
         return app
@@ -40,13 +41,14 @@ final class ResizeUITests: XCTestCase {
     }
 
     /// Drawn position of content point `u` (from the cell's accessibility frame) minus the unobscured centre, in points.
-    private func drawnError(_ app: XCUIApplication, _ i: Info) -> Double {
-        let col = Int(floor(i["ux"] / 100)), row = Int(floor(i["uy"] / 100))
-        let cell = app.descendants(matching: .any)["cell.\(row).\(col)"]
-        guard cell.exists else { return -1 }
-        let f = cell.frame, w = app.windows.firstMatch.frame
-        let px = f.minX + (i["ux"] - Double(col) * 100) / 100 * f.width
-        let py = f.minY + (i["uy"] - Double(row) * 100) / 100 * f.height
+    /// `cell`: unscaled cell size (100 for the fixed grid, content width / 6 for the reflow grid).
+    private func drawnError(_ app: XCUIApplication, _ i: Info, cell: Double = 100) -> Double {
+        let col = Int(floor(i["ux"] / cell)), row = Int(floor(i["uy"] / cell))
+        let cell_ = app.descendants(matching: .any)["cell.\(row).\(col)"]
+        guard cell_.exists else { return -1 }
+        let f = cell_.frame, w = app.windows.firstMatch.frame
+        let px = f.minX + (i["ux"] - Double(col) * cell) / cell * f.width
+        let py = f.minY + (i["uy"] - Double(row) * cell) / cell * f.height
         print("RESIZEDRAWN \(path) cell=\(row),\(col) f=\(f) window=\(w) p=(\(px),\(py)) c=(\(i["cx"]),\(i["cy"]))")
         return hypot(px - (w.minX + i["cx"]), py - (w.minY + i["cy"]))
     }
@@ -137,4 +139,59 @@ final class ResizeUITests: XCTestCase {
         XCTAssertEqual(l2["phase"], 0, "idle")
         XCTAssertEqual(l2["body"], 0)
     }
+
+    // MARK: Reflowing content (SPEC S7 "reflowing content"; the user's `Image(...).resizable().aspectRatio(.fit)
+    // .frame(maxWidth: .infinity)` in a vertical scroll view): the content size follows the viewport width, so the
+    // NORMALIZED centre (u / contentSize) is what must survive, within 1 pt of the new content (scaled).
+
+    /// Normalized-centre error in screen points between two infos: |u_b - n_a * content_b| * z_b.
+    private func reflowError(_ a: Info, _ b: Info) -> Double {
+        let nx = a["ux"] / a["cw"], ny = a["uy"] / a["ch"]
+        return hypot(b["ux"] - nx * b["cw"], b["uy"] - ny * b["ch"]) * b["z"]
+    }
+
+    private func onBound(_ i: Info) -> (x: Bool, y: Bool) {
+        let z = i["z"]
+        let maxX = i["cw"] * z + i["ir"] - i["vw"], maxY = i["ch"] * z + i["ib"] - i["vh"]
+        let minX = -i["il"], minY = -i["it"]
+        return (abs(i["ox"] - max(maxX, minX)) < 0.5 || abs(i["ox"] - minX) < 0.5,
+                abs(i["oy"] - max(maxY, minY)) < 0.5 || abs(i["oy"] - minY) < 0.5)
+    }
+
+    /// portrait -> landscape -> portrait on the reflow grid after tapping `button`.
+    private func reflowRoundTrip(_ name: String, _ button: String, zoomed: Bool) {
+        let app = launch(reflow: true)
+        app.buttons[button].tap()
+        Thread.sleep(forTimeInterval: 0.5)
+        let p0 = info(app, "reflow.\(name).portrait")
+        rotate(.landscapeLeft)
+        let l = info(app, "reflow.\(name).landscape")
+        let dl = drawnError(app, l, cell: l["cw"] / 6)
+        rotate(.portrait)
+        let p1 = info(app, "reflow.\(name).portraitBack")
+        let dp = drawnError(app, p1, cell: p1["cw"] / 6)
+        let e1 = reflowError(p0, l), e2 = reflowError(l, p1)
+        print("RESIZEERR \(path) reflow.\(name) toLandscape=\(e1) back=\(e2) drawn=\(dl)/\(dp) "
+              + "jump=\(l["jump"])/\(p1["jump"]) cidle=\(l["cidle"])/\(p1["cidle"]) vp=\(l["vp"])/\(p1["vp"])")
+        XCTAssertNotEqual(p0["cw"], l["cw"], "content reflowed")
+        XCTAssertEqual(l["cw"], l["vw"], accuracy: 1, "content takes the viewport width")
+        for (prev, i, e) in [(p0, l, e1), (l, p1, e2)] {
+            let b = onBound(i)
+            // Preserved, except where the content edge required a clamp (then the offset sits on that bound).
+            if e > 1 {
+                let nx = prev["ux"] / prev["cw"], ny = prev["uy"] / prev["ch"]
+                let ex = abs(i["ux"] - nx * i["cw"]) * i["z"], ey = abs(i["uy"] - ny * i["ch"]) * i["z"]
+                XCTAssertTrue(ex <= 1 || b.x, "x centre moved off a bound: \(i.raw)")
+                XCTAssertTrue(ey <= 1 || b.y, "y centre moved off a bound: \(i.raw)")
+            }
+            XCTAssertEqual(i["jump"], 0, i.raw)
+            if zoomed { XCTAssertEqual(i["z"], prev["z"], accuracy: 1e-3, "scale kept") }
+        }
+        XCTAssertEqual(p1["body"], 0)
+    }
+
+    func testReflowMiddleAt1xKeepsNormalizedCentre() { reflowRoundTrip("mid", "Mid", zoomed: false) }
+    func testReflowZoomedKeepsNormalizedCentre() { reflowRoundTrip("zoomed", "Zoom", zoomed: true) }
+    func testReflowNearTopKeepsNormalizedCentre() { reflowRoundTrip("top", "Top", zoomed: false) }
+    func testReflowNearBottomKeepsNormalizedCentre() { reflowRoundTrip("bottom", "Bottom", zoomed: false) }
 }

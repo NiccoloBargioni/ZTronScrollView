@@ -218,3 +218,24 @@ d. Rotate during a fling → stops, center preserved, no bounce afterward. e. Pa
 - Q2 `.automatic` = adjust on the scrollable axes' edges (native behaviour); document in the parity matrix.
 - Q3 Yes: public `contentInset` on the state in M5; the `contentMargins`/modifier twins land in M6/M7.
 - Session (a) starts only after M4 (b) is committed (both touch `State/ZTronScrollState.swift`).
+- D16 (2026-10-18, S7 "reflowing content", ported from ZTronMapKit `ContentGeometry.normalizedCenter` /
+  `contentOffset(normalizedCenter:)` and the controller's save-before/restore-after discipline): the preserved quantity is
+  the **normalized centre** `n = u / contentSize ∈ [0,1]²` (0.5 on an axis without content), captured in `setViewport`
+  from the last committed pre-resize geometry (`cap` = previous commit snapshot, presentation values after `interrupt()`)
+  **before** the new viewport or content size is applied, and stored in `ResizeCommit.normalizedAnchor`. The absolute
+  anchor `u` of §3 is its fixed-size special case (`u = n·content` when the content does not change), so the fixed-size
+  rule, the formulas of §3 and the invariance proof are unchanged. Restore = `o = pad(s) + s·(n·content_new) − c_new`,
+  clamped by F / `closeResize()`; alignment padding centres axes where the content is smaller (S6).
+  Sequence: SwiftUI reports the viewport (model size) first and the reflowed content size one update later (measured:
+  `resize.contentSizeIdle` 0 / `resize.viewport` 1 per rotation on 27.0, both paths, and 17.5). `setViewport` commits with
+  the old content size (`current.contentSize == previous.contentSize`), so the frames drawn before the content size lands
+  already keep `n` (content(t) is the old size on both ends of the lerp); when `setContentSize` arrives while the commit
+  is open it sets `anchorNew = n·newContent` (registry target point from §6 wins when M6 provides one) and re-derives
+  the unclamped target; F then draws `u(t) = lerp(anchorOld, anchorNew, t) = n·content(t)` — the normalized centre is
+  constant on every frame, no intermediate jump frame, and the refit is idempotent per content size (a repeated or
+  split width/height measurement re-derives the same target). Fit stays fit against the new content; motion in progress
+  stops at its presentation value first (§5, unchanged). A content-size change with **no** resize open keeps the
+  `.sizeChanges` rule of §6 (offset kept, clamped): that is a growing list, not a reflow.
+  Override: `defaultScrollAnchor(_:for: .sizeChanges)` replaces the focus point only (`commit.focus`); the content point
+  under the focus is still carried as a normalized point. DEBUG `resize.jumpFrames` compares normalized centres
+  (`ResizeJumpMonitor`), so reflowing content is counted on the same footing as fixed-size content.

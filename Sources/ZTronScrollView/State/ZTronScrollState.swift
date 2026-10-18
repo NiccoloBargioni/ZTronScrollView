@@ -263,8 +263,9 @@ public final class ZTronScrollState {
                 let before = m.resize
                 syncCommit(&m, open: true)
                 var c = m.resize
-                // Re-derive the target for the new content: the anchored point stays, at fit stays at fit.
-                let u = pendingReflowAnchor(default: c.anchorNew, content: size) ?? c.anchorNew
+                // Re-derive the target for the reflowed content (D16): the registry target's point when M6 has one,
+                // else the normalized centre of the whole content; at fit stays at fit. Idempotent per content size.
+                let u = pendingReflowAnchor(default: nil, content: size) ?? ResizeMath.denormalized(c.normalizedAnchor, in: size)
                 c.anchorNew = u
                 let r = ResizeMath.retarget(scale: old.targetZoom, old: before.current, new: c.current, u: u,
                                             header: c.header, focus: c.focus, alignment: contentAlignment)
@@ -276,6 +277,9 @@ public final class ZTronScrollState {
             syncCommit(&m, open: false)
             storage.metrics = m
             guard idle, hadContent else { return }
+            #if DEBUG
+            ZTronRenderCounters.increment("resize.contentSizeIdle")   // a content-size change with no resize open
+            #endif
             let gOld = makeZoomGeometry(old.metrics), gNew = makeZoomGeometry(m)
             let z = old.presentationZoom
             var o = old.presentationOffset
@@ -413,6 +417,9 @@ public final class ZTronScrollState {
         }
 
         // A viewport size change: the center rule.
+        #if DEBUG
+        ZTronRenderCounters.increment("resize.viewport")
+        #endif
         if motion != nil || transactionToken != nil {
             if transactionToken != nil, let p = probe.pending {
                 storage.presentationOffset = p.offset
@@ -449,6 +456,7 @@ public final class ZTronScrollState {
             c.isOpen = true
             c.anchorOld = u
             c.anchorNew = u
+            c.normalizedAnchor = ResizeMath.normalized(u, in: cap.contentSize)
             if isPagingEnabled {
                 func index(_ o: CGFloat, _ len: CGFloat) -> Int? { len > 0 ? Int((o / len).rounded()) : nil }
                 if scrollAxes.contains(.horizontal) { c.pagingIndex.x = index(offset.x, cap.viewport.width) }
