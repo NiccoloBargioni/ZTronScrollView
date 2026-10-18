@@ -27,7 +27,8 @@ Last updated: 2026-10-18 · Status: **M0 done · MC package + spike done (freeze
 | M3 (a) pan session + release + state | done | `Sources/ZTronScrollView/Gesture/{PanSession,ReleasePipeline}.swift`, state additions, `ZTronScrollPhaseReader` · 90 unit tests green (27.0, both paths), demo proof 6/6 · handoff `docs/progress/M3-s1.md` |
 | M3 (b) adapter + demo | partial | coordinator/adapter/observer/env/gate/demo in; 27.0 simultaneous UI 6/7 (catch test open); 17.5 + forced not run · `docs/progress/M3-s2.md` |
 | M3 (c) arbitration | partial | unit done (docs/progress/M3-s3.md); demo pager + UI test todo |
-| M3 build … M10 | todo | |
+| M4 design | done | `docs/design/M4-zoom.md` (PinchSession, limits, bounce, centroid per OS, tests, a/b split; resolutions at the end) |
+| M4 build … M10 | todo | |
 
 Commits: `1aa3321` M0 · `21ae371` MC package + M1.
 
@@ -94,7 +95,8 @@ The MC spike prompt is in git history (`git show 1faa1f0:Orchestration.md`) if t
    Commit at every green state. Done when: tests green; handoff docs/progress/M<n>-s<k>.md; Orchestration.md State
    row updated. Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
    ```
-4. [ ] M4 zoom (Fable design doc first, then Builder) → M5 rotation/resize (Architect on Fable, one session: design + implement) → M6–M10 per
+4. [ ] **M4 zoom** — design done (`docs/design/M4-zoom.md`); build parts (a) then (b) with the builder template above.
+5. [ ] M5 rotation/resize (Architect on Fable, one session: design + implement) → M6–M10 per
    SPEC O4 (l.970–990). Write a Fable design doc before each milestone; it is nearly free on the all-models bucket.
 
 M2 leftovers to fold into M3: public phase reader (then add the skipped `phaseReaderOnTransitionsOnly` UI test);
