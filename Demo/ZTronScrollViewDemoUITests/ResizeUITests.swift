@@ -254,7 +254,7 @@ final class ResizeUITests: XCTestCase {
 
     /// Centre of the unobscured viewport in screen space: scroller frame inset by the adjusted content insets.
     private func visibleCentre(_ app: XCUIApplication, _ i: Info) -> CGPoint {
-        let f = app.descendants(matching: .any)["scroller"].frame
+        let f = app.descendants(matching: .any)["scrollerView"].frame   // the scroll view itself (the screen's outer "scroller" wraps the nav stack)
         return CGPoint(x: f.minX + i["il"] + (f.width - i["il"] - i["ir"]) / 2, y: f.minY + i["it"] + (f.height - i["it"] - i["ib"]) / 2)
     }
 
@@ -275,7 +275,7 @@ final class ResizeUITests: XCTestCase {
         XCTAssertEqual(m0.count, 4, "markers exposed: \(m0)")
         let c0 = visibleCentre(app, p0)
         let f0 = fraction(m0, at: c0)
-        print("RESIZESCREEN \(path) \(name) 0 centre=\(c0) fraction=\(String(describing: f0)) markers=\(m0) scroller=\(app.descendants(matching: .any)["scroller"].frame)")
+        print("RESIZESCREEN \(path) \(name) 0 centre=\(c0) fraction=\(String(describing: f0)) markers=\(m0) scroller=\(app.descendants(matching: .any)["scrollerView"].frame)")
         var prevM = m0, prevC = c0, prevI = p0
         for n in 1...4 {
             rotate(n % 2 == 1 ? .landscapeLeft : .portrait)

@@ -31,7 +31,7 @@ blocked on a user decision** → next: step 4 below (M5 build).
 | M6–M9 designs | done | `docs/design/{M6-targets,M7-observation,M8-chrome,M8b-refresh-header,M9-virtualization}.md`, each ending with "Orchestrator resolutions" (read those first) and a builder-session split with file ownership + sequencing |
 | M5 (a) state + render | done | `docs/progress/M5-s1.md`: ResizeMath/Commit, TransformHost above layout host (C1 gate: Proof 6/6, demo UI 20/20 on 27.0), 134 unit tests on 27.0 + 17.5 |
 | User scenario s1 | done | D15: zoom-enabled pan moves on any axis the zoomed content exceeds; demo `-ZTronScreen image` + `ImageUITests` 4/4 on 27.0 + 17.5, preferred + forced (`docs/progress/USER-s1.md`) |
-| M5 (b) gestures + demo | partial | `docs/progress/M5-s2.md` (D16 normalized centre for reflowing content, ResizeScreen + ResizeUITests green on 27.0 pref/forced + 17.5 pref; worktree branch `worktree-agent-af22bd0534b975499`); PanCoordinator rebase still todo |
+| M5 (b) gestures + demo | partial | `docs/progress/M5-s2.md` s3: D17 ZTronMapKit geometry verbatim (`CenterGeometry`) + sticky `resizeIntent`; unit round trips exact; screen-space UI tests added (markers): 16:9 tree even rotations exact (0.05 pt), user's full-screen tree FAILS (reflow lands idle, `cidle`>0) — fix in `setContentSize` idle path next; (C) pinch-end probe test added, not run; PanCoordinator rebase still todo |
 | M6 … M10 | todo | SPEC O4 l.970–990 |
 
 Test totals now: `ZTronScrollViewTests` **118** green on iOS 27.0 and 17.5 (both OS paths) · M2 `ProofUITests` 6/6 ·

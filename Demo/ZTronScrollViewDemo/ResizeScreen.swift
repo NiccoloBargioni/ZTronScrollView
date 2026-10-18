@@ -147,13 +147,13 @@ struct UserTreeScroller: View {
                 if fullScreen {
                     scroller
                         .accessibilityElement(children: .contain)
-                        .accessibilityIdentifier("scroller")
+                        .accessibilityIdentifier("scrollerView")
                 } else {
                     scroller
                         .aspectRatio(16.0 / 9.0, contentMode: .fit)
                         .frame(maxWidth: .infinity)
                         .accessibilityElement(children: .contain)
-                        .accessibilityIdentifier("scroller")
+                        .accessibilityIdentifier("scrollerView")
                 }
             }
         }

@@ -50,6 +50,24 @@ final class ZoomUITests: XCTestCase {
         XCTAssertGreaterThan(i.c["zoom.didZoom"]!, 3)
     }
 
+    /// (C) A pinch released INSIDE the limits and bounds must end at once: no motion in the following second
+    /// (no didZoom / didScroll, same scale and centre), and no bounce.
+    func testPinchInsideLimitsReleasesWithoutMotion() {
+        let app = launch()
+        scroller(app).pinch(withScale: 2, velocity: 1)
+        Thread.sleep(forTimeInterval: 0.3)
+        let a = info(app)
+        Thread.sleep(forTimeInterval: 1.0)
+        let b = info(app)
+        print("ZOOMREST \(forced ? "forced" : "preferred") didZoom=\(a.c["zoom.didZoom"]!)->\(b.c["zoom.didZoom"]!) didScroll=\(a.c["zoom.didScroll"]!)->\(b.c["zoom.didScroll"]!) z=\(a.z)->\(b.z) u=(\(a.ux),\(a.uy))->(\(b.ux),\(b.uy))")
+        XCTAssertGreaterThan(a.z, 1.2, "zoomed in, inside the limits")
+        XCTAssertEqual(a.c["zoom.bounce"], 0, "no bounce inside the limits")
+        XCTAssertEqual(b.c["zoom.didZoom"], a.c["zoom.didZoom"], "no zoom motion after release")
+        XCTAssertEqual(b.c["zoom.didScroll"], a.c["zoom.didScroll"], "no scroll motion after release")
+        XCTAssertEqual(b.z, a.z, accuracy: 1e-9)
+        XCTAssertEqual(hypot(b.ux - a.ux, b.uy - a.uy), 0, accuracy: 1e-6)
+    }
+
     func testPinchOutBouncesToMin() {
         let app = launch()
         scroller(app).pinch(withScale: 2, velocity: 1)
