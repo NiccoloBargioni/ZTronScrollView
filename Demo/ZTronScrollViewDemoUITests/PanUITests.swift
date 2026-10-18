@@ -133,6 +133,9 @@ final class PanUITests: XCTestCase {
         XCTAssertTrue((app.staticTexts["stateInfo"].value as? String ?? "").contains("y=0"), "slider drag did not scroll")
         app.buttons["ctl.button"].tap()
         XCTAssertTrue(app.buttons["Taps: 1"].exists)
+        let field = app.textFields["ctl.text"]
+        field.tap()
+        field.typeText("a"); XCTAssertEqual(field.value as? String, "a", "text field takes input")
     }
 
     func testVerticalDragOnSliderScrolls() {

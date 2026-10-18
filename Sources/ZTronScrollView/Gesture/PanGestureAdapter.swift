@@ -26,6 +26,9 @@ struct PanGestureAdapter: ViewModifier {
     @Environment(\.ztronVerticalBounce) private var bounceY
     @Environment(\.displayScale) private var displayScale
     @State private var observer = CatchObserverState()
+    /// Fallback observer gating (iOS < 18): the zero-distance drag steals touches from UIKit-backed controls, so
+    /// it is attached only while the content moves without a finger, or while a touch it saw is still down.
+    @State private var armed = CatchArming()
     @GestureState private var panActive: Bool
 
     init(coordinator: PanCoordinator, axes: Axis.Set) {
@@ -43,11 +46,18 @@ struct PanGestureAdapter: ViewModifier {
         coordinator.settings.bounceX = bounceX.physics
         coordinator.settings.bounceY = bounceY.physics
         coordinator.settings.displayScale = displayScale
-        let send: @MainActor (PanEvent) -> Void = { [coordinator] in coordinator.handle($0) }
+        let arming = armed
+        let send: @MainActor (PanEvent) -> Void = { [coordinator] event in
+            coordinator.handle(event)
+            if case .touchesEnded = event { arming.touchEnded() }
+        }
+        let gated = !CatchObserver.usesSpatial
         return content
             .modifier(NativeEnabledBridge(coordinator: coordinator))
             .modifier(ArbitrationRegistration(coordinator: coordinator))
-            .modifier(GestureAttach(mode: mode, pan: pan(send: send), observer: observerGestureBox(send: send)))
+            .modifier(GatedGestureAttach(mode: mode, pan: pan(send: send), observer: observerGestureBox(send: send),
+                                         arming: arming, gated: gated))
+            .modifier(CatchArmingProbe(state: gated ? coordinator.state : nil, arming: arming, observer: observer))
     }
 
     private func pan(send: @escaping @MainActor (PanEvent) -> Void) -> some Gesture {
@@ -87,6 +97,7 @@ struct GestureAttach<P: Gesture>: ViewModifier {
     let mode: PanGestureMode
     let pan: P
     let observer: AnyGesture<Void>
+    var observerEnabled = true
 
     @ViewBuilder
     func body(content: Content) -> some View {
@@ -104,7 +115,8 @@ struct GestureAttach<P: Gesture>: ViewModifier {
         } else {
             switch mode {
             case .simultaneous:
-                content.simultaneousGesture(observer).simultaneousGesture(pan)
+                content.simultaneousGesture(observer, including: observerEnabled ? .all : .subviews)
+                    .simultaneousGesture(pan)
             case .gesture:
                 content.gesture(observer.simultaneously(with: pan))
             case .high:
@@ -127,5 +139,60 @@ struct NativeEnabledBridge: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+/// Arming state of the fallback catch observer (iOS < 18); publishes only when `isArmed` flips.
+final class CatchArming: ObservableObject, @unchecked Sendable {
+    private(set) var isArmed = false
+    private var moving = false
+
+    /// The content starts or stops moving without a finger. Disarming is deferred while a touch is down.
+    func setMoving(_ value: Bool, observerDown: Bool) {
+        moving = value
+        update(observerDown: observerDown)
+    }
+
+    func touchEnded() { update(observerDown: false) }
+
+    private func update(observerDown: Bool) {
+        let next = moving || observerDown
+        guard next != isArmed else { return }
+        objectWillChange.send()
+        isArmed = next
+    }
+}
+
+/// Feeds `CatchArming` from the phase channel without waking the content.
+struct CatchArmingProbe: ViewModifier {
+    let state: ZTronScrollState?
+    @ObservedObject var arming: CatchArming
+    let observer: CatchObserverState
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let state {
+            content.background(ReaderProbe(state: state, transform: { g in
+                g.phase == .decelerating || g.phase == .animating
+            }, update: { moving in
+                arming.setMoving(moving, observerDown: observer.down)
+            }))
+        } else {
+            content
+        }
+    }
+}
+
+/// Observes `CatchArming` so only this modifier (never the content) re-evaluates when the observer is armed/disarmed.
+struct GatedGestureAttach<P: Gesture>: ViewModifier {
+    let mode: PanGestureMode
+    let pan: P
+    let observer: AnyGesture<Void>
+    @ObservedObject var arming: CatchArming
+    let gated: Bool
+
+    func body(content: Content) -> some View {
+        content.modifier(GestureAttach(mode: mode, pan: pan, observer: observer,
+                                       observerEnabled: !gated || arming.isArmed))
     }
 }
