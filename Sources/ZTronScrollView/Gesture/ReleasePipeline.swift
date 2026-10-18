@@ -56,7 +56,7 @@ struct ReleaseSettings: Equatable {
 }
 
 extension ZTronScrollState {
-    /// Lift: runs the whole release (design §5). Delegate order: didScroll (pending) -> willEndDragging ->
+    /// Lift: runs the whole release (design §5). `tracker` holds finger locations (offset velocity = -finger velocity). Delegate order: didScroll (pending) -> willEndDragging ->
     /// didEndDragging(willDecelerate:) -> [willBeginDecelerating, clock...]. Returns the motions it started.
     @discardableResult
     func endDrag(_ r: ReleaseRequest, tracker: PointVelocityTracker, env: PanEnvironment,
@@ -65,7 +65,8 @@ extension ZTronScrollState {
         let lift = r.liftTime.isFinite ? r.liftTime : now()
         func axisVelocity(_ t: VelocityTracker, fallback: CGFloat?, caught: CGFloat, enabled: Bool) -> CGFloat {
             guard enabled, !r.zeroVelocity else { return 0 }
-            let v = ReleasePipeline.velocity(tracker: t, liftTime: lift, fallback: fallback)
+            // The tracker and DragGesture speak finger motion; content offset moves the opposite way.
+            let v = -ReleasePipeline.velocity(tracker: t, liftTime: lift, fallback: fallback)
             return ReleasePipeline.accelerated(v, caughtVelocity: caught, caughtAt: r.caughtAt, liftTime: lift, settings.fling)
         }
         let enabledX = env.isScrollEnabled && env.axes.contains(.horizontal) && (r.lock == nil || r.lock == .horizontal)
