@@ -91,7 +91,7 @@ struct ProofScreen: View {
     private var counters: some View {
         VStack(spacing: 0) {
             ForEach(Self.keys, id: \.self) { key in
-                CounterRow(key: key, value: snapshot[key] ?? -1)
+                CounterRow(key: key, value: snapshot[key] ?? 0)
             }
         }
     }
