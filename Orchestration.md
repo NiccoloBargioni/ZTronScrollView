@@ -28,7 +28,9 @@ Last updated: 2026-10-18 · Status: **M0 done · MC package + spike done (freeze
 | M3 (b) adapter + demo | partial | coordinator/adapter/observer/env/gate/demo in; 27.0 simultaneous UI 6/7 (catch test open); 17.5 + forced not run · `docs/progress/M3-s2.md` |
 | M3 (c) arbitration | partial | unit done (docs/progress/M3-s3.md); demo pager + UI test todo |
 | M4 design | done | `docs/design/M4-zoom.md` (PinchSession, limits, bounce, centroid per OS, tests, a/b split; resolutions at the end) |
-| M4 build … M10 | todo | |
+| M4 (a) zoom state + PinchSession | done | `Gesture/PinchSession.swift`, state zoom API, coordinator pinch, `PanSession.rebase` · 118 unit tests green (27.0 + 17.5, both paths), demo proof 6/6 · handoff `docs/progress/M4-s1.md` |
+| M4 (b) adapter + demo + UI tests | todo | |
+| M5 … M10 | todo | |
 
 Commits: `1aa3321` M0 · `21ae371` MC package + M1.
 

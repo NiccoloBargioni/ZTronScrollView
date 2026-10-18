@@ -75,6 +75,7 @@ struct ProofScreen: View {
 
     private var scroller: some View {
         ZTronScrollView(.vertical, state: state) { ProofContent() }
+                .zoomRange(min: .absolute(1), max: .absolute(4))
             .frame(height: 280)
             .border(Color.gray)
     }
