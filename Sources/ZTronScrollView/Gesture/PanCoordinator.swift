@@ -61,10 +61,25 @@ final class PanCoordinator: ObservableObject {
         env.isMovingWithoutFinger = (state.phase == .decelerating || state.phase == .animating) && !state.isTracking
         env.interruptedVelocity = state.lastInterruptedVelocity
         env.hasArbiter = false
+        #if DEBUG
+        if env.isMovingWithoutFinger { ZTronRenderCounters.increment("pan.movingAtEvent") }
+        #endif
         return env
     }
 
     func handle(_ event: PanEvent) {
+        #if DEBUG
+        let name: String
+        switch event {
+        case .touchDown: name = "down"
+        case .dragChanged: name = "drag"
+        case .dragEnded: name = "dragEnd"
+        case .touchesEnded: name = "up"
+        case .frame: name = "frame"
+        case .cancelled: name = "cancel"
+        }
+        ZTronRenderCounters.increment("pan.ev.\(name)")
+        #endif
         // New sequence: forget the previous finger samples.
         switch (session.phase, event) {
         case (.idle, .touchDown), (.idle, .dragChanged), (.released, .touchDown): tracker.reset()
@@ -94,7 +109,11 @@ final class PanCoordinator: ObservableObject {
             effectsLog.append(fx)
             #endif
             switch fx {
-            case .catchMotion: state.interrupt(); state.catchLocksContent = true
+            case .catchMotion:
+                #if DEBUG
+                ZTronRenderCounters.increment("pan.catch")
+                #endif
+                state.interrupt(); state.catchLocksContent = true
             case .beginTracking: state.beginTracking()
             case .beginDragging:
                 // willBeginDragging (and the hit-test gate) wait for the first real movement: a drag that moves

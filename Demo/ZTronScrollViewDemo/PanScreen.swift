@@ -44,7 +44,7 @@ struct PanContent: View {
 }
 
 struct PanScreen: View {
-    private static let keys = ["content.body", "didScroll", "button.fired", "clock.tick"]
+    private static let keys = ["content.body", "didScroll", "button.fired", "clock.tick", "pan.catch", "pan.movingAtEvent", "pan.ev.down", "pan.ev.up", "pan.ev.dragEnd"]
     @State private var state = ZTronScrollState()
     @State private var probe = PanProbe()
     @State private var snapshot: [String: Int] = [:]

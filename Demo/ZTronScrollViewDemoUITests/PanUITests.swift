@@ -23,7 +23,7 @@ final class PanUITests: XCTestCase {
         app.buttons["Snapshot"].tap()
         Thread.sleep(forTimeInterval: 0.4)
         var out: [String: Int] = [:]
-        for k in ["content.body", "didScroll", "button.fired", "clock.tick"] {
+        for k in ["content.body", "didScroll", "button.fired", "clock.tick", "pan.catch", "pan.movingAtEvent", "pan.ev.down", "pan.ev.up", "pan.ev.dragEnd"] {
             out[k] = Int(app.staticTexts["counter.\(k)"].value as? String ?? "") ?? -2
         }
         let s = app.staticTexts["stateInfo"].value as? String ?? ""
@@ -36,16 +36,21 @@ final class PanUITests: XCTestCase {
 
     private func scroller(_ app: XCUIApplication) -> XCUIElement { app.otherElements["scroller"] }
 
-    private func fling(_ app: XCUIApplication) {
-        let sc = scroller(app)
-        let a = sc.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85))
-        let b = sc.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15))
+    /// Window-relative coordinate inside the scroller (cheap to resolve: no element snapshot at tap time).
+    private func point(_ app: XCUIApplication, frame: CGRect, _ nx: CGFloat, _ ny: CGFloat) -> XCUICoordinate {
+        app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: frame.minX + frame.width * nx, dy: frame.minY + frame.height * ny))
+    }
+
+    private func fling(_ app: XCUIApplication, frame: CGRect) {
+        let a = point(app, frame: frame, 0.5, 0.85)
+        let b = point(app, frame: frame, 0.5, 0.15)
         a.press(forDuration: 0.05, thenDragTo: b, withVelocity: .fast, thenHoldForDuration: 0)
     }
 
     func testFlingThenRest() {
         let app = launch("pan"); reset(app)
-        fling(app)
+        fling(app, frame: scroller(app).frame)
         Thread.sleep(forTimeInterval: 4)
         let i = info(app)
         XCTAssertEqual(i.phase, "0")
@@ -73,9 +78,13 @@ final class PanUITests: XCTestCase {
 
     func testCatchDuringDecelerationDoesNotFireButton() {
         let app = launch("pan"); reset(app)
-        fling(app)
-        Thread.sleep(forTimeInterval: 0.35)
-        scroller(app).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let frame = scroller(app).frame
+        let tapPoint = point(app, frame: frame, 0.5, 0.5)
+        let t0 = Date()
+        fling(app, frame: frame)
+        let t1 = Date()
+        tapPoint.tap()
+        print("PAN timing fling=\(t1.timeIntervalSince(t0)) tap=\(Date().timeIntervalSince(t1))")
         Thread.sleep(forTimeInterval: 0.5)
         let i = info(app)
         let j = info(app)
@@ -83,6 +92,7 @@ final class PanUITests: XCTestCase {
         let k = info(app)
         XCTAssertEqual(i.counters["button.fired"], 0, "catching tap must not fire a button")
         XCTAssertEqual(j.y, k.y, "motion stopped")
+        XCTAssertLessThan(k.y, 440, "the catch stopped the fling early")
         XCTAssertEqual(k.phase, "0")
         XCTAssertEqual(k.counters["content.body"], 0)
     }
