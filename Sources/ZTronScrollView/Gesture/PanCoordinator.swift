@@ -48,6 +48,7 @@ final class PanCoordinator: ObservableObject {
         } else {
             pinch.centroidSource = .dragOnly
         }
+        state.onZoomBounceSettled = { [weak self] in self?.rebaseAfterBounce() }
     }
 
     /// Solver geometry shared by the pan bounds and the pinch.
@@ -224,6 +225,13 @@ final class PanCoordinator: ObservableObject {
         synthesizedPanStart = keep
     }
 
+    /// The zoom bounce moved the offset while pan writes were dropped: a still-dragging pan continues from here.
+    private func rebaseAfterBounce() {
+        guard case .dragging = session.phase else { return }
+        session.rebase(presentation: state.peek.presentationOffset, translation: lastPanTranslation,
+                       env: environment())
+    }
+
     private func applyPinch(_ effects: [PinchEffect], env: PinchEnvironment, event: PinchEvent) {
         for fx in effects {
             #if DEBUG
@@ -242,7 +250,7 @@ final class PanCoordinator: ObservableObject {
             case let .setZoom(scale, offset):
                 state.writePinch(scale: scale, offset: offset)
             case let .bounce(req):
-                let time = req.time.isFinite ? req.time : state.now()
+                let time = state.now()   // D14: event times are on another clock
                 let m = ZoomSolver.bounceBack(from: req.scale, limits: env.limits, lastCentroid: req.lastCentroid,
                                               offset: req.offset, geometry: env.geometry, at: time)
                 state.beginZoomBounce(m, at: time)

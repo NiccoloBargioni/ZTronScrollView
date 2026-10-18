@@ -66,6 +66,8 @@ public final class ZTronScrollState {
     private var didScrollPending = false
     private var didZoomPending = false
     private var pendingEndZoomScale: CGFloat?
+    /// The zoom bounce settled; the coordinator rebases a still-running pan onto the settled offset.
+    var onZoomBounceSettled: (() -> Void)?
     /// `beginZooming()` ran but no scale change was written yet (willBeginZooming is deferred to the first change).
     private var willBeginZoomingPending = false
     private var didBeginZooming = false
@@ -286,6 +288,7 @@ public final class ZTronScrollState {
                 if didBeginZooming { pendingEndZoomScale = sample.scale }
                 didBeginZooming = false
                 willBeginZoomingPending = false
+                onZoomBounceSettled?()
             }
             return
         }

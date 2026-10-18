@@ -20,6 +20,7 @@ enum PanGestureMode: String {
 struct PanGestureAdapter: ViewModifier {
     @ObservedObject var coordinator: PanCoordinator
     let axes: Axis.Set
+    var doubleTap: DoubleTapZoom?
     let mode = PanGestureMode.current
     @Environment(\.ztronScrollIsEnabled) private var ownEnabled
     @Environment(\.ztronHorizontalBounce) private var bounceX
@@ -31,9 +32,10 @@ struct PanGestureAdapter: ViewModifier {
     @State private var armed = CatchArming()
     @GestureState private var panActive: Bool
 
-    init(coordinator: PanCoordinator, axes: Axis.Set) {
+    init(coordinator: PanCoordinator, axes: Axis.Set, doubleTap: DoubleTapZoom? = nil) {
         self.coordinator = coordinator
         self.axes = axes
+        self.doubleTap = doubleTap
         // The reset runs when SwiftUI ends or cancels the pan; a cancelled one never calls onEnded.
         _panActive = GestureState(wrappedValue: false, reset: { [weak coordinator] _, _ in
             DispatchQueue.main.async { MainActor.assumeIsolated { coordinator?.cancelIfActive() } }
@@ -52,11 +54,15 @@ struct PanGestureAdapter: ViewModifier {
             if case .touchesEnded = event { arming.touchEnded() }
         }
         let gated = !CatchObserver.usesSpatial
+        let obs = observer
+        let tap = doubleTap.map { PinchGestureAdapter.doubleTap(coordinator: coordinator, observer: obs, config: $0) }
         return content
             .modifier(NativeEnabledBridge(coordinator: coordinator))
             .modifier(ArbitrationRegistration(coordinator: coordinator))
             .modifier(GatedGestureAttach(mode: mode, pan: pan(send: send), observer: observerGestureBox(send: send),
                                          arming: arming, gated: gated))
+            .modifier(PinchGestureAttach(pinch: PinchGestureAdapter.gesture(coordinator: coordinator, observer: observer),
+                                         doubleTap: tap))
             .modifier(CatchArmingProbe(state: gated ? coordinator.state : nil, arming: arming, observer: observer))
     }
 
@@ -65,12 +71,18 @@ struct PanGestureAdapter: ViewModifier {
             .updating($panActive) { _, active, _ in active = true }
             .onChanged { v in
                 MainActor.assumeIsolated {
+                    observer.panStart = v.startLocation
                     send(.dragChanged(translation: v.translation, startLocation: v.startLocation,
                                       time: v.time.timeIntervalSinceReferenceDate))
+                    // 15-17 centroid estimate follows the drag (spatial events carry the true centroid on 18+).
+                    if !CatchObserver.usesSpatial, PinchGestureAdapter.dragFollow, coordinator.isPinching {
+                        coordinator.handlePinch(.panTranslation(v.translation, time: v.time.timeIntervalSinceReferenceDate))
+                    }
                 }
             }
             .onEnded { v in
                 MainActor.assumeIsolated {
+                    observer.panStart = nil
                     send(.dragEnded(translation: v.translation, time: v.time.timeIntervalSinceReferenceDate,
                                     fallbackVelocity: Self.velocity(v)))
                 }
@@ -86,7 +98,11 @@ struct PanGestureAdapter: ViewModifier {
         let obs = observer
         if #available(iOS 18, *), CatchObserver.usesSpatial {
             let now: @Sendable () -> TimeInterval = { Date().timeIntervalSinceReferenceDate }
-            return AnyGesture(SpatialCatchGesture.gesture(observer: obs, send: send, now: now).map { _ in () })
+            let c = coordinator
+            return AnyGesture(SpatialCatchGesture.gesture(
+                observer: obs, send: send,
+                pinch: { c.handlePinch($0) },
+                synthesize: { c.synthesizePan(location: $0, time: $1) }, now: now).map { _ in () })
         }
         return AnyGesture(DragCatchGesture.gesture(observer: obs, send: send).map { _ in () })
     }

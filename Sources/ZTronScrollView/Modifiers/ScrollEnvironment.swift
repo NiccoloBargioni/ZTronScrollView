@@ -19,7 +19,21 @@ private struct ScrollEnabledKey: EnvironmentKey { static let defaultValue = true
 private struct BounceXKey: EnvironmentKey { static let defaultValue = ZTronScrollBounceBehavior.automatic }
 private struct BounceYKey: EnvironmentKey { static let defaultValue = ZTronScrollBounceBehavior.automatic }
 
+struct DoubleTapZoom: Equatable {
+    var scale: ZTronZoomScale?
+}
+private struct DoubleTapKey: EnvironmentKey { static let defaultValue: DoubleTapZoom? = nil }
+private struct ZoomLimitsKey: EnvironmentKey { static let defaultValue: ZoomLimits? = nil }
+
 extension EnvironmentValues {
+    var ztronDoubleTapZoom: DoubleTapZoom? {
+        get { self[DoubleTapKey.self] }
+        set { self[DoubleTapKey.self] = newValue }
+    }
+    var ztronZoomLimits: ZoomLimits? {
+        get { self[ZoomLimitsKey.self] }
+        set { self[ZoomLimitsKey.self] = newValue }
+    }
     var ztronScrollIsEnabled: Bool {
         get { self[ScrollEnabledKey.self] }
         set { self[ScrollEnabledKey.self] = newValue }
@@ -34,7 +48,27 @@ extension EnvironmentValues {
     }
 }
 
+extension ZTronZoomScale {
+    var bound: ZoomBound {
+        switch self {
+        case let .absolute(v): return .absolute(v)
+        case .fit: return .fit
+        case .fill: return .fill
+        }
+    }
+}
+
 extension View {
+    /// Environment twin of `ZTronScrollView.zoomRange(min:max:)` (the member wins when both are set).
+    public func ztronScrollZoomRange(min: ZTronZoomScale, max: ZTronZoomScale) -> some View {
+        environment(\.ztronZoomLimits, ZoomLimits(min: min.bound, max: max.bound))
+    }
+
+    /// Environment twin of `ZTronScrollView.doubleTapToZoom(_:scale:)`.
+    public func ztronScrollDoubleTapToZoom(_ enabled: Bool = true, scale: ZTronZoomScale? = nil) -> some View {
+        environment(\.ztronDoubleTapZoom, enabled ? DoubleTapZoom(scale: scale) : nil)
+    }
+
     /// `scrollDisabled(_:)` for ZTronScrollView on iOS 15+: writes our key and, when available, SwiftUI's.
     @ViewBuilder
     public func ztronScrollDisabled(_ disabled: Bool) -> some View {

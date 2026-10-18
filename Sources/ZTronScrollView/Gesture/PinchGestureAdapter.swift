@@ -1,0 +1,111 @@
+import SwiftUI
+import ScrollArbitration
+import ZTronScrollPhysics
+
+/// Thin SwiftUI layer for the pinch (design M4 §5): MagnifyGesture (17+) / MagnificationGesture (15-16) become
+/// `PinchEvent`s for the coordinator. Pinches never ask the arbiter. No logic here.
+enum PinchGestureAdapter {
+    /// DEBUG launch argument `-ZTronPinchCentroid startOnly|dragFollow` (iOS 15-17 estimate comparison, M4-s2).
+    static var dragFollow: Bool {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-ZTronPinchCentroid"), i + 1 < args.count { return args[i + 1] != "startOnly" }
+        #endif
+        return true
+    }
+
+    @MainActor
+    static func gesture(coordinator: PanCoordinator, observer: CatchObserverState) -> AnyGesture<Void> {
+        let spatial = CatchObserver.usesSpatial
+        let began = Began()
+        let onChange: @MainActor (CGFloat, CGPoint?) -> Void = { [coordinator] magnification, start in
+            let now = Date().timeIntervalSinceReferenceDate
+            if !began.value {
+                began.value = true
+                let c: CGPoint? = spatial ? observer.centroid : (start ?? observer.panStart)
+                coordinator.handlePinch(.began(centroid: c, time: now))
+            }
+            coordinator.handlePinch(.changed(magnification: magnification, centroid: spatial ? observer.centroid : nil,
+                                             time: now))
+        }
+        let onEnd: @MainActor () -> Void = { [coordinator] in
+            began.value = false
+            coordinator.handlePinch(.ended(time: Date().timeIntervalSinceReferenceDate))
+        }
+        if #available(iOS 17, *), ZTronAvailability.isAvailable(.magnifyGesture) {
+            return AnyGesture(MagnifyGesture()
+                .onChanged { v in MainActor.assumeIsolated { onChange(v.magnification, v.startLocation) } }
+                .onEnded { _ in MainActor.assumeIsolated { onEnd() } }
+                .map { _ in () })
+        }
+        return AnyGesture(MagnificationGesture()
+            .onChanged { m in MainActor.assumeIsolated { onChange(m, nil) } }
+            .onEnded { _ in MainActor.assumeIsolated { onEnd() } }
+            .map { _ in () })
+    }
+
+    final class Began: @unchecked Sendable { var value = false }
+
+    /// Opt-in double tap; the location comes from SpatialTapGesture (16+), else the last touch-down.
+    @MainActor
+    static func doubleTap(coordinator: PanCoordinator, observer: CatchObserverState, config: DoubleTapZoom)
+        -> AnyGesture<Void> {
+        if #available(iOS 16, *) {
+            return AnyGesture(SpatialTapGesture(count: 2, coordinateSpace: .local)
+                .onEnded { v in MainActor.assumeIsolated { coordinator.doubleTap(at: v.location, scale: config.scale) } }
+                .map { _ in () })
+        }
+        return AnyGesture(TapGesture(count: 2)
+            .onEnded { MainActor.assumeIsolated {
+                coordinator.doubleTap(at: observer.panStart ?? coordinator.state.makeZoomGeometry().visibleCenter,
+                                      scale: config.scale)
+            } }
+            .map { _ in () })
+    }
+}
+
+/// Attaches the pinch (and the optional double tap) next to the pan; always simultaneous so pan and pinch compose.
+struct PinchGestureAttach: ViewModifier {
+    let pinch: AnyGesture<Void>
+    let doubleTap: AnyGesture<Void>?
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 18, *) {
+            let n = scrollArbitrationGestureName
+            if let doubleTap {
+                content.simultaneousGesture(pinch, name: n).simultaneousGesture(doubleTap, name: n)
+            } else {
+                content.simultaneousGesture(pinch, name: n)
+            }
+        } else {
+            if let doubleTap {
+                content.simultaneousGesture(pinch).simultaneousGesture(doubleTap)
+            } else {
+                content.simultaneousGesture(pinch)
+            }
+        }
+    }
+}
+
+extension PanCoordinator {
+    /// Double tap: from the minimum scale zoom to `scale` (default maximum) around the tap, else back to the minimum.
+    func doubleTap(at location: CGPoint, scale: ZTronZoomScale?) {
+        let min = state.minimumZoomScale, max = state.maximumZoomScale
+        guard state.isZoomEnabled, !isPinching else { return }
+        let current = state.zoomScale
+        if abs(current - min) <= 0.01 * min {
+            var target = max
+            if case let .absolute(v)? = scale { target = Swift.min(Swift.max(v, min), max) }
+            guard target > 0 else { return }
+            let s = state.peek
+            let g = makeZoomGeometry()
+            let u = ZoomSolver.contentPoint(under: location, offset: s.presentationOffset, scale: current, geometry: g)
+            let size = CGSize(width: s.metrics.viewportSize.width / target, height: s.metrics.viewportSize.height / target)
+            state.zoom(to: CGRect(x: u.x - size.width / 2, y: u.y - size.height / 2, width: size.width, height: size.height),
+                       animated: true)
+        } else {
+            state.setZoomScale(min, animated: true)
+        }
+    }
+}

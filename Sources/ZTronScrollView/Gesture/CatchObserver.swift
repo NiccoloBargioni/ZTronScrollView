@@ -5,6 +5,10 @@ import SwiftUI
 final class CatchObserverState: @unchecked Sendable {   // touched on the main thread only
     var activeCount = 0
     var down = false
+    /// Mean of the active touches (18+), local coordinates.
+    var centroid: CGPoint?
+    /// Start location of the live pan (15-17 centroid base, double-tap fallback).
+    var panStart: CGPoint?
 }
 
 enum CatchObserver {
@@ -40,18 +44,33 @@ enum DragCatchGesture {
 enum SpatialCatchGesture {
     @MainActor
     static func gesture(observer: CatchObserverState, send: @escaping @MainActor (PanEvent) -> Void,
+                        pinch: @escaping @MainActor (PinchEvent) -> Void = { _ in },
+                        synthesize: @escaping @MainActor (CGPoint, TimeInterval) -> Void = { _, _ in },
                         now: @escaping @Sendable () -> TimeInterval) -> some Gesture {
         SpatialEventGesture(coordinateSpace: .local)
             .onChanged { events in
                 let active = events.filter { $0.phase == .active }.map(\.location)
                 MainActor.assumeIsolated {
                     let wasDown = observer.down
+                    let previous = observer.activeCount
                     observer.activeCount = active.count
+                    if !active.isEmpty {
+                        let n = CGFloat(active.count)
+                        observer.centroid = CGPoint(x: active.map(\.x).reduce(0, +) / n, y: active.map(\.y).reduce(0, +) / n)
+                    }
+                    if active.count != previous {
+                        pinch(.fingerCountChanged(count: active.count, remaining: observer.centroid, time: now()))
+                    } else if active.count >= 2 {
+                        pinch(.fingerCountChanged(count: active.count, remaining: observer.centroid, time: now()))
+                    } else if active.count == 1, let c = observer.centroid {
+                        synthesize(c, now())
+                    }
                     if !wasDown, let first = active.first {
                         observer.down = true
                         send(.touchDown(location: first, time: now(), touchCount: active.count))
                     } else if wasDown, active.isEmpty {
                         observer.down = false
+                        observer.centroid = nil
                         send(.touchesEnded(time: now()))
                     }
                 }
@@ -61,6 +80,7 @@ enum SpatialCatchGesture {
                     guard observer.down else { return }
                     observer.down = false
                     observer.activeCount = 0
+                    observer.centroid = nil
                     send(.touchesEnded(time: now()))
                 }
             }

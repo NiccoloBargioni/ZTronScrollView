@@ -8,7 +8,8 @@ public struct ZTronScrollView<Content: View>: View {
     private let showsIndicators: Bool
     private let externalState: ZTronScrollState?
     private let content: Content
-    private var zoomLimits = ZoomLimits()
+    private var zoomLimits: ZoomLimits?
+    private var doubleTap: DoubleTapZoom?
     @StateObject private var holder = StateHolder()
 
     public init(_ axes: Axis.Set = .vertical, showsIndicators: Bool = true, @ViewBuilder content: () -> Content) {
@@ -27,7 +28,7 @@ public struct ZTronScrollView<Content: View>: View {
 
     public var body: some View {
         let state = externalState ?? holder.state
-        return ScrollContainer(axes: axes, state: state, content: content, zoomLimits: zoomLimits)
+        return ScrollContainer(axes: axes, state: state, content: content, zoomLimits: zoomLimits, doubleTap: doubleTap)
             .environment(\.ztronScrollState, state)
     }
 }
@@ -36,15 +37,15 @@ extension ZTronScrollView {
     /// Zoom limits, absolute or relative to the content's fit / fill scale (recomputed on resize). Zooming is enabled
     /// iff max > min; the default is 1...1, as in UIKit.
     public func zoomRange(min: ZTronZoomScale, max: ZTronZoomScale) -> Self {
-        func bound(_ z: ZTronZoomScale) -> ZoomBound {
-            switch z {
-            case let .absolute(v): return .absolute(v)
-            case .fit: return .fit
-            case .fill: return .fill
-            }
-        }
         var copy = self
-        copy.zoomLimits = ZoomLimits(min: bound(min), max: bound(max))
+        copy.zoomLimits = ZoomLimits(min: min.bound, max: max.bound)
+        return copy
+    }
+
+    /// Double tap toggles between the minimum scale and `scale` (default: the maximum), around the tap. Off by default.
+    public func doubleTapToZoom(_ enabled: Bool = true, scale: ZTronZoomScale? = nil) -> Self {
+        var copy = self
+        copy.doubleTap = enabled ? DoubleTapZoom(scale: scale) : nil
         return copy
     }
 }
@@ -60,16 +61,23 @@ struct ScrollContainer<Content: View>: View {
     let axes: Axis.Set
     let state: ZTronScrollState
     let content: Content
-    let zoomLimits: ZoomLimits
+    let zoomLimits: ZoomLimits?
+    let doubleTap: DoubleTapZoom?
+    @Environment(\.ztronZoomLimits) private var envLimits
+    @Environment(\.ztronDoubleTapZoom) private var envDoubleTap
     @StateObject private var coordinator: PanCoordinator
 
-    init(axes: Axis.Set, state: ZTronScrollState, content: Content, zoomLimits: ZoomLimits = ZoomLimits()) {
+    init(axes: Axis.Set, state: ZTronScrollState, content: Content, zoomLimits: ZoomLimits? = nil,
+         doubleTap: DoubleTapZoom? = nil) {
         self.zoomLimits = zoomLimits
+        self.doubleTap = doubleTap
         self.axes = axes
         self.state = state
         self.content = content
         _coordinator = StateObject(wrappedValue: PanCoordinator(state: state, axes: axes))
     }
+
+    private var effectiveLimits: ZoomLimits { zoomLimits ?? envLimits ?? ZoomLimits() }
 
     var body: some View {
         content
@@ -82,8 +90,8 @@ struct ScrollContainer<Content: View>: View {
             .background(FrameClockDriver(state: state))
             .clipped()
             .contentShape(Rectangle())
-            .modifier(PanGestureAdapter(coordinator: coordinator, axes: axes))
-            .onAppear { state.zoomLimits = zoomLimits }
-            .onChangeCompat(of: zoomLimits) { state.zoomLimits = $0 }
+            .modifier(PanGestureAdapter(coordinator: coordinator, axes: axes, doubleTap: doubleTap ?? envDoubleTap))
+            .onAppear { state.zoomLimits = effectiveLimits }
+            .onChangeCompat(of: effectiveLimits) { state.zoomLimits = $0 }
     }
 }
