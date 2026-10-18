@@ -19,12 +19,14 @@ final class ProofUITests: XCTestCase {
 
     private func snapshot(_ app: XCUIApplication) -> [String: Int] {
         app.buttons["Snapshot"].tap()
+        Thread.sleep(forTimeInterval: 0.5)
         var out: [String: Int] = [:]
         for key in ["content.body", "transformHost.body", "transform.effect", "clock.tick", "didScroll",
                     "reader.zoom", "reader.offset"] {
             let v = app.staticTexts["counter.\(key)"].value as? String ?? "?"
             out[key] = Int(v) ?? -2
         }
+        print("STATE \(app.staticTexts["stateInfo"].value as? String ?? "?")")
         print("COUNTERS \(forced ? "forced" : "preferred") \(out.sorted { $0.key < $1.key })")
         return out
     }

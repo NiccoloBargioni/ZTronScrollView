@@ -28,9 +28,11 @@ struct ContentLayoutHost: ViewModifier {
         if useLayout, #available(iOS 16, *) {
             ScrollContentLayout(axes: axes) { content }
         } else {
-            content
-                .fixedSize(horizontal: axes.contains(.horizontal), vertical: axes.contains(.vertical))
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            // The host takes the parent's proposal; the content overflows it from the top-leading corner. (A flexible
+            // frame around the fixed-size content would adopt the overflowing size and get centered by the parent.)
+            Color.clear.overlay(alignment: .topLeading) {
+                content.fixedSize(horizontal: axes.contains(.horizontal), vertical: axes.contains(.vertical))
+            }
         }
     }
 }

@@ -38,6 +38,7 @@ struct ProofScreen: View {
                                "reader.zoom", "reader.offset"]
     @State private var state = ZTronScrollState()
     @State private var snapshot: [String: Int] = [:]
+    @State private var stateInfo = ""
 
     private var path: String {
         ZTronAvailability.forcedFallbacks.isEmpty ? "preferred" : "forcedFallback"
@@ -50,6 +51,7 @@ struct ProofScreen: View {
             readers
             Text(path).font(.caption2).accessibilityIdentifier("path").accessibilityValue(path)
             counters
+            Text(stateInfo).font(.caption2).accessibilityIdentifier("stateInfo").accessibilityValue(stateInfo)
         }
         .padding(8)
     }
@@ -124,6 +126,7 @@ extension ProofScreen {
     private func takeSnapshot() {
         #if DEBUG
         snapshot = ZTronRenderCounters.snapshot
+        stateInfo = "phase=\(state.phase.rawValue) anim=\(state.isScrollAnimating) y=\(Int(state.contentOffset.y)) z=\(state.zoomScale)"
         #endif
     }
 }
