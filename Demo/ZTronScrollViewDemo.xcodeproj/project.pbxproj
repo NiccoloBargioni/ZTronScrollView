@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		A10000000000000000000020 /* ZTronScrollView in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000001C /* ZTronScrollView */; };
+		A10000000000000000000021 /* ScrollArbitration in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000001E /* ScrollArbitration */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -44,6 +45,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10000000000000000000020 /* ZTronScrollView in Frameworks */,
+				A10000000000000000000021 /* ScrollArbitration in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -96,6 +98,7 @@
 			name = ZTronScrollViewDemo;
 			packageProductDependencies = (
 				A1000000000000000000001C /* ZTronScrollView */,
+				A1000000000000000000001E /* ScrollArbitration */,
 			);
 			productName = ZTronScrollViewDemo;
 			productReference = A10000000000000000000001 /* ZTronScrollViewDemo.app */;
@@ -154,6 +157,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				A1000000000000000000001B /* XCLocalSwiftPackageReference ".." */,
+				A1000000000000000000001D /* XCLocalSwiftPackageReference "../Packages/ScrollArbitration" */,
 			);
 			productRefGroup = A10000000000000000000006 /* Products */;
 			projectDirPath = "";
@@ -323,12 +327,20 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ..;
 		};
+		A1000000000000000000001D /* XCLocalSwiftPackageReference "../Packages/ScrollArbitration" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../Packages/ScrollArbitration;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		A1000000000000000000001C /* ZTronScrollView */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ZTronScrollView;
+		};
+		A1000000000000000000001E /* ScrollArbitration */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ScrollArbitration;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

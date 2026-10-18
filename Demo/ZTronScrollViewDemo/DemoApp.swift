@@ -21,6 +21,7 @@ struct DemoApp: App {
             switch DemoApp.screenName {
             case "pan": PanScreen()
             case "controls": ControlsScreen()
+            case "pager": PagerScreen()
             default: ProofScreen()
             }
         }
