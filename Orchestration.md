@@ -60,47 +60,32 @@ Commits: `1aa3321` M0 · `21ae371` MC package + M1.
 - D9 `onGeometryChange` capability = iOS 16 only for the `(newValue)` overload; the `(old, new)` overload is iOS 18.
 
 ## Next steps (in order; kickoff prompts are ready to paste)
-1. [x] **M2 design** — done 2026-10-18 (Fable, 61 K tokens = 2% of the Fable bucket, 0 pts all-models). Prompt kept for reference:
+Done so far (details in the State table + handoffs): M2 design (Fable) · MC spike (Sonnet) · M2 (a)(b)(c) (Sonnet;
+M2 render proof green on iOS 27.0 + 17.5, preferred + forced: 0 `content.body` during animated and `withAnimation`
+scrolls, clock idle at rest — counters in `docs/progress/M2-s3.md`).
+The MC spike prompt is in git history (`git show 1faa1f0:Orchestration.md`) if the contract changes and it must re-run.
+
+1. [ ] **M3 design** — Architect (Fable): `docs/design/M3-pan.md` (being written 2026-10-18; check whether it exists
+   and is complete before re-running). Covers the pan state machine, gestures, release pipeline, catch, delegate +
+   phase order, phase reader, pager participant, test list, and a split into builder sessions (a/b/c).
+2. [ ] **M3 build** — Builder (Sonnet + Opus advisor), one session per part listed in M3-pan.md:
    ```
-   Architect session. Write docs/design/M2-render.md (≤3 pages): ZTronScrollState storage (Observation 17+ /
-   one ObservableObject per channel 15–16; hot vs cold separation), target vs presentation, frame clock driver
-   (TimelineView(.animation(paused:)) → step(to:), one-frame-lag check), content layout (Layout 16+ / fixedSize
-   fallback), transform host GeometryEffect + pixel snapping, presentation probe for transaction motion (how it
-   publishes without mutating state during view update), coordinate spaces, ZTronScrollReader, DEBUG render
-   counters, and the Demo app + UI-test target (hand-written objectVersion-77 pbxproj, local package ref) that
-   proves S4's re-render tiers on both OS paths (launch arg forces fallbacks). Include the test list.
-   Read: docs/SPEC.md l.58–157 (S3–S5), l.483–580 (S11), l.619–629 (S13); docs/design/design-note.md;
-   docs/design/M1-physics.md §6. Reply in ≤8 lines.
+   M3 · part (<x>) · Builder
+   Read: docs/design/M3-pan.md (all), the latest docs/progress/M3-s*.md handoff, docs/SPEC.md sections the
+   design names (by line range). Nothing else up front.
+   Do: part (<x>) exactly as M3-pan.md assigns it, with its unit tests on both OS paths
+   (scripts/test.sh -only-testing:ZTronScrollViewTests) and, where the design says so, demo UI tests via
+   scripts/test-demo-ui.sh <dest> [--forced] on iOS 27.0 (id=897F9D8D-B10D-4D91-8E22-417A2B9D70AA) and
+   17.5 (id=7279872B-2799-489C-8D6F-03B4829B6737). Commit at every green state.
+   Done when: part's tests green; handoff docs/progress/M3-s<k>.md; Orchestration.md State row updated.
+   Budget: ~2% weekly per part. 2 failed attempts → advisor once → stop and hand off.
    ```
-2. [x] **MC spike** — done 2026-10-18 (Sonnet builder, 139 K tokens, ~2 pts weekly). Freeze is blocked: see Open items #1.
-   Original prompt (for re-runs, e.g. after a contract change):
-   ```
-   MC · spike · Builder
-   Read: docs/design/MC-contract.md §5–6 only (l.257–373), docs/SPEC.md l.846–873. Nothing else up front.
-   Do: build Packages/ScrollArbitration/Spike/ArbitrationSpike.xcodeproj exactly per §5 (hand-written pbxproj,
-   synchronized groups, local package ref ../..); run scripts/test-spike.sh with
-   SPIKE_DEST='id=B87DE726-E502-4737-B668-3D06AAE1EFA8' (17.5), 'id=886FEBE5-8E75-416D-B17D-C964E4845163' (18.6),
-   'id=106C8DF9-C3EC-43A2-B7EB-BA7BA43CBA25' (26.5), 'id=C937B8D9-6878-4FC1-9C91-0EF7CD081EFA' (27.0);
-   fill §6. A "no" → propose the contract change or the ZTronPages fallback; stop and ask before changing the API.
-   Done when: spike tests ran on 4 OSes, §6 filled, `git tag ScrollArbitration-1.0.0`, committed.
-   Out of scope: library code. Budget ~3% weekly; 2 failed attempts → advisor once → stop and hand off.
-   ```
-3. [ ] **M2 build** — Builder (Sonnet + Opus advisor), 2–3 sessions; Debugger (Opus, high) only if render counts fail:
-   ```
-   M2 · Render path · Builder
-   Read: docs/design/M2-render.md (all), docs/SPEC.md l.83–105 (S4). Nothing else up front.
-   Do (one session each, commit between): (a) §1–2, §8–9 ZTronScrollState + ZTronScrollReader + unit tests §11;
-   (b) §3–7 clock, layout host, transform host, probe, coordinate spaces; (c) §10 Demo project + render-proof
-   screen + UI tests + new scripts/test-demo-ui.sh <destination> [--forced] (filtered, like test.sh).
-   First resolve M2-render.md open questions Q1–Q5 below by taking the doc's proposal unless a test disproves it.
-   Done when: unit tests green on both OS paths; UI proof green on iOS 27.0 + 17.5, preferred + forced.
-   ```
-   M2 open questions (from the architect): Q1 name of the transaction-driven offset setter (proposed
-   `scroll(to: CGPoint)`; clashes conceptually with `proxy.scrollTo(id)`); Q2 `ZTronScrollGeometry` lazy view vs
-   Equatable snapshot struct (spec: mirrors `ScrollGeometry`); Q3 `.transaction{}` + `addAnimationCompletion`
-   catching model-driven `withAnimation` is unverified — 2-frame settle detector stays as safety net everywhere;
-   Q4 `scripts/test-demo-ui.sh` (assumed above); Q5 whether the proof also exercises `ignoredByLayout()`.
-4. [ ] M3 (pan/decay/bounce/delegate/arbitration) … M10 per SPEC O4 (l.970–990).
+3. [ ] M4 zoom (Builder) → M5 rotation/resize (Architect on Fable, one session: design + implement) → M6–M10 per
+   SPEC O4 (l.970–990). Write a Fable design doc before each milestone; it is nearly free on the all-models bucket.
+
+M2 leftovers to fold into M3: public phase reader (then add the skipped `phaseReaderOnTransitionsOnly` UI test);
+confirm iOS 27.0 *preferred* really uses Observation storage (its counters equal the forced path's); fps +
+`clock.lagFrames` not measured yet; offsets not clamped to bounds until M3; `xcodebuild` lingers ~minutes after UI runs.
 
 ## Open items
 1. **DECISION NEEDED (user): spike Q3 = NO on iOS 17.5** (MC-contract.md §6 note E). When the SwiftUI page attaches
@@ -132,6 +117,8 @@ Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (run ≤2 simulators 
 `jq` present; no xcodegen/tuist/gh/tmux.
 
 ## Cost notes (read before choosing how to work)
+- 2026-10-18: Sonnet builders cost ~0–1 pt per M2 part (80–100 K tokens each); MC spike ~2 pts (139 K, long sim runs).
+  Orchestrator polling every 10–15 min was negligible. This is the cheap way to run the rest of the plan.
 - 2026-10-14: one ultracode workflow (11 Opus/Fable agents, 1.64 M subagent tokens, 55 min) built MC + M1 and
   exhausted the weekly limit during its last fix agent. Don't fan out builders: follow SPEC O2 routing (Sonnet
   builds, Fable designs, Opus debugs) and O5 (workflows only for parity/demo batches, small, exemplar first).
@@ -142,4 +129,4 @@ Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (run ≤2 simulators 
 | Date | Session | Work | Weekly % |
 |---|---|---|---|
 | 2026-10-14 | Opus 5.5 ultracode #1 | M0; MC package; M1 (workflow) | → 100% (limit hit) |
-| 2026-10-18 | Opus 5.5 #2 (orchestrator) | recovered MC/M1, M2 design (Fable), MC spike (Sonnet) | 72% → 74% |
+| 2026-10-18 | Opus 5.5 #2 (orchestrator) | recovered MC/M1; M2 design (Fable); MC spike; M2 (a)(b)(c) (Sonnet) | 72% → 75% |
