@@ -76,11 +76,13 @@ struct TransformHost: ViewModifier {
         }
         let pad = ContentGeometry.pad(viewport: metrics.viewportSize, content: metrics.contentSize,
                                       scale: scale, alignment: state.contentAlignment)
-        // Content is not hit-testable while it moves without a finger (a catching touch must not fire a Button).
+        // Content is not hit-testable while it moves without a finger (a catching touch must not fire a Button) or
+        // while a drag is recognized (a Button under the finger is cancelled instead of firing on lift).
         // A leaf modifier change on the placeholder: content bodies are not re-evaluated.
-        let blocked = (storage.phase == .decelerating || storage.phase == .animating) && !storage.isTracking
+        let blocked = (storage.phase == .decelerating || storage.phase == .animating) && !storage.isTracking || storage.isDragging
         return content
             .allowsHitTesting(!blocked)
+            .disabled(blocked)
             .modifier(ContentTransform(offset: offset, scale: scale, pad: pad, probe: state.probe))
             .modifier(CompletionObserver(state: state))
     }

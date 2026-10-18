@@ -20,6 +20,7 @@ final class PanCoordinator: ObservableObject {
     var nativeScrollEnabled = true
     private(set) var session = PanSession()
     private var tracker = PointVelocityTracker()
+    private var pendingBegin = false
     #if DEBUG
     var effectsLog: [PanEffect] = []
     #endif
@@ -93,17 +94,26 @@ final class PanCoordinator: ObservableObject {
             effectsLog.append(fx)
             #endif
             switch fx {
-            case .catchMotion: state.interrupt()
+            case .catchMotion: state.interrupt(); state.catchLocksContent = true
             case .beginTracking: state.beginTracking()
-            case .beginDragging: state.beginDragging()
-            case let .setOffset(p): state.writeDragOffset(p)
+            case .beginDragging:
+                // willBeginDragging (and the hit-test gate) wait for the first real movement: a drag that moves
+                // nothing (a Slider on a vertical-only view) must leave the content interactive.
+                pendingBegin = true
+            case let .setOffset(p):
+                if pendingBegin, hypot(p.x - state.peek.presentationOffset.x, p.y - state.peek.presentationOffset.y) > 0.01 {
+                    pendingBegin = false
+                    state.beginDragging()
+                }
+                state.writeDragOffset(p)
             case let .release(r):
+                if pendingBegin { pendingBegin = false; state.beginDragging() }
                 var release = ReleaseSettings()
                 release.rate = state.decelerationRate == .fast ? .fast : .normal
                 release.isPagingEnabled = state.isPagingEnabled
                 release.displayScale = settings.displayScale
                 state.endDrag(r, tracker: tracker, env: env, settings: release)
-            case .endSequence: state.endTracking()
+            case .endSequence: pendingBegin = false; state.endTracking()
             case .askOwner:
                 // No arbiter yet (part c): we own the gesture.
                 queue.insert(contentsOf: session.decided(.participant, env: env), at: 0)

@@ -10,7 +10,19 @@ struct DemoApp: App {
         }
     }
 
+    static var screenName: String {
+        let a = ProcessInfo.processInfo.arguments
+        if let i = a.firstIndex(of: "-ZTronScreen"), i + 1 < a.count { return a[i + 1] }
+        return "proof"
+    }
+
     var body: some Scene {
-        WindowGroup { ProofScreen() }
+        WindowGroup {
+            switch DemoApp.screenName {
+            case "pan": PanScreen()
+            case "controls": ControlsScreen()
+            default: ProofScreen()
+            }
+        }
     }
 }

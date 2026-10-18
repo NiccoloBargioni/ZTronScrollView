@@ -358,6 +358,10 @@ public final class ZTronScrollState {
     // MARK: Gesture hooks (M3, driven by the pan coordinator)
 
     /// Finger down (after `interrupt()` on a catch): flags, phase `.tracking`, clock keeps flushing `didScroll`.
+    /// A touch caught a moving scroll view: content stays non-hit-testable until that touch ends, so its lift cannot
+    /// fire a Button. Read by `TransformHost`, which re-renders on the phase change that always accompanies it.
+    var catchLocksContent = false
+
     func beginTracking() {
         batch {
             storage.isTracking = true
@@ -377,6 +381,7 @@ public final class ZTronScrollState {
 
     /// Sequence over without a deceleration (tap, ignored sequence, released at rest). No delegate.
     func endTracking() {
+        catchLocksContent = false
         batch {
             storage.isTracking = false
             storage.isDragging = false
@@ -405,6 +410,7 @@ public final class ZTronScrollState {
     /// `willBeginDecelerating`. Settles with a pixel snap, `didEndDecelerating`, phase `.idle`. The target channel is
     /// left alone (it equals the presentation) so the transform host sees one write per tick, never a jump to the end.
     func beginDeceleration(x: AxisMotion, y: AxisMotion, at time: TimeInterval, displayScale: CGFloat? = nil) {
+        catchLocksContent = false
         batch {
             cancelMotion()
             motion = ClockMotion(x: x, y: y, zoom: nil, zoomCenter: .zero, kind: .deceleration,
