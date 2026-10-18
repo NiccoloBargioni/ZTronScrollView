@@ -70,19 +70,31 @@ The MC spike prompt is in git history (`git show 1faa1f0:Orchestration.md`) if t
 
 1. [x] **M3 design** — done: `docs/design/M3-pan.md` (§12 = orchestrator resolutions of its open questions). Covers the pan state machine, gestures, release pipeline, catch, delegate +
    phase order, phase reader, pager participant, test list, and a split into builder sessions (a/b/c).
-2. [ ] **M3 build** — Builder (Sonnet + Opus advisor), one session per part listed in M3-pan.md:
+2. [ ] **M3 (b) finish** — Debugger (`claude --model opus --effort high`, SPEC O2 escalation: gesture flakiness):
    ```
-   M3 · part (<x>) · Builder
-   Read: docs/design/M3-pan.md (all), the latest docs/progress/M3-s*.md handoff, docs/SPEC.md sections the
+   Debug only. Problem: PanUITests.testCatchDuringDecelerationDoesNotFireButton fails on iOS 27.0 (preferred,
+   simultaneous mode): Button fires and the fling isn't stopped; pan.catch = 0 but pan.movingAtEvent = 1.
+   Repro: scripts/test-demo-ui.sh 'id=897F9D8D-B10D-4D91-8E22-417A2B9D70AA' -only-testing:ZTronScrollViewDemoUITests/PanUITests
+   Evidence/tried: docs/progress/M3-s2.md "Open" (read the pan.ev.* counters first; then try the DragGesture(min 0)
+   observer via -ZTronForceAllFallbacks; consider a slower demo fling; XCUI waits for quiescence before taps).
+   Fix the root cause with the smallest patch + keep the test strict. Then run PanUITests on 27.0 --forced and on
+   17.5 (id=7279872B-2799-489C-8D6F-03B4829B6737) both paths; record the working gesture mode per OS in M3-s2.md.
+   Keep ZTronScrollViewTests (90) and the M2 proof (6) green. Reply in ≤10 lines.
+   ```
+3. [ ] **M3 (c) arbitration** — Builder (Sonnet + Opus advisor) with the kickoff template below, part (c) of
+   `docs/design/M3-pan.md` §10 (uses §12 resolutions; arbitration type names are FingerDirection/ScrollOwner/…).
+   Builder kickoff template (any milestone part):
+   ```
+   M<n> · part (<x>) · Builder
+   Read: docs/design/M<n>-*.md (all), the latest docs/progress/M<n>-s*.md handoff, docs/SPEC.md sections the
    design names (by line range). Nothing else up front.
-   Do: part (<x>) exactly as M3-pan.md assigns it, with its unit tests on both OS paths
-   (scripts/test.sh -only-testing:ZTronScrollViewTests) and, where the design says so, demo UI tests via
-   scripts/test-demo-ui.sh <dest> [--forced] on iOS 27.0 (id=897F9D8D-B10D-4D91-8E22-417A2B9D70AA) and
-   17.5 (id=7279872B-2799-489C-8D6F-03B4829B6737). Commit at every green state.
-   Done when: part's tests green; handoff docs/progress/M3-s<k>.md; Orchestration.md State row updated.
-   Budget: ~2% weekly per part. 2 failed attempts → advisor once → stop and hand off.
+   Do: part (<x>) exactly as the design assigns it, with unit tests on both OS paths
+   (scripts/test.sh -only-testing:ZTronScrollViewTests) and demo UI tests via scripts/test-demo-ui.sh <dest> [--forced]
+   on iOS 27.0 (id=897F9D8D-B10D-4D91-8E22-417A2B9D70AA) and 17.5 (id=7279872B-2799-489C-8D6F-03B4829B6737).
+   Commit at every green state. Done when: tests green; handoff docs/progress/M<n>-s<k>.md; Orchestration.md State
+   row updated. Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
    ```
-3. [ ] M4 zoom (Builder) → M5 rotation/resize (Architect on Fable, one session: design + implement) → M6–M10 per
+4. [ ] M4 zoom (Fable design doc first, then Builder) → M5 rotation/resize (Architect on Fable, one session: design + implement) → M6–M10 per
    SPEC O4 (l.970–990). Write a Fable design doc before each milestone; it is nearly free on the all-models bucket.
 
 M2 leftovers to fold into M3: public phase reader (then add the skipped `phaseReaderOnTransitionsOnly` UI test);
@@ -119,7 +131,8 @@ Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (run ≤2 simulators 
 `jq` present; no xcodegen/tuist/gh/tmux.
 
 ## Cost notes (read before choosing how to work)
-- 2026-10-18: Sonnet builders cost ~0–1 pt per M2 part (80–100 K tokens each); MC spike ~2 pts (139 K, long sim runs).
+- 2026-10-18: Sonnet builders cost ~0–1 pt per part (80–140 K tokens each); MC spike ~2 pts (139 K, long sim runs).
+  UI-test debugging is where sessions run long (M3 (b): 99 min) — cap it with the 2-attempt rule, escalate to Debugger.
   Orchestrator polling every 10–15 min was negligible. This is the cheap way to run the rest of the plan.
 - 2026-10-14: one ultracode workflow (11 Opus/Fable agents, 1.64 M subagent tokens, 55 min) built MC + M1 and
   exhausted the weekly limit during its last fix agent. Don't fan out builders: follow SPEC O2 routing (Sonnet
@@ -131,4 +144,4 @@ Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (run ≤2 simulators 
 | Date | Session | Work | Weekly % |
 |---|---|---|---|
 | 2026-10-14 | Opus 5.5 ultracode #1 | M0; MC package; M1 (workflow) | → 100% (limit hit) |
-| 2026-10-18 | Opus 5.5 #2 (orchestrator) | recovered MC/M1; M2 design (Fable); MC spike; M2 (a)(b)(c) (Sonnet) | 72% → 75% |
+| 2026-10-18 | Opus 5.5 #2 (orchestrator) | recovered MC/M1; M2 + M3 designs (Fable); MC spike; M2 (a)(b)(c), M3 (a)(b-partial) (Sonnet) | 72% → 76% |
