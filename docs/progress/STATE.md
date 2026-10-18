@@ -1,13 +1,13 @@
 # STATE
 Status: RUNNING
-Current: M2 design (MC spike + freeze still pending)
+Current: M2 build (MC freeze blocked on a user decision)
 
 | Milestone | Status | Budget % | Used % (my readings) | Notes |
 |---|---|---|---|---|
 | M0 | done | 0–1 | | repo, scripts, hook, agents, CLAUDE.md, skeleton packages; host + iOS 27 sim tests green |
-| MC | partial | 3–5 | | package + 39 contract tests done; spike + tag ScrollArbitration-1.0.0 todo |
+| MC | partial | 3–5 | | package + spike done; tag blocked on Q3 (iOS 17.5) decision, see Orchestration.md Open items #1 |
 | M1 | done | 6–9 | | physics 99 tests, availability 16 tests, design note; weekly limit hit in fix round (recovered 2026-10-18) |
-| M2 | todo | 7–10 | | |
+| M2 | partial | 7–10 | | design done (docs/design/M2-render.md) |
 | M3 | todo | 8–10 | | |
 | M4 | todo | 5–7 | | |
 | M5 | todo | 5–7 | | |

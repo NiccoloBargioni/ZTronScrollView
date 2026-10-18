@@ -1,6 +1,6 @@
 # ZTronScrollView · Orchestration (resume here)
 
-Last updated: 2026-10-18 · Status: **M0 done · MC package done (spike + tag pending) · M1 done · M2 designed → next: MC spike, then M2 build**
+Last updated: 2026-10-18 · Status: **M0 done · MC package + spike done (freeze BLOCKED on a decision) · M1 done · M2 designed → next: M2 build**
 
 ## Resume in a new session (cheapest path)
 1. Launch in `/Users/admin/Documents/ZTronScrollView` with the role's model (SPEC O2, l.897–918):
@@ -15,7 +15,8 @@ Last updated: 2026-10-18 · Status: **M0 done · MC package done (spike + tag pe
 |---|---|---|
 | M0 setup | done | Part III files (CLAUDE.md, scripts/, .claude/, docs/progress/) |
 | MC package | done | `scripts/test-arbitration.sh` → 39 tests / 4 suites green, iOS build clean, 0 warnings |
-| MC spike + freeze | **todo** | plan in `docs/design/MC-contract.md` §5 (l.257), results table §6 (l.361) empty |
+| MC spike | done | `Packages/ScrollArbitration/Spike` ran on 27.0 / 26.5 / 18.6 / 17.5; results + notes A–E in `docs/design/MC-contract.md` §6 (l.361–); handoff `docs/progress/MC-spike.md` |
+| MC freeze (tag 1.0.0) | **blocked** | Q3 = NO on iOS 17.5 → user decision (see Open items #1); also iOS 15/16 + Xcode 26.6 runs (user) |
 | M1 physics | done | `scripts/test-physics.sh` → 99 tests / 16 suites green |
 | M1 availability | done | `scripts/test.sh -only-testing:ZTronScrollViewTests` → 16 tests green (iPhone 18 Pro, iOS 27.0) |
 | M1 design note | done | `docs/design/design-note.md` (S14.1), `docs/design/M1-physics.md` |
@@ -68,7 +69,8 @@ Commits: `1aa3321` M0 · `21ae371` MC package + M1.
    Read: docs/SPEC.md l.58–157 (S3–S5), l.483–580 (S11), l.619–629 (S13); docs/design/design-note.md;
    docs/design/M1-physics.md §6. Reply in ≤8 lines.
    ```
-2. [ ] **MC spike + freeze** — Builder (Sonnet + Opus advisor), ~3–4% weekly:
+2. [x] **MC spike** — done 2026-10-18 (Sonnet builder, 139 K tokens, ~2 pts weekly). Freeze is blocked: see Open items #1.
+   Original prompt (for re-runs, e.g. after a contract change):
    ```
    MC · spike · Builder
    Read: docs/design/MC-contract.md §5–6 only (l.257–373), docs/SPEC.md l.846–873. Nothing else up front.
@@ -98,6 +100,19 @@ Commits: `1aa3321` M0 · `21ae371` MC package + M1.
 4. [ ] M3 (pan/decay/bounce/delegate/arbitration) … M10 per SPEC O4 (l.970–990).
 
 ## Open items
+1. **DECISION NEEDED (user): spike Q3 = NO on iOS 17.5** (MC-contract.md §6 note E). When the SwiftUI page attaches
+   a recognized `DragGesture`, the hosting view's `UIKitGestureRecognizer` takes the touch and the UIKit paging pan
+   fails before `gestureRecognizerShouldBegin` runs, so a `.container` answer can't move a UIScrollView pager on
+   iOS ≤ 17. (18+ is fine via gesture names: Q1/Q2/Q4/Q5 yes on 18.6/26.5/27.0; Q4 Δ = 0.00 pt everywhere.)
+   Options: (a) ZTronPages fallback on 15–17 — the pager is driven by a SwiftUI pan (or its own recognizer
+   outside the hosting view) and the participant ends its drag when `owner(...)` says `.container`; no API change.
+   (b) contract revision before 1.0.0 (e.g. an additive hand-off callback). Spike suggests (a). Don't tag
+   `ScrollArbitration-1.0.0` until decided; then also run iOS 15/16 + Xcode 26.6 (user).
+   Other spike notes: touchesBegan on the UIScrollView is swallowed by hosting views (spike uses a never-recognizing
+   observer recognizer, note A); the container's first ask can carry < 10 pt translation so rule 1 near 30° is
+   noisy (40° row recorded, 55°/90° asserted, note B); on 18.6 an unnamed `UIKitResponderGestureRecognizer`
+   reaches `.began` during taps → ZTronPages rule 5 should key on the arbiter's answer, not recognizer state
+   (note D); 26.5 page-1 rows unverified (harness: `-startPage 1` ignored in that run).
 - Minor review leftovers (M1): `AvailabilityTests.minimumOSTableMatchesSDK` only cross-checks two hand-kept
   tables (doesn't read the SDK); `public enum ZTronScrollPhysics` shares the module name, and top-level names like
   `Velocity`/`Decay` are generic (consider a rename before M2 depends on them).
@@ -124,4 +139,4 @@ Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (run ≤2 simulators 
 | Date | Session | Work | Weekly % |
 |---|---|---|---|
 | 2026-10-14 | Opus 5.5 ultracode #1 | M0; MC package; M1 (workflow) | → 100% (limit hit) |
-| 2026-10-18 | Opus 5.5 #2 | recovered + verified + committed MC/M1; this handoff | 72% → (see below) |
+| 2026-10-18 | Opus 5.5 #2 (orchestrator) | recovered MC/M1, M2 design (Fable), MC spike (Sonnet) | 72% → 74% |
