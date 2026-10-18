@@ -2,10 +2,10 @@ import SwiftUI
 
 /// Pure geometry helpers (S7 / design §5).
 enum ContentGeometry {
-    /// Center of the unobscured viewport (bounds inset by the safe area), in viewport coordinates.
-    static func visibleCenter(_ viewport: CGSize, _ inset: EdgeInsets) -> CGPoint {
-        CGPoint(x: (viewport.width + inset.leading - inset.trailing) / 2,
-                y: (viewport.height + inset.top - inset.bottom) / 2)
+    /// Center of the unobscured viewport in viewport coordinates. The viewport view already lies inside the safe area
+    /// (its size excludes it), so only content insets (M5+, adjustedContentInset) will shift this.
+    static func visibleCenter(_ viewport: CGSize) -> CGPoint {
+        CGPoint(x: viewport.width / 2, y: viewport.height / 2)
     }
 
     /// Alignment padding, nonzero only on an axis where the scaled content is smaller than the viewport.

@@ -35,7 +35,10 @@ struct NamedSpaceModifier: ViewModifier {
 
 struct ViewportMetricsKey: PreferenceKey {
     static let defaultValue = ViewportMetrics(size: .zero, safeArea: EdgeInsets())
-    static func reduce(value: inout ViewportMetrics, nextValue: () -> ViewportMetrics) { value = nextValue() }
+    static func reduce(value: inout ViewportMetrics, nextValue: () -> ViewportMetrics) {
+        let n = nextValue()
+        if n.size != .zero { value = n }   // siblings contribute the default; keep the real one
+    }
 }
 
 /// Lives in the viewport's background, never around content.

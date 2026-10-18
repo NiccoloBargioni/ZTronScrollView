@@ -39,7 +39,10 @@ struct ContentLayoutHost: ViewModifier {
 
 struct ContentSizeKey: PreferenceKey {
     static let defaultValue: CGSize = .zero
-    static func reduce(value: inout CGSize, nextValue: () -> CGSize) { value = nextValue() }
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
+        let n = nextValue()
+        if n != .zero { value = n }
+    }
 }
 
 struct ContentSizeMeasure: ViewModifier {

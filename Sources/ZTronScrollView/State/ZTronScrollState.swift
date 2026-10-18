@@ -152,8 +152,8 @@ public final class ZTronScrollState {
             storage.metrics = m
             guard hadViewport, viewport.size.width > 0, viewport.size.height > 0 else { return }
             let old = s.metrics, z = s.presentationZoom
-            let c0 = ContentGeometry.visibleCenter(old.viewportSize, old.contentInsets)
-            let c1 = ContentGeometry.visibleCenter(m.viewportSize, m.contentInsets)
+            let c0 = ContentGeometry.visibleCenter(old.viewportSize)
+            let c1 = ContentGeometry.visibleCenter(m.viewportSize)
             let p0 = ContentGeometry.pad(viewport: old.viewportSize, content: old.contentSize, scale: z, alignment: contentAlignment)
             let p1 = ContentGeometry.pad(viewport: m.viewportSize, content: m.contentSize, scale: z, alignment: contentAlignment)
             let u = CGPoint(x: (s.presentationOffset.x + c0.x - p0.width) / z, y: (s.presentationOffset.y + c0.y - p0.height) / z)
