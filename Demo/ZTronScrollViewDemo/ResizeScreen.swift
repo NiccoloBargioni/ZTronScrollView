@@ -104,10 +104,40 @@ struct ReflowGrid: View {
     }
 }
 
+/// The user's exact view tree (`-ZTronResizeUserTree`): a 16:9 two-axis scroller inside a GeometryReader, content =
+/// resizable fit image as wide as the GeometryReader. On rotation BOTH the viewport (16:9 box) and the content width
+/// change; in landscape the content is wider than the viewport at 1x. `state:` replaces `showsIndicators:` so the
+/// readouts can read the geometry (indicators do not affect it).
+struct UserTreeScroller: View {
+    let state: ZTronScrollState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            GeometryReader { proxy in
+                ZTronScrollView([.horizontal, .vertical], state: state) {
+                    Image("app.global.about.us.snapshot")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: proxy.size.width)
+                }
+                .zoomRange(min: .absolute(1), max: .absolute(4))
+                .doubleTapToZoom()
+                .ztronScrollBounceBehavior(.basedOnSize, axes: .horizontal)
+                .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                .frame(maxWidth: .infinity)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("scroller")
+            }
+        }
+        .frame(maxHeight: .infinity)
+    }
+}
+
 /// `-ZTronScreen resize`: full-screen, zoomable grid; rotate the device and compare the centre readout.
 struct ResizeScreen: View {
     private static let keys = ["content.body", "resize.jumpFrames", "transform.effect"]
     static let reflow = ProcessInfo.processInfo.arguments.contains("-ZTronResizeReflow")
+    static let userTree = ProcessInfo.processInfo.arguments.contains("-ZTronResizeUserTree")
     @State private var state = ZTronScrollState()
     @State private var probe = ResizeProbe()
     @State private var info = ""
@@ -115,7 +145,13 @@ struct ResizeScreen: View {
     var body: some View {
         ZStack(alignment: .top) {
             Group {
-                if Self.reflow {
+                if Self.userTree {
+                    if #available(iOS 16, *) {
+                        NavigationStack { UserTreeScroller(state: state) }
+                    } else {
+                        NavigationView { UserTreeScroller(state: state) }.navigationViewStyle(.stack)
+                    }
+                } else if Self.reflow {
                     ZTronScrollView(.vertical, state: state) { ReflowGrid() }.zoomRange(min: .absolute(1), max: .absolute(4))
                 } else {
                     ZTronScrollView([.horizontal, .vertical], state: state) { ResizeGrid() }.zoomRange(min: .fit, max: .absolute(4))
@@ -151,11 +187,13 @@ struct ResizeScreen: View {
         resetCounters()
     }
 
-    /// 1.6x around content point (700, 450); reflow variant: around (50 %, 40 %) of the content.
+    /// 1.6x around content point (700, 450); reflow variant: around (50 %, 40 %) of the content; user tree: 2.5x on
+    /// an off-centre detail at (30 %, 65 %).
     private func zoomIn() {
         state.stopScrollingAndZooming()
-        let s: CGFloat = 1.6, v = state.geometry.containerSize, k = state.geometry.contentSize
-        let p = Self.reflow ? CGPoint(x: k.width / 2, y: k.height * 0.4) : CGPoint(x: 700, y: 450)
+        let s: CGFloat = Self.userTree ? 2.5 : 1.6, v = state.geometry.containerSize, k = state.geometry.contentSize
+        let p = Self.userTree ? CGPoint(x: k.width * 0.3, y: k.height * 0.65)
+            : Self.reflow ? CGPoint(x: k.width / 2, y: k.height * 0.4) : CGPoint(x: 700, y: 450)
         state.zoom(to: CGRect(x: p.x - v.width / s / 2, y: p.y - v.height / s / 2, width: v.width / s, height: v.height / s),
                    animated: false)
         resetCounters()

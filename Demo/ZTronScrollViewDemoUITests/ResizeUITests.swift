@@ -12,10 +12,10 @@ final class ResizeUITests: XCTestCase {
 
     override func tearDown() { XCUIDevice.shared.orientation = .portrait }
 
-    private func launch(reflow: Bool = false) -> XCUIApplication {
+    private func launch(reflow: Bool = false, userTree: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-ZTronScreen", "resize"] + (forced ? ["-ZTronForceAllFallbacks"] : [])
-            + (reflow ? ["-ZTronResizeReflow"] : [])
+            + (reflow ? ["-ZTronResizeReflow"] : []) + (userTree ? ["-ZTronResizeUserTree"] : [])
         app.launch()
         Thread.sleep(forTimeInterval: 0.8)
         return app
@@ -188,6 +188,34 @@ final class ResizeUITests: XCTestCase {
             if zoomed { XCTAssertEqual(i["z"], prev["z"], accuracy: 1e-3, "scale kept") }
         }
         XCTAssertEqual(p1["body"], 0)
+    }
+
+    /// The user's exact tree (16:9 box in a GeometryReader, image as wide as the reader, two axes): zoomed to 2.5x on
+    /// an off-centre detail, portrait -> landscape -> portrait. Viewport AND content width change; in landscape the
+    /// content is wider than the viewport at 1x.
+    func testUserTreeZoomedDetailStaysCentredAcrossRotation() {
+        let app = launch(userTree: true)
+        app.buttons["Zoom"].tap()
+        Thread.sleep(forTimeInterval: 0.5)
+        let p0 = info(app, "user.portrait")
+        rotate(.landscapeLeft)
+        let l = info(app, "user.landscape")
+        rotate(.portrait)
+        let p1 = info(app, "user.portraitBack")
+        let e1 = reflowError(p0, l), e2 = reflowError(l, p1)
+        print("RESIZEERR \(path) user.zoomed toLandscape=\(e1) back=\(e2) jump=\(l["jump"])/\(p1["jump"]) "
+              + "cidle=\(l["cidle"])/\(p1["cidle"]) vp=\(l["vp"])/\(p1["vp"])")
+        // zoom(to:) lands at ~1.94x in the 16:9 box (the rect is clamped to the content); the point is a zoomed-in detail.
+        XCTAssertGreaterThanOrEqual(p0["z"], 1.9, p0.raw)
+        XCTAssertNotEqual(p0["cw"], l["cw"], "content reflowed")
+        XCTAssertNotEqual(p0["vw"], l["vw"], "viewport changed")
+        XCTAssertGreaterThan(l["cw"], l["vw"] + 1, "landscape content wider than the 16:9 box")
+        XCTAssertLessThanOrEqual(e1, 1, l.raw)
+        XCTAssertLessThanOrEqual(e2, 1, p1.raw)
+        XCTAssertEqual(l["z"], p0["z"], accuracy: 1e-3, "scale kept")
+        XCTAssertEqual(p1["z"], p0["z"], accuracy: 1e-3, "scale kept")
+        XCTAssertEqual(l["jump"], 0, l.raw)
+        XCTAssertEqual(p1["jump"], 0, p1.raw)
     }
 
     func testReflowMiddleAt1xKeepsNormalizedCentre() { reflowRoundTrip("mid", "Mid", zoomed: false) }
