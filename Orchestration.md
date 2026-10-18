@@ -1,6 +1,6 @@
 # ZTronScrollView · Orchestration (resume here)
 
-Last updated: 2026-10-18 · Status: **M0 done · MC package + spike done (freeze BLOCKED on a decision) · M1 done · M2 (a)+(b) done → next: M2 (c)**
+Last updated: 2026-10-18 · Status: **M0 done · MC package + spike done (freeze BLOCKED on a decision) · M1 done · M2 (a)+(b)+(c) done → next: M3**
 
 ## Resume in a new session (cheapest path)
 1. Launch in `/Users/admin/Documents/ZTronScrollView` with the role's model (SPEC O2, l.897–918):
@@ -23,7 +23,7 @@ Last updated: 2026-10-18 · Status: **M0 done · MC package + spike done (freeze
 | M2 design | done | `docs/design/M2-render.md` (decisions R1–R7, test list §11, device risks §12) |
 | M2 (a) state/reader | done | `Sources/ZTronScrollView/State/` · 41 tests green (iOS 27.0) · handoff `docs/progress/M2-s1.md` |
 | M2 (b) render path | done | `Sources/ZTronScrollView/Render/` + root view · 56 tests green on both OS paths (iOS 27.0) · handoff `docs/progress/M2-s2.md` |
-| M2 (c) demo + UI render proof | todo | list in `docs/progress/M2-s2.md`; first fix: fallback path re-runs `TransformHost.body` per tick during transaction motion (needs a target-only channel) |
+| M2 (c) demo + UI render proof | done | `Demo/ZTronScrollViewDemo.xcodeproj`, `scripts/test-demo-ui.sh` · 6 UI tests green on iOS 27.0 + 17.5, preferred + forced · handoff `docs/progress/M2-s3.md` |
 | M2 build … M10 | todo | |
 
 Commits: `1aa3321` M0 · `21ae371` MC package + M1.
