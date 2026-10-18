@@ -1,8 +1,7 @@
 # ZTronScrollView · Orchestration (resume here)
 
-Last updated: 2026-10-18 · Status: **M0–M4 done (M4 UI matrix: 2 configs pending) · M5 designed · MC freeze
-blocked on a user decision** → next: step 4 below (M5 build).
-
+Last updated: 2026-10-18 (session 2 end, weekly 88%) · Status: **M0–M4 done · physics calibrated (unit) · M5 rotation:
+ZTronMapKit geometry ported, still FAILS the user's full-screen tree → fix it first (step 1)** · MC freeze blocked (user decision).
 ## Resume in a new session (cheapest path)
 1. Launch in `/Users/admin/Documents/ZTronScrollView` with the role's model (SPEC O2, l.897–918): Builder
    `claude --model sonnet --advisor opus`, Architect `claude --model fable`, Debugger `claude --model opus --effort high`.
@@ -38,21 +37,25 @@ Test totals now: `ZTronScrollViewTests` **118** green on iOS 27.0 and 17.5 (both
 physics 99 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-contract,M2-render,M3-pan,M4-zoom}.md`.
 
 ## Next steps (in order; prompts are ready to paste)
-1. [x] **M3 (b) catch test** — fixed by the Debugger (948b299): release motions start on the state clock (D14).
-   Leftovers → step 2.
-2. [x] **M3 leftovers + M3 (c)** — done (see `M3-s3.md`): fling acceleration fixed; demo pager + UI test green (27.0, 14/14 demo UI tests). 17.5 Toggle bug fixed by gating the fallback observer (`M3-s3.md`).
-   Open: 17.5 `testControlsUsable` (catch observer on <18 steals Toggle touches; fix idea in `M3-s3.md`) — schedule a small Debugger/Builder step.
-3. [x] **M4 (b)** (done; confirm remaining UI configs, see M4-s2.md) — Builder: pinch adapter + demo + UI tests (`docs/design/M4-zoom.md` session (b); `M4-s1.md` open
-   items: rebase the pan baseline at bounce settle, feed `synthesizePan(location:time:)` and finger-count events).
-4. [ ] **M5 rotation/resize build** — (a) DONE (M5-s1.md); remaining: (b). Pager UI test fails on 27.0 forced and 17.5 (see M4-s2.md).
-   Original text: — design done (`docs/design/M5-resize.md`; read its resolutions first). Two
-   Builder sessions with the template below: (a) State/ + Render/ (ResizeCommit/ResizeMath, TransformHost above the
-   layout host — gate: M2 ProofUITests 6/6 and `content.body` 0), (b) PanCoordinator/demo rotation UI tests.
-   First, in session (a): run the pending M4 UI configs once (full demo suite on 27.0 `--forced` and 17.5 `--forced`).
-5. [ ] **M6–M9 builds** — designs done; run each design's sessions in order with the builder template (M6 s1 is the
-   exemplar session — others copy its pattern). Sequencing constraints are in each doc's resolutions (M7 s1, M8b-1/-3
-   and M9 (a) wait for M6 s1). M9 core: Opus builder (SPEC O4). M10: demo + parity matrix + report (clerk for docs).
-   O5 allows small workflows only for the M6–M8 parity batches and M10 demo screens (exemplar first, 3-item slice).
+1. [ ] **Rotation centre in the user's full-screen tree (criteria A+B)** — Fable builder (D16), main checkout (the user's
+   ZTronTesting app compiles this tree live via `../ZTronScrollView`: keep it building at every step):
+   ```
+   Fix the visible-centre bug for -ZTronResizeUserTree2 (user's exact full-screen tree). Read docs/progress/M5-s2.md
+   section s3 first (measured errors + diagnosis): the reflowed content size lands while no resize is open, so the
+   idle .sizeChanges path in ZTronScrollState.setContentSize moves the view and the sticky resizeIntent is realised
+   from the wrong start. Fix: realise resizeIntent (ResizeMath.realize / CenterGeometry, verbatim ZTronMapKit) on the
+   idle reflow too, or capture it before an idle reflow; fix the test's visibleCentre (double-counted safe-area
+   insets). Acceptance = screen-space ResizeUITests (markers via XCUIElement.frame): odd rotations keep the marker
+   under the visible centre ≤1 pt; 2×/4× rotations restore every marker ≤0.5 pt and zoom exactly; 27.0 + 17.5,
+   preferred + --forced. Never touch /Users/admin/Documents/ZTronMapKit (snapshot: scratchpad ztronmapkit-ref/).
+   ```
+2. [ ] **Pinch-release animation (criterion C)** — run `ZoomUITests/testPinchInsideLimitsReleasesWithoutMotion`
+   (added, never run); suspects: `handOffToPan` synthesized pan on first-finger lift, the bounce-back spring/kick from
+   `dff908b`. No motion allowed when zoom and offset are in range.
+3. [ ] Re-run the full demo UI suite after the physics commits (`dff908b`, `9091f20`) on 27.0 + 17.5, both paths;
+   PagerUITests "trailing edge pages" still fails on 27.0 --forced and 17.5 (`M4-s2.md`).
+4. [ ] M5 (b) remainder (PanCoordinator resize rebase, adjusted insets into pan/pinch env) → M6–M9 builds from the
+   ready designs (`docs/design/M6…M9`), M10. Sequencing per each design's resolutions.
 
 **Builder kickoff template** (any part):
 ```
@@ -136,8 +139,8 @@ Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (≤ 2 simulators at 
 (`pkill -f "xcodebuild.*ZTronScrollViewDemo"`). `jq` present; no xcodegen/tuist/gh/tmux.
 
 ## Cost notes (read before choosing how to work)
-- Fable has its own weekly bucket: 4 design docs on 2026-10-18 moved it 0 → 2% and never moved the all-models %.
-  Do all thinking-heavy design on Fable.
+- Fable has its own weekly bucket, but Fable *builders* at high effort also draw on all-models: two in parallel moved
+  all-models ~3 pts per 15 min (81 → 84). Design docs on Fable are cheap; run at most one Fable builder at a time.
 - Sonnet builders: ~0.5–1 all-models point per part (75–145 K tokens). UI-test debugging is where sessions run long
   (M3 (b): 99 min) — enforce the 2-attempt rule and escalate to the Debugger.
 - 2026-10-14: one ultracode workflow (11 Opus/Fable agents, 1.64 M tokens) used the whole remaining weekly budget.
@@ -147,4 +150,4 @@ Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (≤ 2 simulators at 
 | Date | Session | Work | Weekly % |
 |---|---|---|---|
 | 2026-10-14 | Opus 5.5 ultracode #1 | M0; MC package; M1 (workflow) | → 100% (limit hit) |
-| 2026-10-18 | Opus 5.5 #2 orchestrator | recovered MC/M1; M2–M5 designs (Fable); MC spike; M2, M3, M4 builds (Sonnet builders + 1 Opus debugger); stopped at the user's 80% cap | 72% → 77% |
+| 2026-10-18 | Opus 5.5 #2 orchestrator | recovered MC/M1; M2–M9 designs (Fable); MC spike; M2–M4 builds; M5 (a); zoomed-axes + user image demo; physics calibration (Fable); ZTronMapKit re-centering port (Fable, user tree still failing) | 72% → 88% |
