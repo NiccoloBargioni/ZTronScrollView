@@ -66,7 +66,7 @@ final class SpikeApp {
     func drag(from element: XCUIElement, _ vector: CGVector, hold: Double = 0.05) {
         let start = element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         let end = start.withOffset(vector)
-        start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .default, thenHoldForDuration: hold)
+        start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: hold)
     }
 
     /// Waits for the record count to change from `before`, then lets paging settle.

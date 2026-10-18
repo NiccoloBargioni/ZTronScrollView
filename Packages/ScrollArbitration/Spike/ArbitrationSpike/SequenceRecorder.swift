@@ -53,17 +53,17 @@ struct SequenceRecord {
 
     // MARK: derived
 
-    private func owners(_ r: SequenceRecord) -> (first: String, owner: String, decided: Int) {
+    private func owners(_ r: SequenceRecord) -> (first: String, owner: String, decided: Int, dt: String) {
         let log = arbiters[r.page].log
-        guard r.arbiterLogStart <= log.count else { return ("none", "none", 0) }
-        var first = "none", owner = "none", decided = 0
+        guard r.arbiterLogStart <= log.count else { return ("none", "none", 0, "na") }
+        var first = "none", owner = "none", decided = 0, dt = "na"
         for entry in log[r.arbiterLogStart...] {
-            if case let .owner(_, askedBy, _, _, _, _, _, _, didDecide, result) = entry {
+            if case let .owner(_, askedBy, _, tr, _, _, _, _, didDecide, result) = entry {
                 if first == "none" { first = askedBy == .container ? "container" : "participant" }
-                if didDecide { decided += 1; owner = result == .container ? "container" : "participant" }
+                if didDecide { decided += 1; dt = String(format: "%.0f,%.0f", tr.width, tr.height); owner = result == .container ? "container" : "participant" }
             }
         }
-        return (first, owner, decided)
+        return (first, owner, decided, dt)
     }
 
     func line(_ r: SequenceRecord) -> String {
@@ -74,7 +74,7 @@ struct SequenceRecord {
         let foreign = r.foreignNames.isEmpty ? "" : " fn=" + r.foreignNames.sorted().joined(separator: ",")
         return "seq=\(r.id) first=\(o.first) owner=\(o.owner) decided=\(o.decided) pan=\(r.panStates.joined(separator: ">")) "
             + "pagerMoved=\(r.pagerMoved ? 1 : 0) page=\(r.pageBefore)>\(r.pageAfter) box=\(r.boxMoved ? 1 : 0) "
-            + "button=\(r.buttonTaps) delta=\(delta) pEnd=\(pEnd) foreign=\(r.foreignNames.isEmpty ? 0 : 1)\(foreign)"
+            + "button=\(r.buttonTaps) delta=\(delta) pEnd=\(pEnd) dt=\(o.dt) foreign=\(r.foreignNames.isEmpty ? 0 : 1)\(foreign)"
     }
 
     // MARK: SwiftUI side
