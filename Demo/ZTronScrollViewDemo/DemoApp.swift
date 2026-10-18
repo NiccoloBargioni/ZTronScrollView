@@ -25,6 +25,7 @@ struct DemoApp: App {
             case "zoom": ZoomScreen()
             case "image": ImageScreen()
             case "calibrate": CalibrateScreen()
+            case "resize": ResizeScreen()
             default: ProofScreen()
             }
         }

@@ -62,6 +62,20 @@ enum ResizeMath {
         return CGPoint(x: (offset.x + center.x - pad.x) / s, y: (offset.y + center.y - pad.y) / s)
     }
 
+    /// `u / content` per axis, clamped into [0, 1]; 0.5 on an axis without content (ZTronMapKit `normalizedCenter`).
+    static func normalized(_ u: CGPoint, in content: CGSize) -> CGPoint {
+        func axis(_ v: CGFloat, _ len: CGFloat) -> CGFloat {
+            guard len > 0, len.isFinite, v.isFinite else { return 0.5 }
+            return min(1, max(0, v / len))
+        }
+        return CGPoint(x: axis(u.x, content.width), y: axis(u.y, content.height))
+    }
+
+    /// The content point at normalized `n` of `content` (ZTronMapKit `contentOffset(normalizedCenter:)` numerator).
+    static func denormalized(_ n: CGPoint, in content: CGSize) -> CGPoint {
+        CGPoint(x: n.x * max(0, content.width), y: n.y * max(0, content.height))
+    }
+
     static func isAtFit(_ scale: CGFloat, fit: CGFloat) -> Bool {
         guard fit > 0, fit.isFinite else { return false }
         return abs(scale / fit - 1) <= 1e-4

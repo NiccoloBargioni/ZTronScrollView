@@ -22,6 +22,10 @@ struct ResizeCommit: Equatable, Sendable {
     /// end. They differ only for a registry-target reflow.
     var anchorOld = CGPoint.zero
     var anchorNew = CGPoint.zero
+    /// `anchorOld` normalized to the content size it was captured in, clamped into [0, 1]^2 (D16, ported from
+    /// ZTronMapKit's `normalizedCenter`). Content that reflows with the viewport is re-anchored from it:
+    /// `anchorNew = normalizedAnchor * newContentSize`. Equals `anchorOld / contentSize` for fixed-size content.
+    var normalizedAnchor = CGPoint(x: 0.5, y: 0.5)
     /// Page kept current when paging is enabled.
     var pagingIndex = Paging()
     /// The point of the unobscured rect that is preserved (center unless `defaultScrollAnchor(for: .sizeChanges)`).
