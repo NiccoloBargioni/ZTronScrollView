@@ -28,6 +28,7 @@ blocked on a user decision** → next: step 4 below (M5 build).
 | M4 (a) zoom state + PinchSession | done | `Gesture/PinchSession.swift`, `zoomRange`, solver-based `setZoomScale` (`M4-s1.md`) |
 | M4 (b) pinch adapter + demo | done* | pinch adapter, double tap, ZoomScreen, ZoomUITests 6/6 on 27.0 pref+forced, 17.5 pref; full-suite 27 forced / 17.5 forced pending (`M4-s2.md`) |
 | M5 design | done | `docs/design/M5-resize.md` (+ orchestrator resolutions C1–C3, Q1–Q3 at the end) |
+| M6–M9 designs | done | `docs/design/{M6-targets,M7-observation,M8-chrome,M8b-refresh-header,M9-virtualization}.md`, each ending with "Orchestrator resolutions" (read those first) and a builder-session split with file ownership + sequencing |
 | M5 build … M10 | todo | SPEC O4 l.970–990 |
 
 Test totals now: `ZTronScrollViewTests` **118** green on iOS 27.0 and 17.5 (both OS paths) · M2 `ProofUITests` 6/6 ·
@@ -44,7 +45,9 @@ physics 99 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-c
    Builder sessions with the template below: (a) State/ + Render/ (ResizeCommit/ResizeMath, TransformHost above the
    layout host — gate: M2 ProofUITests 6/6 and `content.body` 0), (b) PanCoordinator/demo rotation UI tests.
    First, in session (a): run the pending M4 UI configs once (full demo suite on 27.0 `--forced` and 17.5 `--forced`).
-5. [ ] **M6–M10** — per SPEC O4. Write a Fable design doc first for each (`docs/design/M<n>-*.md`), then builders.
+5. [ ] **M6–M9 builds** — designs done; run each design's sessions in order with the builder template (M6 s1 is the
+   exemplar session — others copy its pattern). Sequencing constraints are in each doc's resolutions (M7 s1, M8b-1/-3
+   and M9 (a) wait for M6 s1). M9 core: Opus builder (SPEC O4). M10: demo + parity matrix + report (clerk for docs).
    O5 allows small workflows only for the M6–M8 parity batches and M10 demo screens (exemplar first, 3-item slice).
 
 **Builder kickoff template** (any part):
