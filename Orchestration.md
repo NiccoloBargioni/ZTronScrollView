@@ -1,6 +1,6 @@
 # ZTronScrollView · Orchestration (resume here)
 
-Last updated: 2026-10-18 · Status: **M0 done · MC package + spike done (freeze BLOCKED on a decision) · M1 done · M2 (a)+(b)+(c) done → next: M3**
+Last updated: 2026-10-18 · Status: **M0 done · MC package + spike done (freeze BLOCKED on a decision) · M1 done · M2 done · M3 design + (a) done → next: M3 (b)**
 
 ## Resume in a new session (cheapest path)
 1. Launch in `/Users/admin/Documents/ZTronScrollView` with the role's model (SPEC O2, l.897–918):
@@ -67,8 +67,7 @@ M2 render proof green on iOS 27.0 + 17.5, preferred + forced: 0 `content.body` d
 scrolls, clock idle at rest — counters in `docs/progress/M2-s3.md`).
 The MC spike prompt is in git history (`git show 1faa1f0:Orchestration.md`) if the contract changes and it must re-run.
 
-1. [ ] **M3 design** — Architect (Fable): `docs/design/M3-pan.md` (being written 2026-10-18; check whether it exists
-   and is complete before re-running). Covers the pan state machine, gestures, release pipeline, catch, delegate +
+1. [x] **M3 design** — done: `docs/design/M3-pan.md` (§12 = orchestrator resolutions of its open questions). Covers the pan state machine, gestures, release pipeline, catch, delegate +
    phase order, phase reader, pager participant, test list, and a split into builder sessions (a/b/c).
 2. [ ] **M3 build** — Builder (Sonnet + Opus advisor), one session per part listed in M3-pan.md:
    ```
