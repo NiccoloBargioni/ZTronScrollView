@@ -33,6 +33,10 @@ final class PanCoordinator: ObservableObject {
     private var lastPanTranslation = CGSize.zero
     /// Pan continued by hand from the remaining finger after the DragGesture died on the second finger (R1).
     private var synthesizedPanStart: CGPoint?
+    /// A pinch took over the current pan sequence. Its release then ends without a deceleration (UIScrollView never
+    /// flings after a pinch; the pinch's own bounce settles the offset), unless one finger stayed down and the pan
+    /// continued from it (`handOffToPan(remaining:)` clears it).
+    private var pinchOwnedPan = false
     #if DEBUG
     var effectsLog: [PanEffect] = []
     var pinchLog: [PinchEffect] = []
@@ -101,7 +105,14 @@ final class PanCoordinator: ObservableObject {
         return env
     }
 
-    func handle(_ event: PanEvent) {
+    func handle(_ incoming: PanEvent) {
+        var event = incoming
+        // The touch-down time becomes `caughtAt` and is compared with `state.now()` at release (fling acceleration):
+        // stamp it on the state clock (D14: observer/event clocks differ from the state clock on iOS 27 and on the
+        // DragGesture fallback), so `touchDuration` is never negative or decades long.
+        if case let .touchDown(location, _, touchCount) = incoming {
+            event = .touchDown(location: location, time: state.now(), touchCount: touchCount)
+        }
         #if DEBUG
         let name: String
         switch event {
@@ -116,7 +127,7 @@ final class PanCoordinator: ObservableObject {
         #endif
         // New sequence: forget the previous finger samples.
         switch (session.phase, event) {
-        case (.idle, .touchDown), (.idle, .dragChanged), (.released, .touchDown): tracker.reset()
+        case (.idle, .touchDown), (.idle, .dragChanged), (.released, .touchDown): tracker.reset(); pinchOwnedPan = false
         default: break
         }
         switch event {
@@ -165,15 +176,17 @@ final class PanCoordinator: ObservableObject {
                 // nothing (a Slider on a vertical-only view) must leave the content interactive.
                 pendingBegin = true
             case let .setOffset(p):
-                // A pinch (or its bounce) owns the offset; the pan keeps tracking its translation.
-                if isPinching || state.isZoomBouncing { break }
+                // A pinch (or its bounce) owns the offset; the pan keeps tracking its translation. After both fingers
+                // lifted, the drag's last sample must not land on top of the pinch's offset either.
+                if isPinching || state.isZoomBouncing || pinchOwnedPan { break }
                 if pendingBegin, hypot(p.x - state.peek.presentationOffset.x, p.y - state.peek.presentationOffset.y) > 0.01 {
                     pendingBegin = false
                     state.beginDragging()
                 }
                 state.writeDragOffset(p)
-            case .release where isPinching || state.isZoomBouncing:
+            case .release where isPinching || state.isZoomBouncing || pinchOwnedPan:
                 // Combined release: the pinch decides where the content goes; the pan just ends.
+                pinchOwnedPan = false
                 if pendingBegin { pendingBegin = false; state.beginDragging() }
                 state.endDragWithoutDeceleration()
             case let .release(r):
@@ -183,7 +196,7 @@ final class PanCoordinator: ObservableObject {
                 release.isPagingEnabled = state.isPagingEnabled
                 release.displayScale = settings.displayScale
                 state.endDrag(r, tracker: tracker, env: env, settings: release)
-            case .endSequence: pendingBegin = false; state.endTracking()
+            case .endSequence: pendingBegin = false; pinchOwnedPan = false; state.endTracking()
             case let .askOwner(start, translation, touchCount):
                 // Once per sequence, at the hysteresis. No participant (cannot happen: hasArbiter) owns the swipe.
                 let owner = participant?.owner(startLocation: start, translation: translation, touchCount: touchCount)
@@ -242,6 +255,7 @@ final class PanCoordinator: ObservableObject {
             case .catchMotion:
                 state.interrupt(); state.catchLocksContent = true
             case .beginZooming:
+                if isSequenceActive { pinchOwnedPan = true }
                 // Two fingers are zoom intent: an undecided pan is ours (the pinch never calls the arbiter).
                 if case .awaitingDecision = session.phase {
                     caughtUndecided = false
@@ -273,11 +287,14 @@ final class PanCoordinator: ObservableObject {
 
     /// One finger lifted: the pan continues from the remaining finger without a jump (design M4 §4).
     private func handOffToPan(remaining: CGPoint?, time: TimeInterval) {
+        if remaining != nil { pinchOwnedPan = false }
         if case .dragging = session.phase {
             session.rebase(presentation: state.peek.presentationOffset, translation: lastPanTranslation,
                            env: environment())
         } else if let remaining {
-            // The DragGesture died when the second finger landed: restart the pan right at the remaining finger.
+            // The DragGesture died when the second finger landed (or both fingers landed together and the pan ignored
+            // the sequence): restart the pan right at the remaining finger.
+            if case .ignored = session.phase { _ = session.handle(.touchesEnded(time: time), env: environment()) }
             handle(.touchDown(location: remaining, time: time, touchCount: 1))
             handle(.dragChanged(translation: .zero, startLocation: remaining, time: time))
             synthesizedPanStart = remaining

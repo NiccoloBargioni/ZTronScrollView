@@ -14,6 +14,8 @@ struct ReleaseInput {
     var rate: DecelerationRate
     var pageLength: CGFloat?
     var thresholds: RestThresholds
+    /// pt/s, content direction: the finger's last movement velocity (not zeroed by a pause); spring-back seed.
+    var rubberBandVelocity: CGFloat = 0
 }
 
 enum ReleasePipeline {
@@ -43,7 +45,8 @@ enum ReleasePipeline {
 
     static func motion(_ i: ReleaseInput, target: CGFloat?, at t: TimeInterval) -> AxisMotion {
         ReleaseSolver.resolve(ReleaseContext(origin: i.origin, velocity: i.velocity, bounds: i.bounds, rate: i.rate,
-                                             bounces: i.bounces, thresholds: i.thresholds, target: target), at: t)
+                                             bounces: i.bounces, thresholds: i.thresholds, target: target,
+                                             rubberBandVelocity: i.rubberBandVelocity), at: t)
     }
 }
 
@@ -73,15 +76,18 @@ extension ZTronScrollState {
         let enabledY = env.isScrollEnabled && env.axes.contains(.vertical) && (r.lock == nil || r.lock == .vertical)
         let vx = axisVelocity(tracker.x, fallback: r.fallbackVelocity?.dx, caught: r.caughtVelocity.dx, enabled: enabledX)
         let vy = axisVelocity(tracker.y, fallback: r.fallbackVelocity?.dy, caught: r.caughtVelocity.dy, enabled: enabledY)
+        // UIKit seeds the rubber-band spring-back with the pan's last velocity, which a pause does not zero.
+        let rawX = enabledX && !r.zeroVelocity ? -tracker.x.lastMotionVelocity : 0
+        let rawY = enabledY && !r.zeroVelocity ? -tracker.y.lastMotionVelocity : 0
         let rate = settings.rate
         let ix = ReleaseInput(origin: r.origin.x, dragStart: r.dragStart.x, velocity: vx, bounds: env.boundsX,
                               bounces: env.bouncesX, rate: rate,
                               pageLength: settings.isPagingEnabled && enabledX ? env.viewport.width : nil,
-                              thresholds: settings.thresholds)
+                              thresholds: settings.thresholds, rubberBandVelocity: rawX)
         let iy = ReleaseInput(origin: r.origin.y, dragStart: r.dragStart.y, velocity: vy, bounds: env.boundsY,
                               bounces: env.bouncesY, rate: rate,
                               pageLength: settings.isPagingEnabled && enabledY ? env.viewport.height : nil,
-                              thresholds: settings.thresholds)
+                              thresholds: settings.thresholds, rubberBandVelocity: rawY)
         let tx = ReleasePipeline.proposedTarget(ix), ty = ReleasePipeline.proposedTarget(iy)
         let natural = CGPoint(x: ReleasePipeline.naturalRest(ix), y: ReleasePipeline.naturalRest(iy))
         var proposed = CGPoint(x: tx ?? natural.x, y: ty ?? natural.y)

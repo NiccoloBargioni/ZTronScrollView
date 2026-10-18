@@ -171,8 +171,10 @@ import Testing
         }
         #expect(start == 1)
         #expect(spring.target == bounds.clamped(origin))                       // nearest edge, target ignored
-        // Seeded with the release velocity plus the calibrated kick toward the edge (docs/design/PHYSICS-calibration.md).
-        expectClose(spring.initialVelocity, velocity + ReleaseSolver.bounceBackKick * (bounds.clamped(origin) - origin), 1e-9)
+        // x(t) = edge + (A + v·t)·e^(−ωt): B == the (rubber band) velocity (docs/design/PHYSICS-calibration.md).
+        let edge = bounds.clamped(origin)
+        expectClose(spring.initialVelocity, velocity + spring.omega * (edge - origin), 1e-9)
+        expectClose(spring.initialVelocity + spring.omega * (origin - edge), velocity, 1e-9)
         #expect(motion.willDecelerate)                                          // UIKit: willDecelerate == true
         let end = motion.sample(at: 1 + spring.settlingTime())
         #expect(end.isSettled && end.position == bounds.clamped(origin))

@@ -35,8 +35,15 @@ import Testing
     static let mediumDecay: [(TimeInterval, CGFloat)] = [(0.0020, 1312.67), (0.1338, 1467.67), (0.2665, 1588.67), (0.4009, 1681.33), (0.5342, 1752.00), (0.6677, 1806.33), (0.7998, 1848.00), (0.9338, 1879.67), (1.0676, 1904.00), (1.2000, 1922.67), (1.3342, 1937.00), (1.4677, 1948.00), (1.6002, 1956.33), (1.7341, 1963.00), (1.8668, 1967.67), (1.9996, 1971.67), (2.1332, 1974.33), (2.2831, 1977.00), (2.4672, 1979.00)]
     static let mediumDecayFit = (origin: CGFloat(1309.4), velocity: CGFloat(1350), end: CGFloat(1979), duration: 2.467)
 
+    /// Finger log of that drag (400 pt/s outward, then 0.3 s at rest): the spring-back's `B` is this last velocity.
+    static let topFingers: [(TimeInterval, CGFloat)] = [(0.0167, 228), (0.0332, 234), (0.0499, 240), (0.0666, 247), (0.0832, 254), (0.1001, 261), (0.1166, 268), (0.1336, 276), (0.1501, 283), (0.1670, 291), (0.1835, 298), (0.2004, 306), (0.2168, 314), (0.2338, 321), (0.2506, 329), (0.2674, 336), (0.2841, 344), (0.3006, 351), (0.3171, 359), (0.3340, 366), (0.3501, 373), (0.3668, 380), (0.3834, 386), (0.4004, 393), (0.4170, 399), (0.4335, 405), (0.4503, 410), (0.4671, 414), (0.4836, 418)]
+    static let topLift: TimeInterval = 0.8173
+
     /// Native return after dragging 190 pt past the top (viewport 600 → shown −89 pt, c = 0.55) with the finger at rest
-    /// for 0.3 s before lifting: (t since the first post-lift frame, y). Fits `−89·(1 + 4.2t)·e^(−10.9t)` (rms 0.14).
+    /// for 0.3 s before lifting: (t since the first post-lift frame, y). Fits `(−89 − 378·t)·e^(−10.9t)` (rms 0.14):
+    /// `B` is the finger's outward drag velocity, kept through the pause. Other amplitudes / speeds (B fits):
+    /// 2.7 pt → −160, 8 → −230, 14 → −452, 46 → −406, 126 → −416 at 400 pt/s; 89 pt at 150 → −222, at 1000 → −991;
+    /// without the pause → −365. ω = 10.8–11.3 throughout.
     static let topBounce: [(TimeInterval, CGFloat)] = [(0.0000, -89.00), (0.0315, -71.33), (0.0654, -55.67), (0.0985, -43.00), (0.1321, -32.67), (0.1658, -24.67), (0.1988, -18.67), (0.2322, -14.00), (0.2645, -10.33), (0.2984, -7.67), (0.3316, -5.67), (0.3656, -4.33), (0.3991, -3.00), (0.4324, -2.33), (0.4657, -1.67), (0.5158, -1.00), (0.5997, 0.00)]
 
     /// Native fling into the bottom edge: (t since the last in-bounds frame, overshoot). Velocity before the crossing
@@ -98,15 +105,22 @@ import Testing
         expectClose(rb.overscroll(forDisplacement: 89), 190, 190 * 0.02)
     }
 
-    @Test func bounceBackFromRestReproducesNativeCurve() {
+    @Test func bounceBackAfterAPauseReproducesNativeCurve() {
         let bounds = AxisBounds(min: 0, max: 5400)
-        let motion = ReleaseSolver.resolve(ReleaseContext(origin: -89, velocity: 0, bounds: bounds), at: 0)
+        var tracker = VelocityTracker()
+        for (t, y) in Self.topFingers { tracker.add(position: y, at: t) }
+        #expect(tracker.velocity(at: Self.topLift) == 0)                 // the pause zeroes the decay velocity…
+        let raw = -tracker.lastMotionVelocity                            // …but not the spring-back seed
+        // UIKit's own estimate runs ≈ 15 % above the 100 ms fit here (the XCUI drag slows over its last 100 ms):
+        // B = −378 vs ours −299; the curves differ by at most ΔB/(ω·e) ≈ 2.7 pt.
+        expectClose(raw, -378, 100, "last raw velocity")
+        let motion = ReleaseSolver.resolve(ReleaseContext(origin: -89, velocity: 0, bounds: bounds, rubberBandVelocity: raw), at: 0)
         guard case let .spring(spring, _) = motion else {
             Issue.record("expected a spring, got \(motion)")
             return
         }
         for (t, y) in Self.topBounce {
-            expectClose(motion.sample(at: t).position, y, 1.5, "t = \(t)")
+            expectClose(motion.sample(at: t).position, y, 3, "t = \(t)")
         }
         // Bounce-back duration ±15 % of the native 0.60 s; no overshoot past the edge.
         expectClose(CGFloat(spring.settlingTime()), 0.60, 0.60 * 0.15, "bounce-back duration")
@@ -117,6 +131,16 @@ import Testing
     }
 
     // MARK: Edge hand-off
+
+    @Test func smallOverscrollFirstMovesOutwardLikeNative() {
+        // 2.67 pt shown after a 400 pt/s outward drag: native reaches −8 pt before returning (B fit −160 for the short
+        // drag's lower velocity estimate); with the 400 pt/s velocity the bump is 2.67 + 400/(ω·e) ≈ 16 pt.
+        let motion = ReleaseSolver.resolve(ReleaseContext(origin: -2.67, velocity: 0, bounds: AxisBounds(min: 0, max: 5400),
+                                                          rubberBandVelocity: -160), at: 0)
+        let low = stride(from: 0.0, through: 0.6, by: 0.001).map { motion.sample(at: $0).position }.min()!
+        expectClose(low, -8, 2, "outward bump")
+        expectClose(motion.sample(at: 0.5).position, -0.4, 0.5)
+    }
 
     @Test func edgeHandoffReproducesNativeOvershootAndSettle() {
         let spring = CriticalSpring(origin: 0, target: 0, initialVelocity: Self.edgeCrossingVelocity)

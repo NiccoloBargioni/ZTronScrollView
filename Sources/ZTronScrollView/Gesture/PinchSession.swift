@@ -71,6 +71,9 @@ struct PinchSession: Equatable {
 
     var phase: Phase = .idle
     var centroidSource: CentroidSource = .spatial
+    /// Two fingers down whose centroid moves this far before the magnify gesture recognizes start the pinch anyway
+    /// (two-finger pan): UIScrollView moves the content under two still-unscaled fingers immediately.
+    var centroidHysteresis: CGFloat = 10
 
     var isActive: Bool {
         switch phase {
@@ -149,8 +152,9 @@ struct PinchSession: Equatable {
                 return []
             }
             if count >= 2 {
-                update { $0.fingers = count; if let r = remaining { $0.centroid = r } }
-                return []
+                update { $0.fingers = count }
+                guard let r = remaining else { return [] }
+                return follow(centroid: r, env: env)
             }
             return finish(env: env, time: time) + [.handOffToPan(remaining: count == 1 ? remaining : nil)]
 
@@ -175,6 +179,34 @@ struct PinchSession: Equatable {
     }
 
     // MARK: Internals
+
+    /// The true centroid (18+) moved: the content point under it follows 1:1 at the current scale, whether or not the
+    /// magnification changed (a two-finger pan while pinching, or before the magnify gesture recognizes).
+    private mutating func follow(centroid c: CGPoint, env: PinchEnvironment) -> [PinchEffect] {
+        switch phase {
+        case var .pinching(p):
+            guard c != p.centroid else { return [] }
+            p.centroid = c
+            p.offset = Self.offset(anchor: p.anchor, centroid: c, scale: p.shown, env: env)
+            phase = .pinching(p)
+            return [.setZoom(scale: p.shown, offset: p.offset)]
+        case var .armed(p):
+            if p.anchorPending {
+                p.startCentroid = c
+                p.anchor = ZoomSolver.contentPoint(under: c, offset: env.presentationOffset,
+                                                   scale: env.presentationScale, geometry: env.geometry)
+                p.anchorPending = false
+            }
+            p.centroid = c
+            let moved = hypot(c.x - p.startCentroid.x, c.y - p.startCentroid.y)
+            guard moved >= centroidHysteresis else { phase = .armed(p); return [] }
+            p.offset = Self.offset(anchor: p.anchor, centroid: c, scale: p.shown, env: env)
+            phase = .pinching(p)
+            return [.beginZooming, .setZoom(scale: p.shown, offset: p.offset)]
+        default:
+            return []
+        }
+    }
 
     private mutating func update(_ body: (inout Pinch) -> Void) {
         switch phase {

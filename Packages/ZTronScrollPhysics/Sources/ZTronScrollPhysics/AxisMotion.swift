@@ -131,9 +131,14 @@ public struct ReleaseContext: Sendable, Equatable {
     public var thresholds: RestThresholds
     /// Target resolved by the scroll-target behavior, then the delegate's `willEndDragging` (`nil` = natural).
     public var target: CGFloat?
+    /// `pt/s`: the finger's last movement velocity in content direction, *not* zeroed by a pause before the lift
+    /// (``VelocityTracker/lastMotionVelocity``). Seeds the spring-back when released out of bounds. Defaults to
+    /// `velocity`.
+    public var rubberBandVelocity: CGFloat
 
     public init(origin: CGFloat, velocity: CGFloat, bounds: AxisBounds, rate: DecelerationRate = .normal,
-                bounces: Bool = true, thresholds: RestThresholds = .init(), target: CGFloat? = nil) {
+                bounces: Bool = true, thresholds: RestThresholds = .init(), target: CGFloat? = nil,
+                rubberBandVelocity: CGFloat? = nil) {
         self.origin = origin
         self.velocity = velocity
         self.bounds = bounds
@@ -141,18 +146,25 @@ public struct ReleaseContext: Sendable, Equatable {
         self.bounces = bounces
         self.thresholds = thresholds
         self.target = target
+        self.rubberBandVelocity = rubberBandVelocity ?? velocity
     }
 }
 
 /// Chooses the motion after a finger lift or a programmatic animated command (SPEC S6).
 public enum ReleaseSolver: Sendable {
-    /// `1/s`: a release out of bounds springs back seeded with `v + bounceBackKick · (edge − origin)`. Calibrated
-    /// (docs/design/PHYSICS-calibration.md): the native return from a rubber band held at rest is not a spring
-    /// released from rest but `x(t) = A·(1 + 4.2·t)·e^(−10.9·t)`, i.e. the critically damped spring `ω = 10.9` with an
-    /// initial velocity of `6.7·|A|` toward the edge (the first frame already moves ≈ 10 % of the displacement).
-    public static let bounceBackKick: CGFloat = 6.7
+    /// The spring-back from a rubber band, calibrated against UIKit (docs/design/PHYSICS-calibration.md): with
+    /// `A = origin − edge` the native return is `x(t) = edge + (A + v·t)·e^(−ωt)`, `ω = 10.9`, where `v` is the pan's
+    /// last raw finger velocity in content direction (a pause before lifting does not zero it; a 2.7 pt overscroll
+    /// released after dragging outward at 400 pt/s first moves 5 pt further out). The same form as the edge hand-off
+    /// after a fling (`A = 0`, `v` = crossing velocity). In ``CriticalSpring`` terms (`B = v₀ + ωA`) the seed is
+    /// `v₀ = v + ω·(edge − origin)`.
+    public static func bounceBack(origin: CGFloat, edge: CGFloat, rubberBandVelocity v: CGFloat) -> CriticalSpring {
+        let omega = CriticalSpring.defaultStiffness.squareRoot()
+        return CriticalSpring(origin: origin, target: edge, initialVelocity: v.finiteOrZero + omega * (edge - origin))
+    }
     /// SPEC S6 order:
-    /// 1. Origin out of bounds → spring to the nearest edge seeded with `v` (counts as decelerating).
+    /// 1. Origin out of bounds → ``bounceBack(origin:edge:rubberBandVelocity:)`` to the nearest edge (counts as
+    ///    decelerating).
     /// 2. Target given → clamped to `bounds`; `.rest(target)` when already there with
     ///    `|v| < thresholds.negligibleReleaseVelocity`; else a re-solved decay that lands exactly on it
     ///    (``Decay/retargeted(origin:initialVelocity:target:thresholds:)``); else the spring of
@@ -171,8 +183,7 @@ public enum ReleaseSolver: Sendable {
 
         if bounds.overscroll(of: origin) != 0 {
             let edge = bounds.clamped(origin)
-            let seed = v + bounceBackKick * (edge - origin)
-            return .spring(CriticalSpring(origin: origin, target: edge, initialVelocity: seed), start: start)
+            return .spring(bounceBack(origin: origin, edge: edge, rubberBandVelocity: ctx.rubberBandVelocity), start: start)
         }
 
         if let rawTarget = ctx.target, rawTarget.isFinite {

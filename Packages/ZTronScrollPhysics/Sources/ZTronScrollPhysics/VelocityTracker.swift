@@ -122,6 +122,15 @@ public struct VelocityTracker: Sendable, Equatable {
         return (num / den).finiteOrZero
     }
 
+    /// Velocity in `pt/s` of the last movement, ignoring any rest before the lift: ``velocity(at:)`` evaluated at the
+    /// newest sample's time. UIKit seeds the spring-back from a rubber band with the pan recognizer's velocity, which
+    /// a pause before lifting does not zero (docs/design/PHYSICS-calibration.md); the deceleration path keeps the
+    /// rest rule of ``velocity(at:)``.
+    public var lastMotionVelocity: CGFloat {
+        guard let newest = samples.last else { return 0 }
+        return velocity(at: newest.time)
+    }
+
     /// True when every position since `lift − restTimeout` (including the interpolated position at that instant)
     /// lies within ``restDistance`` of the newest position.
     private func isResting(lift: TimeInterval, newest: Sample) -> Bool {

@@ -48,6 +48,12 @@ final class CalibrateUITests: XCTestCase {
         run(app, "fast", settle: 6) { f in drag(app, f, from: 0.9, to: 0.1, velocity: 4000, hold: 0) }
         run(app, "edge", settle: 4) { f in drag(app, f, from: 0.85, to: 0.35, velocity: 1500, hold: 0) }
         run(app, "top", settle: 3) { f in drag(app, f, from: 0.2, to: 0.2 + 200 / h, velocity: 400, hold: 0.3) }
+        run(app, "topv1000", settle: 3) { f in drag(app, f, from: 0.2, to: 0.2 + 200 / h, velocity: 1000, hold: 0.3) }
+        run(app, "topv150", settle: 3) { f in drag(app, f, from: 0.2, to: 0.2 + 200 / h, velocity: 150, hold: 0.3) }
+        run(app, "topnohold", settle: 3) { f in drag(app, f, from: 0.2, to: 0.2 + 200 / h, velocity: 400, hold: 0) }
+        run(app, "top15", settle: 3) { f in drag(app, f, from: 0.2, to: 0.2 + 15 / h, velocity: 400, hold: 0.3) }
+        run(app, "top25", settle: 3) { f in drag(app, f, from: 0.2, to: 0.2 + 25 / h, velocity: 400, hold: 0.3) }
+        run(app, "top40", settle: 3) { f in drag(app, f, from: 0.2, to: 0.2 + 40 / h, velocity: 400, hold: 0.3) }
         run(app, "top100", settle: 3) { f in drag(app, f, from: 0.2, to: 0.2 + 100 / h, velocity: 400, hold: 0.3) }
         run(app, "top300", settle: 3) { f in drag(app, f, from: 0.2, to: 0.2 + 300 / h, velocity: 400, hold: 0.3) }
         run(app, "catch", settle: 3) { f in
