@@ -29,7 +29,9 @@ blocked on a user decision** → next: step 4 below (M5 build).
 | M4 (b) pinch adapter + demo | done* | pinch adapter, double tap, ZoomScreen, ZoomUITests 6/6 on 27.0 pref+forced, 17.5 pref; full-suite 27 forced / 17.5 forced pending (`M4-s2.md`) |
 | M5 design | done | `docs/design/M5-resize.md` (+ orchestrator resolutions C1–C3, Q1–Q3 at the end) |
 | M6–M9 designs | done | `docs/design/{M6-targets,M7-observation,M8-chrome,M8b-refresh-header,M9-virtualization}.md`, each ending with "Orchestrator resolutions" (read those first) and a builder-session split with file ownership + sequencing |
-| M5 build … M10 | todo | SPEC O4 l.970–990 |
+| M5 (a) state + render | done | `docs/progress/M5-s1.md`: ResizeMath/Commit, TransformHost above layout host (C1 gate: Proof 6/6, demo UI 20/20 on 27.0), 134 unit tests on 27.0 + 17.5 |
+| M5 (b) gestures + demo | todo | PanCoordinator rebase, ResizeScreen, ResizeUITests |
+| M6 … M10 | todo | SPEC O4 l.970–990 |
 
 Test totals now: `ZTronScrollViewTests` **118** green on iOS 27.0 and 17.5 (both OS paths) · M2 `ProofUITests` 6/6 ·
 physics 99 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-contract,M2-render,M3-pan,M4-zoom}.md`.
@@ -41,7 +43,8 @@ physics 99 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-c
    Open: 17.5 `testControlsUsable` (catch observer on <18 steals Toggle touches; fix idea in `M3-s3.md`) — schedule a small Debugger/Builder step.
 3. [x] **M4 (b)** (done; confirm remaining UI configs, see M4-s2.md) — Builder: pinch adapter + demo + UI tests (`docs/design/M4-zoom.md` session (b); `M4-s1.md` open
    items: rebase the pan baseline at bounce settle, feed `synthesizePan(location:time:)` and finger-count events).
-4. [ ] **M5 rotation/resize build** — design done (`docs/design/M5-resize.md`; read its resolutions first). Two
+4. [ ] **M5 rotation/resize build** — (a) DONE (M5-s1.md); remaining: (b). Pager UI test fails on 27.0 forced and 17.5 (see M4-s2.md).
+   Original text: — design done (`docs/design/M5-resize.md`; read its resolutions first). Two
    Builder sessions with the template below: (a) State/ + Render/ (ResizeCommit/ResizeMath, TransformHost above the
    layout host — gate: M2 ProofUITests 6/6 and `content.body` 0), (b) PanCoordinator/demo rotation UI tests.
    First, in session (a): run the pending M4 UI configs once (full demo suite on 27.0 `--forced` and 17.5 `--forced`).
