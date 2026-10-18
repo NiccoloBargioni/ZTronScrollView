@@ -24,7 +24,9 @@ Last updated: 2026-10-18 · Status: **M0 done · MC package + spike done (freeze
 | M2 (a) state/reader | done | `Sources/ZTronScrollView/State/` · 41 tests green (iOS 27.0) · handoff `docs/progress/M2-s1.md` |
 | M2 (b) render path | done | `Sources/ZTronScrollView/Render/` + root view · 56 tests green on both OS paths (iOS 27.0) · handoff `docs/progress/M2-s2.md` |
 | M2 (c) demo + UI render proof | done | `Demo/ZTronScrollViewDemo.xcodeproj`, `scripts/test-demo-ui.sh` · 6 UI tests green on iOS 27.0 + 17.5, preferred + forced · handoff `docs/progress/M2-s3.md` |
-| M2 build … M10 | todo | |
+| M3 (a) pan session + release + state | done | `Sources/ZTronScrollView/Gesture/{PanSession,ReleasePipeline}.swift`, state additions, `ZTronScrollPhaseReader` · 90 unit tests green (27.0, both paths), demo proof 6/6 · handoff `docs/progress/M3-s1.md` |
+| M3 (b) adapter + demo, (c) arbitration | todo | see M3-pan.md §10 |
+| M3 build … M10 | todo | |
 
 Commits: `1aa3321` M0 · `21ae371` MC package + M1.
 
