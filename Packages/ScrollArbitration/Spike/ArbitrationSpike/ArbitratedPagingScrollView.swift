@@ -18,6 +18,7 @@ final class ArbitratedPagingScrollView: UIScrollView, UIGestureRecognizerDelegat
         self.recorder = recorder
         super.init(frame: .zero)
         panGestureRecognizer.addTarget(self, action: #selector(panChanged(_:)))
+        installObserver()
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -30,7 +31,31 @@ final class ArbitratedPagingScrollView: UIScrollView, UIGestureRecognizerDelegat
 
     // MARK: touches
 
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+    /// SwiftUI hosting views swallow `touchesBegan` before it reaches the scroll view (measured: the subclass
+    /// override is never called), so the touch hooks run from a never-recognizing observer recognizer.
+    private final class TouchObserver: UIGestureRecognizer, UIGestureRecognizerDelegate {
+        var began: ((Set<UITouch>) -> Void)?
+        var finished: ((Int) -> Void)?
+        override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) { began?(touches) }
+        override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) { finished?(touches.count) }
+        override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) { finished?(touches.count) }
+        func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith o: UIGestureRecognizer) -> Bool { true }
+        func gestureRecognizer(_ g: UIGestureRecognizer, shouldBeRequiredToFailBy o: UIGestureRecognizer) -> Bool { false }
+        func gestureRecognizer(_ g: UIGestureRecognizer, shouldRequireFailureOf o: UIGestureRecognizer) -> Bool { false }
+    }
+    private let observer = TouchObserver()
+
+    private func installObserver() {
+        observer.cancelsTouchesInView = false
+        observer.delaysTouchesBegan = false
+        observer.delaysTouchesEnded = false
+        observer.delegate = observer
+        observer.began = { [weak self] t in self?.touchDown(t) }
+        observer.finished = { [weak self] n in self?.touchesFinished(n) }
+        addGestureRecognizer(observer)
+    }
+
+    private func touchDown(_ touches: Set<UITouch>) {
         let moving = isDecelerating
         if activeTouches == 0, let first = touches.first, let p = page(containing: first.location(in: self)) {
             activePage = p
@@ -42,17 +67,6 @@ final class ArbitratedPagingScrollView: UIScrollView, UIGestureRecognizerDelegat
             startPolling()
         }
         activeTouches += touches.count
-        super.touchesBegan(touches, with: event)
-    }
-
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        super.touchesEnded(touches, with: event)
-        touchesFinished(touches.count)
-    }
-
-    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        super.touchesCancelled(touches, with: event)
-        touchesFinished(touches.count)
     }
 
     private func touchesFinished(_ count: Int) {

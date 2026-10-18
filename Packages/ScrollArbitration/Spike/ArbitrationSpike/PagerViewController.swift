@@ -40,6 +40,7 @@ final class PagerViewController: UIViewController, UIScrollViewDelegate {
         scrollView.delaysContentTouches = false
         scrollView.canCancelContentTouches = true
         scrollView.showsHorizontalScrollIndicator = false
+        scrollView.showsVerticalScrollIndicator = false
         scrollView.bounces = true
         scrollView.delegate = self
         scrollView.pageViews = hostings.map(\.view)

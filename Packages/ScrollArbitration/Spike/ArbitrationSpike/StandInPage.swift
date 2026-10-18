@@ -56,7 +56,7 @@ struct StandInPage: View {
         VStack(spacing: 16) {
             Toggle("canFollow", isOn: $model.canFollowValue).accessibilityIdentifier("\(id).canFollow")
             Toggle("participant moving", isOn: $model.moving).accessibilityIdentifier("\(id).moving")
-            Text("page \(index)").font(.headline)
+            Text("page \(index)").font(.headline).accessibilityIdentifier(id)
             Rectangle().fill(Color.blue.opacity(0.6)).frame(width: 120, height: 120)
                 .scaleEffect(scale * pinching)
                 .offset(x: boxX, y: boxY)
@@ -78,7 +78,6 @@ struct StandInPage: View {
         .modifier(PinchAttachment(scale: $scale, pinching: $pinching))
         .ignoresSafeArea()
         .coordinateSpace(name: arbiter.coordinateSpaceName)
-        .accessibilityIdentifier(id)
         .onValueChange(of: panTouching) { if !$0 { recorder.panEndedSwiftUI(); model.panOwner = nil } }
         .onDisappear { if let t = model.token { envArbiter?.unregister(t); model.token = nil } }
     }
