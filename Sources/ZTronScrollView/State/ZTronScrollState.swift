@@ -109,6 +109,12 @@ public final class ZTronScrollState {
     private var turnHopPending = false
     private var resizeOpenedThisTurn = false
     private var idleGeometryChangedThisTurn = false
+    /// Post-resize settle window (D19), counted in run-loop turns from `closeResize()`: a content size or inset that
+    /// lands a frame after the viewport (slow reflow, M5 section 9; a late safe-area settle) is still part of the
+    /// resize, so it realises the sticky intent (ZTronMapKit: restore the normalized centre on every bounds change)
+    /// instead of following the idle `.sizeChanges` rule, and does not drop the intent.
+    private var postResizeTurns = 0
+    private var settledThisTurn = false
 
     /// Chooses the storage once; the path never flips afterwards (R6).
     public init() {
@@ -235,6 +241,8 @@ public final class ZTronScrollState {
         resizeIntent = nil
         turnOrigin = nil                      // the new offset is the truth for the rest of this turn
         idleGeometryChangedThisTurn = false
+        settledThisTurn = false
+        postResizeTurns = 0
         #if DEBUG
         closeReason = "intervention"
         #endif
@@ -273,7 +281,8 @@ public final class ZTronScrollState {
     func endOfTurn() {
         turnHopPending = false
         turnOrigin = nil
-        if idleGeometryChangedThisTurn, !resizeOpenedThisTurn, !isResizeOpen, resizeIntent != nil {
+        if idleGeometryChangedThisTurn, !resizeOpenedThisTurn, !isResizeOpen, resizeIntent != nil,
+           postResizeTurns == 0, !settledThisTurn {
             resizeIntent = nil
             #if DEBUG
             dbg("intent dropped at end of turn")
@@ -281,6 +290,30 @@ public final class ZTronScrollState {
         }
         idleGeometryChangedThisTurn = false
         resizeOpenedThisTurn = false
+        settledThisTurn = false
+        if postResizeTurns > 0 {
+            postResizeTurns -= 1
+            if postResizeTurns > 0 { scheduleTurnHop() }
+        }
+    }
+
+    /// The settle window is open: a few turns after a close, with the sticky intent still valid, no resize open and
+    /// nothing moving. An idle geometry change arriving now realises the intent (`settleOffset`).
+    private var isInSettleWindow: Bool {
+        postResizeTurns > 0 && resizeIntent != nil && !isResizeOpen
+            && motion == nil && transactionToken == nil && !storage.isTracking && !storage.isZooming
+    }
+
+    /// `intent` realised in the geometry of `m` (ZTronMapKit `contentOffset(normalizedCenter:)`), clamped in the
+    /// library geometry. Marks the turn as settling, so `endOfTurn()` keeps the intent.
+    private func settleOffset(_ intent: ResizeIntent, in m: ScrollMetrics) -> (offset: CGPoint, scale: CGFloat) {
+        settledThisTurn = true
+        let r = ResizeMath.realize(intent, viewport: m.viewportSize, content: m.contentSize, insets: m.adjustedContentInset,
+                                   header: m.headerObscured, focus: sizeChangesAnchor ?? .center, limits: zoomLimits,
+                                   alignment: contentAlignment)
+        let g = ResizeMath.geometry(viewport: m.viewportSize, content: m.contentSize, insets: m.adjustedContentInset,
+                                    alignment: contentAlignment)
+        return (g.clamped(r.offset, at: r.scale), r.scale)
     }
 
     #if DEBUG
@@ -363,12 +396,25 @@ public final class ZTronScrollState {
             syncCommit(&m, open: false)
             storage.metrics = m
             #if DEBUG
-            if !(idle && hadContent) { dbg("cs idle-skip \(f(old.metrics.contentSize))->\(f(size)) vp:\(f(old.metrics.viewportSize)) idle:\(idle) hadContent:\(hadContent) wroteOffset=false") }
+            if !(idle && hadContent) { dbg("cs idle-skip \(f(old.metrics.contentSize))->\(f(size)) vp:\(f(old.metrics.viewportSize)) idle:\(idle) hadContent:\(hadContent) wroteOffset:false") }
             #endif
             guard idle, hadContent else { return }
             #if DEBUG
             ZTronRenderCounters.increment("resize.contentSizeIdle")   // a content-size change with no resize open
             #endif
+            if size.width > 0, size.height > 0, isInSettleWindow, let intent = resizeIntent {
+                // Slow reflow (M5 section 9): the content size landed a frame after the resize closed. Still the resize:
+                // the sticky intent is realised in the new geometry (presentation + target, unanimated), never the
+                // keep / clamp rule, and the intent survives the turn.
+                let r = settleOffset(intent, in: m)
+                if r.offset != old.presentationOffset || r.scale != old.presentationZoom {
+                    unanimated { writeBoth(offset: r.offset, zoom: r.scale) }
+                }
+                #if DEBUG
+                dbg("cs settle \(f(old.metrics.contentSize))->\(f(size)) vp:\(f(old.metrics.viewportSize)) turns:\(postResizeTurns) \(f(old.presentationOffset))->\(f(r.offset)) z:\(f(r.scale))")
+                #endif
+                return
+            }
             let gOld = makeZoomGeometry(old.metrics), gNew = makeZoomGeometry(m)
             let z = old.presentationZoom
             var o = old.presentationOffset
@@ -507,6 +553,18 @@ public final class ZTronScrollState {
                 storage.metrics = m
                 if insetsChanged { notifyAdjustedInsetChange() }
                 guard insetsChanged else { return }
+                if hadViewport, m.contentSize.width > 0, m.contentSize.height > 0, isInSettleWindow, let intent = resizeIntent {
+                    // The safe area of the new orientation settled a frame after the resize closed: still the resize,
+                    // the sticky intent is realised against the new insets (see `setContentSize`).
+                    let r = settleOffset(intent, in: m)
+                    if r.offset != s.presentationOffset || r.scale != s.presentationZoom {
+                        unanimated { writeBoth(offset: r.offset, zoom: r.scale) }
+                    }
+                    #if DEBUG
+                    dbg("vp inset settle \(f(size)) insets \(f(old.adjustedContentInset))->\(f(m.adjustedContentInset)) turns:\(postResizeTurns) \(f(s.presentationOffset))->\(f(r.offset)) z:\(f(r.scale))")
+                    #endif
+                    return
+                }
                 let gOld = makeZoomGeometry(old), gNew = makeZoomGeometry(m)
                 let o = ResizeMath.insetChange(offset: s.presentationOffset, scale: s.presentationZoom, old: gOld, new: gNew,
                                                anchor: sizeChangesAnchor)
@@ -523,7 +581,8 @@ public final class ZTronScrollState {
         ZTronRenderCounters.increment("resize.viewport")
         dbg("vp size \(f(old.viewportSize))->\(f(size)) insets \(f(old.adjustedContentInset))->\(f(m.adjustedContentInset)) content:\(f(old.contentSize)) wasOpen:\(isResizeOpen) origin:\(turnOrigin != nil) motion:\(motion != nil) tx:\(transactionToken != nil) intentReused:\(resizeIntent != nil)")
         #endif
-        if motion != nil || transactionToken != nil {
+        let interrupted = motion != nil || transactionToken != nil
+        if interrupted {
             if transactionToken != nil, let p = probe.pending {
                 storage.presentationOffset = p.offset
                 storage.presentationZoom = p.zoom
@@ -547,8 +606,10 @@ public final class ZTronScrollState {
             } else if let origin = turnOrigin {
                 // Same turn as an idle content / inset change (the user's tree: NavigationStack > GeometryReader >
                 // scroller): what is on screen is the origin, not the half-mutated metrics (D16). The transition
-                // interpolates from it too.
-                cap = origin.snapshot; offset = origin.offset; scale = origin.zoom; header = origin.header
+                // interpolates from it too. A motion interrupted just now stopped at the current presentation (one
+                // tick newer than the origin's): that is where the user sees the content, so the anchor comes from it.
+                cap = origin.snapshot; header = origin.header
+                if !interrupted { offset = origin.offset; scale = origin.zoom }
             }
             turnOrigin = nil
             let al = contentAlignment
@@ -661,6 +722,9 @@ public final class ZTronScrollState {
             #endif
             if motion == nil, transactionToken == nil, !storage.isTracking, !storage.isZooming { storage.isClockRunning = false }
         }
+        // The settle window: a reflow or safe area that lands within the next few turns is still this resize.
+        postResizeTurns = 3
+        scheduleTurnHop()
         resolveZoomLimits()
     }
     func setPhase(_ phase: ZTronScrollPhase) { batch { storage.phase = phase } }

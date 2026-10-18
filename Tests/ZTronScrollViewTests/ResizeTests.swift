@@ -508,10 +508,13 @@ struct ResizeStateTests {
         #expect(abs(e0.offset.x - e.offset.x) > 1)
     }
 
-    /// A content change with no resize in the same turn is an app action (the list grew): the offset is kept (UIKit
-    /// `.sizeChanges` rule) and the sticky intent is dropped, so the next rotation preserves the centre of the CURRENT
-    /// state, not the stale intent.
-    @Test(arguments: OSPath.allCases) func idleContentChangeWithoutResizeKeepsOffsetAndDropsTheIntent(path: OSPath) {
+    /// Leaves the post-resize settle window (D19: three run-loop turns after the close) the way the app does: the hops run.
+    func leaveSettleWindow(_ s: ZTronScrollState) { for _ in 0..<3 { s.endOfTurn() } }
+
+    /// A content change with no resize in the same turn, once the settle window is over, is an app action (the list
+    /// grew): the offset is kept (UIKit `.sizeChanges` rule) and the sticky intent is dropped, so the next rotation
+    /// preserves the centre of the CURRENT state, not the stale intent.
+    @Test(arguments: OSPath.allCases) func idleChangeAfterTheWindowFollowsTheRuleAndDropsTheIntent(path: OSPath) {
         let s = makeState(path)
         s.scrollAxes = [.horizontal, .vertical]
         let p = CGSize(width: 393, height: 852), l = CGSize(width: 852, height: 393)
@@ -521,7 +524,8 @@ struct ResizeStateTests {
         var t: TimeInterval = 0
         turn(s) { s.setViewport(vp(l.width, l.height)) }
         settle(s, size: l, t: &t)
-        #expect(s.resizeIntent != nil)
+        leaveSettleWindow(s)
+        #expect(s.resizeIntent != nil, "leaving the window alone keeps the intent")
         let stale = s.resizeIntent!
         let o1 = s.contentOffset
         let taller = CGSize(width: 1200, height: 4000)
@@ -537,5 +541,98 @@ struct ResizeStateTests {
         let staleY = ResizeMath.realize(stale, viewport: p, content: taller, insets: EdgeInsets(), header: 0, focus: .center,
                                         limits: s.zoomLimits, alignment: s.contentAlignment).offset.y
         #expect(abs(s.contentOffset.y - staleY) > 100, "not the stale intent (\(staleY))")
+    }
+
+    // MARK: (C) the post-resize settle window (D19)
+
+    /// Portrait, zoomed, off-centre; rotated to landscape with the first (incomplete) safe area. Returns the intent.
+    func zoomedPortraitRotatedToLandscape(_ s: ZTronScrollState, insets: EdgeInsets, t: inout TimeInterval) -> ResizeIntent {
+        s.scrollAxes = [.horizontal, .vertical]
+        s.zoomLimits = ZoomLimits(min: .absolute(1), max: .absolute(4))
+        s.setContentSize(CGSize(width: 1500, height: 3000))
+        s.setViewport(vp(393, 852, EdgeInsets(top: 59, leading: 0, bottom: 34, trailing: 0)))
+        s.setZoomScale(2, animated: false)
+        s.setContentOffset(CGPoint(x: 400, y: 1200), animated: false)
+        let n0 = drawnIntent(s)
+        turn(s) { s.setViewport(vp(852, 393, insets)) }
+        settle(s, size: CGSize(width: 852, height: 393), t: &t)
+        #expect(s.resizeIntent == n0)
+        return n0
+    }
+
+    /// Slow reflow (M5 section 9): the reflowed content size lands in the turn AFTER the resize closed. It is still the
+    /// resize: the sticky intent is realised in the new geometry (criterion B) and kept, so rotating back restores the
+    /// initial offset and zoom exactly (criterion A).
+    @Test(arguments: OSPath.allCases) func lateReflowAfterCloseRestoresTheIntent(path: OSPath) {
+        let s = makeState(path)
+        var t: TimeInterval = 0
+        let lInsets = EdgeInsets(top: 0, leading: 59, bottom: 21, trailing: 59)
+        let n0 = zoomedPortraitRotatedToLandscape(s, insets: lInsets, t: &t)
+        let o1 = s.contentOffset
+        let reflowed = CGSize(width: 1500, height: 3200), l = CGSize(width: 852, height: 393)
+        turn(s) { s.setContentSize(reflowed) }
+        let e = ResizeMath.realize(n0, viewport: l, content: reflowed, insets: lInsets, header: 0, focus: .center,
+                                   limits: s.zoomLimits, alignment: s.contentAlignment)
+        #expect(abs(s.contentOffset.x - e.offset.x) < 1e-6 && abs(s.contentOffset.y - e.offset.y) < 1e-6, "\(s.contentOffset) vs \(e.offset)")
+        #expect(s.zoomScale == 2 && e.scale == 2)
+        #expect(abs(s.contentOffset.y - o1.y) > 50, "not the keep-offset rule (\(o1))")
+        #expect(s.resizeIntent == n0, "the settle keeps the intent")
+        turn(s) {
+            s.setViewport(vp(393, 852, EdgeInsets(top: 59, leading: 0, bottom: 34, trailing: 0)))
+            s.setContentSize(CGSize(width: 1500, height: 3000))
+        }
+        settle(s, size: CGSize(width: 393, height: 852), t: &t)
+        #expect(abs(s.contentOffset.x - 400) < 1e-6 && abs(s.contentOffset.y - 1200) < 1e-6, "\(s.contentOffset)")
+        #expect(abs(s.zoomScale - 2) < 1e-6)
+    }
+
+    /// The safe area of the new orientation settles in the turn AFTER the resize closed: realised against the new insets
+    /// (not `insetChange`), the intent is kept and the way back is exact.
+    @Test(arguments: OSPath.allCases) func lateInsetSettleAfterCloseRestoresTheIntent(path: OSPath) {
+        let s = makeState(path)
+        var t: TimeInterval = 0
+        let first = EdgeInsets(top: 0, leading: 59, bottom: 21, trailing: 0)
+        let n0 = zoomedPortraitRotatedToLandscape(s, insets: first, t: &t)
+        let o1 = s.contentOffset
+        let newInsets = EdgeInsets(top: 0, leading: 59, bottom: 21, trailing: 59), l = CGSize(width: 852, height: 393)
+        turn(s) { s.setViewport(vp(l.width, l.height, newInsets)) }
+        #expect(s.adjustedContentInset == newInsets)
+        let e = ResizeMath.realize(n0, viewport: l, content: CGSize(width: 1500, height: 3000), insets: newInsets, header: 0,
+                                   focus: .center, limits: s.zoomLimits, alignment: s.contentAlignment)
+        #expect(abs(s.contentOffset.x - e.offset.x) < 1e-6 && abs(s.contentOffset.y - e.offset.y) < 1e-6, "\(s.contentOffset) vs \(e.offset)")
+        #expect(s.zoomScale == 2 && e.scale == 2)
+        #expect(abs(s.contentOffset.x - o1.x) > 1, "not the inset-change rule (\(o1))")
+        #expect(s.resizeIntent == n0, "the settle keeps the intent")
+        turn(s) { s.setViewport(vp(393, 852, EdgeInsets(top: 59, leading: 0, bottom: 34, trailing: 0))) }
+        settle(s, size: CGSize(width: 393, height: 852), t: &t)
+        #expect(abs(s.contentOffset.x - 400) < 1e-6 && abs(s.contentOffset.y - 1200) < 1e-6, "\(s.contentOffset)")
+        #expect(abs(s.zoomScale - 2) < 1e-6)
+    }
+
+    /// A clock motion running into a rotation: the idle content change captured the turn origin one tick before the
+    /// interrupt, so the intent is captured from the interrupted presentation (where the content stopped), in the
+    /// origin's geometry.
+    @Test(arguments: OSPath.allCases) func interruptedMotionCapturesTheIntentFromThePresentation(path: OSPath) {
+        let s = makeState(path)
+        s.scrollAxes = [.horizontal, .vertical]
+        let content = CGSize(width: 1200, height: 3000), p = CGSize(width: 393, height: 852)
+        s.setContentSize(content)
+        s.setViewport(vp(p.width, p.height))
+        var t = 100.0
+        s.now = { t }
+        s.setContentOffset(CGPoint(x: 300, y: 1000), animated: true)
+        t += 0.02; s.step(to: date(t))
+        let origin = ResizeCommit.Snapshot(viewport: p, contentSize: content, insets: EdgeInsets())
+        var interruptedAt = CGPoint.zero
+        turn(s) {
+            s.setContentSize(CGSize(width: 1200, height: 3200))      // origin captured: presentation at this tick
+            t += 0.02; s.step(to: date(t))                           // the motion moves on
+            interruptedAt = s.peek.presentationOffset
+            s.setViewport(vp(p.height, p.width))                      // interrupt + the resize opens
+        }
+        #expect(interruptedAt != .zero && interruptedAt.y > 0)
+        let expected = ResizeMath.intent(offset: interruptedAt, scale: 1, in: origin, header: 0, focus: .center,
+                                         alignment: s.contentAlignment)
+        #expect(s.resizeIntent == expected, "\(String(describing: s.resizeIntent)) vs \(expected)")
     }
 }

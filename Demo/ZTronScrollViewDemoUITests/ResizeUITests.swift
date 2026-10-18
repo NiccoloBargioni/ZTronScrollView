@@ -107,16 +107,25 @@ final class ResizeUITests: XCTestCase {
         app.buttons["Edge"].tap()
         Thread.sleep(forTimeInterval: 0.5)
         let (p0, l, p1) = roundTrip(app, "edge")
-        for (prev, i) in [(p0, l), (l, p1)] {
+        func bounds(_ i: Info) -> (minX: Double, maxX: Double, minY: Double, maxY: Double) {
             let z = i["z"]
-            let maxX = 1500 * z + i["ir"] - i["vw"], maxY = 1000 * z + i["ib"] - i["vh"]
-            let minX = -i["il"], minY = -i["it"]
-            // In bounds; an axis whose centre moved must sit on a bound.
-            XCTAssertTrue(i["ox"] >= minX - 0.5 && i["ox"] <= maxX + 0.5, i.raw)
-            XCTAssertTrue(i["oy"] >= minY - 0.5 && i["oy"] <= maxY + 0.5, i.raw)
-            if abs(i["ux"] - prev["ux"]) > 1 { XCTAssertTrue(abs(i["ox"] - maxX) < 0.5 || abs(i["ox"] - minX) < 0.5, i.raw) }
-            if abs(i["uy"] - prev["uy"]) > 1 { XCTAssertTrue(abs(i["oy"] - maxY) < 0.5 || abs(i["oy"] - minY) < 0.5, i.raw) }
+            return (-i["il"], 1500 * z + i["ir"] - i["vw"], -i["it"], 1000 * z + i["ib"] - i["vh"])
         }
+        // toLandscape: in bounds; an axis whose centre moved was clamped only as far as needed, so it sits on a bound.
+        let bl = bounds(l)
+        XCTAssertTrue(l["ox"] >= bl.minX - 0.5 && l["ox"] <= bl.maxX + 0.5, l.raw)
+        XCTAssertTrue(l["oy"] >= bl.minY - 0.5 && l["oy"] <= bl.maxY + 0.5, l.raw)
+        if abs(l["ux"] - p0["ux"]) > 1 { XCTAssertTrue(abs(l["ox"] - bl.maxX) < 0.5 || abs(l["ox"] - bl.minX) < 0.5, l.raw) }
+        if abs(l["uy"] - p0["uy"]) > 1 { XCTAssertTrue(abs(l["oy"] - bl.maxY) < 0.5 || abs(l["oy"] - bl.minY) < 0.5, l.raw) }
+        // portraitBack: the sticky intent (D17) was captured from the initial state, not from the clamped landscape one,
+        // so the way back restores the initial offset and zoom exactly (criterion A) even though the landscape centre
+        // was clamped onto a bound; the bound rule no longer applies here.
+        let bp = bounds(p1)
+        XCTAssertTrue(p1["ox"] >= bp.minX - 0.5 && p1["ox"] <= bp.maxX + 0.5, p1.raw)
+        XCTAssertTrue(p1["oy"] >= bp.minY - 0.5 && p1["oy"] <= bp.maxY + 0.5, p1.raw)
+        XCTAssertEqual(p1["ox"], p0["ox"], accuracy: 0.5, p1.raw)
+        XCTAssertEqual(p1["oy"], p0["oy"], accuracy: 0.5, p1.raw)
+        XCTAssertEqual(p1["z"], p0["z"], accuracy: 1e-3, p1.raw)
         XCTAssertEqual(p1["body"], 0)
     }
 

@@ -152,7 +152,7 @@ public enum ZTronRenderCounters {
         eventSeq += 1
         if !eventTurnPending {
             eventTurnPending = true
-            DispatchQueue.main.async { eventTurn += 1; eventTurnPending = false }
+            DispatchQueue.main.async { MainActor.assumeIsolated { eventTurn += 1; eventTurnPending = false } }
         }
         events.append("\(eventSeq)@t\(eventTurn) \(s)")
         if events.count > eventCapacity { events.removeFirst(events.count - eventCapacity) }
