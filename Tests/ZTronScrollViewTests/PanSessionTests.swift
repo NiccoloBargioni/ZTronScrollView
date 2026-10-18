@@ -60,6 +60,24 @@ import ZTronScrollPhysics
         #expect(s2.phase == .idle)
     }
 
+    @Test func zoomedContentPansOnUnlistedAxis() {
+        let fit = AxisBounds(min: 0, max: 0), big = AxisBounds(min: 0, max: 300)
+        #expect(PanEnvironment.effectiveAxes(.vertical, zoomEnabled: false, boundsX: big, boundsY: big) == .vertical)
+        #expect(PanEnvironment.effectiveAxes(.vertical, zoomEnabled: true, boundsX: fit, boundsY: big) == .vertical)
+        #expect(PanEnvironment.effectiveAxes(.vertical, zoomEnabled: true, boundsX: big, boundsY: fit) == [.horizontal, .vertical])
+        // The session moves x once the axis is effective, and not before.
+        var s = PanSession()
+        var e = Self.env { $0.axes = .vertical; $0.presentationOffset = CGPoint(x: 100, y: 100) }
+        _ = down(&s, e)
+        _ = drag(&s, e, 50, 0)
+        #expect(lastOffset(drag(&s, e, 60, 0))?.x == 100)
+        var s2 = PanSession()
+        e.axes = [.horizontal, .vertical]
+        _ = down(&s2, e)
+        _ = drag(&s2, e, 50, 0)
+        #expect(lastOffset(drag(&s2, e, 60, 0))?.x == 90)
+    }
+
     @Test func directionalLock() {
         func run(_ dx: CGFloat, _ dy: CGFloat) -> CGPoint {
             var s = PanSession()

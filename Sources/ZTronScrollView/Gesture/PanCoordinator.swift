@@ -78,7 +78,8 @@ final class PanCoordinator: ObservableObject {
         let bounds = makeZoomGeometry().bounds(at: z)
         let bx = bounds.x, by = bounds.y
         var env = PanEnvironment()
-        env.axes = axes
+        let effAxes = PanEnvironment.effectiveAxes(axes, zoomEnabled: state.isZoomEnabled, boundsX: bx, boundsY: by)
+        env.axes = effAxes
         env.isScrollEnabled = state.isScrollEnabled && settings.isScrollEnabled && nativeScrollEnabled
         env.isDirectionalLockEnabled = state.isDirectionalLockEnabled
         env.presentationOffset = s.presentationOffset
@@ -86,10 +87,10 @@ final class PanCoordinator: ObservableObject {
         env.boundsY = by
         env.bouncesX = BounceConfiguration(behavior: settings.bounceX, bounces: state.bounces,
                                            alwaysBounce: state.alwaysBounceHorizontal)
-            .resolve(isAxisEnabled: axes.contains(.horizontal), isScrollable: bx.isScrollable)
+            .resolve(isAxisEnabled: effAxes.contains(.horizontal), isScrollable: bx.isScrollable)
         env.bouncesY = BounceConfiguration(behavior: settings.bounceY, bounces: state.bounces,
                                            alwaysBounce: state.alwaysBounceVertical)
-            .resolve(isAxisEnabled: axes.contains(.vertical), isScrollable: by.isScrollable)
+            .resolve(isAxisEnabled: effAxes.contains(.vertical), isScrollable: by.isScrollable)
         env.viewport = m.viewportSize
         env.isMovingWithoutFinger = (state.phase == .decelerating || state.phase == .animating) && !state.isTracking
         env.interruptedVelocity = state.lastInterruptedVelocity
@@ -281,5 +282,17 @@ final class PanCoordinator: ObservableObject {
             handle(.dragChanged(translation: .zero, startLocation: remaining, time: time))
             synthesizedPanStart = remaining
         }
+    }
+}
+
+extension PanEnvironment {
+    /// D15: with zoom enabled an axis outside `axes` still pans while the zoomed content exceeds the viewport on it.
+    /// Such an axis is scrollable by construction, so its bounce equals `.basedOnSize`.
+    static func effectiveAxes(_ axes: Axis.Set, zoomEnabled: Bool, boundsX: AxisBounds, boundsY: AxisBounds) -> Axis.Set {
+        guard zoomEnabled else { return axes }
+        var a = axes
+        if boundsX.isScrollable { a.insert(.horizontal) }
+        if boundsY.isScrollable { a.insert(.vertical) }
+        return a
     }
 }
