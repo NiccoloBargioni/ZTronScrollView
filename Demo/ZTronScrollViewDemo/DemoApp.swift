@@ -24,6 +24,7 @@ struct DemoApp: App {
             case "pager": PagerScreen()
             case "zoom": ZoomScreen()
             case "image": ImageScreen()
+            case "calibrate": CalibrateScreen()
             default: ProofScreen()
             }
         }
