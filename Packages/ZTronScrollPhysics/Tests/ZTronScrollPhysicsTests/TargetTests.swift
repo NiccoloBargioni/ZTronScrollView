@@ -147,11 +147,11 @@ import Testing
         let T = decay.duration()
         for time in [5 + T, 5 + T + 1, .infinity] {
             let sample = motion.sample(at: time)
-            #expect(sample == AxisMotion.Sample(position: decay.restPosition, velocity: 0, isSettled: true))
+            #expect(sample == AxisMotion.Sample(position: decay.stopPosition(), velocity: 0, isSettled: true))
         }
         let moving = motion.sample(at: 5 + T * 0.9)
         #expect(!moving.isSettled)
-        #expect(abs(moving.position - decay.restPosition) < 0.5 * 10)              // already close to rest
+        #expect(abs(moving.position - decay.stopPosition()) < 0.5 * 10)             // already close to the stop
         #expect(motion.sample(at: 0) == AxisMotion.Sample(position: 10, velocity: 1700, isSettled: false))
         #expect(AxisMotion.rest(position: 4).sample(at: 99) == AxisMotion.Sample(position: 4, velocity: 0, isSettled: true))
     }
@@ -188,7 +188,7 @@ import Testing
             #expect(motion(v).willDecelerate)
         }
         // The boundary follows the configured threshold.
-        let strict = RestThresholds(negligibleReleaseVelocity: 5)
+        let strict = RestThresholds(velocity: 2, negligibleReleaseVelocity: 5)
         #expect(motion(4, strict) == .rest(position: 300))
         #expect(motion(10, strict).willDecelerate)
     }

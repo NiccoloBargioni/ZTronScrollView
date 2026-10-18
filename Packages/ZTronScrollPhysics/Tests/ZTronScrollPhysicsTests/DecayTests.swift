@@ -78,16 +78,23 @@ import Testing
     @Test(arguments: [DecelerationRate.normal, .fast])
     func durationEndsBelowThresholds(rate: DecelerationRate) {
         let thresholds = RestThresholds()
+        // Natural fling: ends when |v| < velocity threshold, where it is (UIKit leaves ≈ v/|k| of the rest untraveled).
         let decay = Decay(origin: 0, initialVelocity: 4000, rate: rate)
         let T = decay.duration(thresholds: thresholds)
         #expect(T > 0)
-        func stopped(_ t: TimeInterval) -> Bool {
-            abs(decay.velocity(at: t)) <= thresholds.velocity * (1 + 1e-9)
-                && abs(decay.restPosition - decay.position(at: t)) <= thresholds.distance * (1 + 1e-9)
-        }
-        #expect(stopped(T))
-        #expect(!stopped(T * 0.99))
+        func slow(_ t: TimeInterval) -> Bool { abs(decay.velocity(at: t)) <= thresholds.velocity * (1 + 1e-9) }
+        #expect(slow(T))
+        #expect(!slow(T * 0.99))
+        #expect(decay.stopPosition(thresholds: thresholds) == decay.position(at: T))
+        expectClose(decay.restPosition - decay.stopPosition(thresholds: thresholds), thresholds.velocity / abs(rate.k), 1e-6)
         #expect(Decay(origin: 0, initialVelocity: 1, rate: rate).duration(thresholds: thresholds) == 0)
+        // Re-solved decay: also waits for the remaining distance and ends exactly on the rest point.
+        let exact = Decay(origin: 0, initialVelocity: 4000, rate: rate, landsOnRestPosition: true)
+        let Te = exact.duration(thresholds: thresholds)
+        #expect(Te >= T)
+        #expect(abs(exact.velocity(at: Te)) <= thresholds.velocity * (1 + 1e-9))
+        #expect(abs(exact.restPosition - exact.position(at: Te)) <= thresholds.distance * (1 + 1e-9))
+        #expect(exact.stopPosition(thresholds: thresholds) == exact.restPosition)
     }
 
     @Test func nonFiniteInputsAreZeroed() {

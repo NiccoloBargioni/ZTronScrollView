@@ -65,7 +65,9 @@ public struct DecelerationRate: Sendable, Hashable {
 ///
 /// Non-finite or non-positive values fall back to the defaults.
 public struct RestThresholds: Sendable, Equatable {
-    /// `pt/s`: `|v|` below this counts as stopped.
+    /// `pt/s`: `|v|` below this counts as stopped. Calibrated against a native `ScrollView` (iOS 27, docs/design/
+    /// PHYSICS-calibration.md): UIKit ends a deceleration once `|v|` drops under ≈ 10 pt/s (one 1/3-pt pixel step every
+    /// other frame) and leaves the remaining ≈ 5 pt of the analytic rest point untraveled.
     public var velocity: CGFloat
     /// `pt`: remaining distance below this snaps to the target.
     public var distance: CGFloat
@@ -74,8 +76,8 @@ public struct RestThresholds: Sendable, Equatable {
     /// ``Decay/retargeted(origin:initialVelocity:target:thresholds:)`` refuses to re-solve (spring fallback).
     public var negligibleReleaseVelocity: CGFloat
 
-    public init(velocity: CGFloat = 4, distance: CGFloat = 0.5, negligibleReleaseVelocity: CGFloat = 20) {
-        self.velocity = velocity.positive(or: 4)
+    public init(velocity: CGFloat = 10, distance: CGFloat = 0.5, negligibleReleaseVelocity: CGFloat = 20) {
+        self.velocity = velocity.positive(or: 10)
         self.distance = distance.positive(or: 0.5)
         self.negligibleReleaseVelocity = negligibleReleaseVelocity.positive(or: 20)
     }

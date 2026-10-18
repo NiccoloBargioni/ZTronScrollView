@@ -30,7 +30,7 @@ import Testing
     func settlesAtTarget(spring: CriticalSpring) {
         let T = spring.settlingTime()
         #expect(abs(spring.position(at: T) - spring.target) < 0.5)
-        #expect(abs(spring.velocity(at: T)) < 4)
+        #expect(abs(spring.velocity(at: T)) < RestThresholds().velocity)
         #expect(spring.isSettled(at: T))
     }
 
@@ -101,8 +101,8 @@ import Testing
     @Test func nonFiniteInputsFallBack() {
         let spring = CriticalSpring(origin: .nan, target: .infinity, initialVelocity: .nan, stiffness: .nan)
         #expect(spring.origin == 0 && spring.target == 0 && spring.initialVelocity == 0)
-        #expect(spring.stiffness == 100)
-        #expect(CriticalSpring(origin: 0, target: 1, stiffness: -4).omega == 10)
+        #expect(spring.stiffness == CriticalSpring.defaultStiffness)
+        #expect(CriticalSpring(origin: 0, target: 1, stiffness: -4).omega == CriticalSpring.defaultStiffness.squareRoot())
         #expect(spring.settlingTime() == 0)
     }
 }

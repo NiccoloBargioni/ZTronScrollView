@@ -14,6 +14,13 @@ import ZTronScrollPhysics
         edit(&e)
         return e
     }
+    /// Hysteresis 0: the recognition sample moves nothing, so the formulas below read directly. The hysteresis
+    /// credit (recognition moves the content by |t₀| − 10 along t₀, as native) has its own test.
+    static func session() -> PanSession {
+        var s = PanSession()
+        s.hysteresis = 0
+        return s
+    }
     func down(_ s: inout PanSession, _ e: PanEnvironment, t: TimeInterval = 1, count: Int = 1) -> [PanEffect] {
         s.handle(.touchDown(location: .zero, time: t, touchCount: count), env: e)
     }
@@ -26,15 +33,39 @@ import ZTronScrollPhysics
     }
 
     @Test func recognitionDoesNotJump() {
-        var s = PanSession()
+        var s = Self.session()
         let e = Self.env { $0.presentationOffset = CGPoint(x: 30, y: 250) }
         _ = down(&s, e)
         let fx = drag(&s, e, 3, -12)
         #expect(fx == [.beginDragging, .setOffset(CGPoint(x: 30, y: 250))])
     }
 
-    @Test func offsetIsBaselineMinusTranslationNeverAccumulated() {
+    @Test func recognitionCreditsTravelBeyondHysteresis() {
+        // Native: a first sample of 128 pt moves the content 117 pt (docs/design/PHYSICS-calibration.md).
         var s = PanSession()
+        let e = Self.env { $0.presentationOffset = CGPoint(x: 0, y: 250) }
+        _ = down(&s, e)
+        #expect(lastOffset(drag(&s, e, 0, -128)) == CGPoint(x: 0, y: 250 + 118))
+        #expect(lastOffset(drag(&s, e, 0, -200)) == CGPoint(x: 0, y: 250 + 190))
+        // Diagonal: the 10 pt are taken along the recognition translation (3-4-5 → 6, 8 credited 0, 0... scaled).
+        var d = PanSession()
+        _ = down(&d, e)
+        let first = lastOffset(drag(&d, e, -30, -40))!              // |t₀| = 50 → credit 40 along (−30, −40)/50
+        #expect(abs(first.x - 24) < 1e-9 && abs(first.y - (250 + 32)) < 1e-9)
+        // A recognition sample shorter than the hysteresis moves nothing.
+        var short = PanSession()
+        _ = down(&short, e)
+        #expect(lastOffset(drag(&short, e, 0, -8)) == CGPoint(x: 0, y: 250))
+        // Rebase after a pinch keeps the live translation whole (no credit).
+        var r = PanSession()
+        _ = down(&r, e)
+        _ = drag(&r, e, 0, -128)
+        r.rebase(presentation: CGPoint(x: 0, y: 300), translation: CGSize(width: 0, height: -128), env: e)
+        #expect(lastOffset(drag(&r, e, 0, -128)) == CGPoint(x: 0, y: 300))
+    }
+
+    @Test func offsetIsBaselineMinusTranslationNeverAccumulated() {
+        var s = Self.session()
         let e = Self.env { $0.presentationOffset = CGPoint(x: 0, y: 250) }
         _ = down(&s, e)
         _ = drag(&s, e, 0, -12)
@@ -47,12 +78,12 @@ import ZTronScrollPhysics
     }
 
     @Test func axesAndScrollEnabled() {
-        var s = PanSession()
+        var s = Self.session()
         var e = Self.env { $0.axes = .vertical; $0.presentationOffset = CGPoint(x: 10, y: 100) }
         _ = down(&s, e)
         _ = drag(&s, e, 50, -20)
         #expect(lastOffset(drag(&s, e, 80, -60)) == CGPoint(x: 10, y: 140))
-        var s2 = PanSession()
+        var s2 = Self.session()
         e.isScrollEnabled = false
         #expect(down(&s2, e) == [])
         #expect(drag(&s2, e, 0, -20) == [])
@@ -66,12 +97,12 @@ import ZTronScrollPhysics
         #expect(PanEnvironment.effectiveAxes(.vertical, zoomEnabled: true, boundsX: fit, boundsY: big) == .vertical)
         #expect(PanEnvironment.effectiveAxes(.vertical, zoomEnabled: true, boundsX: big, boundsY: fit) == [.horizontal, .vertical])
         // The session moves x once the axis is effective, and not before.
-        var s = PanSession()
+        var s = Self.session()
         var e = Self.env { $0.axes = .vertical; $0.presentationOffset = CGPoint(x: 100, y: 100) }
         _ = down(&s, e)
         _ = drag(&s, e, 50, 0)
         #expect(lastOffset(drag(&s, e, 60, 0))?.x == 100)
-        var s2 = PanSession()
+        var s2 = Self.session()
         e.axes = [.horizontal, .vertical]
         _ = down(&s2, e)
         _ = drag(&s2, e, 50, 0)
@@ -80,7 +111,7 @@ import ZTronScrollPhysics
 
     @Test func directionalLock() {
         func run(_ dx: CGFloat, _ dy: CGFloat) -> CGPoint {
-            var s = PanSession()
+            var s = Self.session()
             let e = Self.env { $0.isDirectionalLockEnabled = true; $0.presentationOffset = CGPoint(x: 50, y: 50) }
             _ = down(&s, e)
             _ = drag(&s, e, dx, dy)
@@ -97,7 +128,7 @@ import ZTronScrollPhysics
         let overshoot: CGFloat = 37
         let p = top ? CGPoint(x: 0, y: -overshoot) : CGPoint(x: 0, y: 700 + overshoot)
         let e = Self.env { $0.presentationOffset = p }
-        var s = PanSession()
+        var s = Self.session()
         _ = down(&s, e)
         let fx = drag(&s, e, 0, top ? 11 : -11)
         let o = lastOffset(fx)!
@@ -108,7 +139,7 @@ import ZTronScrollPhysics
     }
 
     @Test func noBounceHardClamps() {
-        var s = PanSession()
+        var s = Self.session()
         let e = Self.env { $0.bouncesY = false; $0.presentationOffset = CGPoint(x: 0, y: 10) }
         _ = down(&s, e)
         _ = drag(&s, e, 0, 11)
@@ -117,7 +148,7 @@ import ZTronScrollPhysics
     }
 
     @Test func tapEmitsOnlyEndSequence() {
-        var s = PanSession()
+        var s = Self.session()
         let e = Self.env()
         #expect(down(&s, e) == [.beginTracking])
         #expect(s.handle(.touchesEnded(time: 1.05), env: e) == [.endSequence])
@@ -125,19 +156,19 @@ import ZTronScrollPhysics
     }
 
     @Test func catchEmitsCatchBeforeTracking() {
-        var s = PanSession()
+        var s = Self.session()
         let e = Self.env { $0.isMovingWithoutFinger = true }
         #expect(down(&s, e) == [.catchMotion, .beginTracking])
     }
 
     @Test func dragWithoutTouchDownSynthesizesIt() {
-        var s = PanSession()
+        var s = Self.session()
         let e = Self.env()
         #expect(drag(&s, e, 0, -12) == [.beginTracking, .beginDragging, .setOffset(CGPoint(x: 0, y: 0))])
     }
 
     @Test func releaseAndCancel() {
-        var s = PanSession()
+        var s = Self.session()
         let e = Self.env { $0.presentationOffset = CGPoint(x: 0, y: 100) }
         _ = down(&s, e)
         _ = drag(&s, e, 0, -12)
@@ -147,14 +178,14 @@ import ZTronScrollPhysics
         #expect(r.fallbackVelocity == CGVector(dx: 0, dy: -300) && !r.zeroVelocity)
         #expect(s.handle(.touchesEnded(time: 2), env: e) == [] && s.phase == .idle)
 
-        var c = PanSession()
+        var c = Self.session()
         _ = down(&c, e); _ = drag(&c, e, 0, -12)
         guard case let .release(r2) = c.handle(.cancelled, env: e).last else { Issue.record("no release"); return }
         #expect(r2.zeroVelocity && r2.liftTime.isNaN)
     }
 
     @Test func caughtGestureCarriesCatchData() {
-        var s = PanSession()
+        var s = Self.session()
         let e = Self.env { $0.isMovingWithoutFinger = true; $0.interruptedVelocity = CGVector(dx: 0, dy: 900) }
         _ = down(&s, e, t: 5)
         _ = drag(&s, e, 0, 12)
@@ -164,14 +195,14 @@ import ZTronScrollPhysics
 
     @Test func arbiterDefersTrackingAndDecides() {
         let e = Self.env { $0.hasArbiter = true; $0.presentationOffset = CGPoint(x: 0, y: 40) }
-        var s = PanSession()
+        var s = Self.session()
         #expect(down(&s, e) == [])
         let ask = drag(&s, e, 0, -12)
         #expect(ask == [.askOwner(start: .zero, translation: CGSize(width: 0, height: -12), touchCount: 1)])
         #expect(drag(&s, e, 0, -20) == [])               // no second question
         #expect(s.decided(.participant, env: e) == [.beginTracking, .beginDragging, .setOffset(CGPoint(x: 0, y: 40))])
 
-        var c = PanSession()
+        var c = Self.session()
         _ = down(&c, e); _ = drag(&c, e, 0, -12)
         #expect(c.decided(.container, env: e) == [])
         #expect(c.phase == .ignored)
@@ -180,7 +211,7 @@ import ZTronScrollPhysics
     }
 
     @Test func multiTouchIsIgnored() {
-        var s = PanSession()
+        var s = Self.session()
         #expect(down(&s, Self.env(), count: 2) == [])
         #expect(s.phase == .ignored)
     }

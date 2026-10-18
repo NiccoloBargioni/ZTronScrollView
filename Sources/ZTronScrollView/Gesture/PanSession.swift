@@ -86,6 +86,10 @@ struct PanSession: Equatable {
 
     var phase: Phase = .idle
     var rubberBandCoefficient: CGFloat = 0.55
+    /// `DragGesture(minimumDistance:)` of the adapter. At recognition the content moves by the finger travel beyond
+    /// this (native: a 128 pt first sample moves the content 117 pt; docs/design/PHYSICS-calibration.md), so only the
+    /// hysteresis itself is "lost", never the whole recognition sample.
+    var hysteresis: CGFloat = 10
 
     // MARK: Events
 
@@ -161,7 +165,7 @@ struct PanSession: Equatable {
     mutating func rebase(presentation: CGPoint, translation: CGSize, env: PanEnvironment) {
         guard case var .dragging(drag) = phase else { return }
         drag.baseline = Self.baseline(presentation: presentation, translation: translation, env: env,
-                                      coefficient: rubberBandCoefficient)
+                                      coefficient: rubberBandCoefficient, hysteresis: 0)
         drag.current = presentation
         phase = .dragging(drag)
     }
@@ -196,7 +200,7 @@ struct PanSession: Equatable {
 
     private mutating func beginDrag(_ p: Pending, env: PanEnvironment, deferredTracking: Bool) -> [PanEffect] {
         let baseline = Self.baseline(presentation: env.presentationOffset, translation: p.translation, env: env,
-                                     coefficient: rubberBandCoefficient)
+                                     coefficient: rubberBandCoefficient, hysteresis: hysteresis)
         var lock: Axis?
         if env.isDirectionalLockEnabled, env.axes.contains(.horizontal), env.axes.contains(.vertical) {
             let dx = abs(p.translation.width), dy = abs(p.translation.height)
@@ -255,14 +259,24 @@ struct PanSession: Equatable {
         return raw0 + translation
     }
 
-    /// Baseline at recognition so that `offset(translation0) == presentation` (inverse rubber band when catching a
-    /// bounce; no jump).
+    /// Baseline at recognition (inverse rubber band when catching a bounce). With `hysteresis == 0`,
+    /// `offset(translation0) == presentation` (used by `rebase`). With the gesture's hysteresis `h`, the recognition
+    /// sample `t₀` is credited beyond the first `h` points: the baseline uses `t₀ · min(1, h / |t₀|)`, so the content
+    /// moves by `|t₀| − h` in the direction of `t₀` at recognition — exactly what a `UIScrollView` does (the finger has
+    /// already travelled that far; only the hysteresis is absorbed). Without this a fast flick lost up to a frame of
+    /// travel and tracked one frame behind the finger.
     static func baseline(presentation: CGPoint, translation: CGSize, env: PanEnvironment,
-                         coefficient: CGFloat = 0.55) -> CGPoint {
-        CGPoint(
-            x: axisBaseline(presentation: presentation.x, translation: translation.width, bounds: env.boundsX,
+                         coefficient: CGFloat = 0.55, hysteresis: CGFloat = 0) -> CGPoint {
+        var t = translation
+        let length = hypot(t.width, t.height)
+        if hysteresis > 0, length > hysteresis {
+            let f = hysteresis / length
+            t = CGSize(width: t.width * f, height: t.height * f)
+        }
+        return CGPoint(
+            x: axisBaseline(presentation: presentation.x, translation: t.width, bounds: env.boundsX,
                             bounces: env.bouncesX, viewport: env.viewport.width, coefficient: coefficient),
-            y: axisBaseline(presentation: presentation.y, translation: translation.height, bounds: env.boundsY,
+            y: axisBaseline(presentation: presentation.y, translation: t.height, bounds: env.boundsY,
                             bounces: env.bouncesY, viewport: env.viewport.height, coefficient: coefficient))
     }
 }

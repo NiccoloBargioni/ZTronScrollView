@@ -51,7 +51,7 @@ public enum AxisMotion: Sendable, Equatable {
     /// - `.rest`: settled at its position.
     /// - `.decay`: the decay until `handoff.crossingTime`; at/after it, a `CriticalSpring(origin: edge, target: edge,
     ///   initialVelocity: decay.velocity(at: tc − start))` started at `tc`, or `.rest(edge)` without bounce.
-    ///   Without a handoff it settles after `decay.duration(thresholds:)`.
+    ///   Without a handoff it settles after `decay.duration(thresholds:)` at `decay.stopPosition(thresholds:)`.
     /// - `.spring`: settles after `settlingTime(thresholds:)`.
     ///
     /// Settled samples report ``endPosition`` exactly and zero velocity (no drift). Sampling at exactly
@@ -75,18 +75,19 @@ public enum AxisMotion: Sendable, Equatable {
             }
             let t = sanitizedElapsed(time - start)
             if handoff == nil, t >= decay.duration(thresholds: thresholds) - tolerance {
-                return Sample(position: decay.restPosition, velocity: 0, isSettled: true)
+                return Sample(position: decay.stopPosition(thresholds: thresholds), velocity: 0, isSettled: true)
             }
             return Sample(position: decay.position(at: t), velocity: decay.velocity(at: t), isSettled: false)
         }
     }
 
-    /// Where the motion ends, in `pt`.
+    /// Where the motion ends, in `pt` (default ``RestThresholds``; a natural decay ends at its
+    /// ``Decay/stopPosition(thresholds:)``, not at the analytic rest point).
     public var endPosition: CGFloat {
         switch self {
         case let .rest(position): return position
         case let .spring(spring, _): return spring.target
-        case let .decay(decay, _, handoff): return handoff?.edge ?? decay.restPosition
+        case let .decay(decay, _, handoff): return handoff?.edge ?? decay.stopPosition()
         }
     }
 
@@ -145,6 +146,11 @@ public struct ReleaseContext: Sendable, Equatable {
 
 /// Chooses the motion after a finger lift or a programmatic animated command (SPEC S6).
 public enum ReleaseSolver: Sendable {
+    /// `1/s`: a release out of bounds springs back seeded with `v + bounceBackKick · (edge − origin)`. Calibrated
+    /// (docs/design/PHYSICS-calibration.md): the native return from a rubber band held at rest is not a spring
+    /// released from rest but `x(t) = A·(1 + 4.2·t)·e^(−10.9·t)`, i.e. the critically damped spring `ω = 10.9` with an
+    /// initial velocity of `6.7·|A|` toward the edge (the first frame already moves ≈ 10 % of the displacement).
+    public static let bounceBackKick: CGFloat = 6.7
     /// SPEC S6 order:
     /// 1. Origin out of bounds → spring to the nearest edge seeded with `v` (counts as decelerating).
     /// 2. Target given → clamped to `bounds`; `.rest(target)` when already there with
@@ -165,7 +171,8 @@ public enum ReleaseSolver: Sendable {
 
         if bounds.overscroll(of: origin) != 0 {
             let edge = bounds.clamped(origin)
-            return .spring(CriticalSpring(origin: origin, target: edge, initialVelocity: v), start: start)
+            let seed = v + bounceBackKick * (edge - origin)
+            return .spring(CriticalSpring(origin: origin, target: edge, initialVelocity: seed), start: start)
         }
 
         if let rawTarget = ctx.target, rawTarget.isFinite {
@@ -215,7 +222,8 @@ public enum ReleaseSolver: Sendable {
         let delta = target - origin
         if v * delta > 0 {
             let omega = Swift.max(omega0, abs(v / delta))
-            return CriticalSpring(origin: origin, target: target, initialVelocity: v, stiffness: omega * omega)
+            let stiffness = omega == omega0 ? CriticalSpring.defaultStiffness : omega * omega
+            return CriticalSpring(origin: origin, target: target, initialVelocity: v, stiffness: stiffness)
         }
         let plain = CriticalSpring(origin: origin, target: target, initialVelocity: v)
         guard v != 0, !bounces else { return plain }

@@ -48,6 +48,8 @@ final class CalibrateUITests: XCTestCase {
         run(app, "fast", settle: 6) { f in drag(app, f, from: 0.9, to: 0.1, velocity: 4000, hold: 0) }
         run(app, "edge", settle: 4) { f in drag(app, f, from: 0.85, to: 0.35, velocity: 1500, hold: 0) }
         run(app, "top", settle: 3) { f in drag(app, f, from: 0.2, to: 0.2 + 200 / h, velocity: 400, hold: 0.3) }
+        run(app, "top100", settle: 3) { f in drag(app, f, from: 0.2, to: 0.2 + 100 / h, velocity: 400, hold: 0.3) }
+        run(app, "top300", settle: 3) { f in drag(app, f, from: 0.2, to: 0.2 + 300 / h, velocity: 400, hold: 0.3) }
         run(app, "catch", settle: 3) { f in
             drag(app, f, from: 0.9, to: 0.1, velocity: 4000, hold: 0)
             Thread.sleep(forTimeInterval: 0.35)

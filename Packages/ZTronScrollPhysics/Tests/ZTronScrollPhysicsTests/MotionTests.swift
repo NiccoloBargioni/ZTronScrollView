@@ -146,7 +146,8 @@ import Testing
         }
         #expect(handoff == nil)
         #expect(decay.restPosition < 1000)
-        #expect(motion.endPosition == decay.restPosition)
+        #expect(motion.endPosition == decay.stopPosition())
+        expectClose(decay.restPosition - motion.endPosition, RestThresholds().velocity / abs(decay.rate.k), 1e-6)
     }
 
     @Test func releaseAtEdgeMovingOutBouncesImmediately() {
@@ -170,7 +171,8 @@ import Testing
         }
         #expect(start == 1)
         #expect(spring.target == bounds.clamped(origin))                       // nearest edge, target ignored
-        #expect(spring.initialVelocity == velocity)                             // seeded with the release velocity
+        // Seeded with the release velocity plus the calibrated kick toward the edge (docs/design/PHYSICS-calibration.md).
+        expectClose(spring.initialVelocity, velocity + ReleaseSolver.bounceBackKick * (bounds.clamped(origin) - origin), 1e-9)
         #expect(motion.willDecelerate)                                          // UIKit: willDecelerate == true
         let end = motion.sample(at: 1 + spring.settlingTime())
         #expect(end.isSettled && end.position == bounds.clamped(origin))
@@ -369,7 +371,7 @@ import Testing
         for start in starts(from: base) {
             let d = AxisMotion.decay(decay, start: start, handoff: nil).sample(at: start + td)
             let s = AxisMotion.spring(spring, start: start).sample(at: start + ts)
-            if d != AxisMotion.Sample(position: decay.restPosition, velocity: 0, isSettled: true) { unsettled += 1 }
+            if d != AxisMotion.Sample(position: decay.stopPosition(), velocity: 0, isSettled: true) { unsettled += 1 }
             if s != AxisMotion.Sample(position: 250.25, velocity: 0, isSettled: true) { unsettled += 1 }
             // The slack is a few ulps, not a frame: 1 ms early is still moving.
             #expect(!AxisMotion.spring(spring, start: start).sample(at: start + ts - 0.001).isSettled)

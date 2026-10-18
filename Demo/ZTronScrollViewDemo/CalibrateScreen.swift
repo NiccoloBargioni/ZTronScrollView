@@ -104,7 +104,7 @@ struct CalibrateScreen: View {
     var body: some View {
         VStack(spacing: 4) {
             HStack(spacing: 6) {
-                ForEach(["slow", "medium", "fast", "edge", "top", "catch", "bottom"], id: \.self) { g in
+                ForEach(["slow", "medium", "fast", "edge", "top", "top100", "top300", "catch", "bottom"], id: \.self) { g in
                     Button(g) { prep(g) }.accessibilityIdentifier("cal.prep.\(g)")
                 }
                 Button("save") { info = recorder.save() }.accessibilityIdentifier("cal.save")

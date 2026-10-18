@@ -8,9 +8,14 @@ import Foundation
 ///
 ///     v = Σ w·(t − t̄)·(x − x̄) / Σ w·(t − t̄)²     w = exp(−(lift − t) / τ)
 ///
-/// with weighted means `t̄`, `x̄` and `τ = timeConstant` (`40 ms`). A single late event cannot dominate, irregular
-/// delivery (coalesced events, 60 vs 120 Hz) is handled by the true timestamps, and the weighting tracks a fling that
-/// accelerates in its last 30–50 ms. If `Σ w·(t − t̄)² < 1e-9 s²` (all samples at one instant) the result is `0`.
+/// with weighted means `t̄`, `x̄` and `τ = timeConstant`. A single late event cannot dominate, and irregular delivery
+/// (coalesced events, 60 vs 120 Hz) is handled by the true timestamps. If `Σ w·(t − t̄)² < 1e-9 s²` (all samples at
+/// one instant) the result is `0`.
+///
+/// Calibration (docs/design/PHYSICS-calibration.md): the native `ScrollView` release velocity equals the *unweighted*
+/// least-squares slope over the last 100 ms within 1 % on every recorded fling; the former `τ = 40 ms` weighting
+/// under-estimated fast flicks by 14 % because a flick's last event is always slower (the finger stops to lift). The
+/// default `τ = 1 s` therefore makes the weights nearly uniform inside the window.
 ///
 /// Timestamps must come from the gesture's own clock, one source per tracker (`DragGesture.Value.time` as
 /// `timeIntervalSinceReferenceDate`, or `SpatialEventCollection.Event.timestamp`, which is uptime), never mixed and
@@ -38,7 +43,7 @@ public struct VelocityTracker: Sendable, Equatable {
     /// `pt` moved inside ``restTimeout`` that still counts as resting.
     public var restDistance: CGFloat = 1.0
     /// `s`: `τ` of the weight `exp(−age / τ)`.
-    public var timeConstant: TimeInterval = 0.040
+    public var timeConstant: TimeInterval = 1.0
     /// Maximum retained samples (120 Hz × 100 ms = 12 samples, plus margin). The oldest sample is dropped first.
     public var capacity: Int = 24
 
@@ -96,7 +101,7 @@ public struct VelocityTracker: Sendable, Equatable {
         if isResting(lift: lift, newest: newest) { return 0 }
 
         // Weighted least squares on times relative to the lift (small magnitudes keep precision).
-        let tau = timeConstant.isFinite && timeConstant > 0 ? timeConstant : 0.040
+        let tau = timeConstant.isFinite && timeConstant > 0 ? timeConstant : 1.0
         var sw: CGFloat = 0, st: CGFloat = 0, sx: CGFloat = 0
         for s in samples[firstInWindow...] {
             let w = CGFloat(exp(-(lift - s.time) / tau))

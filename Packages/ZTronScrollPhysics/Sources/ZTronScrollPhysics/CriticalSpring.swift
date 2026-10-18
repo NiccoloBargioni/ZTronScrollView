@@ -21,8 +21,9 @@ public struct CriticalSpring: Sendable, Equatable {
     /// `ω²` in `1/s²` (mass 1). `100` → `ω = 10 /s`; calibrate against the native feel.
     public var stiffness: CGFloat
 
-    /// SPEC S6 starting point: `100 /s²` (`ω = 10 /s`).
-    public static let defaultStiffness: CGFloat = 100
+    /// Calibrated against a native `ScrollView` (docs/design/PHYSICS-calibration.md): both the rubber-band return and
+    /// the edge bounce after a fling fit `ω ≈ 10.9 /s` → `119 /s²` (SPEC S6 starting point was `100`).
+    public static let defaultStiffness: CGFloat = 119
 
     public init(origin: CGFloat, target: CGFloat, initialVelocity: CGFloat = 0,
                 stiffness: CGFloat = CriticalSpring.defaultStiffness) {

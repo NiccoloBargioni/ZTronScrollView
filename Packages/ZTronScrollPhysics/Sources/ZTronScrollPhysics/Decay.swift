@@ -18,11 +18,19 @@ public struct Decay: Sendable, Equatable {
     public var initialVelocity: CGFloat
     /// Deceleration rate `r` per ms.
     public var rate: DecelerationRate
+    /// `true` for a re-solved decay (``retargeted(origin:initialVelocity:target:thresholds:)``): it runs until the
+    /// remaining distance is below `thresholds.distance` and ends exactly on ``restPosition`` (a snap or page
+    /// boundary). `false` (natural fling): it ends where `|v|` falls under `thresholds.velocity` and stays there
+    /// (``stopPosition(thresholds:)``), like UIKit, which leaves the last ≈ 5 pt of the analytic rest untraveled
+    /// rather than jumping to it (docs/design/PHYSICS-calibration.md).
+    public var landsOnRestPosition: Bool
 
-    public init(origin: CGFloat, initialVelocity: CGFloat, rate: DecelerationRate = .normal) {
+    public init(origin: CGFloat, initialVelocity: CGFloat, rate: DecelerationRate = .normal,
+                landsOnRestPosition: Bool = false) {
         self.origin = origin.finiteOrZero
         self.initialVelocity = initialVelocity.finiteOrZero
         self.rate = rate
+        self.landsOnRestPosition = landsOnRestPosition
     }
 
     /// `x(t) = x₀ + v₀ · (e^(k·t) − 1) / k` in `pt` (evaluated with `expm1` for precision near `t = 0`).
@@ -73,12 +81,22 @@ public struct Decay: Sendable, Equatable {
         return TimeInterval(log(speed / v0) / rate.k)
     }
 
-    /// Time (`s`) after which the motion counts as stopped: both `|v| < thresholds.velocity` and the remaining
-    /// distance `|x(∞) − x(t)| = |v(t)| / |k| < thresholds.distance`, i.e.
-    /// `time(toSlowTo: min(thresholds.velocity, thresholds.distance · |k|))`.
+    /// Time (`s`) after which the motion counts as stopped.
+    ///
+    /// - Natural (`landsOnRestPosition == false`): `time(toSlowTo: thresholds.velocity)` (UIKit: ≈ 10 pt/s).
+    /// - Re-solved: both `|v| < thresholds.velocity` and the remaining distance `|x(∞) − x(t)| = |v(t)| / |k| <
+    ///   thresholds.distance`, i.e. `time(toSlowTo: min(thresholds.velocity, thresholds.distance · |k|))`.
     public func duration(thresholds: RestThresholds = .init()) -> TimeInterval {
+        guard landsOnRestPosition else { return time(toSlowTo: thresholds.velocity) }
         let speed = Swift.min(thresholds.velocity, thresholds.distance * abs(rate.k))
         return time(toSlowTo: speed)
+    }
+
+    /// Where the motion ends (`pt`): ``restPosition`` for a re-solved decay, else `position(at: duration)` — the
+    /// offset at which `|v|` dropped under `thresholds.velocity` (the untraveled remainder is `≈ velocity / |k|`,
+    /// 5 pt at `.normal`; the caller pixel-snaps it).
+    public func stopPosition(thresholds: RestThresholds = .init()) -> CGFloat {
+        landsOnRestPosition ? restPosition : position(at: duration(thresholds: thresholds))
     }
 
     /// A decay from `origin` with `initialVelocity` whose rest point is exactly `target` (SPEC S6 re-solve):
@@ -97,6 +115,7 @@ public struct Decay: Sendable, Equatable {
               delta.signum == initialVelocity.signum else { return nil }
         let r = exp(-initialVelocity / (1000 * delta))
         guard r.isFinite, DecelerationRate.plausibleRange.contains(r) else { return nil }
-        return Decay(origin: origin, initialVelocity: initialVelocity, rate: DecelerationRate(perMillisecond: r))
+        return Decay(origin: origin, initialVelocity: initialVelocity, rate: DecelerationRate(perMillisecond: r),
+                     landsOnRestPosition: true)
     }
 }
