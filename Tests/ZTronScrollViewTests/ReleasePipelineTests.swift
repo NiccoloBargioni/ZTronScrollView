@@ -95,6 +95,20 @@ struct ReleasePipelineTests {
         #expect(d.log.last == "didEndDecelerating")
     }
 
+    /// Regression (iOS 27): gesture event times use another time base than the state clock (uptime vs Date).
+    /// The deceleration must start on the state clock, not settle on its first tick.
+    @Test(arguments: OSPath.allCases) func liftTimeInAnotherTimeBaseStillDecelerates(path: OSPath) {
+        let (s, d) = make(path)
+        let tr = tracker(vy: 1000, lift: 5)
+        let (_, my) = s.endDrag(request(CGPoint(x: 0, y: 300), lift: 5), tracker: tr, env: Self.env, settings: ReleaseSettings())
+        #expect(abs((d.seenVelocity?.y ?? 0) - 1.0) < 0.1)
+        s.step(to: Date(timeIntervalSinceReferenceDate: 100 + 1.0 / 60))
+        #expect(s.phase == .decelerating && s.isDecelerating)
+        #expect(s.peek.presentationOffset.y > 300 && s.peek.presentationOffset.y < 320)
+        run(s)
+        #expect(s.phase == .idle && abs(s.peek.presentationOffset.y - my.endPosition) <= 0.25)
+    }
+
     @Test(arguments: OSPath.allCases) func delegateRetargetLandsExactly(path: OSPath) {
         let (s, d) = make(path)
         d.retarget = CGPoint(x: 0, y: 420)

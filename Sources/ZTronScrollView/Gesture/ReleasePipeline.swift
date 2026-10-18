@@ -89,12 +89,15 @@ extension ZTronScrollState {
                                             targetContentOffset: &proposed)
         let targetX = (tx != nil || proposed.x != natural.x) ? proposed.x : nil
         let targetY = (ty != nil || proposed.y != natural.y) ? proposed.y : nil
-        let mx = ReleasePipeline.motion(ix, target: targetX, at: lift)
-        let my = ReleasePipeline.motion(iy, target: targetY, at: lift)
+        // The motion runs on the state clock. `lift` is a gesture event time, which may use another time base
+        // (iOS 27: DragGesture.Value.time is uptime-based): starting there settles the fling on its first tick.
+        let start = now()
+        let mx = ReleasePipeline.motion(ix, target: targetX, at: start)
+        let my = ReleasePipeline.motion(iy, target: targetY, at: start)
         let willDecelerate = mx.willDecelerate || my.willDecelerate
         delegate?.scrollViewDidEndDragging(self, willDecelerate: willDecelerate)
         if willDecelerate {
-            beginDeceleration(x: mx, y: my, at: lift, displayScale: settings.displayScale)
+            beginDeceleration(x: mx, y: my, at: start, displayScale: settings.displayScale)
         } else {
             let snapped = PixelSnap.snap(CGPoint(x: mx.endPosition, y: my.endPosition), displayScale: settings.displayScale)
             track(offset: snapped, zoom: peek.presentationZoom)
