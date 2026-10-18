@@ -1,7 +1,7 @@
 # ZTronScrollView · Orchestration (resume here)
 
-Last updated: 2026-10-18 · Status: **M0–M2 done · M3 (a) done, (b)(c) partial · M4 (a) done · MC freeze blocked
-on a user decision** → next: step 1 below.
+Last updated: 2026-10-18 · Status: **M0–M4 done (M4 UI matrix: 2 configs pending) · M5 designed · MC freeze
+blocked on a user decision** → next: step 4 below (M5 build).
 
 ## Resume in a new session (cheapest path)
 1. Launch in `/Users/admin/Documents/ZTronScrollView` with the role's model (SPEC O2, l.897–918): Builder
@@ -27,7 +27,8 @@ on a user decision** → next: step 1 below.
 | M3 (c) arbitration | done | participant + 9 unit tests; demo pager stand-in (`PagerScreen`, ReferenceScrollArbiter) + `PagerUITests` green on 27.0; demo now links ScrollArbitration (`M3-s3.md`) |
 | M4 (a) zoom state + PinchSession | done | `Gesture/PinchSession.swift`, `zoomRange`, solver-based `setZoomScale` (`M4-s1.md`) |
 | M4 (b) pinch adapter + demo | done* | pinch adapter, double tap, ZoomScreen, ZoomUITests 6/6 on 27.0 pref+forced, 17.5 pref; full-suite 27 forced / 17.5 forced pending (`M4-s2.md`) |
-| M5 … M10 | todo | SPEC O4 l.970–990 |
+| M5 design | done | `docs/design/M5-resize.md` (+ orchestrator resolutions C1–C3, Q1–Q3 at the end) |
+| M5 build … M10 | todo | SPEC O4 l.970–990 |
 
 Test totals now: `ZTronScrollViewTests` **118** green on iOS 27.0 and 17.5 (both OS paths) · M2 `ProofUITests` 6/6 ·
 physics 99 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-contract,M2-render,M3-pan,M4-zoom}.md`.
@@ -39,7 +40,10 @@ physics 99 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-c
    Open: 17.5 `testControlsUsable` (catch observer on <18 steals Toggle touches; fix idea in `M3-s3.md`) — schedule a small Debugger/Builder step.
 3. [x] **M4 (b)** (done; confirm remaining UI configs, see M4-s2.md) — Builder: pinch adapter + demo + UI tests (`docs/design/M4-zoom.md` session (b); `M4-s1.md` open
    items: rebase the pan baseline at bounce settle, feed `synthesizePan(location:time:)` and finger-count events).
-4. [ ] **M5 rotation/resize** — Architect on Fable, one session (design + implement), SPEC S7 l.237–252.
+4. [ ] **M5 rotation/resize build** — design done (`docs/design/M5-resize.md`; read its resolutions first). Two
+   Builder sessions with the template below: (a) State/ + Render/ (ResizeCommit/ResizeMath, TransformHost above the
+   layout host — gate: M2 ProofUITests 6/6 and `content.body` 0), (b) PanCoordinator/demo rotation UI tests.
+   First, in session (a): run the pending M4 UI configs once (full demo suite on 27.0 `--forced` and 17.5 `--forced`).
 5. [ ] **M6–M10** — per SPEC O4. Write a Fable design doc first for each (`docs/design/M<n>-*.md`), then builders.
    O5 allows small workflows only for the M6–M8 parity batches and M10 demo screens (exemplar first, 3-item slice).
 
@@ -116,4 +120,4 @@ Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (≤ 2 simulators at 
 | Date | Session | Work | Weekly % |
 |---|---|---|---|
 | 2026-10-14 | Opus 5.5 ultracode #1 | M0; MC package; M1 (workflow) | → 100% (limit hit) |
-| 2026-10-18 | Opus 5.5 #2 orchestrator | recovered MC/M1; M2/M3/M4 designs (Fable); MC spike; M2 (a)(b)(c), M3 (a)(b*)(c*), M4 (a) (Sonnet) | 72% → 76% |
+| 2026-10-18 | Opus 5.5 #2 orchestrator | recovered MC/M1; M2–M5 designs (Fable); MC spike; M2, M3, M4 builds (Sonnet builders + 1 Opus debugger); stopped at the user's 80% cap | 72% → 77% |

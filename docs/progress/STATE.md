@@ -1,6 +1,6 @@
 # STATE
 Status: RUNNING
-Current: M4 (b) → M5; MC freeze blocked on a user decision
+Current: M5 build (a) → (b); MC freeze blocked on a user decision
 
 | Milestone | Status | Budget % | Used % (my readings) | Notes |
 |---|---|---|---|---|
@@ -9,8 +9,8 @@ Current: M4 (b) → M5; MC freeze blocked on a user decision
 | M1 | done | 6–9 | | physics 99 tests, availability 16 tests, design note; weekly limit hit in fix round (recovered 2026-10-18) |
 | M2 | done | 7–10 | | render proof green on 27.0 + 17.5, both paths (docs/progress/M2-s3.md) |
 | M3 | done | 8–10 | | pan/release/catch/delegate/arbitration; 123 unit tests; demo UI 14/14 on 27.0 both paths; PanUITests 7/7 on 17.5 both paths |
-| M4 | partial | 5–7 | | design + part (a) done; (b) todo |
-| M5 | todo | 5–7 | | |
+| M4 | done | 5–7 | | zoom state + pinch adapter + demo; ZoomUITests 6/6 on 27.0 (both paths) + 17.5 preferred; 2 UI configs pending |
+| M5 | partial | 5–7 | | design done (docs/design/M5-resize.md) |
 | M6 | todo | 8–11 | | |
 | M7 | todo | 6–8 | | |
 | M8 | todo | 6–9 | | |
