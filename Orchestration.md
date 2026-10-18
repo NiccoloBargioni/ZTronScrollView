@@ -23,7 +23,7 @@ on a user decision** → next: step 1 below.
 | M1 physics + availability | done | `scripts/test-physics.sh` → 99 tests; design note `docs/design/design-note.md` |
 | M2 render path + proof | done | 0 `content.body` during animated + `withAnimation` scrolls, clock idle at rest, on 27.0 + 17.5, preferred + forced (`docs/progress/M2-s3.md`) |
 | M3 (a) pan state + release | done | `Gesture/{PanSession,ReleasePipeline}.swift`, delegate, `ZTronScrollPhaseReader` (`M3-s1.md`) |
-| M3 (b) gestures + demo | done except 17.5 | catch fixed; fling acceleration fixed on the state clock (D14, test added). PanUITests 27.0 7/7; 17.5 6/7: toggle inside the scroll view fails because the `DragGesture(minimumDistance: 0)` catch observer (iOS <18) steals UIKit-control touches; diagnosed, unfixed (`M3-s3.md`) |
+| M3 (b) gestures + demo | done | catch fixed; fling acceleration on the state clock (D14). iOS <18 catch observer is now gated (`CatchArming`: attached only while content moves or a seen touch is down), so UIKit controls work on 17.5. PanUITests 7/7 on 17.5 and 27.0, preferred and forced; demo UI 14/14 on 27.0 |
 | M3 (c) arbitration | done | participant + 9 unit tests; demo pager stand-in (`PagerScreen`, ReferenceScrollArbiter) + `PagerUITests` green on 27.0; demo now links ScrollArbitration (`M3-s3.md`) |
 | M4 (a) zoom state + PinchSession | done | `Gesture/PinchSession.swift`, `zoomRange`, solver-based `setZoomScale` (`M4-s1.md`) |
 | M4 (b) pinch adapter + demo | todo | `docs/design/M4-zoom.md` session (b) |
@@ -35,7 +35,7 @@ physics 99 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-c
 ## Next steps (in order; prompts are ready to paste)
 1. [x] **M3 (b) catch test** — fixed by the Debugger (948b299): release motions start on the state clock (D14).
    Leftovers → step 2.
-2. [x] **M3 leftovers + M3 (c)** — done (see `M3-s3.md`): fling acceleration fixed; demo pager + UI test green (27.0, 14/14 demo UI tests).
+2. [x] **M3 leftovers + M3 (c)** — done (see `M3-s3.md`): fling acceleration fixed; demo pager + UI test green (27.0, 14/14 demo UI tests). 17.5 Toggle bug fixed by gating the fallback observer (`M3-s3.md`).
    Open: 17.5 `testControlsUsable` (catch observer on <18 steals Toggle touches; fix idea in `M3-s3.md`) — schedule a small Debugger/Builder step.
 3. [ ] **M4 (b)** — Builder: pinch adapter + demo + UI tests (`docs/design/M4-zoom.md` session (b); `M4-s1.md` open
    items: rebase the pan baseline at bounce settle, feed `synthesizePan(location:time:)` and finger-count events).
