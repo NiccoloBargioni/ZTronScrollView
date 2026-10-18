@@ -1,0 +1,201 @@
+import SwiftUI
+import ZTronScrollView
+
+/// Samples the visible centre (unscaled content point at the centre of the unobscured viewport) on a timer, outside
+/// any view body, and remembers the last value seen under the previous viewport size (SPEC S7 repro).
+@MainActor
+final class ResizeProbe: ZTronScrollViewDelegate {
+    struct Sample { var size: CGSize; var u: CGPoint }
+    private(set) var last: Sample?
+    private(set) var beforeResize: CGPoint?
+    private(set) var resizes = 0
+    private var timer: Timer?
+    weak var state: ZTronScrollState?
+
+    /// u = (o + c - pad) / s; pad centres content smaller than the viewport (zoom enabled: centre alignment).
+    static func centre(_ state: ZTronScrollState) -> (u: CGPoint, c: CGPoint, size: CGSize) {
+        let g = state.geometry
+        let s = max(state.zoomScale, 0.0001), o = state.contentOffset
+        let v = g.containerSize, i = state.adjustedContentInset, k = g.contentSize
+        let w = v.width - i.leading - i.trailing, h = v.height - i.top - i.bottom
+        let pad = CGPoint(x: max(0, w - s * k.width) / 2, y: max(0, h - s * k.height) / 2)
+        let c = CGPoint(x: i.leading + w / 2, y: i.top + h / 2)
+        return (CGPoint(x: (o.x + c.x - pad.x) / s, y: (o.y + c.y - pad.y) / s), c, v)
+    }
+
+    func start(_ state: ZTronScrollState) {
+        self.state = state
+        timer?.invalidate()
+        let t = Timer(timeInterval: 1.0 / 120, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.sample() }
+        }
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
+    }
+
+    /// Every presentation change (one per clock tick) is sampled too, so the pre-resize value is the last drawn tick.
+    func scrollViewDidScroll(_ state: ZTronScrollState) { sample() }
+
+    private func sample() {
+        guard let state else { return }
+        let r = Self.centre(state)
+        if let l = last, l.size != r.size, l.size.width > 0 {
+            beforeResize = l.u
+            resizes += 1
+        }
+        last = Sample(size: r.size, u: r.u)
+    }
+
+    func reset() { beforeResize = nil; resizes = 0 }
+}
+
+/// 15 x 10 grid of 100 pt cells (1500 x 1000); every cell is an accessibility element (ground truth for the drawn
+/// position). The body counts itself and has no inputs.
+struct ResizeGrid: View {
+    static let cell: CGFloat = 100
+    static let cols = 15, rows = 10
+
+    var body: some View {
+        #if DEBUG
+        ZTronRenderCounters.increment("content.body")
+        #endif
+        return VStack(spacing: 0) {
+            ForEach(0..<Self.rows, id: \.self) { r in
+                HStack(spacing: 0) {
+                    ForEach(0..<Self.cols, id: \.self) { c in
+                        Text("\(r),\(c)").font(.system(size: 14))
+                            .frame(width: Self.cell, height: Self.cell)
+                            .background((r + c) % 2 == 0 ? Color.blue.opacity(0.2) : Color.green.opacity(0.2))
+                            .border(Color.gray.opacity(0.4), width: 0.5)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityIdentifier("cell.\(r).\(c)")
+                    }
+                }
+            }
+        }
+        .frame(width: CGFloat(Self.cols) * Self.cell, height: CGFloat(Self.rows) * Self.cell)
+    }
+}
+
+/// 6 square columns that take the proposed (viewport) width; 30 rows. Reflows on rotation (content size follows the
+/// viewport width), as full-width images and text do in a vertical scroll view.
+struct ReflowGrid: View {
+    static let cols = 6, rows = 30
+
+    var body: some View {
+        #if DEBUG
+        ZTronRenderCounters.increment("content.body")
+        #endif
+        return VStack(spacing: 0) {
+            ForEach(0..<Self.rows, id: \.self) { r in
+                HStack(spacing: 0) {
+                    ForEach(0..<Self.cols, id: \.self) { c in
+                        Text("\(r),\(c)").font(.system(size: 14))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .aspectRatio(1, contentMode: .fit)
+                            .background((r + c) % 2 == 0 ? Color.blue.opacity(0.2) : Color.green.opacity(0.2))
+                            .border(Color.gray.opacity(0.4), width: 0.5)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityIdentifier("cell.\(r).\(c)")
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// `-ZTronScreen resize`: full-screen, zoomable grid; rotate the device and compare the centre readout.
+struct ResizeScreen: View {
+    private static let keys = ["content.body", "resize.jumpFrames", "transform.effect"]
+    static let reflow = ProcessInfo.processInfo.arguments.contains("-ZTronResizeReflow")
+    @State private var state = ZTronScrollState()
+    @State private var probe = ResizeProbe()
+    @State private var info = ""
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            Group {
+                if Self.reflow {
+                    ZTronScrollView(.vertical, state: state) { ReflowGrid() }.zoomRange(min: .absolute(1), max: .absolute(4))
+                } else {
+                    ZTronScrollView([.horizontal, .vertical], state: state) { ResizeGrid() }.zoomRange(min: .fit, max: .absolute(4))
+                }
+            }
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("scroller")
+            VStack(spacing: 4) {
+                HStack {
+                    Button("Snap") { snapshot() }.accessibilityIdentifier("Snapshot")
+                    Button("Fit") { fit() }.accessibilityIdentifier("Fit")
+                    Button("Zoom") { zoomIn() }.accessibilityIdentifier("Zoom")
+                    Button("Edge") { edge() }.accessibilityIdentifier("Edge")
+                    Button("Reset") { resetCounters() }.accessibilityIdentifier("Reset")
+                    Button("Mid") { middle() }.accessibilityIdentifier("Mid")
+                }
+                Text(info).font(.caption2).lineLimit(3)
+                    .background(Color.white.opacity(0.8))
+                    .accessibilityIdentifier("resizeInfo").accessibilityValue(info)
+            }
+            .buttonStyle(.bordered)
+        }
+        .onAppear { state.delegate = probe; probe.start(state) }
+    }
+
+    private func fit() {
+        state.stopScrollingAndZooming()
+        state.setZoomScale(state.minimumZoomScale, animated: false)
+        resetCounters()
+    }
+
+    /// 2.5x around content point (700, 450).
+    private func zoomIn() {
+        state.stopScrollingAndZooming()
+        let s: CGFloat = 1.6, v = state.geometry.containerSize
+        state.zoom(to: CGRect(x: 700 - v.width / s / 2, y: 450 - v.height / s / 2, width: v.width / s, height: v.height / s),
+                   animated: false)
+        resetCounters()
+    }
+
+    /// Zoom 1, 40 pt short of the bottom-trailing edge.
+    private func edge() {
+        state.stopScrollingAndZooming()
+        state.setZoomScale(1, animated: false)
+        let v = state.geometry.containerSize, i = state.adjustedContentInset
+        state.setContentOffset(CGPoint(x: 1500 - v.width + i.trailing - 40, y: 1000 - v.height + i.bottom - 40), animated: false)
+        resetCounters()
+    }
+
+    /// Zoom 1, content point at 40 % of the content height centred (reflow variant).
+    private func middle() {
+        state.stopScrollingAndZooming()
+        state.setZoomScale(1, animated: false)
+        let v = state.geometry.containerSize, i = state.adjustedContentInset, k = state.geometry.contentSize
+        let c = i.top + (v.height - i.top - i.bottom) / 2
+        state.setContentOffset(CGPoint(x: -i.leading, y: k.height * 0.4 - c), animated: false)
+        resetCounters()
+    }
+
+    private func resetCounters() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            #if DEBUG
+            ZTronRenderCounters.reset()
+            #endif
+            probe.reset()
+        }
+    }
+
+    private func snapshot() {
+        var counters: [String: Int] = [:]
+        #if DEBUG
+        counters = ZTronRenderCounters.snapshot
+        #endif
+        let r = ResizeProbe.centre(state)
+        let o = state.contentOffset, i = state.adjustedContentInset
+        let pre = probe.beforeResize ?? CGPoint(x: -1, y: -1)
+        info = String(format: "z=%.4f ox=%.2f oy=%.2f ux=%.2f uy=%.2f cx=%.2f cy=%.2f vw=%.1f vh=%.1f it=%.1f il=%.1f ib=%.1f ir=%.1f phase=%d preux=%.2f preuy=%.2f resizes=%d jump=%d body=%d effect=%d min=%.4f cw=%.2f ch=%.2f",
+                      state.zoomScale, o.x, o.y, r.u.x, r.u.y, r.c.x, r.c.y, r.size.width, r.size.height,
+                      i.top, i.leading, i.bottom, i.trailing, state.phase.rawValue, pre.x, pre.y, probe.resizes,
+                      counters["resize.jumpFrames"] ?? 0, counters["content.body"] ?? 0, counters["transform.effect"] ?? 0,
+                      state.minimumZoomScale, state.geometry.contentSize.width, state.geometry.contentSize.height)
+    }
+}

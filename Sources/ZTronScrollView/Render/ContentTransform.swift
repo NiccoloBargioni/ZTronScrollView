@@ -79,11 +79,38 @@ struct ContentTransform: GeometryEffect {
         let r = resolved(size: size)
         probe?.record(r.offset, r.scale, size: size)
         #if DEBUG
-        if Thread.isMainThread { MainActor.assumeIsolated { ZTronRenderCounters.increment("transform.effect") } }
+        if Thread.isMainThread {
+            let c = ResizeMath.unobscuredPoint(viewport: size, insets: insets, header: commit.header, at: commit.focus)
+            let u = ResizeMath.anchor(offset: r.offset, scale: r.scale, center: c, pad: r.pad)
+            let open = commit.isOpen
+            MainActor.assumeIsolated {
+                ZTronRenderCounters.increment("transform.effect")
+                ResizeJumpMonitor.record(size: size, centre: u, scale: r.scale, resizing: open)
+            }
+        }
         #endif
         return ProjectionTransform(Self.matrix(offset: r.offset, scale: r.scale, pad: r.pad))
     }
 }
+
+#if DEBUG
+/// DEBUG `resize.jumpFrames` (design M5 section 10): a drawn frame during a viewport resize (size changed since the
+/// previous evaluation, or the resize commit is open) whose visible-centre content point moved by more than 1 viewport
+/// point. Content clamped at an edge legitimately counts.
+@MainActor
+enum ResizeJumpMonitor {
+    private static var last: (size: CGSize, centre: CGPoint)?
+    static func record(size: CGSize, centre: CGPoint, scale: CGFloat, resizing: Bool) {
+        defer { last = (size, centre) }
+        guard let l = last else { return }
+        let sizeChanged = abs(l.size.width - size.width) > 0.01 || abs(l.size.height - size.height) > 0.01
+        guard sizeChanged || resizing else { return }
+        if hypot(centre.x - l.centre.x, centre.y - l.centre.y) * scale > 1 {
+            ZTronRenderCounters.increment("resize.jumpFrames")
+        }
+    }
+}
+#endif
 
 /// Reads the TARGET values (its own body only); `content` is the placeholder, so the wrapped content is not
 /// re-evaluated when this body re-runs (S4.3). Sits above the layout host so the effect's `size` is the (animated)

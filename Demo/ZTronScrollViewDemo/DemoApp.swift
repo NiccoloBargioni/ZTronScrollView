@@ -23,6 +23,7 @@ struct DemoApp: App {
             case "controls": ControlsScreen()
             case "pager": PagerScreen()
             case "zoom": ZoomScreen()
+            case "resize": ResizeScreen()
             default: ProofScreen()
             }
         }
