@@ -17,6 +17,8 @@ public struct ZTronScrollGeometry: Equatable {
     public var contentOffset: CGPoint { isTracked ? storage.presentationOffset : storage.snapshot().presentationOffset }
     /// Presentation zoom scale.
     public var zoomScale: CGFloat { isTracked ? storage.presentationZoom : storage.snapshot().presentationZoom }
+    /// Interaction phase (`ZTronScrollPhaseReader` derives from this; not part of `==`).
+    public var phase: ZTronScrollPhase { isTracked ? storage.phase : storage.snapshot().phase }
     /// Content size at scale 1 (measured below the transform).
     public var contentSize: CGSize { metrics.contentSize }
     public var contentInsets: EdgeInsets { metrics.contentInsets }

@@ -13,6 +13,9 @@ struct StorageSnapshot: Equatable {
     var isScrollAnimating = false
     var isZoomAnimating = false
     var isClockRunning = false
+    var isTracking = false
+    var isDragging = false
+    var isDecelerating = false
 }
 
 /// Hot values: `target*`/`presentation*`. Cold values: metrics, phase, flags, clock (SPEC S4.5).
@@ -28,6 +31,10 @@ protocol StateStorage: AnyObject {
     var isScrollAnimating: Bool { get set }
     var isZoomAnimating: Bool { get set }
     var isClockRunning: Bool { get set }
+    /// Interaction flags (cold; the fallback path publishes them on the `.phase` channel).
+    var isTracking: Bool { get set }
+    var isDragging: Bool { get set }
+    var isDecelerating: Bool { get set }
     func snapshot() -> StorageSnapshot
     /// Batches nest; at most one publish per channel (fallback) per outermost batch.
     func beginBatch()
@@ -126,6 +133,27 @@ final class ObservationStorage: StateStorage, Observable {
             registrar.withMutation(of: self, keyPath: \.isClockRunning) { v.isClockRunning = newValue }
         }
     }
+    var isTracking: Bool {
+        get { registrar.access(self, keyPath: \.isTracking); return v.isTracking }
+        set {
+            guard newValue != v.isTracking else { return }
+            registrar.withMutation(of: self, keyPath: \.isTracking) { v.isTracking = newValue }
+        }
+    }
+    var isDragging: Bool {
+        get { registrar.access(self, keyPath: \.isDragging); return v.isDragging }
+        set {
+            guard newValue != v.isDragging else { return }
+            registrar.withMutation(of: self, keyPath: \.isDragging) { v.isDragging = newValue }
+        }
+    }
+    var isDecelerating: Bool {
+        get { registrar.access(self, keyPath: \.isDecelerating); return v.isDecelerating }
+        set {
+            guard newValue != v.isDecelerating else { return }
+            registrar.withMutation(of: self, keyPath: \.isDecelerating) { v.isDecelerating = newValue }
+        }
+    }
 
     func snapshot() -> StorageSnapshot { v }
     // Observation observers are one-shot per property, so a batch needs no extra coalescing.
@@ -155,6 +183,9 @@ final class PhaseChannel: ObservableObject {
     var isScrollAnimating = false
     var isZoomAnimating = false
     var isClockRunning = false
+    var isTracking = false
+    var isDragging = false
+    var isDecelerating = false
 }
 
 /// Collects the channels touched by tracked reads (reader channel discovery on the fallback path).
@@ -242,13 +273,27 @@ final class ChannelStorage: StateStorage {
         get { read(.phase, phaseChannel.isClockRunning) }
         set { write(phaseChannel, \.isClockRunning, .phase, newValue) }
     }
+    var isTracking: Bool {
+        get { read(.phase, phaseChannel.isTracking) }
+        set { write(phaseChannel, \.isTracking, .phase, newValue) }
+    }
+    var isDragging: Bool {
+        get { read(.phase, phaseChannel.isDragging) }
+        set { write(phaseChannel, \.isDragging, .phase, newValue) }
+    }
+    var isDecelerating: Bool {
+        get { read(.phase, phaseChannel.isDecelerating) }
+        set { write(phaseChannel, \.isDecelerating, .phase, newValue) }
+    }
 
     func snapshot() -> StorageSnapshot {
         StorageSnapshot(targetOffset: offsetChannel.target, targetZoom: zoomChannel.target,
                         presentationOffset: offsetChannel.presentation, presentationZoom: zoomChannel.presentation,
                         metrics: metricsChannel.value, phase: phaseChannel.phase,
                         isScrollAnimating: phaseChannel.isScrollAnimating,
-                        isZoomAnimating: phaseChannel.isZoomAnimating, isClockRunning: phaseChannel.isClockRunning)
+                        isZoomAnimating: phaseChannel.isZoomAnimating, isClockRunning: phaseChannel.isClockRunning,
+                        isTracking: phaseChannel.isTracking, isDragging: phaseChannel.isDragging,
+                        isDecelerating: phaseChannel.isDecelerating)
     }
     func beginBatch() { gate.begin() }
     func endBatch() { gate.end() }

@@ -14,14 +14,29 @@ public final class ZTronScrollState {
 
     public weak var delegate: (any ZTronScrollViewDelegate)?
 
+    // UIKit knobs (cold, not observed; the pan reads them per event).
+    public var isScrollEnabled = true
+    public var isPagingEnabled = false
+    public var bounces = true
+    public var alwaysBounceVertical = false
+    public var alwaysBounceHorizontal = false
+    public var isDirectionalLockEnabled = false
+    public var decelerationRate: ZTronDecelerationRate = .normal
+    /// Velocity (pt/s) of the motion the last `interrupt()` stopped; zero if nothing was running (fling acceleration).
+    private(set) var lastInterruptedVelocity = CGVector.zero
+
     /// Clock source for motion start times; tests inject a deterministic one. Same timebase as `step(to:)` dates.
     var now: () -> TimeInterval = { Date().timeIntervalSinceReferenceDate }
 
     // Non-observed motion state.
+    private enum MotionKind { case animation, deceleration }
     private struct ClockMotion {
         var x: AxisMotion, y: AxisMotion, zoom: AxisMotion?
         /// Content-space point kept at the viewport center while zooming.
         var zoomCenter: CGPoint
+        var kind: MotionKind = .animation
+        /// Display scale for the pixel snap at the end of a deceleration (0 = no snap).
+        var snapScale: CGFloat = 0
     }
     private var motion: ClockMotion?
     private var transactionToken: UInt64?
@@ -30,6 +45,9 @@ public final class ZTronScrollState {
     private var batchDepth = 0
     private var batchStart: (CGPoint, CGFloat)?
     private var pendingEndNotification = false
+    private var pendingEndDecelerating = false
+    private var didScrollPending = false
+    private var deferScroll = false
 
     /// Chooses the storage once; the path never flips afterwards (R6).
     public init() {
@@ -51,6 +69,9 @@ public final class ZTronScrollState {
     public var contentOffset: CGPoint { storage.presentationOffset }
     public var zoomScale: CGFloat { storage.presentationZoom }
     public var phase: ZTronScrollPhase { storage.phase }
+    public var isTracking: Bool { storage.isTracking }
+    public var isDragging: Bool { storage.isDragging }
+    public var isDecelerating: Bool { storage.isDecelerating }
     public var isScrollAnimating: Bool { storage.isScrollAnimating }
     public var isZoomAnimating: Bool { storage.isZoomAnimating }
     public var geometry: ZTronScrollGeometry { ZTronScrollGeometry(storage: storage) }
@@ -75,10 +96,13 @@ public final class ZTronScrollState {
     // MARK: Batches
 
     /// Everything that writes runs in a batch: at most one publish per channel and one `didScroll` per batch.
-    func batch(_ body: () -> Void) {
+    /// `deferScroll`: the outermost batch only marks `didScroll` pending (finger writes, clock ticks); the caller flushes
+    /// with `deliverPending()` once per frame.
+    func batch(deferScroll defer_: Bool = false, _ body: () -> Void) {
         if batchDepth == 0 {
             let s = storage.snapshot()
             batchStart = (s.presentationOffset, s.presentationZoom)
+            deferScroll = defer_
         }
         batchDepth += 1
         storage.beginBatch()
@@ -89,11 +113,22 @@ public final class ZTronScrollState {
         let s = storage.snapshot()
         let moved = batchStart.map { $0.0 != s.presentationOffset || $0.1 != s.presentationZoom } ?? false
         batchStart = nil
-        if moved {
+        if moved { didScrollPending = true }
+        if !deferScroll { deliverPending() }
+    }
+
+    /// Delegate notifications collected by batches, in UIKit order: didScroll, then the end-of-motion callbacks.
+    func deliverPending() {
+        if didScrollPending {
+            didScrollPending = false
             #if DEBUG
             ZTronRenderCounters.increment("didScroll")
             #endif
             delegate?.scrollViewDidScroll(self)
+        }
+        if pendingEndDecelerating {
+            pendingEndDecelerating = false
+            delegate?.scrollViewDidEndDecelerating(self)
         }
         if pendingEndNotification {
             pendingEndNotification = false
@@ -166,13 +201,14 @@ public final class ZTronScrollState {
     /// Frame clock tick. No-op while nothing runs.
     func step(to date: Date) {
         guard storage.snapshot().isClockRunning else { return }
-        batch {
+        batch(deferScroll: true) {
             unanimated {
                 if let m = motion { stepClockMotion(m, at: date.timeIntervalSinceReferenceDate) }
                 if transactionToken != nil { probeTick() }
-                if motion == nil && transactionToken == nil { storage.isClockRunning = false }
+                if motion == nil && transactionToken == nil && !storage.isTracking { storage.isClockRunning = false }
             }
         }
+        deliverPending()
     }
 
     private func stepClockMotion(_ m: ClockMotion, at t: TimeInterval) {
@@ -188,13 +224,22 @@ public final class ZTronScrollState {
             offset = CGPoint(x: m.zoomCenter.x * zoom - v.width / 2, y: m.zoomCenter.y * zoom - v.height / 2)
             settled = sz.isSettled
         }
+        if settled, m.kind == .deceleration, m.snapScale > 0 {
+            offset = PixelSnap.snap(offset, displayScale: m.snapScale)
+        }
         writeBoth(offset: offset, zoom: zoom)
         if settled {
             motion = nil
             storage.isScrollAnimating = false
             storage.isZoomAnimating = false
-            if transactionToken == nil { storage.phase = .idle }
-            pendingEndNotification = true
+            if m.kind == .deceleration {
+                storage.isDecelerating = false
+                if transactionToken == nil, !storage.isTracking { storage.phase = .idle }
+                pendingEndDecelerating = true
+            } else {
+                if transactionToken == nil { storage.phase = .idle }
+                pendingEndNotification = true
+            }
         }
     }
 
@@ -292,6 +337,13 @@ public final class ZTronScrollState {
     func interrupt() {
         batch {
             let wasMoving = motion != nil || transactionToken != nil
+            if let m = motion {
+                let t = now()
+                lastInterruptedVelocity = CGVector(dx: m.x.sample(at: t).velocity, dy: m.y.sample(at: t).velocity)
+                if m.kind == .deceleration { pendingEndDecelerating = true }
+            } else {
+                lastInterruptedVelocity = .zero
+            }
             cancelMotion()
             let s = storage.snapshot()
             unanimated {
@@ -299,8 +351,71 @@ public final class ZTronScrollState {
                 storage.targetZoom = s.presentationZoom
             }
             if wasMoving || s.phase == .animating { storage.phase = .idle }
-            storage.isClockRunning = false
+            storage.isClockRunning = storage.isTracking
         }
+    }
+
+    // MARK: Gesture hooks (M3, driven by the pan coordinator)
+
+    /// Finger down (after `interrupt()` on a catch): flags, phase `.tracking`, clock keeps flushing `didScroll`.
+    func beginTracking() {
+        batch {
+            storage.isTracking = true
+            storage.phase = .tracking
+            storage.isClockRunning = true
+        }
+    }
+
+    /// Recognized drag: `willBeginDragging`, phase `.interacting`.
+    func beginDragging() {
+        batch {
+            storage.isDragging = true
+            storage.phase = .interacting
+        }
+        delegate?.scrollViewWillBeginDragging(self)
+    }
+
+    /// Sequence over without a deceleration (tap, ignored sequence, released at rest). No delegate.
+    func endTracking() {
+        batch {
+            storage.isTracking = false
+            storage.isDragging = false
+            if motion == nil, transactionToken == nil {
+                if storage.phase == .tracking || storage.phase == .interacting { storage.phase = .idle }
+                storage.isClockRunning = false
+            }
+        }
+    }
+
+    /// Finger write: target and presentation, unanimated; `didScroll` coalesced to the next `step(to:)` / flush.
+    func writeDragOffset(_ p: CGPoint) {
+        guard p.x.isFinite, p.y.isFinite else { return }
+        batch(deferScroll: true) {
+            unanimated {
+                storage.targetOffset = p
+                storage.presentationOffset = p
+            }
+        }
+    }
+
+    /// Delivers the `didScroll` a drag write left pending (before `willEndDragging`).
+    func flushPendingScroll() { deliverPending() }
+
+    /// Finger-free release motion on the clock (kind `.deceleration`): flags cleared, phase `.decelerating`,
+    /// `willBeginDecelerating`. Settles with a pixel snap, `didEndDecelerating`, phase `.idle`. The target channel is
+    /// left alone (it equals the presentation) so the transform host sees one write per tick, never a jump to the end.
+    func beginDeceleration(x: AxisMotion, y: AxisMotion, at time: TimeInterval, displayScale: CGFloat? = nil) {
+        batch {
+            cancelMotion()
+            motion = ClockMotion(x: x, y: y, zoom: nil, zoomCenter: .zero, kind: .deceleration,
+                                 snapScale: displayScale ?? storage.snapshot().metrics.displayScale)
+            storage.isTracking = false
+            storage.isDragging = false
+            storage.isDecelerating = true
+            storage.phase = .decelerating
+            storage.isClockRunning = true
+        }
+        delegate?.scrollViewWillBeginDecelerating(self)
     }
 
     private func cancelMotion() {
@@ -310,7 +425,9 @@ public final class ZTronScrollState {
         probe.pending = nil
         storage.isScrollAnimating = false
         storage.isZoomAnimating = false
-        if storage.snapshot().phase == .animating { storage.phase = .idle }
+        storage.isDecelerating = false
+        let phase = storage.snapshot().phase
+        if phase == .animating || phase == .decelerating { storage.phase = .idle }
         storage.isClockRunning = false
     }
 

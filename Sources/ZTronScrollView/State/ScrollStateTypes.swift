@@ -1,23 +1,54 @@
 import SwiftUI
 
 /// Where a scroll view is in its interaction lifecycle (mirrors `ScrollPhase`, SPEC S11).
-/// M2 only produces `idle` and `animating`; the gesture phases are written by M3.
+/// `tracking` (finger down), `interacting` (dragging), `decelerating` (finger-free release motion), `animating` (programmatic).
 public enum ZTronScrollPhase: Int, Sendable, Equatable, CaseIterable {
     case idle, tracking, interacting, decelerating, animating
 }
 
-/// UIScrollViewDelegate twin (SPEC S11). M2 subset: the callbacks the state can fire without gestures. All optional.
+/// `UIScrollView.DecelerationRate` twin (`.normal` 0.998, `.fast` 0.99 per ms).
+public enum ZTronDecelerationRate: Sendable, Equatable {
+    case normal, fast
+}
+
+/// UIScrollViewDelegate twin (SPEC S11), complete list; every method is optional. Call order matches UIKit:
+/// willBeginDragging -> didScroll... -> willEndDragging -> didEndDragging(willDecelerate:) ->
+/// [willBeginDecelerating -> didScroll... -> didEndDecelerating]. `didScroll` fires at most once per frame / batch.
 @MainActor
 public protocol ZTronScrollViewDelegate: AnyObject {
-    /// Fires at most once per frame / batch whenever the presentation offset or zoom changed (all sources).
     func scrollViewDidScroll(_ state: ZTronScrollState)
-    /// Fires when a programmatic animation (clock-driven or transaction-driven) finished.
+    func scrollViewWillBeginDragging(_ state: ZTronScrollState)
+    /// `velocity` in pt/ms (UIKit). `targetContentOffset` may be changed; the release motion lands on it.
+    func scrollViewWillEndDragging(_ state: ZTronScrollState, withVelocity velocity: CGPoint,
+                                   targetContentOffset: inout CGPoint)
+    func scrollViewDidEndDragging(_ state: ZTronScrollState, willDecelerate decelerate: Bool)
+    func scrollViewWillBeginDecelerating(_ state: ZTronScrollState)
+    func scrollViewDidEndDecelerating(_ state: ZTronScrollState)
+    /// A programmatic animation (clock-driven or transaction-driven) finished.
     func scrollViewDidEndScrollingAnimation(_ state: ZTronScrollState)
+    func scrollViewWillBeginZooming(_ state: ZTronScrollState)
+    func scrollViewDidZoom(_ state: ZTronScrollState)
+    func scrollViewDidEndZooming(_ state: ZTronScrollState, atScale scale: CGFloat)
+    func scrollViewShouldScrollToTop(_ state: ZTronScrollState) -> Bool
+    func scrollViewDidScrollToTop(_ state: ZTronScrollState)
+    func scrollViewDidChangeAdjustedContentInset(_ state: ZTronScrollState)
 }
 
 public extension ZTronScrollViewDelegate {
     func scrollViewDidScroll(_ state: ZTronScrollState) {}
+    func scrollViewWillBeginDragging(_ state: ZTronScrollState) {}
+    func scrollViewWillEndDragging(_ state: ZTronScrollState, withVelocity velocity: CGPoint,
+                                   targetContentOffset: inout CGPoint) {}
+    func scrollViewDidEndDragging(_ state: ZTronScrollState, willDecelerate decelerate: Bool) {}
+    func scrollViewWillBeginDecelerating(_ state: ZTronScrollState) {}
+    func scrollViewDidEndDecelerating(_ state: ZTronScrollState) {}
     func scrollViewDidEndScrollingAnimation(_ state: ZTronScrollState) {}
+    func scrollViewWillBeginZooming(_ state: ZTronScrollState) {}
+    func scrollViewDidZoom(_ state: ZTronScrollState) {}
+    func scrollViewDidEndZooming(_ state: ZTronScrollState, atScale scale: CGFloat) {}
+    func scrollViewShouldScrollToTop(_ state: ZTronScrollState) -> Bool { true }
+    func scrollViewDidScrollToTop(_ state: ZTronScrollState) {}
+    func scrollViewDidChangeAdjustedContentInset(_ state: ZTronScrollState) {}
 }
 
 /// Rarely-changing layout facts. One cold value: viewport size, unscaled content size, insets, display scale.
