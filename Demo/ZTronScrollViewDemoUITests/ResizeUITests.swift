@@ -12,10 +12,11 @@ final class ResizeUITests: XCTestCase {
 
     override func tearDown() { XCUIDevice.shared.orientation = .portrait }
 
-    private func launch(reflow: Bool = false, userTree: Bool = false) -> XCUIApplication {
+    private func launch(reflow: Bool = false, userTree: Bool = false, userTree2: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-ZTronScreen", "resize"] + (forced ? ["-ZTronForceAllFallbacks"] : [])
             + (reflow ? ["-ZTronResizeReflow"] : []) + (userTree ? ["-ZTronResizeUserTree"] : [])
+            + (userTree2 ? ["-ZTronResizeUserTree2"] : [])
         app.launch()
         Thread.sleep(forTimeInterval: 0.8)
         return app
@@ -222,4 +223,86 @@ final class ResizeUITests: XCTestCase {
     func testReflowZoomedKeepsNormalizedCentre() { reflowRoundTrip("zoomed", "Zoom", zoomed: true) }
     func testReflowNearTopKeepsNormalizedCentre() { reflowRoundTrip("top", "Top", zoomed: false) }
     func testReflowNearBottomKeepsNormalizedCentre() { reflowRoundTrip("bottom", "Bottom", zoomed: false) }
+
+    // MARK: Screen space (D17): markers inside the content, measured with XCUIElement.frame
+
+    private static let markerNames = ["detail", "centre", "tl", "br"]
+    private static let markerFractions: [String: CGPoint] = ["detail": CGPoint(x: 0.3, y: 0.65), "centre": CGPoint(x: 0.5, y: 0.5),
+                                                             "tl": CGPoint(x: 0.1, y: 0.1), "br": CGPoint(x: 0.9, y: 0.9)]
+
+    private func markers(_ app: XCUIApplication) -> [String: CGPoint] {
+        var r: [String: CGPoint] = [:]
+        for n in Self.markerNames {
+            let e = app.descendants(matching: .any)["marker.\(n)"]
+            if e.exists { r[n] = CGPoint(x: e.frame.midX, y: e.frame.midY) }
+        }
+        return r
+    }
+
+    /// Screen point of the content fraction `f`, from the tl (10 %) and br (90 %) markers (the content is an affine
+    /// image of its unscaled space: offset + uniform scale).
+    private func screenPoint(_ m: [String: CGPoint], _ f: CGPoint) -> CGPoint? {
+        guard let a = m["tl"], let b = m["br"] else { return nil }
+        return CGPoint(x: a.x + (f.x - 0.1) / 0.8 * (b.x - a.x), y: a.y + (f.y - 0.1) / 0.8 * (b.y - a.y))
+    }
+
+    /// Content fraction drawn at screen point `p`.
+    private func fraction(_ m: [String: CGPoint], at p: CGPoint) -> CGPoint? {
+        guard let a = m["tl"], let b = m["br"], b.x != a.x, b.y != a.y else { return nil }
+        return CGPoint(x: 0.1 + (p.x - a.x) / (b.x - a.x) * 0.8, y: 0.1 + (p.y - a.y) / (b.y - a.y) * 0.8)
+    }
+
+    /// Centre of the unobscured viewport in screen space: scroller frame inset by the adjusted content insets.
+    private func visibleCentre(_ app: XCUIApplication, _ i: Info) -> CGPoint {
+        let f = app.descendants(matching: .any)["scroller"].frame
+        return CGPoint(x: f.minX + i["il"] + (f.width - i["il"] - i["ir"]) / 2, y: f.minY + i["it"] + (f.height - i["it"] - i["ib"]) / 2)
+    }
+
+    private func dist(_ a: CGPoint?, _ b: CGPoint?) -> Double {
+        guard let a, let b else { return -1 }
+        return hypot(a.x - b.x, a.y - b.y)
+    }
+
+    /// Zoomed 2.5x on an off-centre detail; rotate x1, x2, x3, x4. Odd rotations: the content fraction that was under
+    /// the visible centre is under it afterwards (ZTronMapKit formula, <= 1 pt). Even rotations: every marker is back
+    /// at its initial screen position (<= 0.5 pt) and the readouts equal the initial offset / zoom.
+    private func screenSpaceRoundTrips(_ name: String, userTree2: Bool) {
+        let app = launch(userTree: !userTree2, userTree2: userTree2)
+        app.buttons["Zoom"].tap()
+        Thread.sleep(forTimeInterval: 0.5)
+        let p0 = info(app, "\(name).0")
+        let m0 = markers(app)
+        XCTAssertEqual(m0.count, 4, "markers exposed: \(m0)")
+        let c0 = visibleCentre(app, p0)
+        let f0 = fraction(m0, at: c0)
+        print("RESIZESCREEN \(path) \(name) 0 centre=\(c0) fraction=\(String(describing: f0)) markers=\(m0) scroller=\(app.descendants(matching: .any)["scroller"].frame)")
+        var prevM = m0, prevC = c0, prevI = p0
+        for n in 1...4 {
+            rotate(n % 2 == 1 ? .landscapeLeft : .portrait)
+            let i = info(app, "\(name).\(n)")
+            let m = markers(app)
+            let c = visibleCentre(app, i)
+            let under = fraction(prevM, at: prevC)            // what was under the centre before this rotation
+            let now = under.flatMap { screenPoint(m, $0) }     // where that content fraction is drawn now
+            let e = dist(now, c)
+            let back = Self.markerNames.map { dist(m0[$0], m[$0]) }
+            print("RESIZESCREEN \(path) \(name) \(n) centreErr=\(e) under=\(String(describing: under)) now=\(String(describing: now)) centre=\(c) "
+                  + "markersBack=\(back) z=\(i["z"]) o=(\(i["ox"]),\(i["oy"])) z0=\(p0["z"]) o0=(\(p0["ox"]),\(p0["oy"])) jump=\(i["jump"])")
+            XCTAssertEqual(m.count, 4, "markers after rotation \(n)")
+            XCTAssertEqual(i["z"], prevI["z"], accuracy: 1e-3, "scale kept at rotation \(n)")
+            XCTAssertLessThanOrEqual(e, 1, "visible centre preserved on screen at rotation \(n): \(i.raw)")
+            if n % 2 == 0 {
+                for (k, d) in zip(Self.markerNames, back) { XCTAssertLessThanOrEqual(d, 0.5, "marker \(k) back at its initial frame after \(n) rotations") }
+                XCTAssertEqual(i["ox"], p0["ox"], accuracy: 0.5, "offset x restored after \(n) rotations")
+                XCTAssertEqual(i["oy"], p0["oy"], accuracy: 0.5, "offset y restored after \(n) rotations")
+                XCTAssertEqual(i["z"], p0["z"], accuracy: 1e-6, "zoom restored after \(n) rotations")
+            }
+            prevM = m; prevC = c; prevI = i
+        }
+    }
+
+    /// The user's current app tree: full-screen scroller (no 16:9 box) under the navigation stack.
+    func testUserTree2ScreenSpaceCentreAndEvenRotationsRestore() { screenSpaceRoundTrips("user2", userTree2: true) }
+    /// The 16:9 box variant.
+    func testUserTreeScreenSpaceCentreAndEvenRotationsRestore() { screenSpaceRoundTrips("user", userTree2: false) }
 }
