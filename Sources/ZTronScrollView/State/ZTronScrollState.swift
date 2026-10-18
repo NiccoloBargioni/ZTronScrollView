@@ -31,6 +31,19 @@ public final class ZTronScrollState {
     public var maximumZoomScale: CGFloat { resolvedZoom.upperBound }
     /// Zooming is enabled iff max > min (default 1...1, as in UIKit).
     public var isZoomEnabled: Bool { ZoomLimits.isZoomEnabled(resolvedZoom) }
+    /// Developer inset on top of the safe area (UIKit `contentInset`); changes follow the inset-only rule (M5 section 6).
+    public var contentInset = EdgeInsets() { didSet { if contentInset != oldValue { adjustedInputsChanged() } } }
+    /// Which safe-area edges are added to the inset; `.automatic` = the scrollable axes' edges. Set before the view appears.
+    public var contentInsetAdjustmentBehavior = ZTronContentInsetAdjustmentBehavior.automatic {
+        didSet { if contentInsetAdjustmentBehavior != oldValue { adjustedInputsChanged() } }
+    }
+    /// `contentInset` + the safe area on the adjusted edges (cold: publishes on the metrics channel).
+    public var adjustedContentInset: EdgeInsets { storage.metrics.adjustedContentInset }
+    /// Scrollable axes (set by the container); decides the adjusted edges and the paging axes.
+    var scrollAxes: Axis.Set = .vertical
+    /// A developer `defaultScrollAnchor(_:for: .sizeChanges)` replaces the center rule (the only override of SPEC S7).
+    var sizeChangesAnchor: UnitPoint?
+    weak var targetRegistry: (any ScrollTargetRegistry)?
     /// Velocity (pt/s) of the motion the last `interrupt()` stopped; zero if nothing was running (fling acceleration).
     private(set) var lastInterruptedVelocity = CGVector.zero
 
@@ -72,6 +85,13 @@ public final class ZTronScrollState {
     private var willBeginZoomingPending = false
     private var didBeginZooming = false
     private var deferScroll = false
+    // Resize watch (M5 section 8).
+    private var isResizeOpen = false
+    private var resizeSawAnimation = false
+    private var resizeIdleTicks = 0
+    private var resizeStableTicks = 0
+    private var resizeLast: (CGPoint, CGFloat)?
+    private var pendingReflow: (id: AnyHashable, rel: CGPoint)?
 
     /// Chooses the storage once; the path never flips afterwards (R6).
     public init() {
@@ -189,6 +209,7 @@ public final class ZTronScrollState {
 
     /// Finger (M3): target and presentation.
     func track(offset: CGPoint, zoom: CGFloat) {
+        if isResizeOpen { closeResize() }
         batch { unanimated { writeBoth(offset: offset, zoom: zoom) } }
     }
 
@@ -199,64 +220,315 @@ public final class ZTronScrollState {
         storage.presentationZoom = zoom
     }
 
-    func setMetrics(_ metrics: ScrollMetrics) { batch { storage.metrics = metrics }; resolveZoomLimits() }
-
-    /// Measured, unscaled content size (cold, `!=`-guarded by the storage).
-    func setContentSize(_ size: CGSize) {
-        batch { var m = storage.snapshot().metrics; m.contentSize = size; storage.metrics = m }
+    func setMetrics(_ metrics: ScrollMetrics) {
+        batch {
+            var m = metrics
+            m.adjustedContentInset = Self.adjusted(contentInset: m.contentInset, safe: m.safeAreaInsets,
+                                                   behavior: contentInsetAdjustmentBehavior, axes: scrollAxes)
+            syncCommit(&m, open: false)
+            storage.metrics = m
+        }
         resolveZoomLimits()
     }
 
-    /// Where content sits on an axis where it is smaller than the viewport (design §5). Not observed.
+    static func adjusted(contentInset: EdgeInsets, safe: EdgeInsets, behavior: ZTronContentInsetAdjustmentBehavior,
+                         axes: Axis.Set) -> EdgeInsets {
+        let e = behavior.edges(for: axes)
+        return EdgeInsets(top: contentInset.top + (e.contains(.top) ? safe.top : 0),
+                          leading: contentInset.leading + (e.contains(.leading) ? safe.leading : 0),
+                          bottom: contentInset.bottom + (e.contains(.bottom) ? safe.bottom : 0),
+                          trailing: contentInset.trailing + (e.contains(.trailing) ? safe.trailing : 0))
+    }
+
+    /// Keeps the committed geometry equal to the metrics unless a resize is in flight (then only `current` moves).
+    private func syncCommit(_ m: inout ScrollMetrics, open: Bool) {
+        let snap = ResizeCommit.Snapshot(viewport: m.viewportSize, contentSize: m.contentSize, insets: m.adjustedContentInset)
+        m.resize.current = snap
+        m.resize.header = m.headerObscured
+        if !open { m.resize.previous = snap }
+    }
+
+    /// Measured, unscaled content size (cold, `!=`-guarded by the storage). A change with the viewport unchanged follows
+    /// the `.sizeChanges` rule; during a resize it re-derives the committed target (slow reflow, M5 section 9).
+    func setContentSize(_ size: CGSize) {
+        let old = storage.snapshot()
+        guard size != old.metrics.contentSize else { return }
+        let hadContent = old.metrics.contentSize.width > 0 && old.metrics.contentSize.height > 0
+        let idle = motion == nil && transactionToken == nil && !storage.isTracking && !storage.isZooming
+            && old.metrics.viewportSize.width > 0
+        batch {
+            var m = old.metrics
+            m.contentSize = size
+            if isResizeOpen {
+                let before = m.resize
+                syncCommit(&m, open: true)
+                var c = m.resize
+                // Re-derive the target for the new content: the anchored point stays, at fit stays at fit.
+                let u = pendingReflowAnchor(default: c.anchorNew, content: size) ?? c.anchorNew
+                c.anchorNew = u
+                let r = ResizeMath.retarget(scale: old.targetZoom, old: before.current, new: c.current, u: u,
+                                            header: c.header, focus: c.focus, alignment: contentAlignment)
+                m.resize = c
+                storage.metrics = m
+                unanimated { storage.targetOffset = r.offset; storage.targetZoom = r.scale }
+                return
+            }
+            syncCommit(&m, open: false)
+            storage.metrics = m
+            guard idle, hadContent else { return }
+            let gOld = makeZoomGeometry(old.metrics), gNew = makeZoomGeometry(m)
+            let z = old.presentationZoom
+            var o = old.presentationOffset
+            if let a = sizeChangesAnchor {
+                let pOld = CGPoint(x: gOld.x.insets.start + (gOld.x.viewportLength - gOld.x.insets.total) * a.x,
+                                   y: gOld.y.insets.start + (gOld.y.viewportLength - gOld.y.insets.total) * a.y)
+                let u = ZoomSolver.contentPoint(under: pOld, offset: o, scale: z, geometry: gOld)
+                o = ZoomSolver.offset(keeping: u, under: pOld, scale: z, geometry: gNew, clamped: true)
+            } else {
+                o = gNew.clamped(o, at: z)
+            }
+            if o != old.presentationOffset { unanimated { writeBoth(offset: o, zoom: z) } }
+        }
+        resolveZoomLimits()
+    }
+
+    /// Where content sits on an axis where it is smaller than the viewport (design M2 section 5). Not observed.
     /// Centered once zooming is enabled (SPEC S6), the native top-leading default otherwise.
     var contentAlignment: UnitPoint { isZoomEnabled ? .center : .topLeading }
 
-    /// Solver geometry for `metrics` (insets are zero until M5 reads content insets).
+    /// Solver geometry for `metrics` (adjusted insets included).
     func makeZoomGeometry(_ m: ScrollMetrics? = nil) -> ZoomGeometry {
         let m = m ?? storage.snapshot().metrics
-        let a = contentAlignment
-        return ZoomGeometry(viewportSize: m.viewportSize, unscaledContentSize: m.contentSize,
-                            alignment: CGPoint(x: a.x, y: a.y))
+        return ResizeMath.geometry(viewport: m.viewportSize, content: m.contentSize, insets: m.adjustedContentInset,
+                                   alignment: contentAlignment)
     }
 
     /// Re-resolves fit/fill for the current geometry; a scale outside the new range is clamped around the visible
-    /// center (unanimated; one didZoom + didScroll).
+    /// center (unanimated; one didZoom + didScroll). Not while a resize is in flight: the effect clamps and
+    /// `closeResize()` commits.
     private func resolveZoomLimits() {
         let m = storage.snapshot().metrics
         let range = zoomLimits.resolve(unscaledContentSize: m.contentSize, viewportSize: m.viewportSize,
-                                       insets: (.zero, .zero))
+                                       insets: ResizeMath.axisInsets(m.adjustedContentInset))
         resolvedZoom = range
         let s = storage.snapshot()
-        guard !range.contains(s.presentationZoom), m.viewportSize.width > 0, m.viewportSize.height > 0,
+        guard !isResizeOpen, !range.contains(s.presentationZoom), m.viewportSize.width > 0, m.viewportSize.height > 0,
               !storage.isZooming else { return }
         let r = ZoomSolver.zoom(to: s.presentationZoom, anchoredAtVisibleCenterOf: s.presentationOffset,
                                 currentScale: s.presentationZoom, limits: range, geometry: makeZoomGeometry(m))
         batch { unanimated { writeBoth(offset: r.offset, zoom: r.scale) } }
     }
 
+    // MARK: Resize (SPEC S7, design M5)
+
+    private func notifyAdjustedInsetChange() { delegate?.scrollViewDidChangeAdjustedContentInset(self) }
+
+    /// `contentInset` / behavior changed: recompute the adjusted inset and apply the inset-only rule.
+    private func adjustedInputsChanged() {
+        let m = storage.snapshot().metrics
+        applyViewport(size: m.viewportSize, safe: m.safeAreaInsets, header: m.headerObscured)
+    }
+
+    /// M8b hook: the scaling header's current height shifts the preserved center only.
+    func setHeaderObscured(_ h: CGFloat) {
+        guard h.isFinite, h >= 0, h != storage.snapshot().metrics.headerObscured else { return }
+        batch {
+            var m = storage.snapshot().metrics
+            m.headerObscured = h
+            syncCommit(&m, open: isResizeOpen)
+            storage.metrics = m
+        }
+    }
+
+    /// Registry callback (M6): the frame of a target changed; re-derives a pending reflow anchor.
+    func targetFrameDidChange(_ id: AnyHashable) {
+        guard isResizeOpen, let p = pendingReflow, p.id == id else { return }
+        let s = storage.snapshot()
+        batch {
+            var m = s.metrics
+            guard let u = pendingReflowAnchor(default: nil, content: m.contentSize) else { return }
+            let before = m.resize
+            m.resize.anchorNew = u
+            let r = ResizeMath.retarget(scale: s.targetZoom, old: before.current, new: m.resize.current, u: u,
+                                        header: m.resize.header, focus: m.resize.focus, alignment: contentAlignment)
+            storage.metrics = m
+            unanimated { storage.targetOffset = r.offset; storage.targetZoom = r.scale }
+        }
+    }
+
+    private func pendingReflowAnchor(default d: CGPoint?, content: CGSize) -> CGPoint? {
+        guard let p = pendingReflow, let f = targetRegistry?.frame(of: p.id) else { return d }
+        return CGPoint(x: f.origin.x + p.rel.x * f.width, y: f.origin.y + p.rel.y * f.height)
+    }
+
     /// Viewport size / safe-area change (SPEC S7). Motion stops at its presentation value, then the content point at
-    /// the old visible center is placed at the new one: o' = pad' + s*u - c'. Runs in the ambient (system) transaction
-    /// so the transform effect animates in lockstep with the rotation. Offsets are not clamped in M2.
+    /// the old visible center is placed at the new one (see `ResizeMath`). The commit itself never animates: the
+    /// transform effect maps the animated container size to the offset/scale in lockstep with the system transition.
     func setViewport(_ viewport: ViewportMetrics) {
+        applyViewport(size: viewport.size, safe: viewport.safeArea, header: nil)
+    }
+
+    private func applyViewport(size: CGSize, safe: EdgeInsets, header: CGFloat?) {
+        guard size.width.isFinite, size.height.isFinite else { return }
         let before = storage.snapshot()
-        var m = before.metrics
-        m.viewportSize = viewport.size
-        m.contentInsets = viewport.safeArea
-        guard m != before.metrics else { return }
-        let hadViewport = before.metrics.viewportSize.width > 0 && before.metrics.viewportSize.height > 0
-        if hadViewport, motion != nil || transactionToken != nil { interrupt() }
+        let old = before.metrics
+        let hadViewport = old.viewportSize.width > 0 && old.viewportSize.height > 0
+        if size.width <= 0 || size.height <= 0 {
+            // Zero size: ignored once laid out; before the first layout only the insets are recorded.
+            guard !hadViewport else { return }
+        }
+        var m = old
+        m.viewportSize = size
+        m.safeAreaInsets = safe
+        m.adjustedContentInset = Self.adjusted(contentInset: contentInset, safe: safe,
+                                               behavior: contentInsetAdjustmentBehavior, axes: scrollAxes)
+        m.contentInset = contentInset
+        if let header { m.headerObscured = header }
+        guard m != old || m.adjustedContentInset != old.adjustedContentInset else { return }
+        let sizeChanged = size != old.viewportSize
+        let insetsChanged = m.adjustedContentInset != old.adjustedContentInset
+        guard size.width > 0, size.height > 0 else {
+            batch { storage.metrics = m }
+            return
+        }
+
+        if !hadViewport || !sizeChanged {
+            // First layout and inset-only changes: no center rule. At the start edge stays at the start edge.
+            batch {
+                let s = storage.snapshot()
+                if isResizeOpen { closeResize() }
+                syncCommit(&m, open: false)
+                storage.metrics = m
+                if insetsChanged { notifyAdjustedInsetChange() }
+                guard insetsChanged else { return }
+                let gOld = makeZoomGeometry(old), gNew = makeZoomGeometry(m)
+                let o = ResizeMath.insetChange(offset: s.presentationOffset, scale: s.presentationZoom, old: gOld, new: gNew,
+                                               anchor: sizeChangesAnchor)
+                if o != s.presentationOffset {
+                    if hadViewport { writeBoth(offset: o, zoom: s.presentationZoom) } else { unanimated { writeBoth(offset: o, zoom: s.presentationZoom) } }
+                }
+            }
+            resolveZoomLimits()
+            return
+        }
+
+        // A viewport size change: the center rule.
+        if motion != nil || transactionToken != nil {
+            if transactionToken != nil, let p = probe.pending {
+                storage.presentationOffset = p.offset
+                storage.presentationZoom = p.zoom
+            }
+            interrupt()
+        }
         batch {
             let s = storage.snapshot()
-            storage.metrics = m
-            guard hadViewport, viewport.size.width > 0, viewport.size.height > 0 else { return }
-            let old = s.metrics, z = s.presentationZoom
-            let c0 = ContentGeometry.visibleCenter(old.viewportSize)
-            let c1 = ContentGeometry.visibleCenter(m.viewportSize)
-            let p0 = ContentGeometry.pad(viewport: old.viewportSize, content: old.contentSize, scale: z, alignment: contentAlignment)
-            let p1 = ContentGeometry.pad(viewport: m.viewportSize, content: m.contentSize, scale: z, alignment: contentAlignment)
-            let u = CGPoint(x: (s.presentationOffset.x + c0.x - p0.width) / z, y: (s.presentationOffset.y + c0.y - p0.height) / z)
-            let o = CGPoint(x: p1.width + z * u.x - c1.x, y: p1.height + z * u.y - c1.y)
-            writeBoth(offset: o, zoom: z)
+            let commitOld = old.resize
+            // What the target / presentation values are expressed in, and which values capture the anchor.
+            var offset = s.presentationOffset, scale = s.presentationZoom
+            var cap = commitOld.current
+            if isResizeOpen {
+                if let p = probe.pending {
+                    cap = ResizeMath.presented(commitOld, size: p.size)
+                    offset = p.offset; scale = p.zoom
+                } else {
+                    offset = s.targetOffset; scale = s.targetZoom   // not rendered yet: the unclamped target is exact
+                }
+            }
+            let al = contentAlignment
+            let focus = sizeChangesAnchor ?? .center
+            let g0 = ResizeMath.geometry(viewport: cap.viewport, content: cap.contentSize, insets: cap.insets, alignment: al)
+            let c0 = ResizeMath.unobscuredPoint(viewport: cap.viewport, insets: cap.insets, header: old.headerObscured, at: focus)
+            let u = ResizeMath.anchor(offset: offset, scale: scale, center: c0, pad: g0.alignmentPadding(at: scale))
+
+            var c = ResizeCommit()
+            syncCommit(&m, open: false)
+            c.current = m.resize.current
+            c.previous = cap
+            c.header = m.headerObscured
+            c.focus = focus
+            c.isOpen = true
+            c.anchorOld = u
+            c.anchorNew = u
+            if isPagingEnabled {
+                func index(_ o: CGFloat, _ len: CGFloat) -> Int? { len > 0 ? Int((o / len).rounded()) : nil }
+                if scrollAxes.contains(.horizontal) { c.pagingIndex.x = index(offset.x, cap.viewport.width) }
+                if scrollAxes.contains(.vertical) { c.pagingIndex.y = index(offset.y, cap.viewport.height) }
+            }
+            pendingReflow = nil
+            if let reg = targetRegistry, let t = reg.nearestTarget(to: u), t.frame.width > 0, t.frame.height > 0 {
+                pendingReflow = (t.id, CGPoint(x: (u.x - t.frame.minX) / t.frame.width, y: (u.y - t.frame.minY) / t.frame.height))
+            }
+            let r = ResizeMath.retarget(scale: scale, old: cap, new: c.current, u: u, header: c.header, focus: focus, alignment: al)
+            m.resize = c
+            m.resizeGeneration = old.resizeGeneration &+ 1
+            probe.pending = nil
+            isResizeOpen = true
+            resizeSawAnimation = false
+            resizeIdleTicks = 0
+            resizeStableTicks = 0
+            resizeLast = nil
+            if insetsChanged { notifyAdjustedInsetChange() }
+            unanimated {
+                storage.metrics = m
+                storage.targetOffset = r.offset
+                storage.targetZoom = r.scale
+            }
+            storage.isClockRunning = true
+        }
+        resolveZoomLimits()
+    }
+
+    /// One clock tick of the resize watch: while the probed container size differs from the committed viewport the
+    /// transition runs (`.animating`, presentation follows the probe); once it is stable for two ticks, or was never
+    /// animated, the clamped target is committed.
+    private func resizeTick() {
+        let cur = storage.snapshot().metrics.resize.current
+        guard let p = probe.pending else {
+            resizeIdleTicks += 1
+            if resizeIdleTicks >= 4 { closeResize() }   // never rendered
+            return
+        }
+        let animating = abs(p.size.width - cur.viewport.width) > 0.01 || abs(p.size.height - cur.viewport.height) > 0.01
+        if animating {
+            resizeSawAnimation = true
+            resizeStableTicks = 0
+            if storage.phase == .idle { storage.phase = .animating }
+        } else if !resizeSawAnimation {
+            closeResize()
+            return
+        }
+        storage.presentationOffset = p.offset
+        storage.presentationZoom = p.zoom
+        if !animating {
+            if let l = resizeLast, l.0 == p.offset, l.1 == p.zoom { resizeStableTicks += 1 } else { resizeStableTicks = 0 }
+            if resizeStableTicks >= 2 { closeResize() }
+        }
+        resizeLast = (p.offset, p.zoom)
+    }
+
+    /// The transition is over (or superseded by a command or gesture): target := the clamped value the effect draws at
+    /// the committed viewport, unanimated; the commit is closed and a paging view ends snapped.
+    func closeResize() {
+        guard isResizeOpen else { return }
+        isResizeOpen = false
+        resizeLast = nil
+        pendingReflow = nil
+        batch {
+            let s = storage.snapshot()
+            var m = s.metrics
+            let r = ResizeMath.resolve(size: m.resize.current.viewport, offset: s.targetOffset, scale: s.targetZoom,
+                                       insetsAnimated: m.resize.current.insets, commit: m.resize, limits: zoomLimits,
+                                       alignment: contentAlignment, paging: isPagingEnabled ? scrollAxes : [])
+            syncCommit(&m, open: false)
+            m.resize.isOpen = false
+            m.resize.pagingIndex = .init()
+            m.resize.anchorOld = m.resize.anchorNew
+            unanimated {
+                storage.metrics = m
+                writeBoth(offset: r.offset, zoom: r.scale)
+                if storage.phase == .animating, motion == nil, transactionToken == nil { storage.phase = .idle }
+            }
+            if motion == nil, transactionToken == nil, !storage.isTracking, !storage.isZooming { storage.isClockRunning = false }
         }
         resolveZoomLimits()
     }
@@ -269,7 +541,8 @@ public final class ZTronScrollState {
             unanimated {
                 if let m = motion { stepClockMotion(m, at: date.timeIntervalSinceReferenceDate) }
                 if transactionToken != nil { probeTick() }
-                if motion == nil && transactionToken == nil && !storage.isTracking && !storage.isZooming { storage.isClockRunning = false }
+                if isResizeOpen { resizeTick() }
+                if motion == nil && transactionToken == nil && !isResizeOpen && !storage.isTracking && !storage.isZooming { storage.isClockRunning = false }
             }
         }
         deliverPending()
@@ -363,6 +636,7 @@ public final class ZTronScrollState {
     /// damped spring (omega = 10/s), v0 = 0.
     public func setContentOffset(_ offset: CGPoint, animated: Bool) {
         guard offset.x.isFinite, offset.y.isFinite else { return }
+        if isResizeOpen { closeResize() }
         batch {
             cancelMotion()
             let s = storage.snapshot()
@@ -385,6 +659,7 @@ public final class ZTronScrollState {
     /// `didEndScrollingAnimation`.
     public func setZoomScale(_ scale: CGFloat, animated: Bool) {
         guard scale.isFinite, scale > 0 else { return }
+        if isResizeOpen { closeResize() }
         batch {
             cancelMotion()
             let s = storage.snapshot()
@@ -399,6 +674,7 @@ public final class ZTronScrollState {
 
     /// UIKit `zoom(to:animated:)`: fits `rect` (unscaled content coordinates) in the visible area and centers it.
     public func zoom(to rect: CGRect, animated: Bool) {
+        if isResizeOpen { closeResize() }
         batch {
             cancelMotion()
             let s = storage.snapshot()
@@ -433,6 +709,7 @@ public final class ZTronScrollState {
     /// interpolates and the probe feeds presentation (parts b/c wire the clock and effect).
     public func scroll(to offset: CGPoint) {
         guard offset.x.isFinite, offset.y.isFinite, offset != storage.snapshot().targetOffset else { return }
+        if isResizeOpen { closeResize() }
         batch {
             cancelMotion()
             generation += 1
@@ -478,6 +755,7 @@ public final class ZTronScrollState {
     var catchLocksContent = false
 
     func beginTracking() {
+        if isResizeOpen { closeResize() }
         batch {
             storage.isTracking = true
             storage.phase = .tracking
@@ -510,6 +788,7 @@ public final class ZTronScrollState {
     /// Finger write: target and presentation, unanimated; `didScroll` coalesced to the next `step(to:)` / flush.
     func writeDragOffset(_ p: CGPoint) {
         guard p.x.isFinite, p.y.isFinite else { return }
+        if isResizeOpen { closeResize() }
         batch(deferScroll: true) {
             unanimated {
                 storage.targetOffset = p
@@ -544,6 +823,7 @@ public final class ZTronScrollState {
     /// Pinch recognized: `isZooming`, phase `.interacting`, the clock flushes didZoom/didScroll. `willBeginZooming`
     /// waits for the first write that changes the scale.
     func beginZooming() {
+        if isResizeOpen { closeResize() }
         batch {
             storage.isZooming = true
             storage.phase = .interacting
@@ -556,6 +836,7 @@ public final class ZTronScrollState {
     /// Finger write: unanimated; `didZoom` + `didScroll` coalesce to the next `step(to:)` (render-time transform only).
     func writePinch(scale: CGFloat, offset: CGPoint) {
         guard scale.isFinite, scale > 0, offset.x.isFinite, offset.y.isFinite else { return }
+        if isResizeOpen { closeResize() }
         if willBeginZoomingPending, scale != storage.snapshot().presentationZoom {
             willBeginZoomingPending = false
             didBeginZooming = true

@@ -6,16 +6,32 @@ import ZTronScrollPhysics
 @MainActor
 @Suite(.serialized)
 struct TransformTests {
+    static func commit(viewport: CGSize, content: CGSize, insets: EdgeInsets = EdgeInsets()) -> ResizeCommit {
+        var c = ResizeCommit()
+        c.current = .init(viewport: viewport, contentSize: content, insets: insets)
+        c.previous = c.current
+        return c
+    }
+
+    static func effect(offset: CGPoint, scale: CGFloat, commit: ResizeCommit, probe: PresentationBox? = nil,
+                       limits: ZoomLimits = ZoomLimits()) -> ContentTransform {
+        ContentTransform(offset: offset, scale: scale, insets: commit.current.insets, commit: commit, limits: limits,
+                         alignment: .center, paging: [], probe: probe)
+    }
+
     @Test func effectMatrixMatchesFormula() {
         let box = PresentationBox()
-        let e = ContentTransform(offset: CGPoint(x: 30, y: 70), scale: 2, pad: CGSize(width: 5, height: 9), probe: box)
-        let t = e.effectValue(size: .zero)
-        let m = ContentTransform.matrix(offset: e.offset, scale: e.scale, pad: e.pad)
-        #expect(t.m11 == 2 && t.m22 == 2 && t.m12 == 0 && t.m21 == 0 && t.m31 == 5 - 30 && t.m32 == 9 - 70)
+        let c = Self.commit(viewport: CGSize(width: 100, height: 100), content: CGSize(width: 20, height: 30))
+        let e = Self.effect(offset: CGPoint(x: 30, y: 70), scale: 2, commit: c, probe: box)
+        let t = e.effectValue(size: c.current.viewport)
+        // pad = (100 - 2*20) * 0.5 = 30 on x, (100 - 2*30) * 0.5 = 20 on y
+        #expect(t.m11 == 2 && t.m22 == 2 && t.m12 == 0 && t.m21 == 0 && t.m31 == 30 - 30 && t.m32 == 20 - 70)
+        let m = ContentTransform.matrix(offset: e.offset, scale: e.scale, pad: CGPoint(x: 30, y: 20))
         let p = CGPoint(x: 10, y: 10).applying(m)
-        #expect(p == CGPoint(x: 2 * 10 + 5 - 30, y: 2 * 10 + 9 - 70))
+        #expect(p == CGPoint(x: 2 * 10 + 30 - 30, y: 2 * 10 + 20 - 70))
         #expect(box.pending?.offset == CGPoint(x: 30, y: 70))
         #expect(box.pending?.zoom == 2)
+        #expect(box.pending?.size == c.current.viewport)
         #expect(box.frames == 1)
     }
 
@@ -26,25 +42,32 @@ struct TransformTests {
     }
 
     @Test func scaleNeverSnapped() {
-        let e = ContentTransform(offset: .zero, scale: 1.37, pad: .zero, probe: nil)
-        #expect(e.effectValue(size: .zero).m11 == 1.37)
+        let c = Self.commit(viewport: CGSize(width: 100, height: 100), content: CGSize(width: 500, height: 500))
+        let e = Self.effect(offset: .zero, scale: 1.37, commit: c)
+        #expect(e.effectValue(size: c.current.viewport).m11 == 1.37)
     }
 
     @Test func animatableDataRoundTrip() {
-        var e = ContentTransform(offset: CGPoint(x: 1, y: 2), scale: 3, pad: CGSize(width: 4, height: 5), probe: nil)
+        let c = Self.commit(viewport: CGSize(width: 100, height: 100), content: CGSize(width: 500, height: 500))
+        var e = Self.effect(offset: CGPoint(x: 1, y: 2), scale: 3, commit: c)
+        e.insets = EdgeInsets(top: 4, leading: 5, bottom: 6, trailing: 7)
         let d = e.animatableData
-        e.offset = .zero; e.scale = 1; e.pad = .zero
+        e.offset = .zero; e.scale = 1; e.insets = EdgeInsets()
         e.animatableData = d
-        #expect(e.offset == CGPoint(x: 1, y: 2) && e.scale == 3 && e.pad == CGSize(width: 4, height: 5))
+        #expect(e.offset == CGPoint(x: 1, y: 2) && e.scale == 3 && e.insets == EdgeInsets(top: 4, leading: 5, bottom: 6, trailing: 7))
+        var half = d
+        half.scale(by: 0.5)
+        #expect(half.s == 1.5 && (d - half).s == 1.5 && d.magnitudeSquared > half.magnitudeSquared)
     }
 
     @Test func alignmentPaddingOnlyWhenContentFits() {
         let v = CGSize(width: 400, height: 800)
-        #expect(ContentGeometry.pad(viewport: v, content: CGSize(width: 500, height: 2000), scale: 1, alignment: .center) == .zero)
-        #expect(ContentGeometry.pad(viewport: v, content: CGSize(width: 200, height: 2000), scale: 1, alignment: .center)
-                == CGSize(width: 100, height: 0))
-        #expect(ContentGeometry.pad(viewport: v, content: CGSize(width: 200, height: 400), scale: 1, alignment: .topLeading) == .zero)
-        #expect(ContentGeometry.pad(viewport: v, content: .zero, scale: 1, alignment: .center) == .zero)
+        func pad(_ c: CGSize, _ a: UnitPoint) -> CGPoint {
+            ResizeMath.geometry(viewport: v, content: c, insets: EdgeInsets(), alignment: a).alignmentPadding(at: 1)
+        }
+        #expect(pad(CGSize(width: 500, height: 2000), .center) == .zero)
+        #expect(pad(CGSize(width: 200, height: 2000), .center) == CGPoint(x: 100, y: 0))
+        #expect(pad(CGSize(width: 200, height: 400), .topLeading) == .zero)
     }
 
     @Test(arguments: OSPath.allCases) func resizePreservesVisibleCenter(path: OSPath) {
@@ -54,7 +77,9 @@ struct TransformTests {
         s.track(offset: CGPoint(x: 0, y: 500), zoom: 1)
         let before = CGPoint(x: s.contentOffset.x + 195, y: s.contentOffset.y + 422)
         s.setViewport(ViewportMetrics(size: CGSize(width: 844, height: 390), safeArea: EdgeInsets()))
-        #expect(CGPoint(x: s.contentOffset.x + 422, y: s.contentOffset.y + 195) == before)
+        s.closeResize()
+        // x: 390 pt of content in an 844 pt viewport cannot be centered (no zoom): the offset clamps to 0.
+        #expect(s.contentOffset.x == 0 && s.contentOffset.y + 195 == before.y)
         #expect(s.peek.targetOffset == s.contentOffset)
         // zoomed (a scale outside the zoom range is clamped on resize, so the range must allow it)
         s.zoomLimits = ZoomLimits(min: .absolute(1), max: .absolute(4))
@@ -62,6 +87,7 @@ struct TransformTests {
         // zoom is enabled, so content centers: 780 pt of content in 844 pt leaves a 32 pt pad on the left
         let u = CGPoint(x: (100 + 422 - 32) / 2, y: (800 + 195) / 2.0)
         s.setViewport(ViewportMetrics(size: CGSize(width: 390, height: 844), safeArea: EdgeInsets()))
+        s.closeResize()
         #expect(s.zoomScale == 2)
         #expect(CGPoint(x: (s.contentOffset.x + 195) / 2, y: (s.contentOffset.y + 422) / 2) == u)
     }
@@ -73,6 +99,8 @@ struct TransformTests {
         #expect(s.phase == .animating)
         s.setViewport(ViewportMetrics(size: CGSize(width: 200, height: 100), safeArea: EdgeInsets()))
         #expect(s.phase == .idle)
+        #expect(s.isClockRunning)   // the resize watch
+        s.closeResize()
         #expect(!s.isClockRunning)
     }
 }

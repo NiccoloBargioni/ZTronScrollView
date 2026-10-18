@@ -56,7 +56,8 @@ final class StateHolder: ObservableObject {
     let state = ZTronScrollState()
 }
 
-/// content -> size measurement -> content space -> TransformHost -> layout host -> viewport space, clip, hit shape.
+/// content -> size measurement -> content space -> layout host -> TransformHost (the viewport-sized effect, M5 C1)
+/// -> viewport space -> safe-area policy -> observer, clip, hit shape.
 struct ScrollContainer<Content: View>: View {
     let axes: Axis.Set
     let state: ZTronScrollState
@@ -74,19 +75,22 @@ struct ScrollContainer<Content: View>: View {
         self.axes = axes
         self.state = state
         self.content = content
+        state.scrollAxes = axes
         _coordinator = StateObject(wrappedValue: PanCoordinator(state: state, axes: axes))
     }
 
     private var effectiveLimits: ZoomLimits { zoomLimits ?? envLimits ?? ZoomLimits() }
 
     var body: some View {
-        content
+        let edges = state.contentInsetAdjustmentBehavior.edges(for: axes)
+        return content
             .modifier(ContentSizeMeasure(state: state))
             .modifier(NamedSpaceModifier(name: "ztronScroll.content", useNew: state.usesNamedCoordinateSpace))
-            .modifier(TransformHost(state: state))
             .modifier(ContentLayoutHost(axes: axes, useLayout: state.usesLayoutProtocol))
+            .modifier(TransformHost(state: state, axes: axes))
             .modifier(NamedSpaceModifier(name: "ztronScroll.viewport", useNew: state.usesNamedCoordinateSpace))
-            .modifier(ViewportObserver(state: state))
+            .ignoresSafeArea(.all, edges: edges)
+            .modifier(ViewportObserver(state: state, edges: edges))
             .background(FrameClockDriver(state: state))
             .clipped()
             .contentShape(Rectangle())

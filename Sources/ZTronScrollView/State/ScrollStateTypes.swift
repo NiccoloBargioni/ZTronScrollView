@@ -60,8 +60,45 @@ public extension ZTronScrollViewDelegate {
 struct ScrollMetrics: Equatable, Sendable {
     var viewportSize: CGSize = .zero
     var contentSize: CGSize = .zero
-    var contentInsets: EdgeInsets = EdgeInsets()
+    /// Developer inset (`state.contentInset`).
+    var contentInset: EdgeInsets = EdgeInsets()
+    /// Observed safe area of the container (bars, keyboard), unmasked.
+    var safeAreaInsets: EdgeInsets = EdgeInsets()
+    /// `contentInset` + the safe area on the adjusted edges (SPEC S6); derived by the state.
+    var adjustedContentInset: EdgeInsets = EdgeInsets()
+    /// Scaling-header height (M8b hook): shifts the unobscured center only, never the bounds.
+    var headerObscured: CGFloat = 0
     var displayScale: CGFloat = 1
+    /// Bumps per resize commit; the pan coordinator rebases its baseline when it changes.
+    var resizeGeneration: UInt64 = 0
+    /// The resize commit the transform effect maps through (design M5 section 2).
+    var resize = ResizeCommit()
+}
+
+/// Which edges of the safe area become `adjustedContentInset` (UIKit `contentInsetAdjustmentBehavior`).
+/// `.automatic` (= `.scrollableAxes`) adjusts on the edges of the scrollable axes, as a native ScrollView does.
+public enum ZTronContentInsetAdjustmentBehavior: Sendable, Equatable {
+    case automatic, scrollableAxes, never, always
+
+    func edges(for axes: Axis.Set) -> Edge.Set {
+        switch self {
+        case .never: return []
+        case .always: return .all
+        case .automatic, .scrollableAxes:
+            var e: Edge.Set = []
+            if axes.contains(.vertical) { e.formUnion(.vertical) }
+            if axes.contains(.horizontal) { e.formUnion(.horizontal) }
+            return e
+        }
+    }
+}
+
+/// Registry of scroll targets (`ztronScrollID`, M6) the resize reflow rule asks for the item nearest to the visible
+/// center. M5 ships the protocol; with no registry the anchor is the plain content point.
+@MainActor
+protocol ScrollTargetRegistry: AnyObject {
+    func nearestTarget(to point: CGPoint) -> (id: AnyHashable, frame: CGRect)?
+    func frame(of id: AnyHashable) -> CGRect?
 }
 
 /// The observation granularity on the fallback path: one `ObservableObject` per channel.
@@ -75,18 +112,18 @@ enum StateChannel: Int, CaseIterable, Sendable, Hashable {
 /// `GeometryEffect.effectValue` is not main-actor isolated, so `record` must be callable from any thread.
 final class PresentationBox: @unchecked Sendable {
     private let lock = NSLock()
-    private var _pending: (offset: CGPoint, zoom: CGFloat)?
+    private var _pending: (offset: CGPoint, zoom: CGFloat, size: CGSize)?
     private var _frames = 0
 
-    var pending: (offset: CGPoint, zoom: CGFloat)? {
+    var pending: (offset: CGPoint, zoom: CGFloat, size: CGSize)? {
         get { lock.lock(); defer { lock.unlock() }; return _pending }
         set { lock.lock(); defer { lock.unlock() }; _pending = newValue }
     }
     var frames: Int { lock.lock(); defer { lock.unlock() }; return _frames }
 
-    func record(_ offset: CGPoint, _ zoom: CGFloat) {
+    func record(_ offset: CGPoint, _ zoom: CGFloat, size: CGSize = .zero) {
         lock.lock(); defer { lock.unlock() }
-        _pending = (offset, zoom)
+        _pending = (offset, zoom, size)
         _frames += 1
     }
 }

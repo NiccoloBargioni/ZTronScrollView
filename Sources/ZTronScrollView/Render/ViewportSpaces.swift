@@ -44,18 +44,27 @@ struct ViewportMetricsKey: PreferenceKey {
 /// Lives in the viewport's background, never around content.
 struct ViewportObserver: ViewModifier {
     let state: ZTronScrollState
+    /// The edges the viewport root ignores the safe area on. The observed frame lies inside the safe area, so the
+    /// viewport (what the effect is asked about) is that frame plus the ignored insets.
+    let edges: Edge.Set
+
+    private func metrics(size: CGSize, safe: EdgeInsets) -> ViewportMetrics {
+        ViewportMetrics(size: CGSize(width: size.width + (edges.contains(.leading) ? safe.leading : 0) + (edges.contains(.trailing) ? safe.trailing : 0),
+                                     height: size.height + (edges.contains(.top) ? safe.top : 0) + (edges.contains(.bottom) ? safe.bottom : 0)),
+                        safeArea: safe)
+    }
 
     @ViewBuilder
     func body(content: Content) -> some View {
         if state.usesGeometryChange, #available(iOS 16, *) {
             content.onGeometryChange(for: ViewportMetrics.self,
-                                     of: { ViewportMetrics(size: $0.size, safeArea: $0.safeAreaInsets) },
+                                     of: { metrics(size: $0.size, safe: $0.safeAreaInsets) },
                                      action: { state.setViewport($0) })
         } else {
             content
                 .background(GeometryReader {
                     Color.clear.preference(key: ViewportMetricsKey.self,
-                                           value: ViewportMetrics(size: $0.size, safeArea: $0.safeAreaInsets))
+                                           value: metrics(size: $0.size, safe: $0.safeAreaInsets))
                 })
                 .onPreferenceChange(ViewportMetricsKey.self) { state.setViewport($0) }
         }

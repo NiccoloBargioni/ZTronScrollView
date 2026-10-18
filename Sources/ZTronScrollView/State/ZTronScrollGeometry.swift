@@ -21,7 +21,8 @@ public struct ZTronScrollGeometry: Equatable {
     public var phase: ZTronScrollPhase { isTracked ? storage.phase : storage.snapshot().phase }
     /// Content size at scale 1 (measured below the transform).
     public var contentSize: CGSize { metrics.contentSize }
-    public var contentInsets: EdgeInsets { metrics.contentInsets }
+    /// `adjustedContentInset`: developer inset + the safe area on the adjusted edges.
+    public var contentInsets: EdgeInsets { metrics.adjustedContentInset }
     /// Viewport size.
     public var containerSize: CGSize { metrics.viewportSize }
     /// The visible region in unscaled content coordinates.
