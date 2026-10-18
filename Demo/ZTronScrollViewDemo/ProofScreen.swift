@@ -1,0 +1,129 @@
+import SwiftUI
+import ZTronScrollView
+
+/// Content whose body counts itself. It has no inputs, so scrolling, zooming and parent re-renders must never run it.
+struct ProofContent: View {
+    @State private var on = false
+
+    var body: some View {
+        #if DEBUG
+        ZTronRenderCounters.increment("content.body")
+        #endif
+        return VStack(spacing: 8) {
+            Button(on ? "Toggle: on" : "Toggle: off") { on.toggle() }
+                .accessibilityIdentifier("content.toggle")
+                .accessibilityValue(on ? "on" : "off")
+            ForEach(0..<60, id: \.self) { i in
+                Text("Row \(i)").frame(maxWidth: .infinity).padding(.vertical, 6).background(Color.blue.opacity(0.15))
+            }
+        }
+        .frame(height: 1600, alignment: .top)
+    }
+}
+
+/// A reader label that counts how often its body runs (the reader's content closure output).
+struct CountedLabel: View {
+    let key: String
+    let text: String
+    var body: some View {
+        #if DEBUG
+        ZTronRenderCounters.increment(key)
+        #endif
+        return Text(text).font(.caption2)
+    }
+}
+
+struct ProofScreen: View {
+    private static let keys = ["content.body", "transformHost.body", "transform.effect", "clock.tick", "didScroll",
+                               "reader.zoom", "reader.offset"]
+    @State private var state = ZTronScrollState()
+    @State private var snapshot: [String: Int] = [:]
+
+    private var path: String {
+        ZTronAvailability.forcedFallbacks.isEmpty ? "preferred" : "forcedFallback"
+    }
+
+    var body: some View {
+        VStack(spacing: 6) {
+            controls
+            scroller
+            readers
+            Text(path).font(.caption2).accessibilityIdentifier("path").accessibilityValue(path)
+            counters
+        }
+        .padding(8)
+    }
+
+    private var controls: some View {
+        VStack {
+            HStack {
+                Button("Reset") { reset() }.accessibilityIdentifier("Reset")
+                Button("AnimatedScroll") { state.setContentOffset(CGPoint(x: 0, y: 400), animated: true) }
+                    .accessibilityIdentifier("AnimatedScroll")
+                Button("WithAnimationScroll") {
+                    withAnimation(.linear(duration: 1)) { state.scroll(to: CGPoint(x: 0, y: 400)) }
+                }.accessibilityIdentifier("WithAnimationScroll")
+            }
+            HStack {
+                Button("Zoom") { state.setZoomScale(1.5, animated: false) }.accessibilityIdentifier("Zoom")
+                Button("Snapshot") { takeSnapshot() }.accessibilityIdentifier("Snapshot")
+            }
+        }
+    }
+
+    private var scroller: some View {
+        ZTronScrollView(.vertical, state: state) { ProofContent() }
+            .frame(height: 280)
+            .border(Color.gray)
+    }
+
+    private var readers: some View {
+        HStack {
+            ZTronScrollReader(state, of: { (g: ZTronScrollGeometry) -> CGFloat in g.zoomScale }) { (z: CGFloat) in
+                CountedLabel(key: "reader.zoom", text: "zoom \(z)")
+            }
+            ZTronScrollReader(state, of: { (g: ZTronScrollGeometry) -> CGPoint in g.contentOffset }) { (o: CGPoint) in
+                CountedLabel(key: "reader.offset", text: "y \(Int(o.y))")
+            }
+        }
+    }
+
+    private var counters: some View {
+        VStack(spacing: 0) {
+            ForEach(Self.keys, id: \.self) { key in
+                CounterRow(key: key, value: snapshot[key] ?? -1)
+            }
+        }
+    }
+}
+
+struct CounterRow: View {
+    let key: String
+    let value: Int
+    var body: some View {
+        Text("\(key): \(value)").font(.caption2)
+            .accessibilityIdentifier("counter.\(key)")
+            .accessibilityValue("\(value)")
+    }
+}
+
+extension ProofScreen {
+    private func reset() {
+        state.stopScrollingAndZooming()
+        state.setContentOffset(.zero, animated: false)
+        state.setZoomScale(1, animated: false)
+        // Readers and the transform update on the next render; zero the counters after they settle.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            #if DEBUG
+            ZTronRenderCounters.reset()
+            #endif
+        }
+    }
+
+    /// Copies the counters into state. Shown only after the motion, so the display never perturbs it.
+    private func takeSnapshot() {
+        #if DEBUG
+        snapshot = ZTronRenderCounters.snapshot
+        #endif
+    }
+}

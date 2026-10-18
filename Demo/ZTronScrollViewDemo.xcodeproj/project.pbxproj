@@ -1,0 +1,336 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10000000000000000000020 /* ZTronScrollView in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000001C /* ZTronScrollView */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A10000000000000000000010 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A1000000000000000000001A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A1000000000000000000000D;
+			remoteInfo = ZTronScrollViewDemo;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		A10000000000000000000001 /* ZTronScrollViewDemo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ZTronScrollViewDemo.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000002 /* ZTronScrollViewDemoUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ZTronScrollViewDemoUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		A10000000000000000000003 /* ZTronScrollViewDemo */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = ZTronScrollViewDemo;
+			sourceTree = "<group>";
+		};
+		A10000000000000000000004 /* ZTronScrollViewDemoUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = ZTronScrollViewDemoUITests;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A10000000000000000000007 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000020 /* ZTronScrollView in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A10000000000000000000008 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A10000000000000000000005 = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000003 /* ZTronScrollViewDemo */,
+				A10000000000000000000004 /* ZTronScrollViewDemoUITests */,
+				A10000000000000000000006 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A10000000000000000000006 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000001 /* ZTronScrollViewDemo.app */,
+				A10000000000000000000002 /* ZTronScrollViewDemoUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A1000000000000000000000D /* ZTronScrollViewDemo */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10000000000000000000012 /* Build configuration list for PBXNativeTarget "ZTronScrollViewDemo" */;
+			buildPhases = (
+				A10000000000000000000009 /* Sources */,
+				A10000000000000000000007 /* Frameworks */,
+				A1000000000000000000000B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				A10000000000000000000003 /* ZTronScrollViewDemo */,
+			);
+			name = ZTronScrollViewDemo;
+			packageProductDependencies = (
+				A1000000000000000000001C /* ZTronScrollView */,
+			);
+			productName = ZTronScrollViewDemo;
+			productReference = A10000000000000000000001 /* ZTronScrollViewDemo.app */;
+			productType = "com.apple.product-type.application";
+		};
+		A1000000000000000000000E /* ZTronScrollViewDemoUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10000000000000000000013 /* Build configuration list for PBXNativeTarget "ZTronScrollViewDemoUITests" */;
+			buildPhases = (
+				A1000000000000000000000A /* Sources */,
+				A10000000000000000000008 /* Frameworks */,
+				A1000000000000000000000C /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A1000000000000000000000F /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A10000000000000000000004 /* ZTronScrollViewDemoUITests */,
+			);
+			name = ZTronScrollViewDemoUITests;
+			packageProductDependencies = (
+			);
+			productName = ZTronScrollViewDemoUITests;
+			productReference = A10000000000000000000002 /* ZTronScrollViewDemoUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A1000000000000000000001A /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					A1000000000000000000000D = {
+						CreatedOnToolsVersion = 16.0;
+					};
+					A1000000000000000000000E = {
+						CreatedOnToolsVersion = 16.0;
+						TestTargetID = A1000000000000000000000D;
+					};
+				};
+			};
+			buildConfigurationList = A10000000000000000000011 /* Build configuration list for PBXProject "ZTronScrollViewDemo" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A10000000000000000000005;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				A1000000000000000000001B /* XCLocalSwiftPackageReference ".." */,
+			);
+			productRefGroup = A10000000000000000000006 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A1000000000000000000000D /* ZTronScrollViewDemo */,
+				A1000000000000000000000E /* ZTronScrollViewDemoUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A1000000000000000000000B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1000000000000000000000C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A10000000000000000000009 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1000000000000000000000A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A1000000000000000000000F /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A1000000000000000000000D /* ZTronScrollViewDemo */;
+			targetProxy = A10000000000000000000010 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		A10000000000000000000014 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGN_IDENTITY = "";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		A10000000000000000000015 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGN_IDENTITY = "";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		A10000000000000000000016 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.ztron.ZTronScrollViewDemo;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Debug;
+		};
+		A10000000000000000000017 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.ztron.ZTronScrollViewDemo;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Release;
+		};
+		A10000000000000000000018 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.ztron.ZTronScrollViewDemoUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				TEST_TARGET_NAME = ZTronScrollViewDemo;
+			};
+			name = Debug;
+		};
+		A10000000000000000000019 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.ztron.ZTronScrollViewDemoUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				TEST_TARGET_NAME = ZTronScrollViewDemo;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A10000000000000000000011 /* Build configuration list for PBXProject "ZTronScrollViewDemo" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000000000000000000014 /* Debug */,
+				A10000000000000000000015 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A10000000000000000000012 /* Build configuration list for PBXNativeTarget "ZTronScrollViewDemo" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000000000000000000016 /* Debug */,
+				A10000000000000000000017 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A10000000000000000000013 /* Build configuration list for PBXNativeTarget "ZTronScrollViewDemoUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000000000000000000018 /* Debug */,
+				A10000000000000000000019 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		A1000000000000000000001B /* XCLocalSwiftPackageReference ".." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ..;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A1000000000000000000001C /* ZTronScrollView */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ZTronScrollView;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = A1000000000000000000001A /* Project object */;
+}
