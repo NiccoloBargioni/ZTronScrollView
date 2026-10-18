@@ -30,6 +30,7 @@ blocked on a user decision** → next: step 4 below (M5 build).
 | M5 design | done | `docs/design/M5-resize.md` (+ orchestrator resolutions C1–C3, Q1–Q3 at the end) |
 | M6–M9 designs | done | `docs/design/{M6-targets,M7-observation,M8-chrome,M8b-refresh-header,M9-virtualization}.md`, each ending with "Orchestrator resolutions" (read those first) and a builder-session split with file ownership + sequencing |
 | M5 (a) state + render | done | `docs/progress/M5-s1.md`: ResizeMath/Commit, TransformHost above layout host (C1 gate: Proof 6/6, demo UI 20/20 on 27.0), 134 unit tests on 27.0 + 17.5 |
+| User scenario s1 | done | D15: zoom-enabled pan moves on any axis the zoomed content exceeds; demo `-ZTronScreen image` + `ImageUITests` 4/4 on 27.0 + 17.5, preferred + forced (`docs/progress/USER-s1.md`) |
 | M5 (b) gestures + demo | todo | PanCoordinator rebase, ResizeScreen, ResizeUITests |
 | M6 … M10 | todo | SPEC O4 l.970–990 |
 
@@ -108,6 +109,9 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
 - D14 Gesture event times (`DragGesture.Value.time`, spatial events) are on a different clock from the state clock
   (uptime-based on iOS 27). Use them only for deltas *inside* the velocity tracker; anything compared with or
   scheduled on the state clock uses `state.now()`.
+- D15 With zoom enabled (max > min) the pan moves on any axis where the zoomed content exceeds the viewport, even if
+  it isn't in `axes` (Photos-like; UIScrollView has no axes). `axes` still drives layout proposal and the pan when
+  content fits. Such an axis bounces like `.basedOnSize`. Implemented in `PanEnvironment.effectiveAxes` (PanCoordinator).
 
 ## Environment
 Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (≤ 2 simulators at once). Runtimes: iOS 17.5,
