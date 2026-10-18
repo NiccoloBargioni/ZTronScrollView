@@ -113,6 +113,12 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
   it isn't in `axes` (Photos-like; UIScrollView has no axes). `axes` still drives layout proposal and the pan when
   content fits. Such an axis bounces like `.basedOnSize`. Implemented in `PanEnvironment.effectiveAxes` (PanCoordinator).
 
+- D16 (user, 2026-10-18) Physics and the post-rotation re-centering are generated and tested by **Fable 5.1**
+  (builder agents with model fable). Re-centering ports ZTronMapKit's normalized-centre discipline
+  (ContentGeometry: capture before resize, restore = centre × newContentSize − newViewport/2, clamp, centre smaller
+  axes, refit on every bounds change). **Never edit /Users/admin/Documents/ZTronMapKit**; agents read only a
+  read-only snapshot (scratchpad `ztronmapkit-ref/`; recreate it with `cp` + `chmod a-w` if the scratchpad is gone).
+
 ## Environment
 Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (≤ 2 simulators at once). Runtimes: iOS 17.5,
 18.0–18.6, 26.0–26.5, 27.0; iOS 15/16 can't run on this host. `xcodebuild` can linger after UI runs
