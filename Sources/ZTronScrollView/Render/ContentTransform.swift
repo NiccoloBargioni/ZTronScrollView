@@ -76,7 +76,11 @@ struct TransformHost: ViewModifier {
         }
         let pad = ContentGeometry.pad(viewport: metrics.viewportSize, content: metrics.contentSize,
                                       scale: scale, alignment: state.contentAlignment)
+        // Content is not hit-testable while it moves without a finger (a catching touch must not fire a Button).
+        // A leaf modifier change on the placeholder: content bodies are not re-evaluated.
+        let blocked = (storage.phase == .decelerating || storage.phase == .animating) && !storage.isTracking
         return content
+            .allowsHitTesting(!blocked)
             .modifier(ContentTransform(offset: offset, scale: scale, pad: pad, probe: state.probe))
             .modifier(CompletionObserver(state: state))
     }

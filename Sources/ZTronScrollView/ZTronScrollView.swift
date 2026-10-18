@@ -41,6 +41,14 @@ struct ScrollContainer<Content: View>: View {
     let axes: Axis.Set
     let state: ZTronScrollState
     let content: Content
+    @StateObject private var coordinator: PanCoordinator
+
+    init(axes: Axis.Set, state: ZTronScrollState, content: Content) {
+        self.axes = axes
+        self.state = state
+        self.content = content
+        _coordinator = StateObject(wrappedValue: PanCoordinator(state: state, axes: axes))
+    }
 
     var body: some View {
         content
@@ -53,5 +61,6 @@ struct ScrollContainer<Content: View>: View {
             .background(FrameClockDriver(state: state))
             .clipped()
             .contentShape(Rectangle())
+            .modifier(PanGestureAdapter(coordinator: coordinator, axes: axes))
     }
 }
