@@ -66,6 +66,17 @@ Commit at every green state. Done when: tests green; handoff docs/progress/M<n>-
 Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
 ```
 
+## USER ACCEPTANCE CRITERIA (2026-10-18, verbatim — check these before calling M5/M4 done)
+- (A) "Rotating any even amount of times should bring me back to the exact initial contentOffset and scale, if no
+  action was performed between rotations."
+- (B) Preserve the visible centre "using ZTronMapKit geometry, that does that perfectly" (port of
+  `ContentGeometry.normalizedCenter` / `contentOffset(normalizedCenter:…)`, D16; never edit ZTronMapKit).
+- (C) "When magnification gesture ends it does a weird animation" — must not.
+- (D) Physics must feel like native UIScrollView: calibrated against native ScrollView on 27.0 (`dff908b`,
+  `docs/design/PHYSICS-calibration.md`); pinch-then-pan with two fingers must behave like UIScrollView (`9091f20`).
+- User's real view tree for rotation: `ResizeScreen -ZTronResizeUserTree` (NavigationStack + GeometryReader + 16:9 box
+  + both axes + zoom 1…4). The user tests on their own app; demo results alone don't close these.
+
 ## Open items
 1. **DECISION NEEDED (user): spike Q3 = NO on iOS 17.5** (MC-contract.md §6 note E). Once the SwiftUI page's
    `DragGesture` recognizes, the hosting view's recognizer takes the touch and a UIKit paging pan fails before
