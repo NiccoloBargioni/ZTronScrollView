@@ -34,7 +34,7 @@ struct CountedLabel: View {
 }
 
 struct ProofScreen: View {
-    private static let keys = ["content.body", "transformHost.body", "transform.effect", "clock.tick", "didScroll",
+    private static let keys = ["content.body", "transformHost.body", "transform.effect", "clock.tick", "clock.dupTick", "didScroll",
                                "reader.zoom", "reader.offset"]
     @State private var state = ZTronScrollState()
     @State private var snapshot: [String: Int] = [:]

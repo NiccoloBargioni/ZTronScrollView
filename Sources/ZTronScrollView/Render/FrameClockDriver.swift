@@ -5,6 +5,9 @@ import SwiftUI
 struct FrameClockDriver: View {
     let state: ZTronScrollState
     @StateObject private var relay = ChannelRelay()
+    #if DEBUG
+    @State private var lastTick = LastTick()
+    #endif
 
     var body: some View {
         if let storage = state.storage as? ChannelStorage { relay.subscribe(to: [.phase], of: storage) }
@@ -13,9 +16,16 @@ struct FrameClockDriver: View {
                 .onChangeCompat(of: ctx.date) { date in
                     #if DEBUG
                     ZTronRenderCounters.increment("clock.tick")
+                    if date.timeIntervalSince(lastTick.date) <= 0.001 { ZTronRenderCounters.increment("clock.dupTick") }
+                    lastTick.date = date
                     #endif
                     state.step(to: date)
                 }
         }
     }
 }
+
+#if DEBUG
+/// Date of the previous tick (DEBUG `clock.dupTick`: a tick not at least 1 ms after the previous one).
+final class LastTick { var date = Date.distantPast }
+#endif
