@@ -77,6 +77,10 @@ struct PinchSession: Equatable {
 
     var phase: Phase = .idle
     var centroidSource: CentroidSource = .spatial
+    /// The observer ended the pinch (a finger lifted) but the magnify gesture has not reported its end yet: its
+    /// trailing `.changed` samples carry the OLD gesture's cumulative magnification and must not start a new session
+    /// (D25: applied to the current scale with base 1 they multiplied it again — the one-frame snap at the lift).
+    var gestureEndPending = false
     /// Two fingers down whose centroid moves this far before the magnify gesture recognizes start the pinch anyway
     /// (two-finger pan): UIScrollView moves the content under two still-unscaled fingers immediately.
     var centroidHysteresis: CGFloat = 10
@@ -134,6 +138,7 @@ struct PinchSession: Equatable {
         }
         switch event {
         case let .began(centroid, _):
+            gestureEndPending = false                       // a new gesture
             guard env.isZoomEnabled, !isActive else { return [] }
             begin(centroid: centroid, env: env)
             return env.isMovingWithoutFinger ? [.catchMotion] : []
@@ -141,6 +146,8 @@ struct PinchSession: Equatable {
         case let .changed(m, centroid, _):
             guard m.isFinite, m > 0 else { return [] }
             if !isActive {
+                // The ended gesture's trailing sample (D25): nothing to apply it to.
+                if gestureEndPending { return [] }
                 // A change without a began (observer missed it): the gesture start is this sample.
                 begin(centroid: centroid, env: env)
             }
@@ -172,6 +179,7 @@ struct PinchSession: Equatable {
                 guard let r = remaining else { return [] }
                 return follow(centroid: r, env: env)
             }
+            gestureEndPending = true                        // until the magnify gesture reports `.ended`
             return finish(env: env, time: time, handingOff: count == 1)
                 + [.handOffToPan(remaining: count == 1 ? remaining : nil)]
 
@@ -187,8 +195,10 @@ struct PinchSession: Equatable {
             return [.setZoom(scale: p.shown, offset: p.offset)]
 
         case let .ended(time):
+            gestureEndPending = false
             return finish(env: env, time: time)
         case .cancelled:
+            gestureEndPending = false
             return finish(env: env, time: nil)
         case .frame:
             return []

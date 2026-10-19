@@ -97,6 +97,27 @@ import ZTronScrollPhysics
         #expect(offset.y == b.y.min, "y clamped: \(offset)")
     }
 
+    /// D25 (user video 2026-10-19: one-frame jump to twice the scale at the lift): after the observer's hand-off the magnify
+    /// gesture still delivers its last `.changed`, whose magnification is cumulative; it must not start a new session.
+    /// The gesture's `.ended` closes the window; a genuinely new pinch works again.
+    @Test func trailingChangedAfterTheHandOffIsIgnored() {
+        let e = Self.env(limits: 1...4)
+        var s = PinchSession()
+        _ = s.handle(.began(centroid: CGPoint(x: 100, y: 100), time: 0), env: e)
+        _ = s.handle(.changed(magnification: 2, centroid: CGPoint(x: 100, y: 100), time: 0.1), env: e)
+        let lift = s.handle(.fingerCountChanged(count: 1, remaining: CGPoint(x: 120, y: 100), time: 0.2), env: e)
+        #expect(lift.contains(.endZooming(atScale: 2)) && !s.isActive)
+        #expect(s.handle(.changed(magnification: 2.1, centroid: CGPoint(x: 120, y: 100), time: 0.21), env: e) == [], "trailing sample ignored")
+        #expect(!s.isActive)
+        #expect(s.handle(.ended(time: 0.22), env: e) == [])
+        // A new gesture (began) or two fingers again (observer) start a fresh session from the current scale.
+        var e2 = e; e2.presentationScale = 2
+        let fx = s.handle(.began(centroid: CGPoint(x: 100, y: 100), time: 1), env: e2)
+            + s.handle(.changed(magnification: 1.5, centroid: CGPoint(x: 100, y: 100), time: 1.1), env: e2)
+        guard case let .setZoom(scale, _)? = fx.last else { Issue.record("no setZoom: \(fx)"); return }
+        #expect(abs(scale - 3) < 1e-9, "fresh pinch: 2 × 1.5")
+    }
+
     @Test func withoutBouncesZoomTheScaleAndOffsetAreClamped() {
         let e = Self.env(limits: 1...3, bounces: false)
         #expect(PinchSession.shownScale(startScale: 1, magnification: 6, env: e) == 3)

@@ -36,9 +36,10 @@ enum PinchGestureAdapter {
             // count change then finds the pinch already released and does nothing.
             if spatial, observer.activeCount == 1, let c = observer.centroid {
                 coordinator.handlePinch(.fingerCountChanged(count: 1, remaining: c, time: now))
-            } else {
-                coordinator.handlePinch(.ended(time: now))
             }
+            // Always the gesture's own end too: it closes the trailing-sample window (D25) on an already released
+            // session without effects.
+            coordinator.handlePinch(.ended(time: now))
         }
         if #available(iOS 17, *), ZTronAvailability.isAvailable(.magnifyGesture) {
             return AnyGesture(MagnifyGesture()

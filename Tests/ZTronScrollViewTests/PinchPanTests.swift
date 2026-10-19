@@ -469,6 +469,29 @@ struct PinchPanTests {
         #expect(abs(r.state.contentOffset.x) < 1e-6 && abs(r.state.zoomScale - 1.5) < 1e-9 && r.state.phase == .idle)
     }
 
+    // MARK: 8. the magnify gesture's trailing sample after the lift (D25)
+
+    /// The user's video: fingers held still at 2×, one lifts, the view jumps to ≈ 4× in one frame. SwiftUI delivers the
+    /// magnify gesture's last `.changed` (cumulative magnification 2) after the observer's count change already handed
+    /// the pinch off; it must change nothing, and the remaining finger then pans 1:1.
+    @Test(arguments: OSPath.allCases) func trailingMagnifySampleAfterTheLiftDoesNotJump(path: OSPath) {
+        let r = make(path, limits: 1...4)
+        let c = CGPoint(x: 100, y: 200)
+        twoFingersDown(r, at: c)
+        magnify(r, 2, at: c); r.tick()
+        let o = r.state.contentOffset
+        r.now += 0.016
+        r.coord.handlePinch(.fingerCountChanged(count: 1, remaining: CGPoint(x: 120, y: 200), time: r.now))
+        // The gesture's trailing sample and then its end, as the adapter delivers them.
+        r.coord.handlePinch(.changed(magnification: 2.05, centroid: CGPoint(x: 120, y: 200), time: r.now))
+        r.coord.handlePinch(.ended(time: r.now))
+        #expect(abs(r.state.zoomScale - 2) < 1e-9, "scale unchanged: \(r.state.zoomScale)")
+        #expect(r.state.contentOffset == o && !r.state.isZooming && !r.state.isZoomBouncing)
+        r.now += 0.016
+        r.coord.synthesizePan(location: CGPoint(x: 120, y: 180), time: r.now)
+        #expect(abs(r.state.contentOffset.y - (o.y + 20)) < 1e-6 && abs(r.state.zoomScale - 2) < 1e-9, "pans 1:1 at 2×")
+    }
+
     // MARK: iOS 15–17 estimate (documented gap)
 
     @Test func dragFollowEstimateMovesTheCentroidWithTheTrackedFinger() {
