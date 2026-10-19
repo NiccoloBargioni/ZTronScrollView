@@ -200,4 +200,21 @@ depends on N-a; both after the demo full re-run (Orchestration step 3) so the ba
    own root so participant frames stay page-local and cold (the pager converts its touch). Acceptable on your side?
 7. **Binding shape:** anything the `.custom` closure and `ztronScrollDisabled(Bool)` do not cover for you?
 
-Orchestrator resolutions: to be appended after the user's answers.
+## Orchestrator resolutions (2026-10-19, user: "procedi con la build N-a con i default raccomandati")
+- R1 Default ON: nested `ZTronScrollView`s arbitrate with `.automatic` (= `.innerWhileScrollable`, UIScrollView
+  parity) when nothing is specified; `.independent` restores today's behaviour.
+- R2 Zoomed at the edge: `.automatic` pages (contract rule 5 / UIKit). The user's literal rule ("outer iff
+  zoomScale == 1", rubber-band at the edge while zoomed) is `.innerWhenZoomed`, declared per view; the demo's zoomer
+  page (N-b) uses it, and both policies are unit-tested in N-a.
+- R3 Mid-gesture hand-off (inner edge → outer continues the swipe): later, not v1. Keep the `synthesizePan` route open.
+- R4 The policy is declared on the inner view (`nestedScrollPolicy` member) or propagated by the environment
+  (`ztronNestedScrollPolicy`); the same answer feeds a ZTronPages pager through the unchanged S16 participant.
+- R5 Names: `ZTronNestedScrollPolicy`, `ZTronNestedScrollOwner`, `ZTronNestedScrollContext`,
+  `ZTronScrollView.nestedScrollPolicy(_:)`, `View.ztronNestedScrollPolicy(_:)`.
+- R6 ZTronPages: one arbiter in pager space with page-local participant frames is the proposed integration; it is the
+  user's side (Open item 2) and is confirmed when ZTronPages adopts it. Nothing in N-a depends on it.
+- R7 No Binding API in v1: `.custom` (non-tracked `ZTronNestedScrollContext`) and `ztronScrollDisabled(Bool)` cover
+  the dynamic cases. ScrollArbitration's public API stays frozen (S16).
+- Sequencing: N-a now (library + `NestedArbitrationTests`, both OS paths); N-b (demo `NestedPagerScreen` +
+  `NestedPagerUITests`) and the docs/SPEC amendment follow once N-a is green and committed.
+
