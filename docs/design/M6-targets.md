@@ -203,3 +203,25 @@ Parity-matrix rows (API | Strategy | Min OS | Fallback | Test | Status): `Scroll
 - Q4 Accepted as the starting point; confirm against a native ScrollView in the demo (R5) and record it.
 - Note accepted: native `ScrollTargetBehaviorContext` isn't publicly constructible → only ours → native bridging;
   parity-matrix row "native behaviors run in ZTronScrollView: impossible (no public context init)".
+
+## Orchestrator resolutions (2026-10-20, session M8b-s0 acting as Architect; the M6-s1 handoff's Open items)
+- Open 1 → **D27 (target space = SwiftUI's).** `ReleasePipeline.decideTarget` is the one conversion point: a behavior sees `rect.origin = contentOffset + I.start`
+  (content coordinates: the inset includes the safe area, a scaling header's resting height and a refresh hold), `rect.size == containerSize == V − I.total` (the
+  unobscured size), and the landing is converted back, `proposed = clamp(t.rect.origin + a_t·(t.rect.size − container) − I.start)`; the `limitsVelocity` cap uses the
+  unobscured length. The public `.paging` pages by the unobscured length like native SwiftUI; the UIKit knob `isPagingEnabled` keeps paging by the viewport length
+  (`effectiveTargetBehavior` maps it to an internal paging behavior with `pageLength: .viewport`; `PagingSolver` unchanged). With zero insets both coincide (the M3
+  table stays); with insets they differ exactly as SwiftUI and UIKit do (S2: SwiftUI first, then UIKit; note the decision in the matrix). Session 2 writes the ViewAligned
+  candidates in that same space inside `updateTarget` (`c_i = r_i.min + a·r_i.len − a·W`, `W` unobscured) and relies on the single conversion. Tests: §7-1/2 re-run under
+  a 62 pt top inset with the native numbers measured in `NativeBridgeTests` (notes `M6-s1-findings.md` §1) as fixtures.
+- Open 2 (R4, native `velocity` units): a delegate-injected release reports 0, so it needs a real pan: session 3's `TargetsScreen` UI test records a native
+  `ScrollTargetBehaviorContext.velocity` next to ours on 17.5 and 27.0. Until then the bridge passes the value through unchanged and the matrix row says "units unverified".
+- Open 3 (27.0 + forced fallbacks: a parent re-evaluation builds a second copy of the content for a moment): not M6, not N-a (present at 39f09c8). One Debugger session
+  after Orchestration step 3 (Orchestration open item 6). Until it lands, M6/M8b/M9 builders keep the registry's "one report per live reporter" rule and expect a
+  one-frame double registration on that path only.
+- Open 4 (sibling `onAppear` in reverse tree order on 27.0): accepted for now — "first match" = the member that appeared first; parity-matrix note. Session 3's demo
+  compares with a native `ScrollViewReader` over two scroll views; if native resolves the upper one, `ProxyScope` switches to frame order (containers report their
+  frame in a reader-level space) in session 3.
+- Open 5–7: the hosted-native-`ScrollView` conversion tests (public UIKit delegate API in the TEST target only; the library stays UIKit-free) are the accepted way to
+  reach `ScrollTarget`/`Context`; lazy registration (R2) is M9's; the ~45 "Observation tracking feedback loop detected" warnings of the full 27.0 unit run are an open
+  item to re-check after M7 session 1 (Orchestration open item 7).
+

@@ -38,6 +38,7 @@ M8-8 build from the amended SPEC S9/S10/S11 + `docs/design/M8b-refresh-header.md
 | User scenario s1 | done | D15: zoom-enabled pan moves on any axis the zoomed content exceeds; demo `-ZTronScreen image` + `ImageUITests` 4/4 on 27.0 + 17.5, preferred + forced (`docs/progress/USER-s1.md`) |
 | M5 (b) gestures + demo | partial | `docs/progress/M5-s2.md` s4: D18/D19 — intent captured from the DRAWN geometry (turn origin), inset-only change folds into an open resize, post-resize settle window; screen-space acceptance GREEN for the user's full-screen tree AND the 16:9 tree on 27.0 + 17.5, preferred + forced (odd rotations ≤ 0.56 pt, even rotations offset/zoom exact, markers ≤ 0.17 pt); `ResizeUITests` 11/11 on 27.0 pref+forced, 17.5 11/11 preferred + jump test forced after the monitor change + 27.0 11/11 re-run; `ProofUITests` 6/6; DEBUG jump monitor counts drawn frames only; (C) probe green on 27.0 pref+forced + 17.5 pref before and after D20 (`M4-s3.md`); D21 render-path pixel tolerance (16:9 trees drew clamped and stayed `.animating`; `USER-s2.md`); PanCoordinator rebase still todo |
 | M6 (a) targets exemplar | done | `docs/progress/M6-s1.md` (7243121): member + twin `scrollTargetBehavior`, type mirror (`ZTronScrollTargetBehavior` family, SDK names), `.paging` ≡ `isPagingEnabled`, `ZTronScrollViewReader`/proxy `scrollTo` (+ animation overload), `ztronScrollID` + registry (0 writes while scrolling/zooming); 79 new unit tests, unit 275/275 on 27.0 + 17.5, `ZoomUITests` 7/7 on 27.0. **Its Open 1 (target space vs SwiftUI's, measured) needs a decision before session 2** |
+| N-a nested arbitration | done | 3e8ae26 (design `docs/design/NESTED-arbitration.md` + resolutions a30a008): `ZTronNestedScrollPolicy`, `nestedScrollPolicy(_:)` / `ztronNestedScrollPolicy(_:)`, internal `NestedScrollArbiter`; `NestedArbitrationTests` 18 on both OS paths; no handoff file (the nested session went idle after the commit). N-b (demo `NestedPagerScreen` + `NestedPagerUITests`) and the SPEC amendment follow step 3 (NESTED-arbitration.md §4) |
 | M6 (b,c) … M10 | todo | SPEC O4 l.970–990; M6 (b) = session 2 (ViewAligned, NativeBridges, ScrollTargetLayout), (c) = session 3 (Position, DefaultScrollAnchor, TargetsScreen) |
 
 Test totals now: `ZTronScrollViewTests` **275** (26 suites; M6 s1's 79 and N-a's `NestedArbitrationTests` included) green on iOS 27.0 and 17.5 (both OS paths) · M2 `ProofUITests` 6/6 ·
@@ -85,7 +86,7 @@ physics 111 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-
    PagerUITests "trailing edge pages" still fails on 27.0 --forced and 17.5 (`M4-s2.md`).
 4. [ ] M5 (b) remainder (PanCoordinator resize rebase, adjusted insets into pan/pinch env) → M6–M9 builds from the
    ready designs (`docs/design/M6…M9`), M10. Sequencing per each design's resolutions.
-   M6 (a) done 2026-10-20 (`docs/progress/M6-s1.md`, 7243121): next = decide its Open 1 (target space), then M6 (b) session 2, then M8b-1
+   M6 (a) done 2026-10-20 (`docs/progress/M6-s1.md`, 7243121): Open 1 decided (D27, 2026-10-20) → next = M6 (b) session 2 (ViewAligned in the SwiftUI target space), then M8b-1
    (shared `ZTronScrollState.swift` is committed now).
 
 **Builder kickoff template** (any part):
@@ -130,6 +131,13 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
    `ZTronScrollPhysics` enum shares its module's name and top-level names (`Velocity`, `Decay`) are generic.
 5. User actions: push ScrollArbitration to its own repo + tag 1.0.0, then switch both projects to
    `.upToNextMinor(from: "1.0.0")`; iOS 15/16 + Xcode 26.6 runs; device checks (ProMotion, gesture feel).
+6. **27.0 + all fallbacks forced: a parent re-evaluation builds a second copy of the scroll view's content for a moment** (`@State` ids 2,
+   `onAppear` again; M6-s1 Open 3, notes `M6-s1-findings.md` §2; present at 39f09c8, absent on 17.5 both paths and on 27.0 preferred; real iOS 15/16
+   unverified). One Debugger session after step 3: suspects the fallback layout host `Color.clear.overlay { content.fixedSize }`, the
+   `ContentSizeMeasure`/`ViewportObserver` preference pairs, the named space. The M6 registry already tolerates it (one report per live reporter).
+7. ~45 UIKit "Observation tracking feedback loop detected" warnings in the full 27.0 unit run since M6 s1 (none on 17.5, none per suite alone): re-check
+   after M7 session 1 (hub); suspect the hosted test windows, not the library.
+8. N-a has no handoff file and no SPEC amendment yet (nested session idle); N-b + SPEC text per NESTED-arbitration.md §4 after step 3.
 
 ## Decisions (keep)
 - D1 Naming map in CLAUDE.md (ZoomScroll → ZTronScroll, `ztronScroll…` modifiers; matches ZTronPages' `ztronPage()`).
@@ -220,6 +228,11 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
   ObservableObject / @Observable `headerGeo` (object-wide invalidation on 15–16, no derived gating, builder-scope hazard). Refresh API single
   source = S9's `refresher`; every UIScrollViewDelegate method also an `onZTronScroll…` modifier (M8-chrome §7b, task M8-8 on M7's hub:
   delegate first, then modifiers in application order; `willEndDragging` target threaded; `shouldScrollToTop` ANDed).
+- D27 (2026-10-20, M6-s1 Open 1, measured in `NativeBridgeTests`) Scroll-target space = SwiftUI's: a behavior sees `rect.origin = contentOffset +
+  adjustedContentInset.start` (content coordinates; the inset includes the safe area, the scaling header's resting height and the refresh hold) and
+  `containerSize = rect.size = unobscured size`; `ReleasePipeline.decideTarget` is the single conversion point (landing `−= I.start`, velocity cap on the
+  unobscured length). Public `.paging` pages by the unobscured length (SwiftUI); the `isPagingEnabled` knob keeps the viewport page length (UIKit) through an
+  internal paging behavior; both coincide with zero insets (M3 table unchanged). `docs/design/M6-targets.md` resolutions 2026-10-20.
 - D16 (user, 2026-10-18) Physics and the post-rotation re-centering are generated and tested by **Fable 5.1**
   (builder agents with model fable). Re-centering ports ZTronMapKit's normalized-centre discipline
   (ContentGeometry: capture before resize, restore = centre × newContentSize − newViewport/2, clamp, centre smaller
