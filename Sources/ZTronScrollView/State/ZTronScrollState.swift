@@ -668,7 +668,10 @@ public final class ZTronScrollState {
             if resizeIdleTicks >= 4 { closeResize() }   // never rendered
             return
         }
-        let animating = abs(p.size.width - cur.viewport.width) > 0.01 || abs(p.size.height - cur.viewport.height) > 0.01
+        // D21: the effect reports the pixel-rounded container size (288.0 for a 288.125 pt viewport); within a pixel it
+        // IS the committed size, else the watch never settles (.animating forever, clamped drawing, clock running).
+        let tol = ContentTransform.pixelTolerance
+        let animating = abs(p.size.width - cur.viewport.width) > tol || abs(p.size.height - cur.viewport.height) > tol
         if animating {
             #if DEBUG
             if !resizeSawAnimation { dbg("tick animating-start probe:\(f(p.size)) committed:\(f(cur.viewport))") }

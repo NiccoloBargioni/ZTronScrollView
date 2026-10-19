@@ -12,11 +12,12 @@ final class ResizeUITests: XCTestCase {
 
     override func tearDown() { XCUIDevice.shared.orientation = .portrait }
 
-    private func launch(reflow: Bool = false, userTree: Bool = false, userTree2: Bool = false) -> XCUIApplication {
+    private func launch(reflow: Bool = false, userTree: Bool = false, userTree2: Bool = false,
+                        extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-ZTronScreen", "resize"] + (forced ? ["-ZTronForceAllFallbacks"] : [])
             + (reflow ? ["-ZTronResizeReflow"] : []) + (userTree ? ["-ZTronResizeUserTree"] : [])
-            + (userTree2 ? ["-ZTronResizeUserTree2"] : [])
+            + (userTree2 ? ["-ZTronResizeUserTree2"] : []) + extra
         app.launch()
         Thread.sleep(forTimeInterval: 0.8)
         return app
@@ -314,6 +315,37 @@ final class ResizeUITests: XCTestCase {
     }
 
     /// The user's current app tree: full-screen scroller (no 16:9 box) under the navigation stack.
+    /// User report (2026-10-19): bounce "does not work" in the 16:9 image tree, whatever the behavior. The state
+    /// rubber-bands (unit-tested); this checks the DRAWN frames: a drag past the edge must not be clamped away by the
+    /// transform at rest (`transform.clampedAtRest == 0`), and no frame may take the resize path with the commit closed.
+    private func overscrollIsDrawn(_ label: String, extra: [String], from: CGVector, to: CGVector) {
+        let app = launch(userTree: true, extra: extra)
+        app.buttons["Reset"].tap()
+        Thread.sleep(forTimeInterval: 0.3)
+        let before = info(app, "\(label) before")
+        XCTAssertEqual(before["phase"], 0, "idle at rest after launch (a transaction that never settles stays .animating): \(before.raw)")
+        let s = app.descendants(matching: .any)["scrollerView"]
+        let a = s.coordinate(withNormalizedOffset: from), b = s.coordinate(withNormalizedOffset: to)
+        a.press(forDuration: 0.05, thenDragTo: b, withVelocity: .slow, thenHoldForDuration: 0.5)
+        Thread.sleep(forTimeInterval: 1.5)
+        let i = info(app, "\(label) after")
+        XCTAssertGreaterThan(i["effect"], before["effect"], "the drag drew frames")
+        XCTAssertEqual(i["slowClosed"], 0, "resize path with the commit closed: \(i.raw)")
+        XCTAssertEqual(i["clamped"], 0, "drawn offset clamped away from the target at rest: \(i.raw)")
+        XCTAssertEqual(i["ox"], before["ox"], accuracy: 0.5, "sprang back")
+        XCTAssertEqual(i["oy"], before["oy"], accuracy: 0.5, "sprang back")
+    }
+
+    func testUserTreeVerticalOverscrollIsDrawn() {
+        // Starts below the screen's overlay buttons; at the top edge a downward drag overscrolls.
+        overscrollIsDrawn("vband", extra: [], from: CGVector(dx: 0.5, dy: 0.6), to: CGVector(dx: 0.5, dy: 0.95))
+    }
+
+    func testUserTreeHorizontalAlwaysBounceIsDrawn() {
+        overscrollIsDrawn("hband", extra: ["-ZTronResizeBounceAlways"],
+                          from: CGVector(dx: 0.3, dy: 0.5), to: CGVector(dx: 0.8, dy: 0.5))
+    }
+
     func testUserTree2ScreenSpaceCentreAndEvenRotationsRestore() { screenSpaceRoundTrips("user2", userTree2: true) }
     /// The 16:9 box variant.
     func testUserTreeScreenSpaceCentreAndEvenRotationsRestore() { screenSpaceRoundTrips("user", userTree2: false) }

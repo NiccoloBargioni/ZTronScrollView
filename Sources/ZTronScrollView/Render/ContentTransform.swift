@@ -59,14 +59,31 @@ struct ContentTransform: GeometryEffect {
         CGAffineTransform(a: scale, b: 0, c: 0, d: scale, tx: pad.x - offset.x, ty: pad.y - offset.y)
     }
 
+    /// Same geometry within a pixel. SwiftUI hands the effect a pixel-rounded `size` while the committed viewport is the
+    /// unrounded layout size (a 16:9 box of 288.125 pt draws at 288.0), so an exact comparison would send every frame
+    /// at rest down the resize path, whose result is clamped: no rubber band or bounce could ever be drawn and the
+    /// presentation probe would never settle a transaction (D21). A real resize moves by far more than a point.
+    static let pixelTolerance: CGFloat = 1
     private static func near(_ a: CGSize, _ b: CGSize) -> Bool {
-        abs(a.width - b.width) < 0.01 && abs(a.height - b.height) < 0.01
+        abs(a.width - b.width) <= pixelTolerance && abs(a.height - b.height) <= pixelTolerance
+    }
+    private static func near(_ a: EdgeInsets, _ b: EdgeInsets) -> Bool {
+        abs(a.top - b.top) <= pixelTolerance && abs(a.leading - b.leading) <= pixelTolerance
+            && abs(a.bottom - b.bottom) <= pixelTolerance && abs(a.trailing - b.trailing) <= pixelTolerance
+    }
+
+    /// Fast path: the viewport is not known yet, or no resize is in flight and `size`/`insets` are the committed
+    /// geometry (within a pixel). Then the target is drawn as is, overscroll included.
+    func isPlainFrame(size: CGSize) -> Bool {
+        let cur = commit.current
+        return cur.viewport.width <= 0 || cur.viewport.height <= 0
+            || (!commit.isOpen && Self.near(size, cur.viewport) && Self.near(insets, cur.insets))
     }
 
     /// (offset, scale, pad) drawn at `size`.
     func resolved(size: CGSize) -> (offset: CGPoint, scale: CGFloat, pad: CGPoint) {
         let cur = commit.current
-        if cur.viewport.width <= 0 || cur.viewport.height <= 0 || (!commit.isOpen && Self.near(size, cur.viewport) && insets == cur.insets) {
+        if isPlainFrame(size: size) {
             let v = cur.viewport.width <= 0 || cur.viewport.height <= 0 ? size : cur.viewport
             let g = ResizeMath.geometry(viewport: v, content: cur.contentSize, insets: insets, alignment: alignment)
             return (offset, scale, g.alignmentPadding(at: scale))
@@ -81,6 +98,24 @@ struct ContentTransform: GeometryEffect {
         #if DEBUG
         if Thread.isMainThread {
             let open = commit.isOpen
+            // Draw-path probe: which path drew this frame, and whether a closed commit still clamped the target away
+            // (an overscroll or bounce the user never sees).
+            let cur = commit.current
+            let fast = isPlainFrame(size: size)
+            let clampedAway = !open && hypot(r.offset.x - offset.x, r.offset.y - offset.y) > 0.5
+            MainActor.assumeIsolated {
+                ZTronRenderCounters.increment(fast ? "transform.fast" : "transform.slow")
+                if !fast, !open {
+                    ZTronRenderCounters.increment("transform.slowClosed")
+                    ZTronRenderCounters.notes["transform.slow"] =
+                        "size=\(size) vp=\(cur.viewport) insets=\(insets) cur=\(cur.insets)"
+                }
+                if clampedAway {
+                    ZTronRenderCounters.increment("transform.clampedAtRest")
+                    ZTronRenderCounters.notes["transform.clampedAtRest"] =
+                        "target=\(offset) drawn=\(r.offset) size=\(size) vp=\(cur.viewport) insets=\(insets) cur=\(cur.insets)"
+                }
+            }
             let p = open ? ResizeMath.presented(commit, size: size) : commit.current
             let snap = ResizeCommit.Snapshot(viewport: size, contentSize: p.contentSize, insets: insets)
             let n = ResizeMath.intent(offset: r.offset, scale: r.scale, in: snap, header: commit.header, focus: commit.focus,

@@ -230,6 +230,28 @@ struct ResizeStateTests {
         #expect(s.phase == .idle && !s.isClockRunning)
     }
 
+    /// D21 (user report 2026-10-19): the effect reports the pixel-rounded container size (288.0 for a 288.125 pt viewport:
+    /// a 16:9 box under a 62 pt bar). The watch must take it as the committed size: a resize that never animated closes
+    /// on its first tick and an animated one settles; neither stays open (.animating, clock running, clamped drawing).
+    @Test(arguments: OSPath.allCases) func pixelRoundedProbeSizeClosesTheResize(path: OSPath) {
+        let s = makeState(path)
+        s.setContentSize(CGSize(width: 402, height: 1206))
+        s.setViewport(vp(402, 226.125))
+        s.setViewport(vp(402, 288.125))                    // the bar's safe area lands: a size change opens a resize
+        #expect(s.peek.metrics.resize.isOpen && s.isClockRunning)
+        s.probe.record(CGPoint(x: 0, y: 0), 1, size: CGSize(width: 402, height: 288))   // pixel-rounded frame
+        s.step(to: date(1))
+        #expect(!s.peek.metrics.resize.isOpen && s.phase == .idle && !s.isClockRunning, "closed on the first tick")
+        // Animated: frames at intermediate sizes, then the rounded final size → settles after two stable ticks.
+        s.setViewport(vp(402, 500.125))
+        s.probe.record(CGPoint(x: 0, y: 0), 1, size: CGSize(width: 402, height: 400))
+        s.step(to: date(2))
+        #expect(s.phase == .animating)
+        s.probe.record(CGPoint(x: 0, y: 0), 1, size: CGSize(width: 402, height: 500))
+        s.step(to: date(3)); s.step(to: date(4)); s.step(to: date(5))
+        #expect(!s.peek.metrics.resize.isOpen && s.phase == .idle && !s.isClockRunning, "settled")
+    }
+
     @Test(arguments: OSPath.allCases) func unanimatedResizeEndsSilently(path: OSPath) {
         let s = makeState(path)
         s.setContentSize(CGSize(width: 390, height: 3000))

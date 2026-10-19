@@ -143,7 +143,7 @@ struct UserTreeScroller: View {
                 }
                 .zoomRange(min: .absolute(1), max: .absolute(4))
                 .doubleTapToZoom()
-                .ztronScrollBounceBehavior(.basedOnSize, axes: .horizontal)
+                .ztronScrollBounceBehavior(ResizeScreen.bounceAlways ? .always : .basedOnSize, axes: .horizontal)
                 if fullScreen {
                     scroller
                         .accessibilityElement(children: .contain)
@@ -167,6 +167,8 @@ struct ResizeScreen: View {
     static let reflow = ProcessInfo.processInfo.arguments.contains("-ZTronResizeReflow")
     static let userTree2 = ProcessInfo.processInfo.arguments.contains("-ZTronResizeUserTree2")
     static let userTree = userTree2 || ProcessInfo.processInfo.arguments.contains("-ZTronResizeUserTree")
+    /// `-ZTronResizeBounceAlways`: the user tree's horizontal bounce behavior becomes `.always` (user report 2026-10-19).
+    static let bounceAlways = ProcessInfo.processInfo.arguments.contains("-ZTronResizeBounceAlways")
     @State private var state = ZTronScrollState()
     @State private var probe = ResizeProbe()
     @State private var info = ""
@@ -271,16 +273,20 @@ struct ResizeScreen: View {
         #if DEBUG
         counters = ZTronRenderCounters.snapshot
         note = ZTronRenderCounters.notes["resize.jump"] ?? ""
+        note += " slow{" + (ZTronRenderCounters.notes["transform.slow"] ?? "") + "}"
+        note += " clamped{" + (ZTronRenderCounters.notes["transform.clampedAtRest"] ?? "") + "}"
         note += " events{" + ZTronRenderCounters.eventsJoined + "}"   // DEBUG event log (resize ordering probe)
         #endif
         let r = ResizeProbe.centre(state)
         let o = state.contentOffset, i = state.adjustedContentInset
         let pre = probe.beforeResize ?? CGPoint(x: -1, y: -1)
-        info = String(format: "z=%.4f ox=%.2f oy=%.2f ux=%.2f uy=%.2f cx=%.2f cy=%.2f vw=%.1f vh=%.1f it=%.1f il=%.1f ib=%.1f ir=%.1f phase=%d preux=%.2f preuy=%.2f resizes=%d jump=%d body=%d effect=%d min=%.4f cw=%.2f ch=%.2f cidle=%d vp=%d",
+        info = String(format: "z=%.4f ox=%.2f oy=%.2f ux=%.2f uy=%.2f cx=%.2f cy=%.2f vw=%.1f vh=%.1f it=%.1f il=%.1f ib=%.1f ir=%.1f phase=%d preux=%.2f preuy=%.2f resizes=%d jump=%d body=%d effect=%d min=%.4f cw=%.2f ch=%.2f cidle=%d vp=%d fast=%d slow=%d slowClosed=%d clamped=%d",
                       state.zoomScale, o.x, o.y, r.u.x, r.u.y, r.c.x, r.c.y, r.size.width, r.size.height,
                       i.top, i.leading, i.bottom, i.trailing, state.phase.rawValue, pre.x, pre.y, probe.resizes,
                       counters["resize.jumpFrames"] ?? 0, counters["content.body"] ?? 0, counters["transform.effect"] ?? 0,
                       state.minimumZoomScale, state.geometry.contentSize.width, state.geometry.contentSize.height,
-                      counters["resize.contentSizeIdle"] ?? 0, counters["resize.viewport"] ?? 0) + " note=" + note
+                      counters["resize.contentSizeIdle"] ?? 0, counters["resize.viewport"] ?? 0,
+                      counters["transform.fast"] ?? 0, counters["transform.slow"] ?? 0,
+                      counters["transform.slowClosed"] ?? 0, counters["transform.clampedAtRest"] ?? 0) + " note=" + note
     }
 }

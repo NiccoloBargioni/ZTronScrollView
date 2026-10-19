@@ -35,6 +35,34 @@ struct TransformTests {
         #expect(box.frames == 1)
     }
 
+    /// User report 2026-10-19 (D21): the effect is drawn at a pixel-rounded size (288.0 for a 288.125 pt 16:9 box under
+    /// a 62 pt bar). Within a pixel of the committed viewport, with the commit closed, the target is drawn as is: an
+    /// overscrolled target (rubber band, bounce) stays overscrolled and the probe records the target. A real resize
+    /// still takes the resize path and clamps.
+    @Test func pixelRoundedSizeStillDrawsTheTargetUnclamped() {
+        let box = PresentationBox()
+        let c = Self.commit(viewport: CGSize(width: 402, height: 288.125), content: CGSize(width: 402, height: 1206),
+                            insets: EdgeInsets(top: 62, leading: 0, bottom: 0, trailing: 0))
+        let target = CGPoint(x: -40, y: -90)              // 40 pt past the leading edge, 28 pt past the top
+        let e = Self.effect(offset: target, scale: 1, commit: c, probe: box)
+        #expect(e.isPlainFrame(size: CGSize(width: 402, height: 288)))
+        let r = e.resolved(size: CGSize(width: 402, height: 288))
+        #expect(r.offset == target && r.scale == 1)
+        _ = e.effectValue(size: CGSize(width: 402, height: 288))
+        #expect(box.pending?.offset == target)
+        // Insets within a pixel of the committed ones are the same frame too (animatable rounding).
+        var e2 = e
+        e2.insets = EdgeInsets(top: 62.25, leading: 0, bottom: 0, trailing: 0)
+        #expect(e2.isPlainFrame(size: CGSize(width: 402, height: 288.125)))
+        // A real size change is a resize frame: realised from the intent and clamped (x bounds collapse to 0).
+        #expect(!e.isPlainFrame(size: CGSize(width: 402, height: 500)))
+        let r2 = e.resolved(size: CGSize(width: 402, height: 500))
+        #expect(r2.offset.x == 0 && r2.offset.y >= -62)
+        // An open commit never takes the plain path.
+        var open = c; open.isOpen = true
+        #expect(!Self.effect(offset: target, scale: 1, commit: open).isPlainFrame(size: CGSize(width: 402, height: 288.125)))
+    }
+
     @Test func pixelSnapOnlyAtRestAt2xAnd3x() {
         #expect(ContentGeometry.snap(10.3, scale: 2) == 10.5)
         #expect(ContentGeometry.snap(10.4, scale: 3) == 10.333333333333334)
