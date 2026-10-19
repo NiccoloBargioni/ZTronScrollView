@@ -11,7 +11,7 @@ Current: M5 (b): rotation criteria A+B met on both user trees (D18/D19) and crit
 | M3 | done | 8–10 | | pan/release/catch/delegate/arbitration; 123 unit tests; demo UI 14/14 on 27.0 both paths; PanUITests 7/7 on 17.5 both paths |
 | M4 | done | 5–7 | | zoom state + pinch adapter + demo; criterion C staggered-lift fix (D20, docs/progress/M4-s3.md); ZoomUITests 7/7 on 27.0 (both paths) + 17.5 preferred; 17.5 forced pending |
 | M5 | partial | 5–7 | | (a) done; (b) rotation acceptance A+B green on 27.0 + 17.5 both paths (docs/progress/M5-s2.md s4); D21 render-path pixel tolerance, D22 programmatic zoom = native ease-in-out + duration law (ZoomTiming, docs/progress/USER-s3.md), D23 hand-off overscroll (docs/progress/USER-s2.md), D24 pinch overscroll rubber band + didZoom cadence kept per SPEC, D25 lift snap = trailing magnify sample ignored (USER-s4.md); device checks of C, D21, D22, D25 done by the user; left: PanCoordinator rebase, insets into pan/pinch env |
-| M6 | todo | 8–11 | | |
+| M6 | partial | 8–11 | | (a) session 1 done (`docs/progress/M6-s1.md`, 7243121): target-behavior family + `.paging` ≡ `isPagingEnabled`, member/twin, reader/proxy `scrollTo`, `ztronScrollID` registry; unit 275/275 on 27.0 + 17.5, ZoomUITests 7/7; open: target space vs SwiftUI's (decide before session 2); left: session 2 (ViewAligned, NativeBridges, ScrollTargetLayout), session 3 (Position, DefaultScrollAnchor, TargetsScreen) |
 | M7 | todo | 6–8 | | |
 | M8 | todo | 6–9 | | |
 | M8b | todo | 6–9 | | design amended 2026-10-19 per the user (SPEC S9/S10/S11/S14, M8b §2–3, M8-chrome §7b/M8-8; docs/progress/M8b-s0.md); A1–A10 approved by the user 2026-10-19; refresher shapes `.refresher { }` / `.refresher(refreshView:)` guaranteed, no introspection |

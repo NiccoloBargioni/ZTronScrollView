@@ -37,9 +37,10 @@ M8-8 build from the amended SPEC S9/S10/S11 + `docs/design/M8b-refresh-header.md
 | M5 (a) state + render | done | `docs/progress/M5-s1.md`: ResizeMath/Commit, TransformHost above layout host (C1 gate: Proof 6/6, demo UI 20/20 on 27.0), 134 unit tests on 27.0 + 17.5 |
 | User scenario s1 | done | D15: zoom-enabled pan moves on any axis the zoomed content exceeds; demo `-ZTronScreen image` + `ImageUITests` 4/4 on 27.0 + 17.5, preferred + forced (`docs/progress/USER-s1.md`) |
 | M5 (b) gestures + demo | partial | `docs/progress/M5-s2.md` s4: D18/D19 — intent captured from the DRAWN geometry (turn origin), inset-only change folds into an open resize, post-resize settle window; screen-space acceptance GREEN for the user's full-screen tree AND the 16:9 tree on 27.0 + 17.5, preferred + forced (odd rotations ≤ 0.56 pt, even rotations offset/zoom exact, markers ≤ 0.17 pt); `ResizeUITests` 11/11 on 27.0 pref+forced, 17.5 11/11 preferred + jump test forced after the monitor change + 27.0 11/11 re-run; `ProofUITests` 6/6; DEBUG jump monitor counts drawn frames only; (C) probe green on 27.0 pref+forced + 17.5 pref before and after D20 (`M4-s3.md`); D21 render-path pixel tolerance (16:9 trees drew clamped and stayed `.animating`; `USER-s2.md`); PanCoordinator rebase still todo |
-| M6 … M10 | todo | SPEC O4 l.970–990 |
+| M6 (a) targets exemplar | done | `docs/progress/M6-s1.md` (7243121): member + twin `scrollTargetBehavior`, type mirror (`ZTronScrollTargetBehavior` family, SDK names), `.paging` ≡ `isPagingEnabled`, `ZTronScrollViewReader`/proxy `scrollTo` (+ animation overload), `ztronScrollID` + registry (0 writes while scrolling/zooming); 79 new unit tests, unit 275/275 on 27.0 + 17.5, `ZoomUITests` 7/7 on 27.0. **Its Open 1 (target space vs SwiftUI's, measured) needs a decision before session 2** |
+| M6 (b,c) … M10 | todo | SPEC O4 l.970–990; M6 (b) = session 2 (ViewAligned, NativeBridges, ScrollTargetLayout), (c) = session 3 (Position, DefaultScrollAnchor, TargetsScreen) |
 
-Test totals now: `ZTronScrollViewTests` **178** (19 suites) green on iOS 27.0 and 17.5 (both OS paths) · M2 `ProofUITests` 6/6 ·
+Test totals now: `ZTronScrollViewTests` **275** (26 suites; M6 s1's 79 and N-a's `NestedArbitrationTests` included) green on iOS 27.0 and 17.5 (both OS paths) · M2 `ProofUITests` 6/6 ·
 physics 111 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-contract,M2-render,M3-pan,M4-zoom}.md`.
 
 ## Next steps (in order; prompts are ready to paste)
@@ -84,6 +85,8 @@ physics 111 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-
    PagerUITests "trailing edge pages" still fails on 27.0 --forced and 17.5 (`M4-s2.md`).
 4. [ ] M5 (b) remainder (PanCoordinator resize rebase, adjusted insets into pan/pinch env) → M6–M9 builds from the
    ready designs (`docs/design/M6…M9`), M10. Sequencing per each design's resolutions.
+   M6 (a) done 2026-10-20 (`docs/progress/M6-s1.md`, 7243121): next = decide its Open 1 (target space), then M6 (b) session 2, then M8b-1
+   (shared `ZTronScrollState.swift` is committed now).
 
 **Builder kickoff template** (any part):
 ```
@@ -249,3 +252,4 @@ Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (≤ 2 simulators at 
 | 2026-10-19 | Fable 5.1 #3 side session s3-C | criterion C: probe green (3 configs); staggered-lift fix D20 (PanCoordinator), PinchPanTests 15, ZoomUITests 7/7 ×3; user reports → D21 (pixel-rounded effect size: ContentTransform + resizeTick tolerance), D22 (zoom animation = native ease-in-out, spike `-zoomCal` calibration, ZoomTiming), D23 (hand-off overscroll), D24 (pinch overscroll rubber band, didZoom cadence kept), D25 (lift snap = trailing magnify sample, from the user's video); unit 178 on 27.0 + 17.5, physics 111; ResizeUITests 13/13 (27.0), ZoomUITests + overscroll green on both | all 10% → 20% · Fable 18% → 39% |
 | 2026-10-19 | Fable 5.1 #3 orchestrator, ultracode ×3 | measured the rotation event order; D18/D19 turn-origin capture + settle window; user full-screen tree passes A+B on 27.0 + 17.5; jump monitor = drawn frames; 160 unit tests | all 7% → 10% · Fable 13% → 18% |
 | 2026-10-19 | Fable 5.1 #3 side session M8b-s0 (Architect, design only) | user amendment: SPEC S9/S10/S11/S14 + M8b design §2–3 rewritten (`withScalingHeader`, `.preserve`/`.stretch`, proxy + reader geometry, iOS 15 fallback, counter tests, builder split) + M8-chrome §7b/M8-8 delegate modifiers; D26; A1–A10 for the user; no code | all 20% → 25% · Fable 39% → 49% (upper bound: the orchestrator ran concurrently) |
+| 2026-10-19/20 | Sonnet 5.5 side session M6-s1 (Builder) | M6 session 1: type mirror, `.paging` ≡ knob, member/twin, reader/proxy/`scrollTo`, `ztronScrollID` registry; 79 new tests; findings in `M6-s1.md` + notes folder: SwiftUI's target space, 27.0 forced-fallback content duplication (pre-existing), sibling `onAppear` order, `EnvironmentValues` retention | all ≈30% → 32% · Fable 58% → 60% (all sessions together) |
