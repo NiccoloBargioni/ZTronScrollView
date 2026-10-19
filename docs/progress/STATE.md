@@ -1,6 +1,6 @@
 # STATE
 Status: RUNNING
-Current: M5 build (a) → (b); MC freeze blocked on a user decision
+Current: M5 (b): rotation criteria A+B met on both user trees (D18/D19, 2026-10-19) → criterion C (pinch release), PanCoordinator rebase; MC freeze blocked on a user decision
 
 | Milestone | Status | Budget % | Used % (my readings) | Notes |
 |---|---|---|---|---|
@@ -10,7 +10,7 @@ Current: M5 build (a) → (b); MC freeze blocked on a user decision
 | M2 | done | 7–10 | | render proof green on 27.0 + 17.5, both paths (docs/progress/M2-s3.md) |
 | M3 | done | 8–10 | | pan/release/catch/delegate/arbitration; 123 unit tests; demo UI 14/14 on 27.0 both paths; PanUITests 7/7 on 17.5 both paths |
 | M4 | done | 5–7 | | zoom state + pinch adapter + demo; ZoomUITests 6/6 on 27.0 (both paths) + 17.5 preferred; 2 UI configs pending |
-| M5 | partial | 5–7 | | design done (docs/design/M5-resize.md) |
+| M5 | partial | 5–7 | | (a) done; (b) rotation acceptance A+B green on 27.0 + 17.5 both paths (docs/progress/M5-s2.md s4); left: criterion C, PanCoordinator rebase, insets into pan/pinch env |
 | M6 | todo | 8–11 | | |
 | M7 | todo | 6–8 | | |
 | M8 | todo | 6–9 | | |

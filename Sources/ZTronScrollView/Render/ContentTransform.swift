@@ -96,23 +96,40 @@ struct ContentTransform: GeometryEffect {
 }
 
 #if DEBUG
-/// DEBUG `resize.jumpFrames` (design M5 section 10): a drawn frame during a viewport resize (size changed since the
-/// previous evaluation, or the resize commit is open) whose visible-centre content point, normalized to the content
+/// DEBUG `resize.jumpFrames` (design M5 section 10): a DRAWN frame during a viewport resize (size changed since the
+/// previous drawn frame, or the resize commit is open) whose visible-centre content point, normalized to the content
 /// size drawn in that frame (D16: reflowing content keeps its normalized centre), moved by more than 1 viewport point.
-/// Content clamped at an edge legitimately counts.
+/// Only the last effect evaluation of a run-loop turn reaches the screen (Core Animation commits once per turn), so an
+/// evaluation superseded in the same turn — the new viewport size evaluated before the same turn's reflowed content
+/// size lands (iOS 17.5) — is not a frame and is not counted. Content clamped at an edge legitimately counts.
 @MainActor
 enum ResizeJumpMonitor {
-    private static var last: (size: CGSize, n: CGPoint, desc: String)?
+    private struct Eval { var size: CGSize; var n: CGPoint; var content: CGSize; var scale: CGFloat; var resizing: Bool; var desc: String }
+    /// The last evaluation of the previous turn (what is on screen) and the latest one of this turn.
+    private static var drawn: Eval?
+    private static var current: Eval?
+    private static var hopPending = false
+
     static func record(size: CGSize, normalized n: CGPoint, content: CGSize, scale: CGFloat, resizing: Bool) {
         let desc = String(format: "size=%.0fx%.0f k=%.0fx%.0f n=%.4f,%.4f s=%.3f open=%d",
                           size.width, size.height, content.width, content.height, n.x, n.y, scale, resizing ? 1 : 0)
-        defer { last = (size, n, desc) }
-        guard let l = last else { return }
-        let sizeChanged = abs(l.size.width - size.width) > 0.01 || abs(l.size.height - size.height) > 0.01
-        guard sizeChanged || resizing else { return }
-        if hypot((n.x - l.n.x) * content.width, (n.y - l.n.y) * content.height) * scale > 1 {
+        current = Eval(size: size, n: n, content: content, scale: scale, resizing: resizing, desc: desc)
+        guard !hopPending else { return }
+        hopPending = true
+        DispatchQueue.main.async { MainActor.assumeIsolated { endOfTurn() } }
+    }
+
+    /// The turn ended: `current` is the drawn frame; compare it with the previous one.
+    private static func endOfTurn() {
+        hopPending = false
+        guard let c = current else { return }
+        defer { drawn = c; current = nil }
+        guard let d = drawn else { return }
+        let sizeChanged = abs(d.size.width - c.size.width) > 0.01 || abs(d.size.height - c.size.height) > 0.01
+        guard sizeChanged || c.resizing else { return }
+        if hypot((c.n.x - d.n.x) * c.content.width, (c.n.y - d.n.y) * c.content.height) * c.scale > 1 {
             ZTronRenderCounters.increment("resize.jumpFrames")
-            ZTronRenderCounters.notes["resize.jump"] = "[\(l.desc)] -> [\(desc)]"
+            ZTronRenderCounters.notes["resize.jump"] = "[\(d.desc)] -> [\(c.desc)]"
         }
     }
 }

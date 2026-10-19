@@ -1,7 +1,8 @@
 # ZTronScrollView · Orchestration (resume here)
 
-Last updated: 2026-10-18 (session 2 end, weekly 88%) · Status: **M0–M4 done · physics calibrated (unit) · M5 rotation:
-ZTronMapKit geometry ported, still FAILS the user's full-screen tree → fix it first (step 1)** · MC freeze blocked (user decision).
+Last updated: 2026-10-19 (session 3 end, weekly all-models 10% · Fable 18%) · Status: **M0–M4 done · physics
+calibrated (unit) · M5 rotation: user full-screen tree PASSES criteria A+B on 27.0 + 17.5 (D18/D19) → next = criterion C
+(step 2)** · MC freeze blocked (user decision).
 ## Resume in a new session (cheapest path)
 1. Launch in `/Users/admin/Documents/ZTronScrollView` with the role's model (SPEC O2, l.897–918): Builder
    `claude --model sonnet --advisor opus`, Architect `claude --model fable`, Debugger `claude --model opus --effort high`.
@@ -30,25 +31,18 @@ ZTronMapKit geometry ported, still FAILS the user's full-screen tree → fix it 
 | M6–M9 designs | done | `docs/design/{M6-targets,M7-observation,M8-chrome,M8b-refresh-header,M9-virtualization}.md`, each ending with "Orchestrator resolutions" (read those first) and a builder-session split with file ownership + sequencing |
 | M5 (a) state + render | done | `docs/progress/M5-s1.md`: ResizeMath/Commit, TransformHost above layout host (C1 gate: Proof 6/6, demo UI 20/20 on 27.0), 134 unit tests on 27.0 + 17.5 |
 | User scenario s1 | done | D15: zoom-enabled pan moves on any axis the zoomed content exceeds; demo `-ZTronScreen image` + `ImageUITests` 4/4 on 27.0 + 17.5, preferred + forced (`docs/progress/USER-s1.md`) |
-| M5 (b) gestures + demo | partial | `docs/progress/M5-s2.md` s3: D17 ZTronMapKit geometry verbatim (`CenterGeometry`) + sticky `resizeIntent`; unit round trips exact; screen-space UI tests added (markers): 16:9 tree even rotations exact (0.05 pt), user's full-screen tree FAILS (reflow lands idle, `cidle`>0) — fix in `setContentSize` idle path next; (C) pinch-end probe test added, not run; PanCoordinator rebase still todo |
+| M5 (b) gestures + demo | partial | `docs/progress/M5-s2.md` s4: D18/D19 — intent captured from the DRAWN geometry (turn origin), inset-only change folds into an open resize, post-resize settle window; screen-space acceptance GREEN for the user's full-screen tree AND the 16:9 tree on 27.0 + 17.5, preferred + forced (odd rotations ≤ 0.56 pt, even rotations offset/zoom exact, markers ≤ 0.17 pt); `ResizeUITests` 11/11 on 27.0 pref+forced, 17.5 11/11 preferred + jump test forced after the monitor change + 27.0 11/11 re-run; `ProofUITests` 6/6; DEBUG jump monitor counts drawn frames only; (C) pinch-end probe test still not run; PanCoordinator rebase still todo |
 | M6 … M10 | todo | SPEC O4 l.970–990 |
 
-Test totals now: `ZTronScrollViewTests` **118** green on iOS 27.0 and 17.5 (both OS paths) · M2 `ProofUITests` 6/6 ·
+Test totals now: `ZTronScrollViewTests` **160** green on iOS 27.0 and 17.5 (both OS paths) · M2 `ProofUITests` 6/6 ·
 physics 99 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-contract,M2-render,M3-pan,M4-zoom}.md`.
 
 ## Next steps (in order; prompts are ready to paste)
-1. [ ] **Rotation centre in the user's full-screen tree (criteria A+B)** — Fable builder (D16), main checkout (the user's
-   ZTronTesting app compiles this tree live via `../ZTronScrollView`: keep it building at every step):
-   ```
-   Fix the visible-centre bug for -ZTronResizeUserTree2 (user's exact full-screen tree). Read docs/progress/M5-s2.md
-   section s3 first (measured errors + diagnosis): the reflowed content size lands while no resize is open, so the
-   idle .sizeChanges path in ZTronScrollState.setContentSize moves the view and the sticky resizeIntent is realised
-   from the wrong start. Fix: realise resizeIntent (ResizeMath.realize / CenterGeometry, verbatim ZTronMapKit) on the
-   idle reflow too, or capture it before an idle reflow; fix the test's visibleCentre (double-counted safe-area
-   insets). Acceptance = screen-space ResizeUITests (markers via XCUIElement.frame): odd rotations keep the marker
-   under the visible centre ≤1 pt; 2×/4× rotations restore every marker ≤0.5 pt and zoom exactly; 27.0 + 17.5,
-   preferred + --forced. Never touch /Users/admin/Documents/ZTronMapKit (snapshot: scratchpad ztronmapkit-ref/).
-   ```
+1. [x] **Rotation centre in the user's full-screen tree (criteria A+B)** — done 2026-10-19 (D18/D19, `docs/progress/M5-s2.md` s4):
+   measured root cause (one rotation = `vp inset` → `cs idle` → `vp size` → `cs open` in ONE run-loop turn; the intent
+   was captured from the half-mutated metrics), fixed by capturing from the drawn geometry (turn origin). Screen-space
+   acceptance green on 27.0 + 17.5, preferred + forced, both trees. The user still has to confirm on their own app
+   (ZTronTesting compiles `../ZTronScrollView`): rotate ×1…×4 zoomed on a detail; even rotations must land exactly.
 2. [ ] **Pinch-release animation (criterion C)** — run `ZoomUITests/testPinchInsideLimitsReleasesWithoutMotion`
    (added, never run); suspects: `handOffToPan` synthesized pan on first-finger lift, the bounce-back spring/kick from
    `dff908b`. No motion allowed when zoom and offset are in range.
@@ -127,6 +121,16 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
   it isn't in `axes` (Photos-like; UIScrollView has no axes). `axes` still drives layout proposal and the pan when
   content fits. Such an axis bounces like `.basedOnSize`. Implemented in `PanEnvironment.effectiveAxes` (PanCoordinator).
 
+- D18 (2026-10-19) The resize intent is captured from what was DRAWN, never from metrics mutated earlier in the same
+  run-loop turn: `TurnOrigin` (snapshot + presentation) is remembered before the first idle geometry mutation of a turn
+  and a viewport size change later in that turn captures from it (and interpolates from it). `endOfTurn()` is one
+  `DispatchQueue.main.async` hop (Foundation; tests call it directly). An inset-only change while a resize is open folds
+  into the commit instead of closing it. Measured need: SwiftUI delivers one rotation of a safe-area-dependent tree as
+  several updates in one turn, the first ones with no resize open.
+- D19 (2026-10-19) Post-resize settle window of 3 run-loop turns after `closeResize()`: idle content/inset changes inside
+  it re-realise the sticky intent (ZTronMapKit "restore on every bounds change"; covers the M5 §9 slow reflow); outside
+  it the D16 growing-list rule applies and the stale sticky intent is dropped at end of turn (an app action between
+  rotations breaks criterion A on purpose). DEBUG `resize.jumpFrames` counts drawn frames (last evaluation of a turn).
 - D16 (user, 2026-10-18) Physics and the post-rotation re-centering are generated and tested by **Fable 5.1**
   (builder agents with model fable). Re-centering ports ZTronMapKit's normalized-centre discipline
   (ContentGeometry: capture before resize, restore = centre × newContentSize − newViewport/2, clamp, centre smaller
@@ -145,9 +149,15 @@ Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (≤ 2 simulators at 
   (M3 (b): 99 min) — enforce the 2-attempt rule and escalate to the Debugger.
 - 2026-10-14: one ultracode workflow (11 Opus/Fable agents, 1.64 M tokens) used the whole remaining weekly budget.
   Don't fan out builders; follow SPEC O2/O5.
+- 2026-10-19: lean ultracode works: 3 sequential workflows (measure 1 agent → fix+verify 4 → follow-ups+verify 3; one
+  Fable builder at a time, review and the two simulators in parallel) = all-models 7% → 10%, Fable 13% → 18%
+  in ~3 h (predicted 9–11 all-models points; actual 3). One fix+verify workflow (Fable builder xhigh 38 min + Fable review + 2 Sonnet test runners,
+  457 K subagent tokens) ≈ +2 all-models / +4 Fable points. Measure the event order before fixing: it cost 1 agent and
+  made the fix land on the first attempt.
 
 ## Session log
 | Date | Session | Work | Weekly % |
 |---|---|---|---|
 | 2026-10-14 | Opus 5.5 ultracode #1 | M0; MC package; M1 (workflow) | → 100% (limit hit) |
 | 2026-10-18 | Opus 5.5 #2 orchestrator | recovered MC/M1; M2–M9 designs (Fable); MC spike; M2–M4 builds; M5 (a); zoomed-axes + user image demo; physics calibration (Fable); ZTronMapKit re-centering port (Fable, user tree still failing) | 72% → 88% |
+| 2026-10-19 | Fable 5.1 #3 orchestrator, ultracode ×3 | measured the rotation event order; D18/D19 turn-origin capture + settle window; user full-screen tree passes A+B on 27.0 + 17.5; jump monitor = drawn frames; 160 unit tests | all 7% → 10% · Fable 13% → 18% |
