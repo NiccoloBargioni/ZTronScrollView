@@ -69,7 +69,8 @@ physics 111 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-
    edge resists like a one-finger drag, hand-off continuous; didZoom per frame kept by SPEC (documented).
 2f. [x] **Snap at the lift, from the user's video (D25)** — done 2026-10-19 (`USER-s4.md` addendum): the magnify gesture's
    trailing `.changed` after the observer's hand-off re-armed the pinch with base 1 (2× → 4× in one frame). Ignored now.
-   User check pending (rebuild ZTronTesting).
+   **Confirmed by the user on the device (2026-10-19, main 1486752): lifting one finger during the pinch and dragging no
+   longer snaps.** Still to confirm on the device: bounce in the 16:9 tree (D21), double tap (D22), criterion C.
 3. [ ] Re-run the full demo UI suite after the physics commits (`dff908b`, `9091f20`) on 27.0 + 17.5, both paths;
    PagerUITests "trailing edge pages" still fails on 27.0 --forced and 17.5 (`M4-s2.md`).
 4. [ ] M5 (b) remainder (PanCoordinator resize rebase, adjusted insets into pan/pinch env) → M6–M9 builds from the

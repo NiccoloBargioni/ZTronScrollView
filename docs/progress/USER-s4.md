@@ -15,6 +15,7 @@ Decisions:
 - didZoom stays per frame: SPEC l.41 (`zoomScale` = presentation, frame by frame) and M4 §6 (didZoom then didScroll once per tick).
   Native's once-per-animation cadence follows its model `zoomScale`; a delegate wanting that watches `isZooming` / `didEndZooming`.
 Open:
+- D25 confirmed by the user on the device (main 1486752): the lift-then-drag gesture no longer snaps.
 - Device feel of the two-finger overscroll (resistance identical to one finger) — user check.
 - `zoom(to:)` at an unchanged scale: duration law floor (0.125 s), not measured.
 Next: 1. User device checks (all of s3-C). 2. Orchestration step 3 (full demo UI re-run on both paths).
