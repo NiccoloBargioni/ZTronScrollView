@@ -260,6 +260,7 @@ final class PanCoordinator: ObservableObject {
         let pan = environment()
         e.bouncesX = pan.bouncesX
         e.bouncesY = pan.bouncesY
+        e.rubberBandCoefficient = session.rubberBandCoefficient
         return e
     }
 

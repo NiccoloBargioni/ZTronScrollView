@@ -400,29 +400,31 @@ struct PinchPanTests {
 
     // MARK: 7. overscroll at the one-finger lift (D23): the pan holds it, nothing springs back under a finger
 
-    /// Two-finger pan past the edge (unclamped under the pinch), then one finger lifts with the scale in range: no
-    /// bounce, no snap. The remaining finger pans on from the overscroll (rubber band), and only its lift springs
-    /// the content back into bounds.
+    /// Two-finger pan past the edge (rubber-banded under the pinch like a one-finger drag, D24), then one finger lifts
+    /// with the scale in range: no bounce, no snap. The remaining finger pans on from the same rubber band (the pan
+    /// inverts it: no jump), and only its lift springs the content back into bounds.
     @Test(arguments: OSPath.allCases) func oneFingerLiftKeepsTheOverscrollInThePanInsteadOfSnappingBack(path: OSPath) {
         let r = make(path)
         let c = CGPoint(x: 100, y: 200)
         twoFingersDown(r, at: c)
         magnify(r, 1.5, at: c); r.tick()
-        let moved = CGPoint(x: 1000, y: 200)                 // both fingers slide right by 900 pt: the content follows
+        let moved = CGPoint(x: 1000, y: 200)                 // both fingers slide right by 900 pt: 100 pt past the edge
         centroid(r, moved)
-        #expect(abs(r.state.contentOffset.x - (-100)) < 1e-6, "past the leading edge under the pinch: \(r.state.contentOffset)")
+        let band = RubberBand(dimension: 200)                // the pan's band: viewport width, c 0.55
+        let displaced = band.displacement(forOverscroll: -100)   // −43.1 pt, not −100
+        #expect(abs(r.state.contentOffset.x - displaced) < 1e-6, "rubber-banded past the leading edge: \(r.state.contentOffset) vs \(displaced)")
         r.now += 0.016
         r.coord.handlePinch(.fingerCountChanged(count: 1, remaining: moved, time: r.now))
         #expect(!r.state.isZoomBouncing && !r.state.isZooming, "no bounce while a finger is down")
-        #expect(abs(r.state.contentOffset.x - (-100)) < 1e-6, "no snap at the lift")
+        #expect(abs(r.state.contentOffset.x - displaced) < 1e-6, "no snap at the lift")
         #expect(r.delegate.log.contains("didEndZooming(1.5)"))
-        // The pan took the finger: same spot, nothing moves; further out, the rubber band resists.
+        // The pan took the finger: same spot, nothing moves; 20 pt further, the same band (raw overscroll 120).
         r.now += 0.016
         r.coord.synthesizePan(location: moved, time: r.now)
-        #expect(abs(r.state.contentOffset.x - (-100)) < 1e-6)
+        #expect(abs(r.state.contentOffset.x - displaced) < 1e-6, "continuity through the hand-off")
         r.now += 0.016
         r.coord.synthesizePan(location: CGPoint(x: 1020, y: 200), time: r.now)
-        #expect(r.state.contentOffset.x < -100 && r.state.contentOffset.x > -120, "resisted: \(r.state.contentOffset)")
+        #expect(abs(r.state.contentOffset.x - band.displacement(forOverscroll: -120)) < 1e-6, "same band as the pinch: \(r.state.contentOffset)")
         // The last finger lifts after a pause: the release springs the overscroll back, zoom unchanged.
         r.now += 0.1
         r.coord.handlePinch(.fingerCountChanged(count: 0, remaining: nil, time: r.now))
@@ -458,7 +460,7 @@ struct PinchPanTests {
         twoFingersDown(r, at: c)
         magnify(r, 1.5, at: c); r.tick()
         centroid(r, CGPoint(x: 1000, y: 200))
-        #expect(abs(r.state.contentOffset.x - (-100)) < 1e-6)
+        #expect(abs(r.state.contentOffset.x - RubberBand(dimension: 200).displacement(forOverscroll: -100)) < 1e-6)
         r.now += 0.016
         r.coord.handlePinch(.fingerCountChanged(count: 1, remaining: CGPoint(x: 1000, y: 200), time: r.now))
         #expect(r.state.isDecelerating && !r.state.isZooming && r.state.phase == .decelerating, "no pan: the rubber band returns")

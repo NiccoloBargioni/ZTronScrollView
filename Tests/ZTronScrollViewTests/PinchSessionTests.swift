@@ -36,7 +36,7 @@ import ZTronScrollPhysics
         let c0 = CGPoint(x: 150, y: 400)
         _ = s.handle(.began(centroid: c0, time: 0), env: e)
         let u = ZoomSolver.contentPoint(under: c0, offset: e.presentationOffset, scale: 1, geometry: e.geometry)
-        var worst: CGFloat = 0
+        var worst: CGFloat = 0, worstFocal: CGFloat = 0, inBounds = 0
         var c = c0
         for i in 1...300 {
             c.x += (lcg(&seed) - 0.5) * 12      // two-finger pan while spreading
@@ -44,10 +44,26 @@ import ZTronScrollPhysics
             let m = exp((lcg(&seed) - 0.5) * 6)  // 0.05x ... 20x: crosses both limits (resisted)
             let fx = s.handle(.changed(magnification: m, centroid: c, time: Double(i) * 0.01), env: e)
             guard case let .setZoom(scale, offset)? = fx.last else { Issue.record("no setZoom"); return }
-            let p = ZoomSolver.contentPoint(under: c, offset: offset, scale: scale, geometry: e.geometry)
-            worst = max(worst, hypot(p.x - u.x, p.y - u.y))
+            // The emitted offset is the pan's rubber band applied, per axis, to the exact focal-invariant offset (D24).
+            let raw = ZoomSolver.offset(keeping: u, under: c, scale: scale, geometry: e.geometry, clamped: false)
+            let b = e.geometry.bounds(at: scale)
+            func banded(_ x: CGFloat, _ bounds: AxisBounds, _ viewport: CGFloat) -> CGFloat {
+                bounds.clamped(x) + RubberBand(dimension: viewport, coefficient: e.rubberBandCoefficient)
+                    .displacement(forOverscroll: bounds.overscroll(of: x))
+            }
+            let expected = CGPoint(x: banded(raw.x, b.x, e.geometry.x.viewportLength),
+                                   y: banded(raw.y, b.y, e.geometry.y.viewportLength))
+            worst = max(worst, hypot(offset.x - expected.x, offset.y - expected.y))
+            if b.x.overscroll(of: raw.x) == 0, b.y.overscroll(of: raw.y) == 0 {
+                // Inside the bounds the content point under the centroid is exactly invariant.
+                let p = ZoomSolver.contentPoint(under: c, offset: offset, scale: scale, geometry: e.geometry)
+                worstFocal = max(worstFocal, hypot(p.x - u.x, p.y - u.y))
+                inBounds += 1
+            }
         }
-        #expect(worst < 1e-9, "worst \(worst)")
+        #expect(worst < 1e-6, "worst band deviation \(worst)")
+        #expect(worstFocal < 1e-9, "worst focal error in bounds \(worstFocal) over \(inBounds) frames")
+        #expect(inBounds > 0)
     }
 
     @Test func resistanceIsSymmetricInLogSpace() {
@@ -60,6 +76,25 @@ import ZTronScrollPhysics
             let shown = ZoomSolver.resisted(rawScale: raw, limits: 1...3)
             #expect(abs(ZoomSolver.unresisted(shownScale: shown, limits: 1...3) - raw) < 1e-9 * raw)
         }
+    }
+
+    /// D24: past the bounds, a bouncing axis rubber-bands with the pan's band (viewport dimension, c 0.55), a
+    /// non-bouncing axis is clamped; `bouncesZoom` has no say over the offset.
+    @Test(arguments: [true, false]) func offsetPastTheBoundsFollowsThePanBouncePerAxis(bouncesZoom: Bool) {
+        var e = Self.env(limits: 1...3, bounces: bouncesZoom, offset: .zero)   // at the start edges
+        e.bouncesX = true
+        e.bouncesY = false
+        let g = e.geometry
+        // A two-finger slide of (+150, +150) from the start edges: raw offset (−150, −150) on both axes.
+        var s = PinchSession()
+        _ = s.handle(.began(centroid: CGPoint(x: 100, y: 100), time: 0), env: e)
+        _ = s.handle(.changed(magnification: 1, centroid: CGPoint(x: 100, y: 100), time: 0.01), env: e)
+        let fx = s.handle(.fingerCountChanged(count: 2, remaining: CGPoint(x: 250, y: 250), time: 0.02), env: e)
+        guard case let .setZoom(_, offset)? = fx.last else { Issue.record("no setZoom: \(fx)"); return }
+        let b = g.bounds(at: 1)
+        let band = RubberBand(dimension: g.x.viewportLength)
+        #expect(abs(offset.x - (b.x.min + band.displacement(forOverscroll: -150))) < 1e-9, "x rubber-banded: \(offset)")
+        #expect(offset.y == b.y.min, "y clamped: \(offset)")
     }
 
     @Test func withoutBouncesZoomTheScaleAndOffsetAreClamped() {

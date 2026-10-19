@@ -29,9 +29,12 @@ struct PinchEnvironment: Equatable {
     var isMovingWithoutFinger = false
     var logDimension: CGFloat = 1
     var panDragActive = false
-    /// Per-axis bounce (same resolution as the pan): an axis that does not bounce never leaves its bounds under a pinch.
+    /// Per-axis bounce (same resolution as the pan): an axis that bounces rubber-bands past its bounds under a pinch as
+    /// under a one-finger drag, an axis that does not never leaves them.
     var bouncesX = true
     var bouncesY = true
+    /// The pan's rubber band `c` (`PanSession.rubberBandCoefficient`); the hand-off inverts the same band.
+    var rubberBandCoefficient: CGFloat = 0.55
 }
 
 struct ZoomBounceRequest: Equatable {
@@ -96,16 +99,20 @@ struct PinchSession: Equatable {
         return min(max(raw, env.limits.lowerBound), env.limits.upperBound)
     }
 
-    /// pad(s) + s·u − centroid; unclamped while bouncing (settles on release), clamped otherwise. An axis that does
-    /// not bounce is clamped either way (D23: under a pinch as under a pan, the content cannot be dragged off its
-    /// edge or off-centre on such an axis).
+    /// pad(s) + s·u − centroid, then per axis (D24): past the bounds an axis that bounces is rubber-banded with the
+    /// pan's `f(x) = x·c·d/(|x|·c + d)` (UIScrollView's pan recognizer handles one and two fingers alike, so a
+    /// two-finger slide past an edge resists like a one-finger drag; docs/design/PHYSICS-calibration.md), an axis
+    /// that does not bounce is clamped (D23). `bouncesZoom` concerns the scale only (``shownScale``).
     static func offset(anchor: CGPoint, centroid: CGPoint, scale: CGFloat, env: PinchEnvironment) -> CGPoint {
-        var o = ZoomSolver.offset(keeping: anchor, under: centroid, scale: scale, geometry: env.geometry,
-                                  clamped: !env.bouncesZoom)
+        let raw = ZoomSolver.offset(keeping: anchor, under: centroid, scale: scale, geometry: env.geometry, clamped: false)
         let b = env.geometry.bounds(at: scale)
-        if !env.bouncesX { o.x = b.x.clamped(o.x) }
-        if !env.bouncesY { o.y = b.y.clamped(o.y) }
-        return o
+        func axis(_ x: CGFloat, _ bounds: AxisBounds, bounces: Bool, viewport: CGFloat) -> CGFloat {
+            guard bounces else { return bounds.clamped(x) }
+            let band = RubberBand(dimension: viewport, coefficient: env.rubberBandCoefficient)
+            return bounds.clamped(x) + band.displacement(forOverscroll: bounds.overscroll(of: x))
+        }
+        return CGPoint(x: axis(raw.x, b.x, bounces: env.bouncesX, viewport: env.geometry.x.viewportLength),
+                       y: axis(raw.y, b.y, bounces: env.bouncesY, viewport: env.geometry.y.viewportLength))
     }
 
     static func estimatedCentroid(start: CGPoint, panAtStart: CGSize?, panNow: CGSize) -> CGPoint {
