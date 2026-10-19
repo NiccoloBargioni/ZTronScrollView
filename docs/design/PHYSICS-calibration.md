@@ -88,8 +88,44 @@ rest (that would be `B = ωA`). See "40 pt check" below for the small-amplitude 
 
 (see the section added by the pinch step)
 
+## Programmatic zoom (2026-10-19, D22)
+
+User report: the double tap "animates, then snaps". Measured native `UIScrollView.setZoomScale(_:animated:)` and
+`zoom(to:animated:)` on iOS 27.0 (iPhone 18 Pro) with the spike's `-zoomCal` screen
+(`Packages/ScrollArbitration/Spike/ArbitrationSpike/ZoomCalibrationViewController.swift`, UIKit lives in the spike only):
+viewport 300 × 360, content 600 × 600, zoom 1 … 8, a `CADisplayLink` sampling the zoom view's presentation-layer scale,
+the model `zoomScale` and both offsets every frame. Run: `TEST_RUNNER_ZS_CALIBRATE=1 ZS_DEST='id=<udid>'
+scripts/test-spike.sh -only-testing:ArbitrationSpikeUITests/ZoomCalibrationUITests`, then
+`scripts/fetch-calibration.sh <udid> <dir> dev.ztron.ArbitrationSpike` and `scripts/compare-zoom-calibration.py <dir>`.
+
+| case | visible duration | ease-in-out fit (duration, rms of progress) | critical spring fit (rms) |
+|---|---|---|---|
+| 1 → 1.25 | 0.167 s (10 frames) | 0.170 s, 0.005 | — |
+| 1 → 1.5 | 0.235 s | 0.225 s, 0.003 | — |
+| 1 → 2, 2 → 4, 4 → 8 | 0.316 s (18–19 frames) | 0.310–0.320 s, 0.002–0.008 | ω 11.8, 0.10 |
+| 1 → 3 | 0.401 s | 0.400 s, 0.004 | — |
+| 1 → 4, 1 → 8, zoom(to:) 1 → 8 | 0.400 s (24 frames) | 0.400 s, 0.004 | ω 9.3, 0.094 |
+| back: 2 → 1 / 4 → 1 / 8 → 1 / 8 → 2 / 1.5 → 1 / 1.25 → 1 | 0.317 / 0.400 / 0.401 / 0.417 / 0.233 / 0.167 s | same as the way in | — |
+
+Findings (all cases): the curve is UIKit's `easeInOut` cubic Bézier (0.42, 0, 0.58, 1), not a spring (a critically
+damped spring misses by rms 0.09–0.10 whatever ω); the scale and the offset are interpolated with the same curve (so
+the anchored content point slides linearly to the visible centre, as our `ZoomAnimation` already did); the model
+`zoomScale` jumps to the target at once, `scrollViewDidZoom` fires once at the start and `scrollViewDidEndZooming` at
+the end; the duration depends on the zoom **ratio** `r = max / min` (1 → 2, 2 → 4 and 4 → 8 are identical), the same
+in both directions: `duration = min(0.40, 0.125 + 0.19 · (r − 1))` is within 5 ms of every case.
+
+Model: `ZoomTiming` (`Packages/ZTronScrollPhysics/Sources/ZTronScrollPhysics/ZoomTiming.swift`, `UnitBezier.easeInOut`,
+`ZoomTiming.duration(from:to:)`), used by `ZTronScrollState.applyZoom` for `zoom(to:animated:)`, `setZoomScale(_:animated:)`
+and the double tap. Fixtures: `NativeCalibrationTests.zoomSet2 / zoomSet8 / zoomBackFrom8 / zoomRect8` (progress per
+frame), reproduced within rms 0.012. Before (D22 first pass): a critically damped progress spring (stiffness 119)
+settled by point thresholds read as progress — ≈ 50 % after ≈ 150 ms, then the end values at once (the snap); with
+travel-scaled thresholds it glided but took ≈ 0.9 s. Not matched: our `didZoom` still fires every frame of the
+animation (native once); `zoom(to:)` without a scale change (a pure offset animation) gets the law's floor, 0.125 s,
+not measured.
+
 ## Open
 
 - Native "catch" cannot be measured with XCUITest (quiescence wait); ours stops within the same frame (0 ms).
 - Two-finger scrolling without zoom (UIScrollView pans with two fingers): the pan session ignores `touchCount ≥ 2`.
 - iOS 15–17 centroid estimate during a pinch follows one finger's drag, not the true centroid (documented gap, M4).
+- Programmatic zoom: native `didZoom` cadence (once) vs ours (per frame); `zoom(to:)` at an unchanged scale not measured.
