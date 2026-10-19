@@ -37,6 +37,11 @@ final class PanCoordinator: ObservableObject {
     /// flings after a pinch; the pinch's own bounce settles the offset), unless one finger stayed down and the pan
     /// continued from it (`handOffToPan(remaining:)` clears it).
     private var pinchOwnedPan = false
+    /// The pan continued from the finger left after a pinch (`handOffToPan(remaining:)`): its release flings only
+    /// from that finger's own movement since the hand-off, never from the gesture's pinch-phase velocity.
+    private var panContinuedFromPinch = false
+    /// `synthesizePan` is feeding a sample (so a `.dragChanged` is not the DragGesture reappearing).
+    private var isFeedingSynthesizedSample = false
     #if DEBUG
     var effectsLog: [PanEffect] = []
     var pinchLog: [PinchEffect] = []
@@ -113,9 +118,34 @@ final class PanCoordinator: ObservableObject {
         if case let .touchDown(location, _, touchCount) = incoming {
             event = .touchDown(location: location, time: state.now(), touchCount: touchCount)
         }
+        // A pan synthesized from the remaining finger (the DragGesture died on the second finger) has no DragGesture
+        // to end it: the last finger up is its release, from the last synthesized translation.
+        var endsSynthesizedPan = false
+        if case let .touchesEnded(time) = incoming, synthesizedPanStart != nil, case .dragging = session.phase {
+            event = .dragEnded(translation: lastPanTranslation, time: time, fallbackVelocity: nil)
+            endsSynthesizedPan = true
+        }
+        // After a hand-off the gesture's own velocity describes one finger of the pinch, not a pan: only the tracker's
+        // post-hand-off samples may fling (UIScrollView never flings out of a pinch).
+        if case let .dragEnded(translation, time, _) = incoming, panContinuedFromPinch {
+            event = .dragEnded(translation: translation, time: time, fallbackVelocity: nil)
+        }
+        if synthesizedPanStart != nil, !isFeedingSynthesizedSample, case .dragging = session.phase {
+            switch incoming {
+            case let .dragChanged(translation, _, _):
+                // The DragGesture (re)appears under the synthesized pan (it followed the remaining finger and only now
+                // passed its hysteresis): it takes over from where the content is, no jump; its samples restart.
+                session.rebase(presentation: state.peek.presentationOffset, translation: translation, env: environment())
+                tracker.reset()
+            case .dragEnded:
+                // It followed the finger that already lifted: stale. The remaining finger's lift ends this pan.
+                return
+            default: break
+            }
+        }
         #if DEBUG
         let name: String
-        switch event {
+        switch incoming {
         case .touchDown: name = "down"
         case .dragChanged: name = "drag"
         case .dragEnded: name = "dragEnd"
@@ -127,7 +157,8 @@ final class PanCoordinator: ObservableObject {
         #endif
         // New sequence: forget the previous finger samples.
         switch (session.phase, event) {
-        case (.idle, .touchDown), (.idle, .dragChanged), (.released, .touchDown): tracker.reset(); pinchOwnedPan = false
+        case (.idle, .touchDown), (.idle, .dragChanged), (.released, .touchDown):
+            tracker.reset(); pinchOwnedPan = false; panContinuedFromPinch = false
         default: break
         }
         switch event {
@@ -145,8 +176,13 @@ final class PanCoordinator: ObservableObject {
         // The catch's interrupt() changes what the recognition sample must read.
         if effects.contains(.catchMotion) { apply(effects, env: env); effects = []; env = environment() }
         apply(effects, env: env)
+        // The converted lift was both the drag's end and the last finger up: the session is over, as after a real
+        // `.dragEnded` + `.touchesEnded` pair.
+        if endsSynthesizedPan, case let .touchesEnded(time) = incoming {
+            _ = session.handle(.touchesEnded(time: time), env: env)
+        }
         switch session.phase {
-        case .idle, .released: caughtUndecided = false
+        case .idle, .released: caughtUndecided = false; panContinuedFromPinch = false
         default: break
         }
     }
@@ -230,13 +266,20 @@ final class PanCoordinator: ObservableObject {
     }
 
     /// 18+ after the DragGesture died on the second finger: feed the remaining finger's location as pan samples.
+    /// While a zoom bounce runs it owns the offset (design M4 §4): the samples are dropped and the pan restarts from
+    /// the finger's location once the bounce has settled (its travel during the bounce is not replayed).
     func synthesizePan(location: CGPoint, time: TimeInterval) {
+        guard synthesizedPanStart != nil, !state.isZoomBouncing else { return }
+        switch session.phase {
+        case .idle, .released: restartPan(at: location, time: time); return
+        default: break
+        }
         guard let start = synthesizedPanStart else { return }
         let t = CGSize(width: location.x - start.x, height: location.y - start.y)
-        let startLocation = start
-        let keep = start
-        handle(.dragChanged(translation: t, startLocation: startLocation, time: time))
-        synthesizedPanStart = keep
+        isFeedingSynthesizedSample = true
+        handle(.dragChanged(translation: t, startLocation: start, time: time))
+        isFeedingSynthesizedSample = false
+        synthesizedPanStart = start
     }
 
     /// The zoom bounce moved the offset while pan writes were dropped: a still-dragging pan continues from here.
@@ -244,6 +287,7 @@ final class PanCoordinator: ObservableObject {
         guard case .dragging = session.phase else { return }
         session.rebase(presentation: state.peek.presentationOffset, translation: lastPanTranslation,
                        env: environment())
+        tracker.reset()
     }
 
     private func applyPinch(_ effects: [PinchEffect], env: PinchEnvironment, event: PinchEvent) {
@@ -285,20 +329,33 @@ final class PanCoordinator: ObservableObject {
         }
     }
 
-    /// One finger lifted: the pan continues from the remaining finger without a jump (design M4 §4).
+    /// One finger lifted: the pan continues from the remaining finger without a jump (design M4 §4). The finger's
+    /// samples from the pinch are not a pan: the tracker restarts, so a lift right after never flings.
     private func handOffToPan(remaining: CGPoint?, time: TimeInterval) {
         if remaining != nil { pinchOwnedPan = false }
         if case .dragging = session.phase {
             session.rebase(presentation: state.peek.presentationOffset, translation: lastPanTranslation,
                            env: environment())
+            tracker.reset()
         } else if let remaining {
             // The DragGesture died when the second finger landed (or both fingers landed together and the pan ignored
-            // the sequence): restart the pan right at the remaining finger.
+            // the sequence): restart the pan right at the remaining finger. Not while the release bounce runs: that
+            // touch-down would catch (cancel) it; `synthesizePan` restarts the pan where the finger is once it settled.
             if case .ignored = session.phase { _ = session.handle(.touchesEnded(time: time), env: environment()) }
-            handle(.touchDown(location: remaining, time: time, touchCount: 1))
-            handle(.dragChanged(translation: .zero, startLocation: remaining, time: time))
-            synthesizedPanStart = remaining
+            if state.isZoomBouncing {
+                synthesizedPanStart = remaining
+            } else {
+                restartPan(at: remaining, time: time)
+            }
         }
+        if remaining != nil { panContinuedFromPinch = true }
+    }
+
+    private func restartPan(at location: CGPoint, time: TimeInterval) {
+        handle(.touchDown(location: location, time: time, touchCount: 1))
+        handle(.dragChanged(translation: .zero, startLocation: location, time: time))
+        synthesizedPanStart = location
+        panContinuedFromPinch = true
     }
 }
 

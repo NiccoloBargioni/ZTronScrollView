@@ -30,8 +30,8 @@ struct PinchPanTests {
         func tick() { now += 1.0 / 60; state.step(to: Date(timeIntervalSinceReferenceDate: now)) }
     }
 
-    func make(limits: ClosedRange<CGFloat> = 1...3) -> Rig {
-        let s = makeState(.preferred)
+    func make(_ path: OSPath = .preferred, limits: ClosedRange<CGFloat> = 1...3) -> Rig {
+        let s = makeState(path)
         let d = ZoomDelegate()
         s.delegate = d
         let clock = Clock()
@@ -40,7 +40,7 @@ struct PinchPanTests {
         s.setMetrics(ScrollMetrics(viewportSize: CGSize(width: 200, height: 400), contentSize: CGSize(width: 2000, height: 4000), displayScale: 2))
         s.track(offset: CGPoint(x: 500, y: 1000), zoom: 1)
         d.log.removeAll()
-        let c = withOSPath(.preferred) { PanCoordinator(state: s, axes: [.horizontal, .vertical]) }
+        let c = withOSPath(path) { PanCoordinator(state: s, axes: [.horizontal, .vertical]) }
         c.pinch.centroidSource = .spatial
         return Rig(state: s, coord: c, delegate: d, clock: clock)
     }
@@ -156,11 +156,14 @@ struct PinchPanTests {
         #expect(!r.state.isZooming && r.state.zoomScale == 1.4)
         r.coord.handle(.dragChanged(translation: CGSize(width: 0, height: -140), startLocation: start, time: r.now))
         #expect(r.state.contentOffset == afterLift, "same translation as the last one: nothing moves")
+        r.now += 0.016
         r.coord.handle(.dragChanged(translation: CGSize(width: 0, height: -170), startLocation: start, time: r.now))
         #expect(abs(r.state.contentOffset.y - (afterLift.y + 30)) < 1e-6, "then 1:1 from where the content is")
-        // That remaining finger can still fling.
-        r.now += 0.05
-        r.coord.handle(.dragEnded(translation: CGSize(width: 0, height: -260), time: r.now, fallbackVelocity: nil))
+        // That remaining finger can still fling: from the speed of its own movement since the hand-off.
+        r.now += 0.016
+        r.coord.handle(.dragChanged(translation: CGSize(width: 0, height: -200), startLocation: start, time: r.now))
+        r.now += 0.016
+        r.coord.handle(.dragEnded(translation: CGSize(width: 0, height: -230), time: r.now, fallbackVelocity: nil))
         r.coord.handle(.touchesEnded(time: r.now))
         #expect(r.state.isDecelerating)
     }
@@ -223,6 +226,176 @@ struct PinchPanTests {
         while r.state.isClockRunning && r.now < 110 { r.tick() }
         #expect(abs(r.state.zoomScale - 2) < 1e-9 && r.state.phase == .idle)
         #expect(!r.delegate.log.contains("willBeginDecelerating"))
+    }
+
+    // MARK: 6. staggered lift: one finger up, the other a few ms later (how real fingers leave the glass; criterion C)
+
+    /// The DragGesture died on the second finger (R1): the pan restarted from the remaining finger has no DragGesture
+    /// to end it. The last finger up must end the sequence: nothing tracks, nothing moves afterwards, the clock stops.
+    @Test(arguments: OSPath.allCases) func lastFingerUpEndsTheSynthesizedPanAndNothingMovesAfterIt(path: OSPath) {
+        let r = make(path)
+        let c = CGPoint(x: 100, y: 200)
+        twoFingersDown(r, at: c)
+        magnify(r, 2, at: c); r.tick()
+        r.now += 0.016
+        let remaining = CGPoint(x: 120, y: 240)
+        r.coord.handlePinch(.fingerCountChanged(count: 1, remaining: remaining, time: r.now))
+        #expect(!r.state.isZooming && abs(r.state.zoomScale - 2) < 1e-9)
+        // The remaining finger jitters under a point while leaving (the pan follows it 1:1: that is finger motion;
+        // a full point per frame is 62 pt/s, a pan that decelerates like any one-finger pan) …
+        r.now += 0.016
+        r.coord.synthesizePan(location: CGPoint(x: 120.5, y: 240.5), time: r.now)
+        // … then lifts: the observer reports no fingers; no DragGesture event will ever come.
+        r.now += 0.016
+        r.coord.handlePinch(.fingerCountChanged(count: 0, remaining: nil, time: r.now))
+        r.coord.handle(.touchesEnded(time: r.now))
+        #expect(!r.coord.isSequenceActive, "the sequence is over")
+        #expect(!r.state.isTracking && !r.state.isDragging && !r.state.isDecelerating)
+        #expect(r.state.phase == .idle && !r.state.isClockRunning)
+        #expect(!r.delegate.log.contains("willBeginDecelerating"))
+        let rest = r.state.contentOffset
+        r.delegate.log.removeAll()
+        for _ in 0..<60 { r.tick() }
+        #expect(r.state.contentOffset == rest && abs(r.state.zoomScale - 2) < 1e-9)
+        #expect(r.delegate.log.isEmpty, "no motion after the last finger left: \(r.delegate.log)")
+    }
+
+    /// The DragGesture survived and follows the finger that leaves last. Its pinch-phase samples (one finger of a
+    /// spread, at speed) are not a pan: a lift a few ms after the hand-off never flings, neither from the tracker nor
+    /// from the gesture's own velocity.
+    @Test(arguments: OSPath.allCases) func liftRightAfterTheHandOffDoesNotFlingFromThePinchVelocity(path: OSPath) {
+        let r = make(path)
+        let start = CGPoint(x: 100, y: 300)
+        r.coord.handle(.touchDown(location: start, time: r.now, touchCount: 1))
+        r.coord.handle(.dragChanged(translation: CGSize(width: 0, height: -40), startLocation: start, time: r.now))
+        let c = CGPoint(x: 100, y: 200)
+        r.coord.handlePinch(.fingerCountChanged(count: 2, remaining: c, time: r.now))
+        magnify(r, 1.5, at: c); r.tick()
+        // Fast spread right before the lift: the drag's finger moves at 2500 pt/s.
+        var t = CGSize(width: 0, height: -40)
+        for i in 1...4 {
+            r.now += 0.016
+            t = CGSize(width: 0, height: -40 - CGFloat(i) * 40)
+            r.coord.handle(.dragChanged(translation: t, startLocation: start, time: r.now))
+            centroid(r, CGPoint(x: 100, y: 200 - CGFloat(i) * 20))
+        }
+        // The other finger lifts; the drag's finger stays 20 ms more without moving, then lifts.
+        r.coord.handlePinch(.fingerCountChanged(count: 1, remaining: CGPoint(x: 100, y: 100), time: r.now))
+        let o = r.state.contentOffset
+        r.now += 0.02
+        r.coord.handle(.dragEnded(translation: t, time: r.now, fallbackVelocity: CGVector(dx: 0, dy: -2500)))
+        r.coord.handlePinch(.fingerCountChanged(count: 0, remaining: nil, time: r.now))
+        r.coord.handle(.touchesEnded(time: r.now))
+        #expect(!r.state.isDecelerating && r.state.phase == .idle && !r.state.isTracking)
+        #expect(Self.dist(r.state.contentOffset, o) <= 0.25, "at most the pixel snap")
+        #expect(!r.delegate.log.contains("willBeginDecelerating"))
+        #expect(abs(r.state.zoomScale - 1.5) < 1e-9)
+    }
+
+    /// Released past the limit with one finger still down: the bounce keeps running (the hand-off is not a new finger
+    /// landing on moving content), settles at the limit, and only then does the pan continue from that finger, from
+    /// where the bounce settled.
+    @Test(arguments: OSPath.allCases) func handOffDuringAZoomBounceKeepsTheBounce(path: OSPath) {
+        let r = make(path, limits: 1...2)
+        let c = CGPoint(x: 100, y: 200)
+        twoFingersDown(r, at: c)
+        magnify(r, 3, at: c); r.tick()                  // past the limit (resisted)
+        #expect(r.state.zoomScale > 2)
+        let remaining = CGPoint(x: 120, y: 240)
+        r.coord.handlePinch(.fingerCountChanged(count: 1, remaining: remaining, time: r.now))
+        #expect(r.state.isZoomBouncing && r.state.phase == .decelerating, "the hand-off must not catch the bounce")
+        // The finger drifts during the bounce: the bounce owns the offset.
+        r.now += 0.016
+        r.coord.synthesizePan(location: CGPoint(x: 120, y: 230), time: r.now)
+        #expect(r.state.isZoomBouncing)
+        while r.state.isZoomBouncing && r.now < 110 { r.tick() }
+        #expect(abs(r.state.zoomScale - 2) < 1e-9 && r.delegate.log.contains("didEndZooming(2.0)"))
+        // Still down: the pan continues 1:1 from where the bounce settled (the drift during it is not replayed).
+        let o = r.state.contentOffset
+        r.now += 0.016
+        r.coord.synthesizePan(location: CGPoint(x: 120, y: 200), time: r.now)
+        #expect(Self.dist(r.state.contentOffset, o) < 1e-6, "the first sample after the bounce is the new zero")
+        r.now += 0.016
+        r.coord.synthesizePan(location: CGPoint(x: 120, y: 170), time: r.now)
+        #expect(abs(r.state.contentOffset.y - (o.y + 30)) < 1e-6 && r.state.contentOffset.x == o.x)
+        r.now += 0.5
+        r.coord.handlePinch(.fingerCountChanged(count: 0, remaining: nil, time: r.now))
+        r.coord.handle(.touchesEnded(time: r.now))
+        #expect(r.state.phase == .idle && !r.state.isTracking && !r.coord.isSequenceActive)
+    }
+
+    /// The last finger leaves while the bounce still runs: the sequence ends, the bounce finishes by itself.
+    @Test(arguments: OSPath.allCases) func lastFingerUpDuringTheBounceLetsItSettle(path: OSPath) {
+        let r = make(path, limits: 1...2)
+        let c = CGPoint(x: 100, y: 200)
+        twoFingersDown(r, at: c)
+        magnify(r, 3, at: c); r.tick()
+        r.coord.handlePinch(.fingerCountChanged(count: 1, remaining: CGPoint(x: 120, y: 240), time: r.now))
+        r.now += 0.016
+        r.coord.handlePinch(.fingerCountChanged(count: 0, remaining: nil, time: r.now))
+        r.coord.handle(.touchesEnded(time: r.now))
+        #expect(r.state.isZoomBouncing && !r.state.isTracking && !r.coord.isSequenceActive)
+        while r.state.isClockRunning && r.now < 110 { r.tick() }
+        #expect(abs(r.state.zoomScale - 2) < 1e-9 && r.state.phase == .idle)
+        #expect(!r.delegate.log.contains("willBeginDecelerating"))
+        // A later single finger pans normally.
+        let o = r.state.contentOffset
+        let s = CGPoint(x: 100, y: 300)
+        r.coord.handle(.touchDown(location: s, time: r.now, touchCount: 1))
+        r.coord.handle(.dragChanged(translation: CGSize(width: 0, height: -40), startLocation: s, time: r.now))
+        #expect(abs(r.state.contentOffset.y - (o.y + 30)) < 1e-6)
+    }
+
+    /// The DragGesture followed the remaining finger but had not passed its hysteresis when the other finger lifted
+    /// (anchor-thumb pinch): it recognizes under the synthesized pan. It takes over without a jump and its own
+    /// velocity at the lift is not used.
+    @Test(arguments: OSPath.allCases) func lateDragGestureUnderASynthesizedPanTakesOverWithoutAJump(path: OSPath) {
+        let r = make(path)
+        let landing = CGPoint(x: 100, y: 300)              // the thumb's touch-down, long before the pinch
+        let c = CGPoint(x: 100, y: 200)
+        twoFingersDown(r, at: c)
+        magnify(r, 2, at: c); r.tick()
+        let remaining = CGPoint(x: 100, y: 296)
+        r.coord.handlePinch(.fingerCountChanged(count: 1, remaining: remaining, time: r.now))
+        r.now += 0.016
+        r.coord.synthesizePan(location: CGPoint(x: 100, y: 292), time: r.now)
+        let o = r.state.contentOffset
+        // The real drag recognizes: its translation is relative to the landing point, not to the hand-off.
+        r.now += 0.016
+        r.coord.handle(.dragChanged(translation: CGSize(width: 0, height: -12), startLocation: landing, time: r.now))
+        #expect(Self.dist(r.state.contentOffset, o) < 1e-6, "no jump when the drag takes over")
+        r.now += 0.016
+        r.coord.handle(.dragChanged(translation: CGSize(width: 0, height: -42), startLocation: landing, time: r.now))
+        #expect(abs(r.state.contentOffset.y - (o.y + 30)) < 1e-6, "then 1:1")
+        // A pause, then the lift: the gesture's own velocity is ignored, the tracker says rest.
+        r.now += 0.1
+        r.coord.handle(.dragEnded(translation: CGSize(width: 0, height: -42), time: r.now, fallbackVelocity: CGVector(dx: 0, dy: -5000)))
+        r.coord.handle(.touchesEnded(time: r.now))
+        #expect(!r.state.isDecelerating && r.state.phase == .idle && !r.coord.isSequenceActive)
+        #expect(!r.delegate.log.contains("willBeginDecelerating"))
+    }
+
+    /// The DragGesture followed the finger that lifted first and reports its end after the hand-off: stale. The
+    /// synthesized pan goes on from the remaining finger and ends on its lift.
+    @Test(arguments: OSPath.allCases) func staleDragEndUnderASynthesizedPanIsIgnored(path: OSPath) {
+        let r = make(path)
+        let c = CGPoint(x: 100, y: 200)
+        twoFingersDown(r, at: c)
+        magnify(r, 2, at: c); r.tick()
+        let remaining = CGPoint(x: 120, y: 240)
+        r.coord.handlePinch(.fingerCountChanged(count: 1, remaining: remaining, time: r.now))
+        r.now += 0.016
+        r.coord.synthesizePan(location: CGPoint(x: 120, y: 220), time: r.now)
+        let o = r.state.contentOffset
+        r.coord.handle(.dragEnded(translation: CGSize(width: 0, height: -150), time: r.now, fallbackVelocity: CGVector(dx: 0, dy: -3000)))
+        #expect(r.state.contentOffset == o && r.state.isTracking && r.coord.isSequenceActive, "stale end ignored")
+        r.now += 0.016
+        r.coord.synthesizePan(location: CGPoint(x: 120, y: 200), time: r.now)
+        #expect(abs(r.state.contentOffset.y - (o.y + 20)) < 1e-6)
+        r.now += 0.1
+        r.coord.handlePinch(.fingerCountChanged(count: 0, remaining: nil, time: r.now))
+        r.coord.handle(.touchesEnded(time: r.now))
+        #expect(!r.state.isDecelerating && r.state.phase == .idle && !r.coord.isSequenceActive)
     }
 
     // MARK: iOS 15–17 estimate (documented gap)
