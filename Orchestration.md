@@ -1,11 +1,11 @@
 # ZTronScrollView · Orchestration (resume here)
 
-Last updated: 2026-10-19 (session 3 + side session s3-C end, weekly all-models 16% · Fable 32%) · Status: **M0–M4 done ·
+Last updated: 2026-10-19 (session 3 + side session s3-C end, weekly all-models 18% · Fable 36%) · Status: **M0–M4 done ·
 physics calibrated (unit) · M5 rotation: user full-screen tree PASSES criteria A+B on 27.0 + 17.5 (D18/D19) · criterion C
 fixed in code (D20, staggered lift; probe + ZoomUITests 7/7 on 27.0 pref+forced, 17.5 pref) · user bounce report fixed
 (D21, pixel-rounded effect size: 16:9 trees drew clamped + stayed `.animating`) · double-tap snap (D22) and
 one-finger-lift snap (D23) fixed · programmatic zoom calibrated against native (D22 final, `ZoomTiming`), user device
-checks pending → next = step 3** · MC freeze blocked (user decision).
+checks pending · pinch overscroll rubber band (D24) → next = step 3** · MC freeze blocked (user decision).
 ## Resume in a new session (cheapest path)
 1. Launch in `/Users/admin/Documents/ZTronScrollView` with the role's model (SPEC O2, l.897–918): Builder
    `claude --model sonnet --advisor opus`, Architect `claude --model fable`, Debugger `claude --model opus --effort high`.
@@ -37,7 +37,7 @@ checks pending → next = step 3** · MC freeze blocked (user decision).
 | M5 (b) gestures + demo | partial | `docs/progress/M5-s2.md` s4: D18/D19 — intent captured from the DRAWN geometry (turn origin), inset-only change folds into an open resize, post-resize settle window; screen-space acceptance GREEN for the user's full-screen tree AND the 16:9 tree on 27.0 + 17.5, preferred + forced (odd rotations ≤ 0.56 pt, even rotations offset/zoom exact, markers ≤ 0.17 pt); `ResizeUITests` 11/11 on 27.0 pref+forced, 17.5 11/11 preferred + jump test forced after the monitor change + 27.0 11/11 re-run; `ProofUITests` 6/6; DEBUG jump monitor counts drawn frames only; (C) probe green on 27.0 pref+forced + 17.5 pref before and after D20 (`M4-s3.md`); D21 render-path pixel tolerance (16:9 trees drew clamped and stayed `.animating`; `USER-s2.md`); PanCoordinator rebase still todo |
 | M6 … M10 | todo | SPEC O4 l.970–990 |
 
-Test totals now: `ZTronScrollViewTests` **175** (19 suites) green on iOS 27.0 and 17.5 (both OS paths) · M2 `ProofUITests` 6/6 ·
+Test totals now: `ZTronScrollViewTests` **176** (19 suites) green on iOS 27.0 and 17.5 (both OS paths) · M2 `ProofUITests` 6/6 ·
 physics 111 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-contract,M2-render,M3-pan,M4-zoom}.md`.
 
 ## Next steps (in order; prompts are ready to paste)
@@ -64,6 +64,8 @@ physics 111 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-
 2d. [x] **Programmatic zoom calibrated against native** — done 2026-10-19 (`USER-s3.md`, D22 final): spike `-zoomCal`
    measured UIScrollView's zoom animations (ease-in-out, duration law), `ZoomTiming` replaces the progress spring;
    native fixtures in `NativeCalibrationTests`. User check: double tap in/out should feel native now.
+2e. [x] **Pinch overscroll rubber band + didZoom cadence** — done 2026-10-19 (D24, `USER-s4.md`): two-finger slide past an
+   edge resists like a one-finger drag, hand-off continuous; didZoom per frame kept by SPEC (documented).
 3. [ ] Re-run the full demo UI suite after the physics commits (`dff908b`, `9091f20`) on 27.0 + 17.5, both paths;
    PagerUITests "trailing edge pages" still fails on 27.0 --forced and 17.5 (`M4-s2.md`).
 4. [ ] M5 (b) remainder (PanCoordinator resize rebase, adjusted insets into pan/pinch env) → M6–M9 builds from the
@@ -180,6 +182,11 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
   taking the finger → the coordinator starts the offset bounce. Non-bouncing axes are clamped under a pinch
   (`PinchEnvironment.bouncesX/Y`). The adapter turns a magnify end with one finger still down into the hand-off event
   (delivery order no longer matters). 15–17 unchanged (no finger count there).
+- D24 (2026-10-19) Under a pinch the offset past an edge is rubber-banded per bouncing axis with the pan's band
+  (`c` 0.55, `d` viewport; UIScrollView's pan recognizer treats one and two touches alike — not drivable by XCUITest, the
+  one-finger measurement is the reference), clamped on a non-bouncing axis; `bouncesZoom` concerns the scale only. The
+  hand-off inverts the same band (continuity). `didZoom` stays per frame by SPEC l.41 / M4 §6 (native fires once: its
+  `zoomScale` is the model); documented in `docs/design/PHYSICS-calibration.md`. `docs/progress/USER-s4.md`.
 - D16 (user, 2026-10-18) Physics and the post-rotation re-centering are generated and tested by **Fable 5.1**
   (builder agents with model fable). Re-centering ports ZTronMapKit's normalized-centre discipline
   (ContentGeometry: capture before resize, restore = centre × newContentSize − newViewport/2, clamp, centre smaller
@@ -209,5 +216,5 @@ Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (≤ 2 simulators at 
 |---|---|---|---|
 | 2026-10-14 | Opus 5.5 ultracode #1 | M0; MC package; M1 (workflow) | → 100% (limit hit) |
 | 2026-10-18 | Opus 5.5 #2 orchestrator | recovered MC/M1; M2–M9 designs (Fable); MC spike; M2–M4 builds; M5 (a); zoomed-axes + user image demo; physics calibration (Fable); ZTronMapKit re-centering port (Fable, user tree still failing) | 72% → 88% |
-| 2026-10-19 | Fable 5.1 #3 side session s3-C | criterion C: probe green (3 configs); staggered-lift fix D20 (PanCoordinator), PinchPanTests 15, ZoomUITests 7/7 ×3; user reports → D21 (pixel-rounded effect size: ContentTransform + resizeTick tolerance), D22 (zoom animation = native ease-in-out, spike `-zoomCal` calibration, ZoomTiming), D23 (hand-off overscroll); unit 175 on 27.0 + 17.5, physics 111; ResizeUITests 13/13 (27.0), ZoomUITests + overscroll green on both | all 10% → 16% · Fable 18% → 32% |
+| 2026-10-19 | Fable 5.1 #3 side session s3-C | criterion C: probe green (3 configs); staggered-lift fix D20 (PanCoordinator), PinchPanTests 15, ZoomUITests 7/7 ×3; user reports → D21 (pixel-rounded effect size: ContentTransform + resizeTick tolerance), D22 (zoom animation = native ease-in-out, spike `-zoomCal` calibration, ZoomTiming), D23 (hand-off overscroll), D24 (pinch overscroll rubber band, didZoom cadence kept); unit 176 on 27.0 + 17.5, physics 111; ResizeUITests 13/13 (27.0), ZoomUITests + overscroll green on both | all 10% → 18% · Fable 18% → 36% |
 | 2026-10-19 | Fable 5.1 #3 orchestrator, ultracode ×3 | measured the rotation event order; D18/D19 turn-origin capture + settle window; user full-screen tree passes A+B on 27.0 + 17.5; jump monitor = drawn frames; 160 unit tests | all 7% → 10% · Fable 13% → 18% |

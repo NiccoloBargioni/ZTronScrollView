@@ -123,9 +123,25 @@ travel-scaled thresholds it glided but took ≈ 0.9 s. Not matched: our `didZoom
 animation (native once); `zoom(to:)` without a scale change (a pure offset animation) gets the law's floor, 0.125 s,
 not measured.
 
+## Pinch overscroll and didZoom cadence (2026-10-19, D24)
+
+- **Two-finger slide past an edge.** XCUITest has no two-finger drag (only `pinch(withScale:velocity:)`, symmetric about
+  the element centre, and `twoFingerTap`), so the native two-finger overscroll could not be driven. UIScrollView's pan
+  recognizer handles one and two touches with the same code path, so the reference is the one-finger rubber band already
+  measured above (89 pt for 190 pt of overscroll, `c = 0.55` with `d` = viewport). Ours now applies that band to the
+  pinch's offset on every axis that bounces (`PinchSession.offset`, D24) instead of following the fingers linearly; a
+  non-bouncing axis is clamped (D23). The hand-off to the remaining finger inverts the same band (`PanSession.baseline`),
+  so the pan continues from the displaced offset without a jump (PinchPanTests section 7). `bouncesZoom` now concerns
+  the scale only.
+- **`didZoom` cadence.** Native fires `scrollViewDidZoom` once at the start of an animated zoom (its `zoomScale` is the
+  model and jumps at once) and `didEndZooming` at the end. Ours fires it on every frame of the animation and of the
+  bounce, by design: SPEC l.41 makes `zoomScale` the presentation value ("always equal what's on screen, frame by
+  frame, whatever drives the motion") and M4 §6 flushes didZoom then didScroll once per tick. Kept; a delegate that wants
+  the native cadence watches `isZooming` / `didEndZooming`.
+
 ## Open
 
 - Native "catch" cannot be measured with XCUITest (quiescence wait); ours stops within the same frame (0 ms).
 - Two-finger scrolling without zoom (UIScrollView pans with two fingers): the pan session ignores `touchCount ≥ 2`.
 - iOS 15–17 centroid estimate during a pinch follows one finger's drag, not the true centroid (documented gap, M4).
-- Programmatic zoom: native `didZoom` cadence (once) vs ours (per frame); `zoom(to:)` at an unchanged scale not measured.
+- Programmatic zoom: `zoom(to:)` at an unchanged scale not measured (law floor 0.125 s). Two-finger overscroll not drivable by XCUITest (D24 uses the one-finger band).
