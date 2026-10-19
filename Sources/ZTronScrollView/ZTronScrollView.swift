@@ -11,6 +11,7 @@ public struct ZTronScrollView<Content: View>: View {
     private var zoomLimits: ZoomLimits?
     private var doubleTap: DoubleTapZoom?
     private var nestedPolicy: ZTronNestedScrollPolicy?
+    var config = ScrollViewConfig()
     @StateObject private var holder = StateHolder()
 
     public init(_ axes: Axis.Set = .vertical, showsIndicators: Bool = true, @ViewBuilder content: () -> Content) {
@@ -30,7 +31,7 @@ public struct ZTronScrollView<Content: View>: View {
     public var body: some View {
         let state = externalState ?? holder.state
         return ScrollContainer(axes: axes, state: state, content: content, zoomLimits: zoomLimits, doubleTap: doubleTap,
-                               nestedPolicy: nestedPolicy)
+                               nestedPolicy: nestedPolicy, config: config)
             .environment(\.ztronScrollState, state)
     }
 }
@@ -75,15 +76,20 @@ struct ScrollContainer<Content: View>: View {
     let zoomLimits: ZoomLimits?
     let doubleTap: DoubleTapZoom?
     let nestedPolicy: ZTronNestedScrollPolicy?
+    let config: ScrollViewConfig
     @Environment(\.ztronZoomLimits) private var envLimits
     @Environment(\.ztronDoubleTapZoom) private var envDoubleTap
+    @Environment(\.ztronScrollConfig) private var envConfig
+    @Environment(\.ztronProxyScope) private var proxyScope
     @StateObject private var coordinator: PanCoordinator
 
     init(axes: Axis.Set, state: ZTronScrollState, content: Content, zoomLimits: ZoomLimits? = nil,
-         doubleTap: DoubleTapZoom? = nil, nestedPolicy: ZTronNestedScrollPolicy? = nil) {
+         doubleTap: DoubleTapZoom? = nil, nestedPolicy: ZTronNestedScrollPolicy? = nil,
+         config: ScrollViewConfig = ScrollViewConfig()) {
         self.zoomLimits = zoomLimits
         self.doubleTap = doubleTap
         self.nestedPolicy = nestedPolicy
+        self.config = config
         self.axes = axes
         self.state = state
         self.content = content
@@ -95,11 +101,14 @@ struct ScrollContainer<Content: View>: View {
 
     var body: some View {
         let edges = state.contentInsetAdjustmentBehavior.edges(for: axes)
+        // Member, else environment twin (M6): a cold write, never observed.
+        state.targetBehavior = config.behavior ?? envConfig.behavior
         // Container role (NESTED §3): the ZTronScrollViews in the content register with this view's arbiter, with
         // frames in a named space on the content (cold: they do not change while this view scrolls). Constant per
         // identity, so the environment write never re-evaluates content bodies.
         let nested = coordinator.nestedArbiter
         return content
+            .environment(\.ztronTargetRegistry, state.targets)
             .environment(\.scrollArbiter, nested)
             .modifier(ContentSizeMeasure(state: state))
             .modifier(NamedSpaceModifier(name: "ztronScroll.content", useNew: state.usesNamedCoordinateSpace))
@@ -110,11 +119,14 @@ struct ScrollContainer<Content: View>: View {
             .ignoresSafeArea(.all, edges: edges)
             .modifier(ViewportObserver(state: state, edges: edges))
             .background(FrameClockDriver(state: state))
+            .background(TargetEnvironmentCapture(state: state))
             .clipped()
             .contentShape(Rectangle())
             .modifier(PanGestureAdapter(coordinator: coordinator, axes: axes, doubleTap: doubleTap ?? envDoubleTap,
                                         nestedPolicy: nestedPolicy))
             .onAppear { state.zoomLimits = effectiveLimits }
+            .onAppear { proxyScope?.attach(state) }
+            .onDisappear { proxyScope?.detach(state) }
             .onChangeCompat(of: effectiveLimits) { state.zoomLimits = $0 }
     }
 }

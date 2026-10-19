@@ -1,8 +1,9 @@
 import SwiftUI
 import ZTronScrollPhysics
 
-// Release pipeline (design M3-pan §5): tracker velocity -> fling acceleration -> target (paging / M6 hook) ->
-// delegate willEndDragging -> ReleaseSolver -> deceleration or immediate rest. The per-axis steps are pure.
+// Release pipeline (design M3-pan §5, M6 §4): tracker velocity -> fling acceleration -> scroll-target behavior
+// (`ZTronScrollTargetBehavior`; the `isPagingEnabled` knob is `.paging`) -> delegate willEndDragging -> ReleaseSolver ->
+// deceleration or immediate rest. The per-axis steps are pure.
 
 struct ReleaseInput {
     var origin: CGFloat
@@ -12,7 +13,6 @@ struct ReleaseInput {
     var bounds: AxisBounds
     var bounces: Bool
     var rate: DecelerationRate
-    var pageLength: CGFloat?
     var thresholds: RestThresholds
     /// pt/s, content direction: the finger's last movement velocity (not zeroed by a pause); spring-back seed.
     var rubberBandVelocity: CGFloat = 0
@@ -31,13 +31,6 @@ enum ReleasePipeline {
         return f.combine(release: v, remainingAtCatch: caughtVelocity, touchDuration: liftTime - caughtAt)
     }
 
-    /// Paging target (one page max); `nil` otherwise (M6 inserts `ZTronScrollTargetBehavior` here).
-    static func proposedTarget(_ i: ReleaseInput) -> CGFloat? {
-        guard let page = i.pageLength else { return nil }
-        return PagingSolver.target(current: i.origin, dragStart: i.dragStart, velocity: i.velocity, pageLength: page,
-                                   bounds: i.bounds)
-    }
-
     /// Natural rest point of the decay, clamped to the bounds.
     static func naturalRest(_ i: ReleaseInput) -> CGFloat {
         i.bounds.clamped(TargetSnapping.projectedRest(origin: i.origin, velocity: i.velocity, rate: i.rate))
@@ -48,6 +41,14 @@ enum ReleasePipeline {
                                              bounces: i.bounces, thresholds: i.thresholds, target: target,
                                              rubberBandVelocity: i.rubberBandVelocity), at: t)
     }
+}
+
+/// Where the scroll-target behavior (and the velocity limit) put the release: the proposed offset the delegate may still
+/// change, and per axis whether the behavior retargets the motion even when it proposes the natural landing point.
+struct ReleaseTargetDecision {
+    var proposed: CGPoint
+    var snapsX = false
+    var snapsY = false
 }
 
 struct ReleaseSettings: Equatable {
@@ -81,20 +82,17 @@ extension ZTronScrollState {
         let rawY = enabledY && !r.zeroVelocity ? -tracker.y.lastMotionVelocity : 0
         let rate = settings.rate
         let ix = ReleaseInput(origin: r.origin.x, dragStart: r.dragStart.x, velocity: vx, bounds: env.boundsX,
-                              bounces: env.bouncesX, rate: rate,
-                              pageLength: settings.isPagingEnabled && enabledX ? env.viewport.width : nil,
-                              thresholds: settings.thresholds, rubberBandVelocity: rawX)
+                              bounces: env.bouncesX, rate: rate, thresholds: settings.thresholds, rubberBandVelocity: rawX)
         let iy = ReleaseInput(origin: r.origin.y, dragStart: r.dragStart.y, velocity: vy, bounds: env.boundsY,
-                              bounces: env.bouncesY, rate: rate,
-                              pageLength: settings.isPagingEnabled && enabledY ? env.viewport.height : nil,
-                              thresholds: settings.thresholds, rubberBandVelocity: rawY)
-        let tx = ReleasePipeline.proposedTarget(ix), ty = ReleasePipeline.proposedTarget(iy)
+                              bounces: env.bouncesY, rate: rate, thresholds: settings.thresholds, rubberBandVelocity: rawY)
         let natural = CGPoint(x: ReleasePipeline.naturalRest(ix), y: ReleasePipeline.naturalRest(iy))
-        var proposed = CGPoint(x: tx ?? natural.x, y: ty ?? natural.y)
+        let decision = decideTarget(r, env: env, settings: settings, ix: ix, iy: iy, enabledX: enabledX, enabledY: enabledY,
+                                    natural: natural)
+        var proposed = decision.proposed
         delegate?.scrollViewWillEndDragging(self, withVelocity: CGPoint(x: vx / 1000, y: vy / 1000),
                                             targetContentOffset: &proposed)
-        let targetX = (tx != nil || proposed.x != natural.x) ? proposed.x : nil
-        let targetY = (ty != nil || proposed.y != natural.y) ? proposed.y : nil
+        let targetX = (decision.snapsX || proposed.x != natural.x) ? proposed.x : nil
+        let targetY = (decision.snapsY || proposed.y != natural.y) ? proposed.y : nil
         // The motion runs on the state clock. `lift` is a gesture event time, which may use another time base
         // (iOS 27: DragGesture.Value.time is uptime-based): starting there settles the fling on its first tick.
         let start = now()
@@ -109,6 +107,95 @@ extension ZTronScrollState {
             track(offset: snapped, zoom: peek.presentationZoom)
             endTracking()
         }
+        onReleaseTargetDecided?(CGPoint(x: mx.endPosition, y: my.endPosition))
         return (mx, my)
+    }
+
+    /// The scroll-target behavior step (M6 §4). `natural` is the clamped rest point of the decay; a behavior whose
+    /// properties limit the velocity sees (and starts from) the natural point of the capped fling, at most one
+    /// container length away. The behavior moves the target rect; `proposed = rect.origin + anchor · (rect.size -
+    /// container)`, clamped to the bounds. Axes the pan does not drive keep the natural rest; no behavior = natural.
+    private func decideTarget(_ r: ReleaseRequest, env: PanEnvironment, settings: ReleaseSettings, ix: ReleaseInput,
+                              iy: ReleaseInput, enabledX: Bool, enabledY: Bool, natural: CGPoint) -> ReleaseTargetDecision {
+        let behavior = targetBehavior ?? (settings.isPagingEnabled ? AnyZTronScrollTargetBehavior(ZTronPagingScrollTargetBehavior()) : nil)
+        guard let behavior, enabledX || enabledY else { return ReleaseTargetDecision(proposed: natural) }
+        var axes: Axis.Set = []
+        if enabledX { axes.insert(.horizontal) }
+        if enabledY { axes.insert(.vertical) }
+        let snapshot = peek
+        let scale = snapshot.presentationZoom
+        let content = CGSize(width: snapshot.metrics.contentSize.width * scale, height: snapshot.metrics.contentSize.height * scale)
+        let container = env.viewport
+        let properties = behavior.properties(context: ZTronScrollTargetBehaviorPropertiesContext(
+            axes: axes, contentSize: content, containerSize: container, environment: targetEnvironment))
+
+        var velocity = CGVector(dx: ix.velocity, dy: iy.velocity)
+        var start = natural
+        if properties.limitsVelocity {
+            // Decay is linear in the velocity: the rest distance per pt/s is a constant of the deceleration rate.
+            let distancePerVelocity = TargetSnapping.projectedRest(origin: 0, velocity: 1, rate: ix.rate)
+            if enabledX, distancePerVelocity > 0, container.width > 0 {
+                let cap = container.width / distancePerVelocity
+                if abs(velocity.dx) > cap {
+                    velocity.dx = velocity.dx < 0 ? -cap : cap
+                    var limited = ix
+                    limited.velocity = velocity.dx
+                    start.x = ReleasePipeline.naturalRest(limited)
+                }
+            }
+            if enabledY, distancePerVelocity > 0, container.height > 0 {
+                let cap = container.height / distancePerVelocity
+                if abs(velocity.dy) > cap {
+                    velocity.dy = velocity.dy < 0 ? -cap : cap
+                    var limited = iy
+                    limited.velocity = velocity.dy
+                    start.y = ReleasePipeline.naturalRest(limited)
+                }
+            }
+        }
+
+        var info = TargetReleaseInfo()
+        info.origin = r.origin
+        info.dragStart = r.dragStart
+        info.rawVelocity = CGVector(dx: ix.velocity, dy: iy.velocity)
+        info.insets = snapshot.metrics.adjustedContentInset
+        info.boundsX = env.boundsX
+        info.boundsY = env.boundsY
+        info.zoomScale = scale
+        info.registry = targets
+        let original = ZTronScrollTarget(rect: CGRect(origin: start, size: container), anchor: nil)
+        let context = ZTronScrollTargetBehaviorContext(
+            originalTarget: original, velocity: velocity, contentSize: content, containerSize: container, axes: axes,
+            environment: CapturedTargetEnvironment(values: targetEnvironment), info: info)
+        var target = original
+        behavior.updateTarget(&target, context: context)
+        let anchor = target.anchor ?? .zero
+        let landing = CGPoint(x: target.rect.origin.x + anchor.x * (target.rect.width - container.width),
+                              y: target.rect.origin.y + anchor.y * (target.rect.height - container.height))
+
+        var decision = ReleaseTargetDecision(proposed: natural)
+        if enabledX {
+            if landing.x.isFinite {
+                decision.proposed.x = env.boundsX.clamped(landing.x)
+            } else {
+                decision.proposed.x = start.x
+                #if DEBUG
+                ZTronRenderCounters.increment("release.nonFiniteTarget")
+                #endif
+            }
+            decision.snapsX = behavior.snapsTarget
+        }
+        if enabledY {
+            if landing.y.isFinite {
+                decision.proposed.y = env.boundsY.clamped(landing.y)
+            } else {
+                decision.proposed.y = start.y
+                #if DEBUG
+                ZTronRenderCounters.increment("release.nonFiniteTarget")
+                #endif
+            }
+            decision.snapsY = behavior.snapsTarget
+        }
+        return decision
     }
 }

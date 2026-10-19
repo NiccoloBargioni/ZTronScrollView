@@ -44,6 +44,23 @@ public final class ZTronScrollState {
     /// A developer `defaultScrollAnchor(_:for: .sizeChanges)` replaces the center rule (the only override of SPEC S7).
     var sizeChangesAnchor: UnitPoint?
     weak var targetRegistry: (any ScrollTargetRegistry)?
+    /// The scroll targets (`ztronScrollID`) registered inside this view (M6): owned here, searched by the proxy.
+    let targets: TargetRegistry
+    /// What decides where a release lands (member or environment twin, resolved by the container; M6). Cold.
+    var targetBehavior: AnyZTronScrollTargetBehavior?
+    /// `targetBehavior`, else `.paging` while the `isPagingEnabled` knob is set: the knob is the paging behavior, and an
+    /// explicit behavior wins over it.
+    var effectiveTargetBehavior: AnyZTronScrollTargetBehavior? {
+        targetBehavior ?? (isPagingEnabled ? AnyZTronScrollTargetBehavior(ZTronPagingScrollTargetBehavior()) : nil)
+    }
+    /// Called once per release with the offset its motion lands at (the position driver's write-back hook, M6).
+    var onReleaseTargetDecided: ((CGPoint) -> Void)?
+    /// The environment of the container, captured cold by its leaf: what `ZTronScrollTargetBehaviorContext` reads. The
+    /// environment carries this state (and the scope that lists it), so the leaf owns the box and the state only
+    /// points at it: a strong copy here would make the state own itself.
+    private weak var environmentBox: TargetEnvironmentBox?
+    var targetEnvironment: EnvironmentValues { environmentBox?.values ?? EnvironmentValues() }
+    func adoptEnvironment(_ box: TargetEnvironmentBox) { environmentBox = box }
     /// Velocity (pt/s) of the motion the last `interrupt()` stopped; zero if nothing was running (fling acceleration).
     private(set) var lastInterruptedVelocity = CGVector.zero
 
@@ -127,6 +144,9 @@ public final class ZTronScrollState {
         usesLayoutProtocol = ZTronAvailability.isAvailable(.layoutProtocol)
         usesNamedCoordinateSpace = ZTronAvailability.isAvailable(.namedCoordinateSpace)
         usesGeometryChange = ZTronAvailability.isAvailable(.geometryChange)
+        targets = TargetRegistry(usesGeometryChange: usesGeometryChange)
+        targets.state = self
+        targetRegistry = targets
     }
 
     /// State used by readers created outside any scroll view.
@@ -485,7 +505,11 @@ public final class ZTronScrollState {
 
     /// Registry callback (M6). Since D17 the resize preserves the normalized centre of the whole content (ZTronMapKit
     /// geometry); a target's own reflow no longer re-anchors it.
-    func targetFrameDidChange(_ id: AnyHashable) {}
+    func targetFrameDidChange(_ id: AnyHashable) {
+        #if DEBUG
+        ZTronRenderCounters.increment("registry.frameChanged")
+        #endif
+    }
 
     /// Viewport size / safe-area change (SPEC S7). Motion stops at its presentation value, then the content point at
     /// the old visible center is placed at the new one (see `ResizeMath`). The commit itself never animates: the
@@ -920,6 +944,31 @@ public final class ZTronScrollState {
             storage.targetOffset = offset
             startAnimating(scroll: true, zoom: false)
         }
+    }
+
+    /// Scrolls to the registered target `id` (M6, proxy and position driver): the offset that shows its frame, at the
+    /// current zoom (`TargetScrollMath`). `ambient` honors the caller's transaction (`withAnimation`, the transaction
+    /// path); otherwise `animation` decides: `.uikit` the clock, `.swiftUI` the transaction path under that animation,
+    /// `nil` unanimated. Returns `false` when `id` is not registered. A motion without a finger stops first and the
+    /// minimal scroll is measured from where it stopped, as `scroll(to:)` does.
+    @discardableResult
+    func scrollTo(id: AnyHashable, anchor: UnitPoint?, animation: ZTronScrollAnimation?, ambient: Bool) -> Bool {
+        guard let frame = targets.frame(of: id) else { return false }
+        if motion != nil || transactionToken != nil { interrupt() }
+        let s = storage.snapshot()
+        guard s.metrics.viewportSize.width > 0, s.metrics.viewportSize.height > 0 else { return true }
+        let offset = TargetScrollMath.offset(for: frame, anchor: anchor, current: s.presentationOffset,
+                                             scale: s.presentationZoom, geometry: makeZoomGeometry(s.metrics))
+        if ambient {
+            scroll(to: offset)
+        } else {
+            switch animation {
+            case .none: setContentOffset(offset, animated: false)
+            case .uikit?: setContentOffset(offset, animated: true)
+            case let .swiftUI(a)?: withAnimation(a) { scroll(to: offset) }
+            }
+        }
+        return true
     }
 
     /// UIKit `stopScrollingAndZooming()` / touch during motion: target := presentation, no jump.
