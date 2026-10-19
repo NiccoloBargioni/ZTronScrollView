@@ -348,6 +348,11 @@ Provide same-name members on `ZoomScrollView` and `zoomScroll`-prefixed View twi
 - **The same, with a completion-handler action:** `(_ done: @escaping () -> Void) -> Void`. `done` is idempotent and safe to call from any thread; it hops to the main actor.
 - **`refresher(refreshView:overlay:action:)`** with a custom indicator built from a `Binding<ZoomRefreshState>`.
 
+**Mandatory shapes — Amendment 2026-10-19 (user).** The amendment removed only the scaling header's own refresh entry points; these two spellings
+are guaranteed on `ZTronScrollView` (and as `ztronRefresher` twins): `.refresher { await load() }` — trailing closure, default loader (`.default`
+style, built-in indicator) — and `.refresher(refreshView: { state in MyLoader(state) }) { await load() }` — custom view plus action. The
+completion-handler forms are the same shapes with `{ done in … }` (overloads resolve by closure arity). Nothing here needs UIKit or introspection.
+
 **Styles:**
 - `.system` looks and moves like UIRefreshControl.
 - `.default` lets the indicator follow the pull with its own, more flexible animation.
@@ -411,8 +416,9 @@ Calibrate the defaults side by side with UIRefreshControl.
 
 A banner-style header laid out as the first thing of the scroll view, above the content. It collapses from its resting height to a
 minimum as the content scrolls up (shrinking from the bottom, its top edge pinned), stays at the minimum while the content scrolls by,
-and reacts to a pull past the top either not at all (`.preserve`) or by growing with the pull (`.stretch`). The reference reaches the
-underlying UIScrollView through UIKit introspection; ours stays pure SwiftUI *(kept)*.
+and reacts to a pull past the top either not at all (`.preserve`) or by growing with the pull (`.stretch`). The reference (Exyte) reaches the
+underlying UIScrollView through UIKit introspection; that is forbidden here (S2) and this design uses none of it, nor reflection or private
+API: the header is driven by our own offset state through a leaf modifier. (Amendment 2026-10-19 (user): confirmed, no introspection anywhere.)
 
 ### API (amended)
 

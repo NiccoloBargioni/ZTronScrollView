@@ -90,6 +90,9 @@ extension View { public func ztronRefresher(…same four…) -> some View
 extension ZTronScrollState { public func beginRefreshing(edge: Edge = .top); public func endRefreshing(edge: Edge = .top)
                              var refreshHoldInset: EdgeInsets /* cold; adjustedContentInset = contentInset + safeArea(per behavior) + hold + header(§2) */ }
 ```
+**Mandatory shapes (user, 2026-10-19):** `.refresher { await load() }` (trailing closure → the async overload, `.default` style = the built-in loader) and
+`.refresher(refreshView: { MyLoader($0) }) { await load() }` (custom view + action) must compile exactly so; `{ done in … }` picks the completion overloads by
+arity. The amendment removed only the header's own entry points. No UIKit, no introspection anywhere in this doc (S2; S10's mention is the reference's technique).
 Precedence per edge: `refresher(…)` member ?? `ztronRefresher` twin ?? `\.refresh` env (style `.system`, top/start edge, `.default` config) ?? none. Documented:
 "explicit wins over `.refreshable`". A later `refresher` call replaces the spec of the edges it names (dictionary merge, never accumulates).
 
@@ -294,7 +297,8 @@ The delegate modifiers are M8-chrome task M8-8 (on M7's hub), not an M8b session
 Tests (unit over `OSPath.allCases` with the test clock; demo UI on 27.0 and 17.5, preferred and `-ZTronForceAllFallbacks`; `content.body` 0 in all):
 1. Engine: `dragPosition` = pull/trigger clamped; `.whilePulling` fires at crossing with the finger down, exactly once per pull, not again while refreshing; `.onRelease` fires only at lift ≥ 1,
    disarms below; hold applied at lift (never mid-drag); min visible time; reset waits for lift while tracking; `done` idempotent from a background thread; disappear cancels the Task and clears unanimated.
-2. Precedence: member > twin > `.refreshable(.system)`; later `refresher` replaces per edge; bottom spec adds `loadMorePadding`; horizontal → leading/trailing; disabled above min zoom and when scroll disabled.
+2. Precedence: member > twin > `.refreshable(.system)`; later `refresher` replaces per edge; bottom spec adds `loadMorePadding`; horizontal → leading/trailing; disabled above min zoom and when scroll disabled;
+   compile-shape (user, 2026-10-19): `.refresher { await load() }` → async overload with `.default` style, `.refresher { done in … }` → completion overload, `.refresher(refreshView: { MyLoader($0) }) { … }` → custom-view overload.
 3. Hold geometry: `adjustedContentInset` includes the hold; release over-pull springs to `−(aci.top + H)`; clear → M5 inset rule returns to rest only if at the start edge; `beginRefreshing` reveals, runs no action.
 4. Reach edge: once per arrival, re-arm after +1 pt, re-fires after content growth. 5. Indicator placement for all 3 styles × 4 edges, with and without a header (`.preserve` gap / `.stretch` band).
 6. `HeaderMath` table: `o′ ∈ {−80, −20, 0, 20, band/2, band, band + 50}` × `.preserve`/`.stretch` → `h`, `progress`, `stretch`, frame, content top, gap; top edge always `top0`; `h ≥ 0` always;
@@ -370,3 +374,6 @@ overlay host vs content with `accessibilitySortPriority` on 17.5 and 27.0 (Voice
 - M8b-3 is one Fable builder session (physics-free but layout-subtle: the frame leaf, the 15 measuring pass, the M6 compose hook); M8b-1/-2 stay Sonnet. Kickoff reads: this doc §2–3,
   SPEC S10 + S11 (header block, state additions), S9 "Refresh with the header" pointer, M8-chrome §7b only for the `willEndDragging` modifier in test 8.
 - Sequencing unchanged (after M5 (a) and M6 s1); M8-8 (delegate modifiers) is independent and sits on M7 s1.
+- **User confirmation (2026-10-19, in session M8b-s0): A1–A10 stand.** Two constraints added: (1) `.refresher { action }` with the default loader and
+  `.refresher(refreshView:action:)` are preserved as spelled (§1.2 "Mandatory shapes", test 2); (2) no introspection anywhere (S2): the only mention in
+  S10 is the reference's technique; nothing in §2 needs UIKit, reflection or private API — the header is a leaf modifier over our own offset state.

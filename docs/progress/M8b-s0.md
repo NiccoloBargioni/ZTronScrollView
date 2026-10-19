@@ -34,3 +34,8 @@ Next: 1. The user reads SPEC S10 + A1–A10 and vetoes in one line if needed. 2.
 M8-8 (delegate modifiers) right after M7 s1. 3. Orchestration step 3 (full demo UI re-run) unchanged.
 Tests: none run (docs only). Unit 178/178 and physics 111 unchanged on main 87a2178.
 Usage: weekly all-models 20% → 25% · Fable 39% → 49% (end readings; the parent orchestrator ran concurrently, so the delta is an upper bound) · cache hit n/a · context 29% of 1 M.
+## Addendum (2026-10-19, later the same day): user confirmation
+The user read the amendment and approved A1–A10 with two constraints, both landed and committed: (1) the refresher shapes `.refresher { await load() }`
+(default loader) and `.refresher(refreshView: { MyLoader($0) }) { … }` are guaranteed as spelled (SPEC S9 "Mandatory shapes", M8b §1.2, test 2 compile-shape);
+(2) no introspection anywhere — the only mention was S10's description of the reference's technique, reworded to say ours uses none (S2). M8b-3 and M8-8
+may build from the amended docs once their dependencies (M5 (a) + M6 s1; M7 s1) are committed.

@@ -14,7 +14,7 @@ Current: M5 (b): rotation criteria A+B met on both user trees (D18/D19) and crit
 | M6 | todo | 8–11 | | |
 | M7 | todo | 6–8 | | |
 | M8 | todo | 6–9 | | |
-| M8b | todo | 6–9 | | design amended 2026-10-19 per the user (SPEC S9/S10/S11/S14, M8b §2–3, M8-chrome §7b/M8-8; docs/progress/M8b-s0.md); A1–A10 await the user's veto before M8b-3 |
+| M8b | todo | 6–9 | | design amended 2026-10-19 per the user (SPEC S9/S10/S11/S14, M8b §2–3, M8-chrome §7b/M8-8; docs/progress/M8b-s0.md); A1–A10 approved by the user 2026-10-19; refresher shapes `.refresher { }` / `.refresher(refreshView:)` guaranteed, no introspection |
 | M9 | todo | 9–13 | | |
 | M10 | todo | 6–8 | | |
 

@@ -76,8 +76,10 @@ physics 111 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-
    `docs/design/M8b-refresh-header.md` §2–3 (rewritten) and `docs/design/M8-chrome.md` §7b + task M8-8: refresh API single source = S9's `refresher`;
    `ZTronScrollView.withScalingHeader(size:scalingBehavior:snap:fade:) { header in … }` with the header preceding the content (also above a
    horizontal view) and `.preserve` / `.stretch`; every UIScrollViewDelegate method as an `onZTronScroll…` modifier. Header geometry reaches
-   children through `ZTronHeaderProxy` + `ZTronHeaderGeometryReader` (reader tier), not an ObservableObject (D26). Ten resolutions A1–A10 at the
-   end of the M8b design are the user's to veto before M8b-3 starts. No library or demo code. Handoff `docs/progress/M8b-s0.md`.
+   children through `ZTronHeaderProxy` + `ZTronHeaderGeometryReader` (reader tier), not an ObservableObject (D26). A1–A10 at the end of the M8b design
+   **approved by the user (2026-10-19)**, with two constraints: keep `.refresher { action }` (default loader) and `.refresher(refreshView:action:)`
+   as spelled (S9 "Mandatory shapes"), and no introspection anywhere (S2; the S10 mention is the reference's technique). No library or demo code.
+   Handoff `docs/progress/M8b-s0.md`.
 3. [ ] Re-run the full demo UI suite after the physics commits (`dff908b`, `9091f20`) on 27.0 + 17.5, both paths;
    PagerUITests "trailing edge pages" still fails on 27.0 --forced and 17.5 (`M4-s2.md`).
 4. [ ] M5 (b) remainder (PanCoordinator resize rebase, adjusted insets into pan/pinch env) → M6–M9 builds from the
