@@ -5,7 +5,7 @@ physics calibrated (unit) · M5 rotation: user full-screen tree PASSES criteria 
 fixed in code (D20, staggered lift; probe + ZoomUITests 7/7 on 27.0 pref+forced, 17.5 pref) · user bounce report fixed
 (D21, pixel-rounded effect size: 16:9 trees drew clamped + stayed `.animating`) · double-tap snap (D22) and
 one-finger-lift snap (D23) fixed · programmatic zoom calibrated against native (D22 final, `ZoomTiming`), user device
-checks pending · pinch overscroll rubber band (D24) · lift snap from the user's video fixed (D25) → next = step 3** · MC freeze
+checks DONE on the device (C, D21, D22, D25) · pinch overscroll rubber band (D24) → next = step 3** · MC freeze
 blocked (user decision).
 ## Resume in a new session (cheapest path)
 1. Launch in `/Users/admin/Documents/ZTronScrollView` with the role's model (SPEC O2, l.897–918): Builder
@@ -52,25 +52,25 @@ physics 111 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-
    change (XCUITest lifts both fingers in one batch: no motion, counters 30→30 / 31→31). The staggered lift real fingers
    make had four `PanCoordinator` defects (stuck synthesized pan, fling from pinch-phase velocity, hand-off catching the
    release bounce, late/stale DragGesture jump), fixed + 6 unit tests × 2 OS paths; ZoomUITests 7/7 on 27.0 pref+forced,
-   17.5 pref. The user still has to confirm (C) on ZTronTesting with natural finger lifts.
+   17.5 pref. Confirmed by the user on the device (2026-10-19, main ≥ 1486752).
 2b. [x] **User report: bounce "does not work" in the 16:9 image tree** — done 2026-10-19 (D21, `docs/progress/USER-s2.md`):
    not the gesture/physics path (`FittingAxisBounceTests`), the DRAWN frame: pixel-rounded effect size vs unrounded
    committed viewport → every frame at rest clamped by the resize path and the launch resize never closed. Fixed with a
    1 pt tolerance in `ContentTransform.isPlainFrame` and `resizeTick`; demo `ResizeUITests` `testUserTree{Vertical,
-   HorizontalAlways}…IsDrawn` + launch phase idle. User check pending (16:9 tree: horizontal `.always` band, edge bounce,
-   content buttons tappable at rest).
+   HorizontalAlways}…IsDrawn` + launch phase idle. Confirmed by the user on the device (2026-10-19).
 2c. [x] **User reports: double-tap snap (D22) and one-finger-lift snap (D23)** — done 2026-10-19 (`USER-s2.md`).
    User check pending on both (rebuild ZTronTesting against main first). Follow-up left: pinch overscroll is linear,
    native rubber-bands it (D23).
 2d. [x] **Programmatic zoom calibrated against native** — done 2026-10-19 (`USER-s3.md`, D22 final): spike `-zoomCal`
    measured UIScrollView's zoom animations (ease-in-out, duration law), `ZoomTiming` replaces the progress spring;
-   native fixtures in `NativeCalibrationTests`. User check: double tap in/out should feel native now.
+   native fixtures in `NativeCalibrationTests`. Confirmed by the user on the device (2026-10-19): double tap in/out native.
 2e. [x] **Pinch overscroll rubber band + didZoom cadence** — done 2026-10-19 (D24, `USER-s4.md`): two-finger slide past an
    edge resists like a one-finger drag, hand-off continuous; didZoom per frame kept by SPEC (documented).
 2f. [x] **Snap at the lift, from the user's video (D25)** — done 2026-10-19 (`USER-s4.md` addendum): the magnify gesture's
    trailing `.changed` after the observer's hand-off re-armed the pinch with base 1 (2× → 4× in one frame). Ignored now.
    **Confirmed by the user on the device (2026-10-19, main 1486752): lifting one finger during the pinch and dragging no
-   longer snaps.** Still to confirm on the device: bounce in the 16:9 tree (D21), double tap (D22), criterion C.
+   longer snaps.** The user also confirmed on the device (2026-10-19): the 16:9 bounce (D21), the double tap in and out
+   (D22) and criterion C all look native. Side session s3-C closed: nothing of it is pending on the user.
 3. [ ] Re-run the full demo UI suite after the physics commits (`dff908b`, `9091f20`) on 27.0 + 17.5, both paths;
    PagerUITests "trailing edge pages" still fails on 27.0 --forced and 17.5 (`M4-s2.md`).
 4. [ ] M5 (b) remainder (PanCoordinator resize rebase, adjusted insets into pan/pinch env) → M6–M9 builds from the
