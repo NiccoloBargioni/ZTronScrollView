@@ -51,6 +51,14 @@ import Testing
     static let edgeBounce: [(TimeInterval, CGFloat)] = [(0.0000, -4.67), (0.0334, 25.00), (0.0668, 36.67), (0.0996, 39.00), (0.1337, 36.67), (0.1666, 32.00), (0.2002, 26.67), (0.2335, 21.67), (0.2670, 17.33), (0.3003, 13.67), (0.3337, 10.33), (0.3670, 8.00), (0.4003, 6.00), (0.4339, 4.67), (0.4663, 3.33), (0.5001, 2.67), (0.5328, 2.00), (0.5670, 1.33), (0.6343, 0.67), (0.6857, 0.00)]
     static let edgeCrossingVelocity: CGFloat = 1204
 
+    // MARK: Programmatic zoom (2026-10-19, spike `-zoomCal`: UIScrollView setZoomScale/zoom(to:) animated, 300×360
+    // viewport, 600×600 content). Progress of the zoom view's presentation scale per frame, t from the frame before the
+    // first visible change.
+    static let zoomSet2: [(TimeInterval, CGFloat)] = [(0.0331, 0.0159), (0.0497, 0.0416), (0.0664, 0.0802), (0.0831, 0.1317), (0.0998, 0.1957), (0.1165, 0.2716), (0.1332, 0.3567), (0.1499, 0.4473), (0.1665, 0.5403), (0.1832, 0.6317), (0.1999, 0.7177), (0.2165, 0.7939), (0.2331, 0.8597), (0.2498, 0.9132), (0.2665, 0.9535), (0.2832, 0.9812), (0.2998, 0.9963), (0.3165, 1.0000)]
+    static let zoomSet8: [(TimeInterval, CGFloat)] = [(0.0180, 0.0033), (0.0347, 0.0136), (0.0514, 0.0311), (0.0681, 0.0562), (0.0847, 0.0889), (0.1014, 0.1293), (0.1181, 0.1773), (0.1344, 0.2307), (0.1514, 0.2931), (0.1665, 0.3527), (0.1837, 0.4242), (0.2015, 0.5005), (0.2181, 0.5721), (0.2348, 0.6415), (0.2515, 0.7077), (0.2681, 0.7686), (0.2848, 0.8234), (0.3015, 0.8712), (0.3172, 0.9094), (0.3332, 0.9412), (0.3515, 0.9690), (0.3681, 0.9865), (0.3842, 0.9965), (0.4015, 1.0000)]
+    static let zoomBackFrom8: [(TimeInterval, CGFloat)] = [(0.0331, 0.0123), (0.0497, 0.0291), (0.0664, 0.0534), (0.0831, 0.0854), (0.0998, 0.1251), (0.1165, 0.1723), (0.1331, 0.2264), (0.1498, 0.2869), (0.1664, 0.3526), (0.1831, 0.4220), (0.1998, 0.4933), (0.2165, 0.5651), (0.2331, 0.6350), (0.2498, 0.7014), (0.2665, 0.7629), (0.2831, 0.8183), (0.2998, 0.8667), (0.3165, 0.9079), (0.3331, 0.9412), (0.3498, 0.9669), (0.3664, 0.9851), (0.3831, 0.9960), (0.3998, 1.0000)]
+    static let zoomRect8: [(TimeInterval, CGFloat)] = [(0.0164, 0.0027), (0.0347, 0.0136), (0.0514, 0.0311), (0.0680, 0.0561), (0.0847, 0.0889), (0.1014, 0.1294), (0.1181, 0.1772), (0.1348, 0.2322), (0.1514, 0.2932), (0.1681, 0.3593), (0.1848, 0.4289), (0.2014, 0.5003), (0.2181, 0.5719), (0.2348, 0.6416), (0.2514, 0.7076), (0.2681, 0.7686), (0.2848, 0.8234), (0.3015, 0.8711), (0.3176, 0.9102), (0.3331, 0.9412), (0.3514, 0.9690), (0.3681, 0.9865), (0.3848, 0.9967), (0.4015, 1.0000)]
+
     private func tracked(_ fingers: [(TimeInterval, CGFloat)], lift: TimeInterval) -> CGFloat {
         var tracker = VelocityTracker()
         for (t, y) in fingers { tracker.add(position: y, at: t) }
@@ -153,5 +161,25 @@ import Testing
         for (t, y) in Self.edgeBounce.dropFirst(2) {
             expectClose(motion.sample(at: t - crossing).position, y, 3, "t = \(t)")
         }
+    }
+
+    // MARK: programmatic zoom
+
+    /// The native zoom animation is UIKit's ease-in-out over the measured duration (0.32 s at 2×, 0.40 s from 4× up),
+    /// for setZoomScale in, back out, and zoom(to:); a critically damped spring cannot fit it (rms ≥ 0.09).
+    @Test(arguments: [(zoomSet2, 1.0, 2.0), (zoomSet8, 1.0, 8.0), (zoomBackFrom8, 8.0, 1.0), (zoomRect8, 1.0, 8.0)])
+    func programmaticZoomReproducesNativeEaseInOut(samples: [(TimeInterval, CGFloat)], from: CGFloat, to: CGFloat) {
+        let timing = ZoomTiming(start: 0, duration: ZoomTiming.duration(from: from, to: to))
+        var sum: CGFloat = 0, worstSpring: CGFloat = .infinity
+        for (t, f) in samples { let d = timing.sample(at: t).progress - f; sum += d * d }
+        let rms = (sum / CGFloat(samples.count)).squareRoot()
+        #expect(rms < 0.012, "rms \(rms) over \(samples.count) frames, duration \(timing.duration)")
+        #expect(timing.sample(at: samples[samples.count - 1].0 + 0.017).isSettled, "over within a frame of the last native change")
+        for omega in stride(from: 5.0, through: 40.0, by: 0.5) {
+            var e: CGFloat = 0
+            for (t, f) in samples { let d = 1 - (1 + omega * t) * exp(-omega * t) - Double(f); e += CGFloat(d * d) }
+            worstSpring = min(worstSpring, (e / CGFloat(samples.count)).squareRoot())
+        }
+        #expect(worstSpring > 0.08, "no critically damped spring fits native: best rms \(worstSpring)")
     }
 }
