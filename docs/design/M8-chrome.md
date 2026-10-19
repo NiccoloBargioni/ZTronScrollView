@@ -1,6 +1,6 @@
 # M8 · Chrome: indicators, insets, behavior, keyboard/a11y, helpers, edge effects, containers (design)
 
-Scope: SPEC S6 "Also" (222–236), S8 strategies 1–4 (253–276), inventory 302–321 and 326–329. Builds on M5-resize §2/§7
+Scope: SPEC S6 "Also" (222–236), S8 strategies 1–4 (253–276), inventory 302–321 and 326–329, plus S11 "Delegate callbacks as modifiers" (Amendment 2026-10-19 (user), §7b here). Builds on M5-resize §2/§7
 (`contentInset`, `adjustedContentInset`, `ZTronContentInsetAdjustmentBehavior`, `safeAreaInsets` observer) and M6-targets §1
 (member/twin/content-level/mirror shapes, `ScrollViewConfig`, `ztronScrollConfig`). Names per CLAUDE.md. iOS 15 deployment.
 iOS-26/27-only SDK symbols follow D3 (`#if compiler(>=6.4)` + `#available`, reported through `ZTronCapability.isInBuildSDK`).
@@ -193,6 +193,30 @@ extension View { public func onZTronScrollChromeChange(_ action: @escaping (ZTro
   flips only) so apps can toggle `toolbarBackground(.visible, for: .navigationBar)` (16+) / `.toolbar(.hidden, for: .tabBar)` (16+);
   `ZTronScrollState.scrollsToTop` accepted (no effect) + `scrollToTop(animated:)` for the app's own trigger.
 
+## 7b. Delegate callbacks as modifiers (`Observation/DelegateModifiers.swift`) — Amendment 2026-10-19 (user), SPEC S11
+
+Every `UIScrollViewDelegate` method gets an `onZTronScroll…` modifier as an alternative to the delegate object (full table and signatures in SPEC S11
+"Delegate callbacks as modifiers"): a member on `ZTronScrollView` → `Self` and a same-name `View` twin (env overlay `ztronScrollConfig.delegateBoxes`,
+appended, reaching every ZTronScrollView below; the member wins when applied directly, M7 Q4's compile test covers the pair). Mechanism = M7's
+`ObserverHub` grows one box list per event:
+```swift
+final class DelegateObserverBox { enum Kind { case didScroll, didZoom, willBeginDragging, willEndDragging, didEndDragging, willBeginDecelerating, didEndDecelerating,
+    didEndScrollingAnimation, willBeginZooming, didEndZooming, shouldScrollToTop, didScrollToTop, didChangeAdjustedContentInset }
+    let kind: Kind; var action: Any /* the typed closure for `kind`; re-assigned every body of the owning modifier (R7) */ }
+extension ObserverHub { func addDelegate(_ box: DelegateObserverBox) -> Token; func remove(_ token: Token)
+    func didScroll(_ s: ZTronScrollState); func didZoom(_ s: ZTronScrollState); func willBeginDragging(_ s: ZTronScrollState)
+    func willEndDragging(_ s: ZTronScrollState, velocity: CGPoint, target: inout CGPoint); func didEndDragging(_ s: ZTronScrollState, willDecelerate: Bool)
+    func willBeginDecelerating(_:); func didEndDecelerating(_:); func didEndScrollingAnimation(_:); func willBeginZooming(_:); func didEndZooming(_:, atScale: CGFloat)
+    func shouldScrollToTop(_ s: ZTronScrollState) -> Bool /* conjunction; true when no box */; func didScrollToTop(_:); func didChangeAdjustedContentInset(_:) }
+```
+`ZTronScrollState` wraps each `delegate?.scrollViewX(self, …)` call (today 13 sites: `deliverPending` ×5, `notifyAdjustedInsetChange`, the three
+`willBegin…` sites, `didEndDragging` ×2 incl. `Gesture/ReleasePipeline.swift`, `willEndDragging` in `ReleasePipeline`, scroll-to-top) in `notifyX(…)`:
+delegate first, then `observers.X(…)` — one code path on both OS paths, cadence and order unchanged (S11). `willEndDragging` threads the `inout` target
+delegate → boxes in registration order; `shouldScrollToTop` ANDs. Registration order = environment twins outermost first, then the member's closures in
+application order (the container registers env boxes before config boxes, identity-diffed on change, removed on disappear). The boxes are cold: a callback
+causes no view update (they run inside `deliverPending`, after the delegate and before the M7 geometry observers; S4). `viewForZooming` has no modifier
+(zoom range). Not a native SwiftUI API → no `#available` branch and no native twin application. Velocity stays pt/ms (delegate parity; M7's context is pt/s).
+
 ## 8. Edge cases
 Not scrollable on an axis → no thumb, flash no-op on that axis; zoom changes `E` → thumb resizes live, no content re-eval; both axes visible → shortened vertical
 track; `.hidden` after a flash started → fade cancels; rotation mid-fade → geometry re-derived from the new `ScrollMetrics`, timer continues;
@@ -211,6 +235,7 @@ field → focus steal is harmless (no UI change); edge effect with `contentInset
 | M8-5 | `Chrome/EdgeEffects.swift` (+ safeAreaBar/backgroundExtension twins) | §7 edge effects |
 | M8-6 | `Containers/SwipeActions.swift`, `Containers/Reorder.swift` | §7 containers; ScrollArbitration participant only (no API change) |
 | M8-7 | `Chrome/SystemHooks.swift`, `docs/parity-matrix.md` rows, Demo `ChromeScreen` + `ChromeUITests` | after M8-1…6 |
+| M8-8 delegate modifiers (amendment 2026-10-19) | `Observation/DelegateModifiers.swift` (13 members + 13 twins), `State/ObserverHub.swift` (+ delegate boxes), `notifyX` wrappers in `State/ZTronScrollState.swift` + `Gesture/ReleasePipeline.swift`, Demo `EventLogScreen` rows, parity rows | §7b; **after M7 session 1** (`ObserverHub`); independent of M8-1…7 |
 
 ## 10. Tests (unit over `OSPath.allCases`; demo UI on 27.0 and 17.5, preferred and `-ZTronForceAllFallbacks`)
 `IndicatorMathTests`: fraction/length/min length/position at both edges, rubber-band shrink+pin, two-axis track shortening, insets, nil when not scrollable.
@@ -220,6 +245,10 @@ replace-not-accumulate. `ContainerRelativeFrameTests`: all three overloads, coun
 `ClipTests`: `ViewportClip` rect with/without disabled. `OffsetAdjustmentTests`: `.disabled` keeps offset on content growth, `.automatic` = M5 rule.
 `KeyboardScrollMathTests`: every key, modifiers, clamping, horizontal-only mapping. `AccessibilityTests`: page i/n formula, scroll action edges,
 zoom action ×2/÷2 clamped to `ZoomLimits`. `DismissKeyboardTests`: mode resolution and conversions. `ScrollInputTests`: gating per kind, D3 compile-out path.
+`DelegateModifierTests` (M8-8): a recording delegate + recording modifiers see identical sequences for drag → decelerate → idle, pinch → bounce, a programmatic
+animation, scroll-to-top and an inset change; `willEndDragging` target threading (delegate, then two modifiers, the last value lands); `shouldScrollToTop`
+conjunction; append semantics (two `onZTronScrollDidScroll` both fire); a twin above two nested views fires for both, the member for its own only; stale-closure
+(R7); tier-0: content body 0 and the modifier owner's body 0 with all 13 attached during 120 frames; velocity equals the delegate's (pt/ms).
 `HelpersTests`: counter-scale = 1/zoom, sticky clamp inside container, parallax translation for rate 0/0.5/1, LOD level + hysteresis. `EdgeEffectTests`:
 region height per behavior, opacity ramp, `.automatic` per OS path. `SwipeReorderTests`: reveal width, full-swipe threshold, target index, auto-scroll
 velocity ramp and clamp. Render counters (tier-0): content body runs 0 during scroll/zoom/flash/fade/edge-effect/auto-scroll in every test above.
@@ -253,3 +282,5 @@ containerRelativeFrame outside ours <17, large-title/toolbar/tabBar/status-bar-t
 - Q5 Fallback keyboard scrolling on 15–16 is opt-in only (`.global` off by default) — an app-wide shortcut grabbing
   arrows/space would surprise apps.
 - Risk accepted: if focus-steal can't dismiss the keyboard, `scrollDismissesKeyboard` is a documented gap.
+- (2026-10-19, user amendment) M8-8 delegate modifiers added (§7b, SPEC S11): depends on M7 session 1 (`ObserverHub`), not on M8-1…7; build it in the
+  M7 session 2 slot or right after M7 s1, whichever comes first; one parity row per modifier (13) + `viewForZooming` → "replaced by zoomRange".

@@ -6,7 +6,8 @@ fixed in code (D20, staggered lift; probe + ZoomUITests 7/7 on 27.0 pref+forced,
 (D21, pixel-rounded effect size: 16:9 trees drew clamped + stayed `.animating`) · double-tap snap (D22) and
 one-finger-lift snap (D23) fixed · programmatic zoom calibrated against native (D22 final, `ZoomTiming`), user device
 checks DONE on the device (C, D21, D22, D25) · pinch overscroll rubber band (D24) → next = step 3** · MC freeze
-blocked (user decision).
+blocked (user decision). **M8b/M8 designs amended 2026-10-19 per the user's three decisions (side session M8b-s0, D26): M8b-3 and
+M8-8 build from the amended SPEC S9/S10/S11 + `docs/design/M8b-refresh-header.md` §2–3 + `M8-chrome.md` §7b.**
 ## Resume in a new session (cheapest path)
 1. Launch in `/Users/admin/Documents/ZTronScrollView` with the role's model (SPEC O2, l.897–918): Builder
    `claude --model sonnet --advisor opus`, Architect `claude --model fable`, Debugger `claude --model opus --effort high`.
@@ -32,7 +33,7 @@ blocked (user decision).
 | M4 (a) zoom state + PinchSession | done | `Gesture/PinchSession.swift`, `zoomRange`, solver-based `setZoomScale` (`M4-s1.md`) |
 | M4 (b) pinch adapter + demo | done* | pinch adapter, double tap, ZoomScreen; ZoomUITests **7/7** on 27.0 pref+forced, 17.5 pref (2026-10-19, after D20); criterion C staggered-lift fix in PanCoordinator (`M4-s3.md`, 6 new unit tests × 2 OS paths); 17.5 forced ZoomUITests + full-suite 27 forced / 17.5 forced still pending (`M4-s2.md`) |
 | M5 design | done | `docs/design/M5-resize.md` (+ orchestrator resolutions C1–C3, Q1–Q3 at the end) |
-| M6–M9 designs | done | `docs/design/{M6-targets,M7-observation,M8-chrome,M8b-refresh-header,M9-virtualization}.md`, each ending with "Orchestrator resolutions" (read those first) and a builder-session split with file ownership + sequencing |
+| M6–M9 designs | done | `docs/design/{M6-targets,M7-observation,M8-chrome,M8b-refresh-header,M9-virtualization}.md`, each ending with "Orchestrator resolutions" (read those first) and a builder-session split with file ownership + sequencing; **M8b amended 2026-10-19** (user decisions: refresh single source, `withScalingHeader` header preceding the content with `.preserve`/`.stretch`, delegate modifiers → SPEC S9/S10/S11/S14, M8b §2–3, M8-chrome §7b/M8-8; `docs/progress/M8b-s0.md`) |
 | M5 (a) state + render | done | `docs/progress/M5-s1.md`: ResizeMath/Commit, TransformHost above layout host (C1 gate: Proof 6/6, demo UI 20/20 on 27.0), 134 unit tests on 27.0 + 17.5 |
 | User scenario s1 | done | D15: zoom-enabled pan moves on any axis the zoomed content exceeds; demo `-ZTronScreen image` + `ImageUITests` 4/4 on 27.0 + 17.5, preferred + forced (`docs/progress/USER-s1.md`) |
 | M5 (b) gestures + demo | partial | `docs/progress/M5-s2.md` s4: D18/D19 — intent captured from the DRAWN geometry (turn origin), inset-only change folds into an open resize, post-resize settle window; screen-space acceptance GREEN for the user's full-screen tree AND the 16:9 tree on 27.0 + 17.5, preferred + forced (odd rotations ≤ 0.56 pt, even rotations offset/zoom exact, markers ≤ 0.17 pt); `ResizeUITests` 11/11 on 27.0 pref+forced, 17.5 11/11 preferred + jump test forced after the monitor change + 27.0 11/11 re-run; `ProofUITests` 6/6; DEBUG jump monitor counts drawn frames only; (C) probe green on 27.0 pref+forced + 17.5 pref before and after D20 (`M4-s3.md`); D21 render-path pixel tolerance (16:9 trees drew clamped and stayed `.animating`; `USER-s2.md`); PanCoordinator rebase still todo |
@@ -71,6 +72,12 @@ physics 111 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-
    **Confirmed by the user on the device (2026-10-19, main 1486752): lifting one finger during the pinch and dragging no
    longer snaps.** The user also confirmed on the device (2026-10-19): the 16:9 bounce (D21), the double tap in and out
    (D22) and criterion C all look native. Side session s3-C closed: nothing of it is pending on the user.
+2g. [x] **M8b amendment (design only, side session M8b-s0, Architect)** — done 2026-10-19: the user's three decisions landed in SPEC S9/S10/S11/S14,
+   `docs/design/M8b-refresh-header.md` §2–3 (rewritten) and `docs/design/M8-chrome.md` §7b + task M8-8: refresh API single source = S9's `refresher`;
+   `ZTronScrollView.withScalingHeader(size:scalingBehavior:snap:fade:) { header in … }` with the header preceding the content (also above a
+   horizontal view) and `.preserve` / `.stretch`; every UIScrollViewDelegate method as an `onZTronScroll…` modifier. Header geometry reaches
+   children through `ZTronHeaderProxy` + `ZTronHeaderGeometryReader` (reader tier), not an ObservableObject (D26). Ten resolutions A1–A10 at the
+   end of the M8b design are the user's to veto before M8b-3 starts. No library or demo code. Handoff `docs/progress/M8b-s0.md`.
 3. [ ] Re-run the full demo UI suite after the physics commits (`dff908b`, `9091f20`) on 27.0 + 17.5, both paths;
    PagerUITests "trailing edge pages" still fails on 27.0 --forced and 17.5 (`M4-s2.md`).
 4. [ ] M5 (b) remainder (PanCoordinator resize rebase, adjusted insets into pan/pinch env) → M6–M9 builds from the
@@ -196,6 +203,18 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
   (cumulative magnification of the ended gesture) is ignored until its `.ended` (`PinchSession.gestureEndPending`); it
   used to start a new session at the current scale with base 1 and multiply it again — the one-frame jump 2× → 4× at
   the lift seen in the recording (frames 0.97 → 0.98 s), the original "ugly snap". `USER-s4.md` addendum.
+- D26 (2026-10-19, user amendment, design only — `docs/progress/M8b-s0.md`) Scaling header API = one member
+  `ZTronScrollView.withScalingHeader(size: .fixed(min:max:) | .aspectRatio(_:min:) | .fit(min:), scalingBehavior: .preserve | .stretch,
+  snap:, fade:) { header in … }` returning `Self` (builder type-erased; no `ZTronScalingHeaderScrollView`, no forwarding file). The header
+  PRECEDES the content: its resting height is reserved in `adjustedContentInset.top`, it is drawn in the viewport overlay with its top edge
+  pinned, also above a horizontal scroll view (a fixed banner there). Collapse = shrink from the bottom; `.stretch` grows by the rubber-banded
+  overscroll, `.preserve` leaves a gap below the header. Live geometry = the TransformHost pattern: a `ViewModifier` leaf on the `.target`
+  channel applies an animatable `frame(height:)` to the header placeholder (lockstep with the content transform under transactions; the
+  header body is never re-evaluated). Children read it ONLY through `ZTronHeaderGeometryReader(header, of:)`, the existing reader tier over
+  `ZTronScrollGeometry.header`; `ZTronHeaderProxy` exposes no geometry, so a hot read in the builder's scope is impossible. Rejected: an
+  ObservableObject / @Observable `headerGeo` (object-wide invalidation on 15–16, no derived gating, builder-scope hazard). Refresh API single
+  source = S9's `refresher`; every UIScrollViewDelegate method also an `onZTronScroll…` modifier (M8-chrome §7b, task M8-8 on M7's hub:
+  delegate first, then modifiers in application order; `willEndDragging` target threaded; `shouldScrollToTop` ANDed).
 - D16 (user, 2026-10-18) Physics and the post-rotation re-centering are generated and tested by **Fable 5.1**
   (builder agents with model fable). Re-centering ports ZTronMapKit's normalized-centre discipline
   (ContentGeometry: capture before resize, restore = centre × newContentSize − newViewport/2, clamp, centre smaller
@@ -227,3 +246,4 @@ Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (≤ 2 simulators at 
 | 2026-10-18 | Opus 5.5 #2 orchestrator | recovered MC/M1; M2–M9 designs (Fable); MC spike; M2–M4 builds; M5 (a); zoomed-axes + user image demo; physics calibration (Fable); ZTronMapKit re-centering port (Fable, user tree still failing) | 72% → 88% |
 | 2026-10-19 | Fable 5.1 #3 side session s3-C | criterion C: probe green (3 configs); staggered-lift fix D20 (PanCoordinator), PinchPanTests 15, ZoomUITests 7/7 ×3; user reports → D21 (pixel-rounded effect size: ContentTransform + resizeTick tolerance), D22 (zoom animation = native ease-in-out, spike `-zoomCal` calibration, ZoomTiming), D23 (hand-off overscroll), D24 (pinch overscroll rubber band, didZoom cadence kept), D25 (lift snap = trailing magnify sample, from the user's video); unit 178 on 27.0 + 17.5, physics 111; ResizeUITests 13/13 (27.0), ZoomUITests + overscroll green on both | all 10% → 20% · Fable 18% → 39% |
 | 2026-10-19 | Fable 5.1 #3 orchestrator, ultracode ×3 | measured the rotation event order; D18/D19 turn-origin capture + settle window; user full-screen tree passes A+B on 27.0 + 17.5; jump monitor = drawn frames; 160 unit tests | all 7% → 10% · Fable 13% → 18% |
+| 2026-10-19 | Fable 5.1 #3 side session M8b-s0 (Architect, design only) | user amendment: SPEC S9/S10/S11/S14 + M8b design §2–3 rewritten (`withScalingHeader`, `.preserve`/`.stretch`, proxy + reader geometry, iOS 15 fallback, counter tests, builder split) + M8-chrome §7b/M8-8 delegate modifiers; D26; A1–A10 for the user; no code | all 20% → 25% · Fable 39% → 49% (upper bound: the orchestrator ran concurrently) |

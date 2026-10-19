@@ -141,7 +141,7 @@ The transform is driven by *target* values. The public `contentOffset`/`zoomScal
 - **Model:** `@MainActor final class ZoomScrollState` (iOS 15+).
   - It is the single source of truth.
   - Observation-backed on 17+, channel-backed on 15–16.
-  - The delegate is held weakly and never observed.
+  - The delegate is held weakly and never observed. The delegate-callback modifiers (S11, Amendment 2026-10-19 (user)) store their closures cold next to it; neither is observed.
   - Inject it into the environment so descendants can opt in.
 - **Physics:**
   - Pure, unit-tested value types: velocity tracker, decay, critically damped spring, rubber band, target resolution, zoom solver.
@@ -332,7 +332,11 @@ SwiftUI's own implementations are private and tied to its UIKit-backed ScrollVie
 One refresh engine sits behind every pull-to-refresh entry point:
 - SwiftUI's `.refreshable`, read from `@Environment(\.refresh)`. Its default style is `.system`.
 - A Refresher-shaped API (below), so code written for Refresher on a SwiftUI `ScrollView` ports by swapping in `ZoomScrollView`.
-- The scaling header's `pullToRefresh` / `pullToLoadMore` (S10).
+- ~~The scaling header's `pullToRefresh` / `pullToLoadMore` (S10).~~ **Amendment 2026-10-19 (user): removed.** The scaling header
+  has no pull-to-refresh, load-more or reach-edge API of its own. A header-equipped scroll view *is* a `ZTronScrollView`, so the two
+  entry points above (the `refresher(…)` members / `ztronRefresher` twins, and `.refreshable`) plus `onZTronScrollReachEdge` are the
+  only refresh and reach-edge API, with or without a header. The indicator's place relative to the header is in S10 "Refresh with
+  the header". (Amendment text uses the repo names of the CLAUDE.md map; unamended text keeps the `ZoomScroll` spelling.)
 
 If both `.refreshable` and an explicit refresher are set, the explicit one wins. Document this.
 
@@ -373,7 +377,8 @@ Calibrate the defaults side by side with UIRefreshControl.
 - Top pull = refresh.
 - Bottom pull = load more, with configurable bottom content padding while it's active.
 - Horizontal scroll views get leading/trailing equivalents.
-- Add `onZoomScrollReachEdge(_:threshold:perform:)`. It covers "did reach bottom" and fires once per arrival.
+- Add `onZoomScrollReachEdge(_:threshold:perform:)`. It covers "did reach bottom" and fires once per arrival. Amendment 2026-10-19 (user):
+  it is the only reach-edge API; the scaling header's former `scrollViewDidReachBottom` is gone.
 
 ### Behavior
 
@@ -395,90 +400,209 @@ Calibrate the defaults side by side with UIRefreshControl.
 
 ## S10 · Scaling header
 
-A header that collapses from max to min height as content scrolls, sticks at min height, and can stretch on overscroll. The reference reaches the underlying UIScrollView through UIKit introspection; ours must stay pure SwiftUI.
+> **Amendment 2026-10-19 (user).** This section is rewritten. The header is no longer a separate container type that mirrors
+> ScalingHeaderScrollView's modifiers: it is one member on `ZTronScrollView`, `withScalingHeader(size:scalingBehavior:…)`; the
+> header **precedes the content** (the first thing, above it, also on a horizontal scroll view); and the two reactions to a pull
+> past the top are `.preserve` and `.stretch`. The refresh and reach-edge API is S9's only (no `pullToRefresh` /
+> `pullToLoadMore` / `scrollViewDidReachBottom` here). Rules carried over from the previous text are tagged *(kept)*; the rest is
+> new. Amendment text uses the repo names (CLAUDE.md map: `ZTron…`, `ztronScroll…`, `onZTronScroll…`); unamended text elsewhere in
+> this document keeps the original `ZoomScroll` spelling. Porting from the reference is by the migration table at the end, not by
+> swapping a type.
 
-### API
+A banner-style header laid out as the first thing of the scroll view, above the content. It collapses from its resting height to a
+minimum as the content scrolls up (shrinking from the bottom, its top edge pinned), stays at the minimum while the content scrolls by,
+and reacts to a pull past the top either not at all (`.preserve`) or by growing with the pull (`.stretch`). The reference reaches the
+underlying UIScrollView through UIKit introspection; ours stays pure SwiftUI *(kept)*.
 
-Mirror the reference's names so its code ports by swapping the type.
+### API (amended)
 
-**`ZoomScalingHeaderScrollView { header } content: { content }`.** A header builder that receives `ZoomHeaderGeometry` is also available. It carries:
-- `progress`
-- `height`
-- `stretch`
-- `minHeight` / `maxHeight` (the resolved range)
+```swift
+extension ZTronScrollView {
+    /// Installs a scaling header above the content. Returns the same view type: every other member keeps working in
+    /// any order, and the header-equipped view is still a ZTronScrollView (state, twins, readers, refresher, delegate).
+    public func withScalingHeader<Header: View>(
+        size: ZTronHeaderSize,
+        scalingBehavior: ZTronHeaderScalingBehavior = .preserve,
+        snap: ZTronHeaderSnap = .disabled,
+        fade: ZTronHeaderFade? = nil,
+        @ViewBuilder header: @escaping (ZTronHeaderProxy) -> Header) -> Self
+}
+public enum ZTronHeaderSize: Equatable, Sendable {
+    case fixed(min: CGFloat = 0, max: CGFloat)     // resting height = max, collapses to min; no measurement
+    case aspectRatio(CGFloat, min: CGFloat = 0)    // resting height = width ÷ ratio (ratio = width/height, SwiftUI's convention); no measurement
+    case fit(min: CGFloat = 0)                     // resting height = the header's ideal height at the scroll view's width (measured)
+}
+public enum ZTronHeaderScalingBehavior: Sendable { case preserve, stretch }
+public struct ZTronHeaderSnap: Equatable, Sendable {
+    public static let disabled: Self
+    public static func immediately(at positions: [CGFloat] = [0, 1]) -> Self            // positions are collapse progress: 0 expanded, 1 collapsed
+    public static func afterFinishAccelerating(at positions: [CGFloat] = [0, 1]) -> Self
+}
+public struct ZTronHeaderFade: Equatable { public static func linear(to color: Color, from start: CGFloat = 0.5) -> Self }
+public struct ZTronHeaderGeometry: Equatable, Sendable {
+    public var progress: CGFloat        // 0 expanded … 1 collapsed
+    public var height: CGFloat          // live height, stretch included
+    public var stretch: CGFloat         // ≥ 0; always 0 under .preserve
+    public var minHeight: CGFloat
+    public var restingHeight: CGFloat   // the resolved resting height (the former `maxHeight`)
+    public var width: CGFloat           // the scroll view's width
+    public static func quantizedProgress(steps: Int) -> (ZTronHeaderGeometry) -> Int   // a transform for the reader: round(progress · steps)
+}
+/// Handle passed to the header builder. It exposes NO geometry, hot or cold: geometry is delivered only inside a reader scope.
+public struct ZTronHeaderProxy: Equatable { }
+/// Re-renders its content only when `transform(geometry)` changes (every frame for the identity form).
+public struct ZTronHeaderGeometryReader<Value: Equatable, Content: View>: View {
+    public init(_ header: ZTronHeaderProxy? = nil, of transform: @escaping (ZTronHeaderGeometry) -> Value,
+                @ViewBuilder content: @escaping (Value) -> Content)
+    public init(_ header: ZTronHeaderProxy? = nil, @ViewBuilder content: @escaping (ZTronHeaderGeometry) -> Content)
+        where Value == ZTronHeaderGeometry
+}
+public enum ZTronHeaderSnapTarget: Equatable, Sendable { case expanded, collapsed, progress(CGFloat), height(CGFloat) }
+extension ZTronScrollState {
+    public var headerGeometry: ZTronHeaderGeometry? { get }               // hot (tracked on 17+); nil without a header; read it in leaves only
+    public func snapHeader(to target: ZTronHeaderSnapTarget, animated: Bool = true)   // clamps; called before the first layout it applies at the first layout
+}
+extension ZTronScrollGeometry { public var header: ZTronHeaderGeometry? }  // for ZTronScrollReader / onScrollGeometryChange transforms
+```
 
-**Modifiers:**
+Call site (the user's sketch, kept):
 
-| Modifier | Behavior |
-|---|---|
-| `height(min:max:)` | Optional; both bounds optional. Omitted `max` = the header's natural height. Omitted `min` = 0, so the header can compress to nothing. No fixed defaults (see "Natural height" below and the doc comment in S11). |
-| `collapseProgress(_: Binding<CGFloat>)` | 0 = expanded, 1 = collapsed. |
-| `allowsHeaderCollapse()` | Shrink instead of sliding up. |
-| `allowsHeaderGrowth()` | Stretch on top overscroll. |
-| `setHeaderSnapMode(_:)` | `.disabled`, `.immediately`, `.afterFinishAccelerating`. |
-| `headerSnappingPositions(snapPositions:)` | 0 = collapsed, 1 = expanded. |
-| `initialSnapPosition(initialSnapPosition:)` | 0 = collapsed, 1 = expanded. |
-| `snapHeaderToState(state:animated:)` | `.collapsed`, `.expanded`, `.custom(height)`. |
-| `scrollToTop(resetScroll:)` | Resets the binding to `false` when done. |
-| `pullToRefresh(isActive:perform:)` | Routes through S9. |
-| `pullToLoadMore(isActive:contentOffset:perform:)` | Routes through S9. |
-| `scrollViewDidReachBottom(perform:)` | Routes through `onZoomScrollReachEdge`. |
-| `hideScrollIndicators()` | |
+```swift
+ZTronScrollView(.vertical, showsIndicators: false) { … }
+    .withScalingHeader(size: .aspectRatio(16/9), scalingBehavior: .stretch, fade: .linear(to: .black)) { header in
+        Image("banner").resizable().scaledToFill()
+            .overlay(alignment: .bottomLeading) { BannerTitle(header) }      // the "sticky overlay"
+    }
+struct BannerTitle: View {
+    let header: ZTronHeaderProxy                                             // installed through the initializer
+    var body: some View {
+        ZTronHeaderGeometryReader(header, of: \.height) { h in Text("Title").font(.system(size: 17 + 0.1 * h)) }
+    }
+}
+```
 
-As in the reference, snap positions use the inverse convention of collapse progress (0 means collapsed for snaps, expanded for progress). Keep it for drop-in compatibility, and document it prominently.
+**The reactive-geometry pattern (why not an ObservableObject).** The header builder runs once, cold. Live geometry reaches a child only
+through `ZTronHeaderGeometryReader`, a derived reader of the S4 tier table built on the same engine as `ZTronScrollReader` (tracked reads
+on 17+, channel subscription on 15–16). Reasons (design M8b §2.5): an `ObservableObject` invalidates every observer every frame whatever
+property it reads, so a quantized or "collapsed past 50 %" child could never be cheaper than per frame; an `@Observable` object is 17+
+only and its per-property tracking buys nothing here because `height`, `progress` and `stretch` change together every frame; and an
+object handed to the builder invites hot reads in the builder's own scope, which would re-run the whole header body per frame. The proxy
+makes that impossible by construction. Children that take the proxy in their initializer, as in the sketch, update only inside their
+reader scopes; children without a reader never update because of scrolling.
 
-Unlike the reference, `height(min:max:)` has no fixed 150 / 350 defaults. Code ported from it that relied on those defaults must pass them explicitly; say so in the migration notes.
+**Size variants.**
+- `.fixed(min:max:)`: resting height `max`, collapse band `max − min`. Labels are mandatory (no positional `(100, 150)`), so the bounds
+  can't be swapped silently.
+- `.aspectRatio(r, min:)`: resting height `W / r`, `W` = the scroll view's (viewport) width. Recomputed when `W` changes (rotation) as a
+  discrete inset change (S7 rules: the visible centre is preserved with the header captured). This is the "fit" case computed instead of
+  measured and the right choice for an image banner: `.aspectRatio(16/9)` equals what an `Image` with `.aspectRatio(16/9, contentMode: .fit)`
+  would measure to, without measurement machinery.
+- `.fit(min:)`: resting height = the header's ideal height at width `W` (height proposed `nil`), measured per "Natural height" below
+  *(kept)*; re-measured on width, Dynamic Type and (16+) header content changes, each a discrete inset change. Prefer `.fixed` /
+  `.aspectRatio` when the height is known.
+- `min` defaults to 0 (the header can collapse to nothing). `min ≥ resting` → fixed-height header ("Degenerate range").
 
-It *is* a `ZoomScrollView`:
-- Every ZoomScrollView and SwiftUI-parity API works on it.
-- `ZoomScrollState` observation works on it.
-- Zoom is off by default.
+**Removed API (amendment: replaced, never duplicated).** `pullToRefresh`, `pullToLoadMore` → `refresher(…)` / `ztronRefresher` /
+`.refreshable` (S9); `scrollViewDidReachBottom` → `onZTronScrollReachEdge(.bottom)` (S9); `hideScrollIndicators` → `showsIndicators: false`
+/ `scrollIndicators(.hidden)`; `height(min:max:)` → `size:`; `allowsHeaderGrowth` → `scalingBehavior: .stretch`; `allowsHeaderCollapse` →
+always on (collapse = shrink from the bottom; the reference's slide-up mode is not offered); `setHeaderSnapMode` + `headerSnappingPositions`
+→ `snap:`; `initialSnapPosition`, `snapHeaderToState` → `state.snapHeader(to:animated:)`; `collapseProgress(Binding)` →
+`ZTronHeaderGeometryReader(of: \.progress)` or `ZTronScrollReader(of: { $0.header?.progress })` (S4.6 forbids mirroring a hot value into a
+parent Binding); `scrollToTop(resetScroll:)` → `state.scrollToTop(animated:)`. There is no `ZTronScalingHeaderScrollView` type. Snap
+positions and progress share one convention (0 = expanded, 1 = collapsed); the reference's inverse snap convention is gone.
 
 ### Behavior
 
-- **Natural height** (no `height(min:max:)`, or `max` omitted):
-  - The header lays out at its natural size: its ideal height for the scroll view's width (width proposed, height unspecified).
-  - Measure that ideal height directly. Never derive it from the height currently on screen, which would feed back into itself.
-    - On 16+, a `Layout` can ask the single header instance for its ideal size while placing it at the current height.
-    - On 15, cache the height the header reports while fully expanded.
-    - Never build a hidden second copy of the header, which would duplicate its state.
-  - Re-measure when the width, the Dynamic Type size or the header's content changes. A new natural height changes the reserved top inset as a discrete inset change (S7 rules), never per frame.
-- **Zero height:**
-  - With `min` omitted (so 0), a fully collapsed header compresses to zero height. At zero height it's hidden from hit-testing and accessibility.
-  - A header made only of flexible views has little or no natural height, so it compresses to (nearly) zero even when expanded. Examples: a `Color`, a `GeometryReader`, a resizable image without an aspect ratio.
-  - In DEBUG builds, print a console warning when the resolved max is under 1 pt. Name the fix: explicit bounds, or an ideal height such as `.frame(idealHeight: 280)`.
-- **Degenerate range:** if `min` ≥ the resolved max (including both given with `min` > `max`):
-  - The header has a fixed height of `min`.
-  - There's no collapse band, `collapseProgress` stays 0, and snapping is off. Growth still works.
-  - Warn in DEBUG when both bounds were given that way.
-- **Programmatic snap:** `snapHeaderToState(.custom(height))` clamps to the resolved range.
-- **Never change the content's size or proposal as the header collapses.** Changing content height mid-scroll corrupts the scroll offset; this is the reference's key insight.
-  - Reserve the resolved max height as the top content inset. It changes only when the natural height does (discretely), never during a collapse.
-  - Draw the header in the viewport layer above the content.
-  - Derive its height from the offset in a leaf scope.
-- **Collapse band:** the first (resolved max − min) points of scroll past the top.
-  - Without `allowsHeaderCollapse`, the header slides up instead of shrinking, until only min height remains.
-- **Growth:** in top overscroll, the header grows by the overscroll amount, anchored at the top, instead of exposing empty space.
-- **Refresh with the header:**
-  - With growth on, `overlay`-style indicators sit on top of the stretched header.
-  - With growth off, indicators sit in the gap between the header and the content.
-- **Snapping (only inside the band):**
-  - `.immediately` resolves the release target to the nearest snap position. It is velocity-aware and goes through the normal target pipeline, so `willEndDragging` sees the snapped target.
-  - `.afterFinishAccelerating` animates to the nearest snap position once deceleration ends inside the band.
-- **Interaction:**
-  - The header stays interactive; its buttons work.
-  - Drags that start on the header scroll the content.
-  - Content scrolls under the header; the header is on top in z-order.
-- **The current header height counts as part of the top inset** for all of these:
-  - scroll-indicator insets
-  - pinned section headers in the ZoomLazy stacks
-  - `scrollTo` anchors
-  - refresh-indicator placement
-  - the visible center (S7)
-- **Performance:**
-  - Header subviews that read `progress` update per frame during collapse.
-  - The rest of the header, and all content, stay static.
-  - Provide a quantized progress reader for expensive header parts.
+**Placement: the header precedes the content (amended).**
+- The header is the first thing of the scroll view: it occupies the first `R` points (its resting height) of the viewport's height, below
+  the safe area and any `safeAreaInset` bar the app placed above, and the content starts below it. It is never laid out inside the content:
+  its resting height is reserved as part of `adjustedContentInset.top` (`aci.top = safe.top + R + contentInset.top (+ refresh hold)`), the
+  content's proposal, size and layout never change while the header collapses or stretches (S4.1), the header is drawn in the viewport
+  layer above the content (z-order), and accessibility reads it before the content (sort priority).
+- **Horizontal scroll views:** the header is stacked above the horizontally scrolling content, full viewport width, the same way (a top
+  inset of `R`); the content's height proposal is the viewport height minus the header. The header is driven by the **vertical** offset
+  only, so on a view whose `axes` exclude `.vertical` it is a fixed banner: no collapse, no stretch, `progress` 0, `stretch` 0 (`.stretch`
+  is inert there; documented). With both axes, or when zoomed content pans vertically (D15), the vertical offset drives it as on a
+  vertical view.
+- `W` = the viewport width on every axis configuration.
+
+**Geometry (amended; exact rules).** `top0 = safe.top` (the header's top edge, fixed); `R` resting height; `min`; `band = max(0, R − min)`;
+`o′` = the header-relative offset = content offset + `aci.top` **excluding** the refresh hold, so rest is `o′ = 0`, a pull past the top is
+`o′ < 0` and scrolling up is `o′ > 0` (the pan's rubber band already applies to `o′`, which gives the pull its feel); `c = clamp(o′, 0, band)`
+(collapse travel); `g = max(0, −o′)` (overflow).
+
+| | `.preserve` | `.stretch` |
+|---|---|---|
+| live height `h` | `R − c` | `R − c + g` |
+| header frame / proposal | `(0, top0, W, h)` / `(W, h)`, clipped | same |
+| top edge | pinned at `top0`, always | pinned at `top0`, always |
+| pull past the top (`g > 0`) | no consequence on the header: height `R`; the content pulls away and a gap `g` opens between the header's bottom and the content's top (the scroll view's background shows; a refresh indicator lives there) | the header grows by `g` from its bottom edge; a `scaledToFill` child zooms in with the pull; the header's bottom edge stays glued to the content's top (no gap) |
+| scroll up (`0 < o′ ≤ band`) | shrinks from the bottom, top pinned: `h = R − c` | same |
+| past the band | `h = min`; the content scrolls by under it; with `min = 0` it has vanished | same |
+| `progress` / `stretch` | `band > 0 ? c / band : 0` / `0` | same / `g` |
+
+- The header is **clipped** to its frame and **proposed its live height**: an `.overlay(alignment: .bottom…)` inside it is laid out against
+  the live frame, so it sticks to the moving bottom edge during both collapse and stretch (the "sticky overlay") and reads the live height
+  through the reader to resize its own children. Laying the header out at a new height is a layout pass over the header subtree only; no
+  body in the header or in the content is re-evaluated by it (a `GeometryReader` inside the header would be: that is why the reader exists).
+- `fade:` draws a linear gradient from clear (at `start · h` from the top) to `color` (at the bottom edge) over the header, inside the live
+  frame, above the header and below any refresh indicator. It has no hot reads: it follows the frame by layout.
+- `h ≤ 0.5` ⇒ hidden from hit-testing and accessibility *(kept)*. Zoom: the header lives in viewport space and ignores the zoom scale *(kept)*.
+- Nothing here forces bounce: `.stretch` shows only when the vertical axis can bounce (scrollable content with `.automatic`, or
+  `scrollBounceBehavior(.always)`); DEBUG prints a note when `.stretch` is set on a view whose vertical axis cannot bounce. A refresher still
+  forces bounce on its edge (S9).
+
+**Natural height (`.fit`) (kept, adapted).** Measure the ideal height directly, never from the height on screen (which would feed back): on
+16+ a `Layout` asks the single header instance for its ideal size while placing it at the live height; on 15 the host runs one measuring
+layout pass (the header at its ideal height, cropped to the live frame, so nothing visible changes) at the first layout and on width or
+Dynamic Type change, and caches the result; 15 cannot see header *content* changes (documented gap; use `.aspectRatio`/`.fixed`, or change
+the header's identity). Never a hidden second copy. A new resting height is a discrete inset change (S7), never per frame.
+
+**Zero height, degenerate range (kept).** `min` 0 → the header compresses to zero at full collapse and is hidden from hit-testing and
+accessibility; a header made only of flexible views has (nearly) no natural height under `.fit` (DEBUG warning naming the fix: `.fixed`,
+`.aspectRatio`, or `.frame(idealHeight:)`); `min ≥ R` (including `.fixed` with `min > max`) → fixed height `min`, no band, `progress` 0,
+snapping off, `.stretch` still grows; DEBUG warning when both bounds were given that way.
+
+**Refresh with the header (amended).** Only S9's API. The indicator placement follows from the live header height: with `.stretch` the
+hold `H` stretches the header by `H` and the indicator floats over the stretched band (overlay placement whatever `overlay:` says, because
+there is no gap); with `.preserve` the indicator sits in the gap between the header's bottom and the content's top (height `H` while
+refreshing). Load-more at the bottom is unaffected by the header.
+
+**Snapping (kept; convention amended).** Only inside the band; positions as collapse progress (0 expanded, 1 collapsed; default `[0, 1]`).
+`.immediately` resolves the release target to the nearest position, velocity-aware, through the normal target pipeline after the user's
+target behavior (design M8b Q3), so `willEndDragging` sees the snapped target. `.afterFinishAccelerating` animates to the nearest position
+once deceleration ends inside the band. `state.snapHeader(to:animated:)` clamps `.height`/`.progress` to the range; called before the
+first layout it applies at the first layout (replaces `initialSnapPosition`).
+
+**Interaction (kept).** The header stays interactive (its buttons work); drags that start on it scroll the content; the content scrolls
+under it.
+
+**The live header height counts as part of the top inset (kept)** for scroll-indicator insets, pinned section headers in the ZTronLazy
+stacks, `scrollTo` anchors (evaluated at the target), refresh-indicator placement and the visible centre (S7).
+
+**Performance (amended tier table, S4.4).** The header builder runs once per cold change (install, resting height, width, Dynamic Type);
+the header's frame modifier is a leaf that updates every frame of collapse/stretch and never re-evaluates the header's body;
+`ZTronHeaderGeometryReader` content updates only when its derived value changes (every frame for the identity form, at most `steps + 1`
+times per full collapse for `quantizedProgress(steps:)`); header children without a reader and all content never update because of
+scrolling. Verify with render counters on both OS paths.
+
+### Migration from ScalingHeaderScrollView (amended)
+
+| Reference | ZTronScrollView |
+|---|---|
+| `ScalingHeaderScrollView { header } content: { content }` | `ZTronScrollView { content }.withScalingHeader(size: …) { _ in header }` |
+| `.height(min: a, max: b)` | `size: .fixed(min: a, max: b)`; no 150/350 defaults *(kept)*: pass them |
+| `.allowsHeaderGrowth()` | `scalingBehavior: .stretch` |
+| `.allowsHeaderCollapse()` | the default (shrink from the bottom); the slide-up mode is not offered |
+| `.setHeaderSnapMode(.immediately)` + `.headerSnappingPositions(snapPositions: [0, 0.5, 1])` | `snap: .immediately(at: [1, 0.5, 0])` (positions inverted: ours are collapse progress) |
+| `.initialSnapPosition(initialSnapPosition: 0)` | `state.snapHeader(to: .collapsed, animated: false)` |
+| `.snapHeaderToState(state: $s, animated:)` | `state.snapHeader(to:animated:)` |
+| `.collapseProgress($p)` | `ZTronHeaderGeometryReader(header, of: \.progress) { p in … }` |
+| `.scrollToTop(resetScroll: $b)` | `state.scrollToTop(animated: true)` |
+| `.pullToRefresh(isActive:perform:)` / `.pullToLoadMore(isActive:contentOffset:perform:)` | `.refresher(…)` / `.refresher(edges: [.bottom], …)` (S9) |
+| `.scrollViewDidReachBottom(perform:)` | `.onZTronScrollReachEdge(.bottom, perform:)` (S9) |
+| `.hideScrollIndicators()` | `showsIndicators: false` |
+| header closure receiving the progress every frame | `ZTronHeaderGeometryReader(header) { geo in … }` around the part that needs it |
 
 ## S11 · Public API (target shape; refine names if needed)
 
@@ -507,37 +631,17 @@ extension ZoomScrollView {   // S8 strategy 2: same-name members returning Self,
     // …one per inventory item, each with a `zoomScroll`-prefixed View-level twin
 }
 
-// S10 scaling header (modifiers in S10's table)
-public struct ZoomScalingHeaderScrollView<Header: View, Content: View>: View {
-    public init(@ViewBuilder header: @escaping () -> Header,
-                @ViewBuilder content: @escaping () -> Content)
-    public init(@ViewBuilder header: @escaping (ZoomHeaderGeometry) -> Header,
-                @ViewBuilder content: @escaping () -> Content)
-
-    /// Sets the range the header collapses through.
-    ///
-    /// Both bounds are optional. Without this modifier, or with `max` omitted, the
-    /// header uses its natural height: its ideal height at the scroll view's width,
-    /// re-measured when the width, Dynamic Type size or header content changes.
-    /// `min` defaults to `0`.
-    ///
-    /// - Important: The header compresses to zero height when:
-    ///   - `min` is omitted and the header is fully collapsed. The header is then
-    ///     hidden from hit-testing and accessibility. Pass a `min` to keep a sticky bar.
-    ///   - The header has little or no natural height because its content is purely
-    ///     flexible: for example a `Color`, a `GeometryReader`, or a resizable image
-    ///     without an aspect ratio. Pass a `max`, or give the header an ideal height
-    ///     with `.frame(idealHeight:)`. DEBUG builds print a warning in this case.
-    ///
-    /// If `min` is greater than or equal to the resolved maximum, the header has a
-    /// fixed height of `min`: it doesn't collapse or snap, and `collapseProgress`
-    /// stays `0`.
-    ///
-    /// - Note: Unlike ScalingHeaderScrollView, there are no fixed 150/350 defaults.
-    ///   Code ported from it that relied on them must pass them explicitly.
-    public func height(min: CGFloat? = nil, max: CGFloat? = nil) -> Self
-    // other modifiers: S10's table
+// S10 scaling header — Amendment 2026-10-19 (user): one member instead of a container type; full signatures in S10 "API".
+extension ZTronScrollView {
+    public func withScalingHeader<Header: View>(size: ZTronHeaderSize, scalingBehavior: ZTronHeaderScalingBehavior = .preserve,
+                                                 snap: ZTronHeaderSnap = .disabled, fade: ZTronHeaderFade? = nil,
+                                                 @ViewBuilder header: @escaping (ZTronHeaderProxy) -> Header) -> Self
 }
+// ZTronHeaderSize (.fixed(min:max:) / .aspectRatio(_:min:) / .fit(min:)), ZTronHeaderScalingBehavior (.preserve / .stretch),
+// ZTronHeaderSnap, ZTronHeaderFade, ZTronHeaderGeometry, ZTronHeaderProxy (exposes no geometry), ZTronHeaderGeometryReader,
+// ZTronHeaderSnapTarget: see S10. No `height(min:max:)` and no `ZTronScalingHeaderScrollView`; the rules of the former doc
+// comment (natural height, zero height, min ≥ max → fixed height, no 150/350 defaults) now live in S10 "Size variants" and
+// "Zero height, degenerate range".
 
 @MainActor public final class ZoomScrollState {   // Observation-backed on 17+, channels on 15–16
     public private(set) var contentOffset: CGPoint        // presentation, hot
@@ -549,6 +653,8 @@ public struct ZoomScalingHeaderScrollView<Header: View, Content: View>: View {
     // UIKit commands: setContentOffset(_:animated:), setZoomScale(_:animated:), zoom(to:animated:),
     // scrollRectToVisible(_:animated:), scrollToTop(animated:), stopScrollingAndZooming(), flashScrollIndicators()
     // Refresh: beginRefreshing(), endRefreshing()
+    // Scaling header (Amendment 2026-10-19 (user)): headerGeometry (hot, nil without a header), snapHeader(to:animated:);
+    // ZoomScrollGeometry gains `header: ZTronHeaderGeometry?` for reader / geometry-change transforms.
 }
 
 public struct ZoomScrollViewReader<Content: View>: View {
@@ -577,6 +683,43 @@ public struct ZoomScrollReader<Value: Equatable, Content: View>: View {
 - **Zoom:** willBeginZooming → didZoom (+ didScroll)… → [bounce] → didEndZooming(atScale:).
 - **`didScroll`** fires for every offset change (including zoom, programmatic, transaction-driven motion and refresh pulls), at most once per frame.
 - **SwiftUI-style callbacks** (phase, geometry, visibility) fire in the same order relative to these as in native.
+
+### Delegate callbacks as modifiers — Amendment 2026-10-19 (user)
+
+Every `UIScrollViewDelegate` method also exists as a modifier, an alternative to the delegate object. Names follow CLAUDE.md
+(`onZTronScroll…`). Each is a member of `ZTronScrollView` returning `Self` (binds to that view only) and a same-name `View`
+modifier (environment-backed; binds to every `ZTronScrollView` below it, nesting included, like the M7 observer twins). Applied
+directly to a `ZTronScrollView` the member wins, so there is no ambiguity. Closures are `@MainActor` and receive the
+`ZTronScrollState`, like the delegate.
+
+| UIScrollViewDelegate | Modifier (member on `ZTronScrollView` → `Self`; twin on `View` → `some View`) |
+|---|---|
+| `scrollViewDidScroll(_:)` | `onZTronScrollDidScroll(_ action: @MainActor @escaping (ZTronScrollState) -> Void)` |
+| `scrollViewDidZoom(_:)` | `onZTronScrollDidZoom(_ action: @MainActor @escaping (ZTronScrollState) -> Void)` |
+| `scrollViewWillBeginDragging(_:)` | `onZTronScrollWillBeginDragging(_ action: @MainActor @escaping (ZTronScrollState) -> Void)` |
+| `scrollViewWillEndDragging(_:withVelocity:targetContentOffset:)` | `onZTronScrollWillEndDragging(_ action: @MainActor @escaping (ZTronScrollState, _ velocity: CGPoint /* pt/ms */, _ targetContentOffset: inout CGPoint) -> Void)` |
+| `scrollViewDidEndDragging(_:willDecelerate:)` | `onZTronScrollDidEndDragging(_ action: @MainActor @escaping (ZTronScrollState, _ willDecelerate: Bool) -> Void)` |
+| `scrollViewWillBeginDecelerating(_:)` | `onZTronScrollWillBeginDecelerating(_ action: @MainActor @escaping (ZTronScrollState) -> Void)` |
+| `scrollViewDidEndDecelerating(_:)` | `onZTronScrollDidEndDecelerating(_ action: @MainActor @escaping (ZTronScrollState) -> Void)` |
+| `scrollViewDidEndScrollingAnimation(_:)` | `onZTronScrollDidEndScrollingAnimation(_ action: @MainActor @escaping (ZTronScrollState) -> Void)` |
+| `viewForZooming(in:)` | — no modifier: replaced by `zoomRange(min:max:)` |
+| `scrollViewWillBeginZooming(_:with:)` | `onZTronScrollWillBeginZooming(_ action: @MainActor @escaping (ZTronScrollState) -> Void)` (no zoom view) |
+| `scrollViewDidEndZooming(_:with:atScale:)` | `onZTronScrollDidEndZooming(_ action: @MainActor @escaping (ZTronScrollState, _ scale: CGFloat) -> Void)` |
+| `scrollViewShouldScrollToTop(_:)` | `onZTronScrollShouldScrollToTop(_ predicate: @MainActor @escaping (ZTronScrollState) -> Bool)` |
+| `scrollViewDidScrollToTop(_:)` | `onZTronScrollDidScrollToTop(_ action: @MainActor @escaping (ZTronScrollState) -> Void)` |
+| `scrollViewDidChangeAdjustedContentInset(_:)` | `onZTronScrollDidChangeAdjustedContentInset(_ action: @MainActor @escaping (ZTronScrollState) -> Void)` |
+
+Coexistence with a delegate object:
+- Both fire, from the same call sites, with the cadence and order above (`didScroll`/`didZoom` at most once per frame): the delegate
+  first, then the modifiers in application order (environment twins outermost first, then the members).
+- `willEndDragging`: `targetContentOffset` is threaded through the delegate, then each modifier in that order; the last value is the
+  target the release lands on.
+- `shouldScrollToTop`: the answer is the conjunction of the delegate's and every predicate's (any veto wins; `true` when none is set).
+- Several modifiers of one kind all fire (they append, never replace), so a wrapper view can add its own without hiding the app's.
+- Modifier closures are stored cold (config / environment, like the M7 observer boxes), never observed, replaced on every body
+  evaluation of their owner (no stale closures) and removed when the view disappears. Attaching them re-evaluates no content body (S4).
+- Velocity is in pt/ms as in UIKit and the delegate (`ZTronScrollPhaseChangeContext.velocity`, M7, stays pt/s like native SwiftUI).
+- Design: M8-chrome §7b (task M8-8, on M7's `ObserverHub`).
 
 ## S12 · Gestures & content interaction
 
@@ -647,8 +790,8 @@ The demo app includes:
   - ScrollViewReader and ScrollPosition jump menus
 - **Refresh and header**
   - a refresher gallery: system, default, overlay on an image, custom indicator, completion-handler variant, load-more, `.refreshable` mapping
-  - a scaling-header profile screen (avatar scale, title fade, both snap modes, growth plus overlay refresh)
-  - a map-style header
+  - a scaling-header profile screen (`.fixed` size, `.preserve`, avatar scale and title fade through the reader, both snap modes, system refresher) — Amendment 2026-10-19 (user): names per S10
+  - a banner screen (`.aspectRatio(16/9)`, `.stretch`, fade, title font from the live height, overlay refresher, horizontal-axis toggle) — the former map-style header
 - **Instrumentation**
   - a live state/phase readout and an event log of delegate + SwiftUI callbacks
   - per-tier render counters, measured fps, and an OS-path switch
@@ -678,17 +821,15 @@ Run each test on both the preferred and the forced-fallback paths.
   - `done` is idempotent; the task is cancelled on disappear; the action runs once per pull
   - the offset hold, and the animated return after refreshing
   - refresh is blocked while zoomed
-- **Scaling header:**
-  - height and progress math across the band, growth and snapping (both modes, with velocity)
-  - `snapHeaderToState`, including clamping `.custom` heights to the resolved range
-  - inset-dependent placement: indicators, pinned headers, `scrollTo`
-  - natural height:
-    - with no modifier, only `min`, and only `max`
-    - re-measured on width (rotation), Dynamic Type and content changes, with the inset changing discretely
-  - zero-height cases:
-    - full collapse to 0, hidden from hit-testing and accessibility
-    - a flexible-only header, plus the DEBUG warning
-    - `min` ≥ max: fixed height, progress 0, no snapping
+- **Scaling header** (Amendment 2026-10-19 (user): names per S10):
+  - height and progress math across the band for `.preserve` and `.stretch` (overflow: gap vs growth, top edge pinned, content top), the three `size` variants (`.aspectRatio` = `W / r` and its change on rotation), snapping (both modes, with velocity, positions as collapse progress)
+  - `state.snapHeader(to:)`, including clamping `.height` / `.progress` to the resolved range and the before-first-layout case
+  - inset-dependent placement: indicators, pinned headers, `scrollTo`, refresh indicator (in the gap under `.preserve`, over the stretched band under `.stretch`)
+  - horizontal scroll view: header stacked above, fixed; both axes: driven by the vertical offset
+  - render counters: header builder 0 runs and content body 0 runs per collapse / stretch; reader content runs == distinct derived values; `quantizedProgress(steps:)` ≤ steps + 1; header `@State` survives
+  - natural height (`.fit`): re-measured on width (rotation), Dynamic Type and (16+) content changes, with the inset changing discretely; the 15 measuring pass gives the same resting height
+  - zero-height cases: full collapse to 0, hidden from hit-testing and accessibility; a flexible-only `.fit` header, plus the DEBUG warning; `min` ≥ resting: fixed height, progress 0, no snapping, `.stretch` still grows
+  - delegate modifiers (S11 amendment): each fires at the same site and in the same order as the delegate; `willEndDragging` target threading; `shouldScrollToTop` conjunction; attaching all of them re-evaluates no content body
 - **Arbitration** (with `ReferenceScrollArbiter`):
   - registration, frame updates and unregistration
   - `canFollow` at every edge, zoomed in and at fit, with insets, with content that fits, and with scrolling disabled
@@ -721,7 +862,7 @@ For each item, state how it was verified (counters, `Self._printChanges()`, the 
 - **Ports:** these behave like the originals once ported by swapping the container type:
   - Apple's documentation examples for each SwiftUI scroll API
   - Refresher's examples
-  - ScalingHeaderScrollView's examples, adding an explicit `.height(min: 150, max: 350)` where they relied on its defaults
+  - ScalingHeaderScrollView's examples, ported by the S10 migration table (Amendment 2026-10-19 (user)): `withScalingHeader(size: .fixed(min: 150, max: 350), …)` where they relied on its defaults, refresh through S9
 - **Idle and fps:** no clock ticks at rest; fps on ProMotion is reported.
 - **Inside a pager:** in ZTronPages, each swipe goes to ZoomScroll when it can follow it and to the pager otherwise, on 15/16 (Xcode 26.x), 17, 18 and 27. ZTronPages' G-14 suite runs the same checks from its side.
 
