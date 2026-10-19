@@ -38,9 +38,37 @@ final class ArbitrationParticipant: ScrollArbitrationParticipant {
         self.token = nil
     }
 
-    /// Screen direction of the finger -> axis and sign. Finger right/down moves the content toward a lower offset.
+    /// Rule 5's answer, through the view's `ZTronNestedScrollPolicy` (NESTED §3): `.innerWhileScrollable` is the
+    /// bounds test, `.innerWhenZoomed` is `zoomScale > minimumZoomScale + ε`, `.inner` / `.outer` are constant and
+    /// `.custom` asks the closure with a non-tracked context. Rules 1–4 are the arbiter's and are not affected.
     func canFollow(_ direction: FingerDirection) -> Bool {
-        guard let env = coordinator?.environment(), env.isScrollEnabled else { return false }
+        guard let c = coordinator else { return false }
+        let env = c.environment()
+        let scrollable = Self.canScroll(direction, env: env)
+        switch c.nestedPolicy.kind {
+        case .innerWhileScrollable, .independent:
+            return scrollable
+        case .innerWhenZoomed:
+            return env.isScrollEnabled && c.state.peek.presentationZoom > c.state.minimumZoomScale + Self.zoomEpsilon
+        case .inner:
+            return true
+        case .outer:
+            return false
+        case let .custom(decide):
+            let context = ZTronNestedScrollContext(geometry: c.state.peekGeometry(),
+                                                   minimumZoomScale: c.state.minimumZoomScale,
+                                                   fingerDirection: direction, canFollow: scrollable)
+            return decide(context) == .inner
+        }
+    }
+
+    /// `.innerWhenZoomed`: how far above the minimum scale counts as zoomed (a settled zoom-out lands within this).
+    static let zoomEpsilon: CGFloat = 0.001
+
+    /// Screen direction of the finger -> axis and sign. Finger right/down moves the content toward a lower offset.
+    /// `true` only if the content can move with the finger without rubber-banding (0.5 pt edge slop).
+    static func canScroll(_ direction: FingerDirection, env: PanEnvironment) -> Bool {
+        guard env.isScrollEnabled else { return false }
         let slop: CGFloat = 0.5
         switch direction {
         case .right: return env.axes.contains(.horizontal) && env.boundsX.isScrollable
@@ -60,8 +88,8 @@ final class ArbitrationParticipant: ScrollArbitrationParticipant {
         return c.environment().isMovingWithoutFinger || c.caughtUndecided
     }
 
-    /// The zoom range arrives in M4.
-    var isZoomEnabled: Bool { false }
+    /// Mirrors the resolved zoom range (rule 2: a pinch on a zoomable view never pages).
+    var isZoomEnabled: Bool { coordinator?.state.isZoomEnabled ?? false }
 
     /// `startLocation` is local to the viewport. Not registered yet: we own the swipe.
     func owner(startLocation: CGPoint, translation: CGSize, touchCount: Int) -> ScrollOwner {
@@ -75,13 +103,17 @@ final class ArbitrationParticipant: ScrollArbitrationParticipant {
 /// changes). Lives in a background, so it never touches the content body.
 struct ArbitrationRegistration: ViewModifier {
     @ObservedObject var coordinator: PanCoordinator
+    /// `ZTronScrollView.nestedScrollPolicy(_:)`; nil falls back to the environment twin.
+    var policy: ZTronNestedScrollPolicy?
     @Environment(\.scrollArbiter) private var arbiter
+    @Environment(\.ztronNestedScrollPolicy) private var envPolicy
 
     func body(content: Content) -> some View {
-        coordinator.setArbiter(arbiter)
+        let policy = policy ?? envPolicy
+        coordinator.setArbiter(arbiter, policy: policy)
         return content.background(
             Group {
-                if let arbiter {
+                if let arbiter, !policy.isIndependent {
                     GeometryReader { proxy in
                         let frame = proxy.frame(in: .named(arbiter.coordinateSpaceName))
                         Color.clear

@@ -24,6 +24,10 @@ final class PanCoordinator: ObservableObject {
     private var pendingBegin = false
     /// Arbitration participant; nil without an arbiter in the environment (then nothing of S12 "Inside a pager" runs).
     private(set) var participant: ArbitrationParticipant?
+    /// How this view yields a shared drag to its container (NESTED §3); read by the participant's `canFollow`.
+    private(set) var nestedPolicy = ZTronNestedScrollPolicy.automatic
+    /// The arbiter offered to the `ZTronScrollView`s in this view's content (container role, NESTED §3).
+    let nestedArbiter = NestedScrollArbiter()
     /// The sequence caught motion and the owner is not decided yet (sticky `isMovingWithoutFinger`, design §12 Q3).
     private(set) var caughtUndecided = false
     /// Pinch state machine (design M4 §1); the coordinator is the only object touching both sessions.
@@ -58,14 +62,17 @@ final class PanCoordinator: ObservableObject {
             pinch.centroidSource = .dragOnly
         }
         state.onZoomBounceSettled = { [weak self] in self?.rebaseAfterBounce() }
+        nestedArbiter.container = self
     }
 
     /// Solver geometry shared by the pan bounds and the pinch.
     func makeZoomGeometry() -> ZoomGeometry { state.makeZoomGeometry() }
 
     /// Called by the registration modifier on every body evaluation; cheap unless the arbiter instance changed.
-    func setArbiter(_ arbiter: (any ScrollArbiter)?) {
-        if let arbiter {
+    /// `.independent` opts out of arbitration: no participant, whatever the environment offers.
+    func setArbiter(_ arbiter: (any ScrollArbiter)?, policy: ZTronNestedScrollPolicy = .automatic) {
+        nestedPolicy = policy
+        if let arbiter, !policy.isIndependent {
             if let p = participant, p.arbiter === arbiter { return }
             participant?.unregister()
             participant = ArbitrationParticipant(arbiter: arbiter, coordinator: self)
@@ -78,6 +85,22 @@ final class PanCoordinator: ObservableObject {
     var isSequenceActive: Bool {
         if case .idle = session.phase { return false }
         return true
+    }
+
+    /// `isContainerMoving` for the nested arbiter: live motion, or motion this sequence caught and nobody decided yet.
+    var isMovingForNestedArbiter: Bool { caughtUndecided || environment().isMovingWithoutFinger }
+    /// Could this view take a swipe now (enabled, with an axis)? The nested arbiter answers `.participant` to its
+    /// inners without deciding while this is false (see `PanEnvironment.isContainer`).
+    var canTakeSwipe: Bool {
+        let e = environment()
+        return e.isScrollEnabled && !e.axes.isEmpty
+    }
+
+    /// The viewport-local touch point in the content space the nested arbiter's frames are expressed in.
+    private func nestedStart(_ local: CGPoint) -> CGPoint {
+        let s = state.peek
+        return ZoomSolver.contentPoint(under: local, offset: s.presentationOffset, scale: s.presentationZoom,
+                                       geometry: makeZoomGeometry())
     }
 
     func environment() -> PanEnvironment {
@@ -103,7 +126,13 @@ final class PanCoordinator: ObservableObject {
         env.viewport = m.viewportSize
         env.isMovingWithoutFinger = (state.phase == .decelerating || state.phase == .animating) && !state.isTracking
         env.interruptedVelocity = state.lastInterruptedVelocity
-        env.hasArbiter = participant != nil
+        // Toward a nested container that cannot take the swipe (NESTED §3, R7's `.ztronScrollDisabled` on the
+        // outer): no arbiter for this touch, we behave as if alone. An external (pager) arbiter is always asked.
+        env.hasArbiter = participant != nil && ((participant?.arbiter as? NestedScrollArbiter)?.isArbitrating ?? true)
+        // Container role (NESTED §3) only while this view could take the swipe itself, the session's own touch-down
+        // gate: a scroll-disabled outer (`.ztronScrollDisabled(true)`, R7's idiom) or one without an axis arbitrates
+        // nothing and its inners behave as if alone.
+        env.isContainer = nestedArbiter.hasParticipants && env.isScrollEnabled && !env.axes.isEmpty
         #if DEBUG
         if env.isMovingWithoutFinger { ZTronRenderCounters.increment("pan.movingAtEvent") }
         #endif
@@ -117,6 +146,9 @@ final class PanCoordinator: ObservableObject {
         // DragGesture fallback), so `touchDuration` is never negative or decades long.
         if case let .touchDown(location, _, touchCount) = incoming {
             event = .touchDown(location: location, time: state.now(), touchCount: touchCount)
+            // Container role: the sequence begins at the first finger down (before the catch below stops our motion,
+            // so the snapshot sees it). Without inners, or while we cannot scroll, nothing is asked and nothing begins.
+            if environment().isContainer { nestedArbiter.beginSequence() }
         }
         // A pan synthesized from the remaining finger (the DragGesture died on the second finger) has no DragGesture
         // to end it: the last finger up is its release, from the last synthesized translation.
@@ -182,7 +214,12 @@ final class PanCoordinator: ObservableObject {
             _ = session.handle(.touchesEnded(time: time), env: env)
         }
         switch session.phase {
-        case .idle, .released: caughtUndecided = false; panContinuedFromPinch = false
+        case .idle, .released:
+            caughtUndecided = false; panContinuedFromPinch = false
+            // Container role: the sequence is over (last finger up, or the DragGesture ended / cancelled).
+            nestedArbiter.endSequence()
+            // Participant role toward a nested container: close a sequence it began at our ask (see the arbiter).
+            (participant?.arbiter as? NestedScrollArbiter)?.participantSequenceEnded()
         default: break
         }
     }
@@ -234,9 +271,17 @@ final class PanCoordinator: ObservableObject {
                 state.endDrag(r, tracker: tracker, env: env, settings: release)
             case .endSequence: pendingBegin = false; pinchOwnedPan = false; state.endTracking()
             case let .askOwner(start, translation, touchCount):
-                // Once per sequence, at the hysteresis. No participant (cannot happen: hasArbiter) owns the swipe.
-                let owner = participant?.owner(startLocation: start, translation: translation, touchCount: touchCount)
+                // Once per sequence, at the hysteresis. `owner` is from our side: `.participant` = we drag.
+                // Participant role first (our container's arbiter), then container role: an inner under the touch
+                // that follows the swipe makes us ignore the sequence (three levels: each view talks to its nearest
+                // container; OR-ing an inner's answer into our own `canFollow` is phase 2).
+                var owner = participant?.owner(startLocation: start, translation: translation, touchCount: touchCount)
                     ?? .participant
+                if owner == .participant, env.isContainer,
+                   nestedArbiter.containerOwner(ofDragFrom: nestedStart(start), translation: translation,
+                                                touchCount: touchCount) == .participant {
+                    owner = .container
+                }
                 caughtUndecided = false
                 if owner == .container { state.catchLocksContent = false }
                 queue.insert(contentsOf: session.decided(owner, env: env), at: 0)

@@ -32,6 +32,11 @@ struct PanEnvironment: Equatable {
     /// Content moves without a finger (deceleration, bounce, animation) and nobody is tracking.
     var isMovingWithoutFinger = false
     var hasArbiter = false
+    /// Container role (NESTED §3): a nested `ZTronScrollView` is registered with our arbiter, so the swipe is
+    /// arbitrated at the hysteresis exactly as with `hasArbiter`.
+    var isContainer = false
+    /// Tracking begins at the owner decision (D7) when either side of a nested pair is involved.
+    var arbitrates: Bool { hasArbiter || isContainer }
     /// `ZTronScrollState.lastInterruptedVelocity`, read at recognition (after the catch's `interrupt()`).
     var interruptedVelocity: CGVector = .zero
 }
@@ -108,7 +113,7 @@ struct PanSession: Equatable {
             switch event {
             case let .dragChanged(translation, startLocation, _):
                 let pending = Pending(down: down, caught: caught, startLocation: startLocation, translation: translation)
-                if env.hasArbiter {
+                if env.arbitrates {
                     phase = .awaitingDecision(pending)
                     return [.askOwner(start: startLocation, translation: translation, touchCount: 1)]
                 }
@@ -170,7 +175,9 @@ struct PanSession: Equatable {
         phase = .dragging(drag)
     }
 
-    /// Owner decision for an `.askOwner` effect.
+    /// Owner decision for an `.askOwner` effect, from this view's side: `.participant` = this view drags,
+    /// `.container` = this view ignores the sequence (the coordinator maps the container role onto the same two
+    /// answers: an inner that follows the swipe is `.container` here).
     mutating func decided(_ owner: ScrollOwner, env: PanEnvironment) -> [PanEffect] {
         guard case let .awaitingDecision(pending) = phase else { return [] }
         switch owner {
@@ -186,7 +193,7 @@ struct PanSession: Equatable {
             let caught = env.isMovingWithoutFinger
             phase = .touching(down: time, caught: caught)
             var effects: [PanEffect] = caught ? [.catchMotion] : []
-            if !env.hasArbiter { effects.append(.beginTracking) }
+            if !env.arbitrates { effects.append(.beginTracking) }
             return effects
         case let .dragChanged(_, startLocation, time):
             // The observer missed the touch-down (iOS 17 and older): synthesize it, then recognize.

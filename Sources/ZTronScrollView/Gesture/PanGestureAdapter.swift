@@ -21,6 +21,8 @@ struct PanGestureAdapter: ViewModifier {
     @ObservedObject var coordinator: PanCoordinator
     let axes: Axis.Set
     var doubleTap: DoubleTapZoom?
+    /// `ZTronScrollView.nestedScrollPolicy(_:)` (member); nil = the environment twin.
+    var nestedPolicy: ZTronNestedScrollPolicy?
     let mode = PanGestureMode.current
     @Environment(\.ztronScrollIsEnabled) private var ownEnabled
     @Environment(\.ztronHorizontalBounce) private var bounceX
@@ -32,10 +34,12 @@ struct PanGestureAdapter: ViewModifier {
     @State private var armed = CatchArming()
     @GestureState private var panActive: Bool
 
-    init(coordinator: PanCoordinator, axes: Axis.Set, doubleTap: DoubleTapZoom? = nil) {
+    init(coordinator: PanCoordinator, axes: Axis.Set, doubleTap: DoubleTapZoom? = nil,
+         nestedPolicy: ZTronNestedScrollPolicy? = nil) {
         self.coordinator = coordinator
         self.axes = axes
         self.doubleTap = doubleTap
+        self.nestedPolicy = nestedPolicy
         // The reset runs when SwiftUI ends or cancels the pan; a cancelled one never calls onEnded.
         _panActive = GestureState(wrappedValue: false, reset: { [weak coordinator] _, _ in
             DispatchQueue.main.async { MainActor.assumeIsolated { coordinator?.cancelIfActive() } }
@@ -58,7 +62,7 @@ struct PanGestureAdapter: ViewModifier {
         let tap = doubleTap.map { PinchGestureAdapter.doubleTap(coordinator: coordinator, observer: obs, config: $0) }
         return content
             .modifier(NativeEnabledBridge(coordinator: coordinator))
-            .modifier(ArbitrationRegistration(coordinator: coordinator))
+            .modifier(ArbitrationRegistration(coordinator: coordinator, policy: nestedPolicy))
             .modifier(GatedGestureAttach(mode: mode, pan: pan(send: send), observer: observerGestureBox(send: send),
                                          arming: arming, gated: gated))
             .modifier(PinchGestureAttach(pinch: PinchGestureAdapter.gesture(coordinator: coordinator, observer: observer),

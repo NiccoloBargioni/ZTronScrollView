@@ -10,6 +10,7 @@ public struct ZTronScrollView<Content: View>: View {
     private let content: Content
     private var zoomLimits: ZoomLimits?
     private var doubleTap: DoubleTapZoom?
+    private var nestedPolicy: ZTronNestedScrollPolicy?
     @StateObject private var holder = StateHolder()
 
     public init(_ axes: Axis.Set = .vertical, showsIndicators: Bool = true, @ViewBuilder content: () -> Content) {
@@ -28,7 +29,8 @@ public struct ZTronScrollView<Content: View>: View {
 
     public var body: some View {
         let state = externalState ?? holder.state
-        return ScrollContainer(axes: axes, state: state, content: content, zoomLimits: zoomLimits, doubleTap: doubleTap)
+        return ScrollContainer(axes: axes, state: state, content: content, zoomLimits: zoomLimits, doubleTap: doubleTap,
+                               nestedPolicy: nestedPolicy)
             .environment(\.ztronScrollState, state)
     }
 }
@@ -48,6 +50,14 @@ extension ZTronScrollView {
         copy.doubleTap = enabled ? DoubleTapZoom(scale: scale) : nil
         return copy
     }
+
+    /// How this view yields a drag to the `ZTronScrollView` (or ScrollArbitration container) that holds it; see
+    /// `ZTronNestedScrollPolicy`. Default `.automatic` (UIScrollView parity); `.independent` opts out.
+    public func nestedScrollPolicy(_ policy: ZTronNestedScrollPolicy) -> Self {
+        var copy = self
+        copy.nestedPolicy = policy
+        return copy
+    }
 }
 
 /// Owns the state created by `init(_:showsIndicators:content:)`; created once per view identity.
@@ -64,14 +74,16 @@ struct ScrollContainer<Content: View>: View {
     let content: Content
     let zoomLimits: ZoomLimits?
     let doubleTap: DoubleTapZoom?
+    let nestedPolicy: ZTronNestedScrollPolicy?
     @Environment(\.ztronZoomLimits) private var envLimits
     @Environment(\.ztronDoubleTapZoom) private var envDoubleTap
     @StateObject private var coordinator: PanCoordinator
 
     init(axes: Axis.Set, state: ZTronScrollState, content: Content, zoomLimits: ZoomLimits? = nil,
-         doubleTap: DoubleTapZoom? = nil) {
+         doubleTap: DoubleTapZoom? = nil, nestedPolicy: ZTronNestedScrollPolicy? = nil) {
         self.zoomLimits = zoomLimits
         self.doubleTap = doubleTap
+        self.nestedPolicy = nestedPolicy
         self.axes = axes
         self.state = state
         self.content = content
@@ -83,9 +95,15 @@ struct ScrollContainer<Content: View>: View {
 
     var body: some View {
         let edges = state.contentInsetAdjustmentBehavior.edges(for: axes)
+        // Container role (NESTED §3): the ZTronScrollViews in the content register with this view's arbiter, with
+        // frames in a named space on the content (cold: they do not change while this view scrolls). Constant per
+        // identity, so the environment write never re-evaluates content bodies.
+        let nested = coordinator.nestedArbiter
         return content
+            .environment(\.scrollArbiter, nested)
             .modifier(ContentSizeMeasure(state: state))
             .modifier(NamedSpaceModifier(name: "ztronScroll.content", useNew: state.usesNamedCoordinateSpace))
+            .modifier(NamedSpaceModifier(name: nested.coordinateSpaceName, useNew: state.usesNamedCoordinateSpace))
             .modifier(ContentLayoutHost(axes: axes, useLayout: state.usesLayoutProtocol))
             .modifier(TransformHost(state: state, axes: axes))
             .modifier(NamedSpaceModifier(name: "ztronScroll.viewport", useNew: state.usesNamedCoordinateSpace))
@@ -94,7 +112,8 @@ struct ScrollContainer<Content: View>: View {
             .background(FrameClockDriver(state: state))
             .clipped()
             .contentShape(Rectangle())
-            .modifier(PanGestureAdapter(coordinator: coordinator, axes: axes, doubleTap: doubleTap ?? envDoubleTap))
+            .modifier(PanGestureAdapter(coordinator: coordinator, axes: axes, doubleTap: doubleTap ?? envDoubleTap,
+                                        nestedPolicy: nestedPolicy))
             .onAppear { state.zoomLimits = effectiveLimits }
             .onChangeCompat(of: effectiveLimits) { state.zoomLimits = $0 }
     }
