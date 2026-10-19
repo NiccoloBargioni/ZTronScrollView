@@ -1,8 +1,9 @@
 # ZTronScrollView · Orchestration (resume here)
 
-Last updated: 2026-10-19 (session 3 end, weekly all-models 10% · Fable 18%) · Status: **M0–M4 done · physics
-calibrated (unit) · M5 rotation: user full-screen tree PASSES criteria A+B on 27.0 + 17.5 (D18/D19) → next = criterion C
-(step 2)** · MC freeze blocked (user decision).
+Last updated: 2026-10-19 (session 3 + side session s3-C end, weekly all-models 11% · Fable 22%) · Status: **M0–M4 done ·
+physics calibrated (unit) · M5 rotation: user full-screen tree PASSES criteria A+B on 27.0 + 17.5 (D18/D19) · criterion C
+fixed in code (D20, staggered lift; probe + ZoomUITests 7/7 on 27.0 pref+forced, 17.5 pref), user device check pending →
+next = step 3** · MC freeze blocked (user decision).
 ## Resume in a new session (cheapest path)
 1. Launch in `/Users/admin/Documents/ZTronScrollView` with the role's model (SPEC O2, l.897–918): Builder
    `claude --model sonnet --advisor opus`, Architect `claude --model fable`, Debugger `claude --model opus --effort high`.
@@ -26,15 +27,15 @@ calibrated (unit) · M5 rotation: user full-screen tree PASSES criteria A+B on 2
 | M3 (b) gestures + demo | done | catch fixed; fling acceleration on the state clock (D14). iOS <18 catch observer is now gated (`CatchArming`: attached only while content moves or a seen touch is down), so UIKit controls work on 17.5. PanUITests 7/7 on 17.5 and 27.0, preferred and forced; demo UI 14/14 on 27.0 |
 | M3 (c) arbitration | done | participant + 9 unit tests; demo pager stand-in (`PagerScreen`, ReferenceScrollArbiter) + `PagerUITests` green on 27.0; demo now links ScrollArbitration (`M3-s3.md`) |
 | M4 (a) zoom state + PinchSession | done | `Gesture/PinchSession.swift`, `zoomRange`, solver-based `setZoomScale` (`M4-s1.md`) |
-| M4 (b) pinch adapter + demo | done* | pinch adapter, double tap, ZoomScreen, ZoomUITests 6/6 on 27.0 pref+forced, 17.5 pref; full-suite 27 forced / 17.5 forced pending (`M4-s2.md`) |
+| M4 (b) pinch adapter + demo | done* | pinch adapter, double tap, ZoomScreen; ZoomUITests **7/7** on 27.0 pref+forced, 17.5 pref (2026-10-19, after D20); criterion C staggered-lift fix in PanCoordinator (`M4-s3.md`, 6 new unit tests × 2 OS paths); 17.5 forced ZoomUITests + full-suite 27 forced / 17.5 forced still pending (`M4-s2.md`) |
 | M5 design | done | `docs/design/M5-resize.md` (+ orchestrator resolutions C1–C3, Q1–Q3 at the end) |
 | M6–M9 designs | done | `docs/design/{M6-targets,M7-observation,M8-chrome,M8b-refresh-header,M9-virtualization}.md`, each ending with "Orchestrator resolutions" (read those first) and a builder-session split with file ownership + sequencing |
 | M5 (a) state + render | done | `docs/progress/M5-s1.md`: ResizeMath/Commit, TransformHost above layout host (C1 gate: Proof 6/6, demo UI 20/20 on 27.0), 134 unit tests on 27.0 + 17.5 |
 | User scenario s1 | done | D15: zoom-enabled pan moves on any axis the zoomed content exceeds; demo `-ZTronScreen image` + `ImageUITests` 4/4 on 27.0 + 17.5, preferred + forced (`docs/progress/USER-s1.md`) |
-| M5 (b) gestures + demo | partial | `docs/progress/M5-s2.md` s4: D18/D19 — intent captured from the DRAWN geometry (turn origin), inset-only change folds into an open resize, post-resize settle window; screen-space acceptance GREEN for the user's full-screen tree AND the 16:9 tree on 27.0 + 17.5, preferred + forced (odd rotations ≤ 0.56 pt, even rotations offset/zoom exact, markers ≤ 0.17 pt); `ResizeUITests` 11/11 on 27.0 pref+forced, 17.5 11/11 preferred + jump test forced after the monitor change + 27.0 11/11 re-run; `ProofUITests` 6/6; DEBUG jump monitor counts drawn frames only; (C) pinch-end probe test still not run; PanCoordinator rebase still todo |
+| M5 (b) gestures + demo | partial | `docs/progress/M5-s2.md` s4: D18/D19 — intent captured from the DRAWN geometry (turn origin), inset-only change folds into an open resize, post-resize settle window; screen-space acceptance GREEN for the user's full-screen tree AND the 16:9 tree on 27.0 + 17.5, preferred + forced (odd rotations ≤ 0.56 pt, even rotations offset/zoom exact, markers ≤ 0.17 pt); `ResizeUITests` 11/11 on 27.0 pref+forced, 17.5 11/11 preferred + jump test forced after the monitor change + 27.0 11/11 re-run; `ProofUITests` 6/6; DEBUG jump monitor counts drawn frames only; (C) probe green on 27.0 pref+forced + 17.5 pref before and after D20 (`M4-s3.md`); PanCoordinator rebase still todo |
 | M6 … M10 | todo | SPEC O4 l.970–990 |
 
-Test totals now: `ZTronScrollViewTests` **160** green on iOS 27.0 and 17.5 (both OS paths) · M2 `ProofUITests` 6/6 ·
+Test totals now: `ZTronScrollViewTests` **166** green on iOS 27.0 and 17.5 (both OS paths) · M2 `ProofUITests` 6/6 ·
 physics 99 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-contract,M2-render,M3-pan,M4-zoom}.md`.
 
 ## Next steps (in order; prompts are ready to paste)
@@ -43,9 +44,12 @@ physics 99 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-c
    was captured from the half-mutated metrics), fixed by capturing from the drawn geometry (turn origin). Screen-space
    acceptance green on 27.0 + 17.5, preferred + forced, both trees. The user still has to confirm on their own app
    (ZTronTesting compiles `../ZTronScrollView`): rotate ×1…×4 zoomed on a detail; even rotations must land exactly.
-2. [ ] **Pinch-release animation (criterion C)** — run `ZoomUITests/testPinchInsideLimitsReleasesWithoutMotion`
-   (added, never run); suspects: `handOffToPan` synthesized pan on first-finger lift, the bounce-back spring/kick from
-   `dff908b`. No motion allowed when zoom and offset are in range.
+2. [x] **Pinch-release animation (criterion C)** — done 2026-10-19 (D20, `docs/progress/M4-s3.md`): the probe
+   (`ZoomUITests/testPinchInsideLimitsReleasesWithoutMotion`) was green on 27.0 pref+forced and 17.5 pref BEFORE any
+   change (XCUITest lifts both fingers in one batch: no motion, counters 30→30 / 31→31). The staggered lift real fingers
+   make had four `PanCoordinator` defects (stuck synthesized pan, fling from pinch-phase velocity, hand-off catching the
+   release bounce, late/stale DragGesture jump), fixed + 6 unit tests × 2 OS paths; ZoomUITests 7/7 on 27.0 pref+forced,
+   17.5 pref. The user still has to confirm (C) on ZTronTesting with natural finger lifts.
 3. [ ] Re-run the full demo UI suite after the physics commits (`dff908b`, `9091f20`) on 27.0 + 17.5, both paths;
    PagerUITests "trailing edge pages" still fails on 27.0 --forced and 17.5 (`M4-s2.md`).
 4. [ ] M5 (b) remainder (PanCoordinator resize rebase, adjusted insets into pan/pinch env) → M6–M9 builds from the
@@ -131,6 +135,15 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
   it re-realise the sticky intent (ZTronMapKit "restore on every bounds change"; covers the M5 §9 slow reflow); outside
   it the D16 growing-list rule applies and the stale sticky intent is dropped at end of turn (an app action between
   rotations breaks criterion A on purpose). DEBUG `resize.jumpFrames` counts drawn frames (last evaluation of a turn).
+- D20 (2026-10-19) Pinch release with a staggered lift (18+): after `handOffToPan(remaining:)` the pan's release
+  velocity comes ONLY from the remaining finger's samples since the hand-off (tracker reset, the DragGesture's own
+  `velocity` ignored): one finger of a spread is not a pan, UIScrollView never flings out of a pinch; a lift within
+  `restDistance` (1 pt / 64 ms) rests, ≥ 1 pt/frame is a one-finger pan and decelerates per the calibrated physics.
+  A synthesized pan (DragGesture dead) ends on `touchesEnded` (its release, from the last synthesized translation).
+  A release bounce keeps owning the offset until settled; the hand-off feeds no touch-down meanwhile (it would catch =
+  cancel the bounce) and the pan restarts where the finger is after the settle (travel during the bounce not replayed).
+  A DragGesture appearing under a synthesized pan rebases (no jump); its `dragEnded` arriving under one is stale
+  (the lifted finger's) and is dropped. `docs/progress/M4-s3.md`.
 - D16 (user, 2026-10-18) Physics and the post-rotation re-centering are generated and tested by **Fable 5.1**
   (builder agents with model fable). Re-centering ports ZTronMapKit's normalized-centre discipline
   (ContentGeometry: capture before resize, restore = centre × newContentSize − newViewport/2, clamp, centre smaller
@@ -160,4 +173,5 @@ Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (≤ 2 simulators at 
 |---|---|---|---|
 | 2026-10-14 | Opus 5.5 ultracode #1 | M0; MC package; M1 (workflow) | → 100% (limit hit) |
 | 2026-10-18 | Opus 5.5 #2 orchestrator | recovered MC/M1; M2–M9 designs (Fable); MC spike; M2–M4 builds; M5 (a); zoomed-axes + user image demo; physics calibration (Fable); ZTronMapKit re-centering port (Fable, user tree still failing) | 72% → 88% |
+| 2026-10-19 | Fable 5.1 #3 side session s3-C | criterion C: probe green (3 configs); staggered-lift fix D20 (PanCoordinator), PinchPanTests 15, unit 166 on 27.0 + 17.5, ZoomUITests 7/7 ×3 | all 10% → 11% · Fable 18% → 22% |
 | 2026-10-19 | Fable 5.1 #3 orchestrator, ultracode ×3 | measured the rotation event order; D18/D19 turn-origin capture + settle window; user full-screen tree passes A+B on 27.0 + 17.5; jump monitor = drawn frames; 160 unit tests | all 7% → 10% · Fable 13% → 18% |
