@@ -18,8 +18,22 @@ Open:
 - Device feel of the two-finger overscroll (resistance identical to one finger) — user check.
 - `zoom(to:)` at an unchanged scale: duration law floor (0.125 s), not measured.
 Next: 1. User device checks (all of s3-C). 2. Orchestration step 3 (full demo UI re-run on both paths).
-Tests: `scripts/test.sh -only-testing:ZTronScrollViewTests` → **176/176** (19 suites) on iOS 27.0 and 17.5 (PinchSessionTests
+## Addendum · D25 (user video, 2026-10-19 12:52): the snap at the lift was the magnify gesture's trailing sample
+The user's recording (ZTronTesting, 16:9 tree, main 998add8) shows the real snap: fingers held still at ≈ 2×, one lifts, and in
+ONE frame (0.97 → 0.98 s) the view jumps to ≈ 4× and another position, static before and after (no bounce, no animation).
+A one-frame scale change at the lift can only be a `.changed` sample applied: on 18+ the spatial observer's count change
+hands the pinch off (session released) and SwiftUI then still delivers the magnify gesture's last `.onChanged`, whose
+`magnification` is cumulative for the OLD gesture; `PinchSession.handle(.changed)` on an inactive session treated it as "a
+change without a began" (the 15–17 fallback), began a new session at the current scale with base 1 and multiplied: 2× · 2.05 ≈
+4.1× (then `.ended`/hand-off again, scale past max → a 4.1 → 4 bounce too small to see). The same mechanism was the original
+"ugly snap" report; D23 fixed a different, real gap. Fix: `PinchSession.gestureEndPending` — set at the observer's hand-off,
+`.changed` samples are ignored while set, cleared by the gesture's `.ended`/`.cancelled` or a new `.began`; the adapter always
+sends `.ended` after the hand-off substitution. Tests: PinchSessionTests `trailingChangedAfterTheHandOffIsIgnored`,
+PinchPanTests section 8 `trailingMagnifySampleAfterTheLiftDoesNotJump` (both OS paths). The second visible change in the video
+(≈ 1.6 s) is a fast drag, continuous at 60 fps. Frames: `ffmpeg -ss 0.88 -t 0.2 -vf fps=60,crop=1290:800:0:120,tile=4x3`.
+
+Tests: `scripts/test.sh -only-testing:ZTronScrollViewTests` → **178/178** (19 suites) on iOS 27.0 and 17.5 after D25 (176 after D24; PinchSessionTests
 `offsetPastTheBoundsFollowsThePanBouncePerAxis` ×2 new; `focalPointIsInvariant` now checks the band applied to the exact
 focal-invariant offset, and exact invariance inside the bounds); `scripts/test-physics.sh` 111/111 unchanged;
 `scripts/test-demo-ui.sh … -only-testing:…/ZoomUITests` → 7/7 on 27.0 preferred and 17.5 preferred. Not run: --forced, full demo suite.
-Usage: weekly all-models 16% → 18% · Fable 32% → 36% (whole side session 10% → 18% · 18% → 36%) · cache hit n/a · context 65% of 1 M.
+Usage: weekly all-models 16% → 20% · Fable 32% → 39% (whole side session 10% → 20% · 18% → 39%) · cache hit n/a · context 71% of 1 M.
