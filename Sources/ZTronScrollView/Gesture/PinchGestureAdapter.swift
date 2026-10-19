@@ -30,7 +30,15 @@ enum PinchGestureAdapter {
         }
         let onEnd: @MainActor () -> Void = { [coordinator] in
             began.value = false
-            coordinator.handlePinch(.ended(time: Date().timeIntervalSinceReferenceDate))
+            let now = Date().timeIntervalSinceReferenceDate
+            // 18+: the magnify gesture ends when one finger lifts. If the observer still sees that one finger, this IS
+            // the one-finger hand-off (D23), whichever of the two callbacks SwiftUI delivers first; the observer's own
+            // count change then finds the pinch already released and does nothing.
+            if spatial, observer.activeCount == 1, let c = observer.centroid {
+                coordinator.handlePinch(.fingerCountChanged(count: 1, remaining: c, time: now))
+            } else {
+                coordinator.handlePinch(.ended(time: now))
+            }
         }
         if #available(iOS 17, *), ZTronAvailability.isAvailable(.magnifyGesture) {
             return AnyGesture(MagnifyGesture()

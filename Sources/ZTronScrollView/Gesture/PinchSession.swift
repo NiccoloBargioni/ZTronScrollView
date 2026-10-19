@@ -29,6 +29,9 @@ struct PinchEnvironment: Equatable {
     var isMovingWithoutFinger = false
     var logDimension: CGFloat = 1
     var panDragActive = false
+    /// Per-axis bounce (same resolution as the pan): an axis that does not bounce never leaves its bounds under a pinch.
+    var bouncesX = true
+    var bouncesY = true
 }
 
 struct ZoomBounceRequest: Equatable {
@@ -93,10 +96,16 @@ struct PinchSession: Equatable {
         return min(max(raw, env.limits.lowerBound), env.limits.upperBound)
     }
 
-    /// pad(s) + s·u − centroid; unclamped while bouncing (settles on release), clamped otherwise.
+    /// pad(s) + s·u − centroid; unclamped while bouncing (settles on release), clamped otherwise. An axis that does
+    /// not bounce is clamped either way (D23: under a pinch as under a pan, the content cannot be dragged off its
+    /// edge or off-centre on such an axis).
     static func offset(anchor: CGPoint, centroid: CGPoint, scale: CGFloat, env: PinchEnvironment) -> CGPoint {
-        ZoomSolver.offset(keeping: anchor, under: centroid, scale: scale, geometry: env.geometry,
-                          clamped: !env.bouncesZoom)
+        var o = ZoomSolver.offset(keeping: anchor, under: centroid, scale: scale, geometry: env.geometry,
+                                  clamped: !env.bouncesZoom)
+        let b = env.geometry.bounds(at: scale)
+        if !env.bouncesX { o.x = b.x.clamped(o.x) }
+        if !env.bouncesY { o.y = b.y.clamped(o.y) }
+        return o
     }
 
     static func estimatedCentroid(start: CGPoint, panAtStart: CGSize?, panNow: CGSize) -> CGPoint {
@@ -156,7 +165,8 @@ struct PinchSession: Equatable {
                 guard let r = remaining else { return [] }
                 return follow(centroid: r, env: env)
             }
-            return finish(env: env, time: time) + [.handOffToPan(remaining: count == 1 ? remaining : nil)]
+            return finish(env: env, time: time, handingOff: count == 1)
+                + [.handOffToPan(remaining: count == 1 ? remaining : nil)]
 
         case let .panTranslation(t, _):
             guard centroidSource != .spatial, isActive else { return [] }
@@ -248,8 +258,10 @@ struct PinchSession: Equatable {
     }
 
     /// Release: a bounce when the scale or the offset is out of range, else the end at once. Nothing when the
-    /// pinch never produced a sample.
-    private mutating func finish(env: PinchEnvironment, time: TimeInterval?) -> [PinchEffect] {
+    /// pinch never produced a sample. `handingOff` (one finger stays down, 18+): the pan continues from that finger
+    /// and holds an overscroll as its rubber band until the last finger lifts, as UIScrollView does; only a scale past
+    /// its limit springs back now (D23: springing the offset back under a finger still on the glass is the snap).
+    private mutating func finish(env: PinchEnvironment, time: TimeInterval?, handingOff: Bool = false) -> [PinchEffect] {
         guard case let .pinching(p) = phase else {
             phase = isActive ? .released : phase
             return []
@@ -258,7 +270,7 @@ struct PinchSession: Equatable {
         let b = env.geometry.bounds(at: p.shown)
         let offsetOut = b.x.clamped(p.offset.x) != p.offset.x || b.y.clamped(p.offset.y) != p.offset.y
         let scaleOut = !env.limits.contains(p.shown)
-        guard scaleOut || offsetOut else { return [.endZooming(atScale: p.shown)] }
+        guard scaleOut || (offsetOut && !handingOff) else { return [.endZooming(atScale: p.shown)] }
         guard env.bouncesZoom else {
             return [.setZoom(scale: p.shown, offset: env.geometry.clamped(p.offset, at: p.shown)),
                     .endZooming(atScale: p.shown)]

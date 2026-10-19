@@ -59,6 +59,8 @@ public final class ZTronScrollState {
         var u: CGPoint, p0: CGPoint, p1: CGPoint
         var z0: CGFloat, z1: CGFloat
         var endOffset: CGPoint
+        /// Rest thresholds for `progress` (0…1): the point thresholds divided by the animation's screen travel (D22).
+        var thresholds: RestThresholds
     }
     private struct ClockMotion {
         var x: AxisMotion, y: AxisMotion
@@ -768,7 +770,7 @@ public final class ZTronScrollState {
         var zoom = s.presentationZoom
         var settled = sx.isSettled && sy.isSettled
         if let za = m.zoomAnimation {
-            let sp = za.progress.sample(at: t)
+            let sp = za.progress.sample(at: t, thresholds: za.thresholds)
             settled = sp.isSettled
             if settled {
                 zoom = za.z1
@@ -895,8 +897,19 @@ public final class ZTronScrollState {
         let z0 = s.presentationZoom
         let pad0 = g.alignmentPadding(at: z0)
         let p0 = CGPoint(x: pad0.x + z0 * u.x - s.presentationOffset.x, y: pad0.y + z0 * u.y - s.presentationOffset.y)
+        // The progress spring runs 0 -> 1 while the rest thresholds are in points: read as progress units they would
+        // settle it at ~50 % after ~150 ms and the end values would be written at once (D22, "double tap animates,
+        // then snaps"). Scale them by the screen travel: a content point moves by up to |Δz|·viewport, the anchor by
+        // |Δoffset|.
+        let v = s.metrics.viewportSize
+        let travel = max(abs(r.scale - z0) * max(v.width, v.height),
+                         hypot(r.offset.x - s.presentationOffset.x, r.offset.y - s.presentationOffset.y), 1)
+        let base = RestThresholds()
+        let thresholds = RestThresholds(velocity: base.velocity / travel, distance: base.distance / travel,
+                                        negligibleReleaseVelocity: base.negligibleReleaseVelocity / travel)
         let anim = ZoomAnimation(progress: .spring(CriticalSpring(origin: 0, target: 1), start: now()),
-                                 u: u, p0: p0, p1: g.visibleCenter, z0: z0, z1: r.scale, endOffset: r.offset)
+                                 u: u, p0: p0, p1: g.visibleCenter, z0: z0, z1: r.scale, endOffset: r.offset,
+                                 thresholds: thresholds)
         motion = ClockMotion(x: .rest(position: s.presentationOffset.x), y: .rest(position: s.presentationOffset.y),
                              zoomAnimation: anim)
         storage.targetZoom = r.scale

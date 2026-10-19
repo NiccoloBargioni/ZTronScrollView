@@ -398,6 +398,75 @@ struct PinchPanTests {
         #expect(!r.state.isDecelerating && r.state.phase == .idle && !r.coord.isSequenceActive)
     }
 
+    // MARK: 7. overscroll at the one-finger lift (D23): the pan holds it, nothing springs back under a finger
+
+    /// Two-finger pan past the edge (unclamped under the pinch), then one finger lifts with the scale in range: no
+    /// bounce, no snap. The remaining finger pans on from the overscroll (rubber band), and only its lift springs
+    /// the content back into bounds.
+    @Test(arguments: OSPath.allCases) func oneFingerLiftKeepsTheOverscrollInThePanInsteadOfSnappingBack(path: OSPath) {
+        let r = make(path)
+        let c = CGPoint(x: 100, y: 200)
+        twoFingersDown(r, at: c)
+        magnify(r, 1.5, at: c); r.tick()
+        let moved = CGPoint(x: 1000, y: 200)                 // both fingers slide right by 900 pt: the content follows
+        centroid(r, moved)
+        #expect(abs(r.state.contentOffset.x - (-100)) < 1e-6, "past the leading edge under the pinch: \(r.state.contentOffset)")
+        r.now += 0.016
+        r.coord.handlePinch(.fingerCountChanged(count: 1, remaining: moved, time: r.now))
+        #expect(!r.state.isZoomBouncing && !r.state.isZooming, "no bounce while a finger is down")
+        #expect(abs(r.state.contentOffset.x - (-100)) < 1e-6, "no snap at the lift")
+        #expect(r.delegate.log.contains("didEndZooming(1.5)"))
+        // The pan took the finger: same spot, nothing moves; further out, the rubber band resists.
+        r.now += 0.016
+        r.coord.synthesizePan(location: moved, time: r.now)
+        #expect(abs(r.state.contentOffset.x - (-100)) < 1e-6)
+        r.now += 0.016
+        r.coord.synthesizePan(location: CGPoint(x: 1020, y: 200), time: r.now)
+        #expect(r.state.contentOffset.x < -100 && r.state.contentOffset.x > -120, "resisted: \(r.state.contentOffset)")
+        // The last finger lifts after a pause: the release springs the overscroll back, zoom unchanged.
+        r.now += 0.1
+        r.coord.handlePinch(.fingerCountChanged(count: 0, remaining: nil, time: r.now))
+        r.coord.handle(.touchesEnded(time: r.now))
+        #expect(r.state.isDecelerating, "spring back on the clock")
+        while r.state.isClockRunning && r.now < 110 { r.tick() }
+        #expect(abs(r.state.contentOffset.x) < 1e-6 && r.state.phase == .idle)
+        #expect(abs(r.state.zoomScale - 1.5) < 1e-9)
+    }
+
+    /// An axis that does not bounce (here `.basedOnSize` on an axis the content fits) stays clamped under the pinch:
+    /// the two-finger pan cannot drag the content off its edge there, while the bouncing axis still overscrolls.
+    @Test(arguments: OSPath.allCases) func nonBouncingAxisStaysClampedUnderThePinch(path: OSPath) {
+        let r = make(path)
+        r.state.setMetrics(ScrollMetrics(viewportSize: CGSize(width: 200, height: 400), contentSize: CGSize(width: 200, height: 4000), displayScale: 2))
+        r.state.track(offset: CGPoint(x: 0, y: 1000), zoom: 1)
+        r.coord.settings.bounceX = .basedOnSize
+        let c = CGPoint(x: 100, y: 200)
+        twoFingersDown(r, at: c)
+        centroid(r, CGPoint(x: 150, y: 260))                 // right 50 (fitting, non-bouncing), down 60 (bouncing)
+        #expect(r.state.contentOffset.x == 0, "clamped on the non-bouncing axis: \(r.state.contentOffset)")
+        #expect(abs(r.state.contentOffset.y - 940) < 1e-6, "follows on the bouncing axis")
+        r.coord.handlePinch(.fingerCountChanged(count: 1, remaining: CGPoint(x: 150, y: 260), time: r.now))
+        #expect(r.state.contentOffset.x == 0 && !r.state.isZoomBouncing)
+    }
+
+    /// Nobody takes the remaining finger (the container owns the swipe, scrolling disabled): the overscroll has no pan
+    /// to spring it back, so the pan's rubber-band return runs as a deceleration, scale unchanged.
+    @Test(arguments: OSPath.allCases) func overscrollWithoutAPanSpringsBackAtTheLift(path: OSPath) {
+        let r = make(path)
+        r.state.isScrollEnabled = false                      // the pan ignores the sequence
+        let c = CGPoint(x: 100, y: 200)
+        twoFingersDown(r, at: c)
+        magnify(r, 1.5, at: c); r.tick()
+        centroid(r, CGPoint(x: 1000, y: 200))
+        #expect(abs(r.state.contentOffset.x - (-100)) < 1e-6)
+        r.now += 0.016
+        r.coord.handlePinch(.fingerCountChanged(count: 1, remaining: CGPoint(x: 1000, y: 200), time: r.now))
+        #expect(r.state.isDecelerating && !r.state.isZooming && r.state.phase == .decelerating, "no pan: the rubber band returns")
+        #expect(r.delegate.log.contains("willBeginDecelerating"))
+        while r.state.isClockRunning && r.now < 110 { r.tick() }
+        #expect(abs(r.state.contentOffset.x) < 1e-6 && abs(r.state.zoomScale - 1.5) < 1e-9 && r.state.phase == .idle)
+    }
+
     // MARK: iOS 15–17 estimate (documented gap)
 
     @Test func dragFollowEstimateMovesTheCentroidWithTheTrackedFinger() {

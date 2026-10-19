@@ -257,6 +257,9 @@ final class PanCoordinator: ObservableObject {
         e.geometry = makeZoomGeometry()
         e.isMovingWithoutFinger = (state.phase == .decelerating || state.phase == .animating) && !state.isTracking
         if case .dragging = session.phase { e.panDragActive = true }
+        let pan = environment()
+        e.bouncesX = pan.bouncesX
+        e.bouncesY = pan.bouncesY
         return e
     }
 
@@ -348,7 +351,25 @@ final class PanCoordinator: ObservableObject {
                 restartPan(at: remaining, time: time)
             }
         }
-        if remaining != nil { panContinuedFromPinch = true }
+        if remaining != nil {
+            panContinuedFromPinch = true
+            // Nobody took the finger (arbitrated to the container, scrolling disabled): an overscroll the pinch left
+            // has no pan to spring it back, so the pan's own rubber-band return runs now (a deceleration, as after a
+            // pan release; the scale is already in range).
+            if case .dragging = session.phase {} else { springBackOverscrollWithoutPan() }
+        }
+    }
+
+    private func springBackOverscrollWithoutPan() {
+        let s = state.peek
+        guard !state.isZoomBouncing else { return }
+        let o = s.presentationOffset, c = makeZoomGeometry().clamped(o, at: s.presentationZoom)
+        guard c != o else { return }
+        let time = state.now()
+        func axis(_ from: CGFloat, _ to: CGFloat) -> AxisMotion {
+            from == to ? .rest(position: from) : .spring(CriticalSpring(origin: from, target: to), start: time)
+        }
+        state.beginDeceleration(x: axis(o.x, c.x), y: axis(o.y, c.y), at: time, displayScale: settings.displayScale)
     }
 
     private func restartPan(at location: CGPoint, time: TimeInterval) {

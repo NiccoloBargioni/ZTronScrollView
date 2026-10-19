@@ -342,8 +342,9 @@ final class ResizeUITests: XCTestCase {
     }
 
     func testUserTreeHorizontalAlwaysBounceIsDrawn() {
+        // Low in the box: on the 17.5 device the mid-height start lands on the screen's overlay readout.
         overscrollIsDrawn("hband", extra: ["-ZTronResizeBounceAlways"],
-                          from: CGVector(dx: 0.3, dy: 0.5), to: CGVector(dx: 0.8, dy: 0.5))
+                          from: CGVector(dx: 0.3, dy: 0.8), to: CGVector(dx: 0.8, dy: 0.8))
     }
 
     func testUserTree2ScreenSpaceCentreAndEvenRotationsRestore() { screenSpaceRoundTrips("user2", userTree2: true) }
