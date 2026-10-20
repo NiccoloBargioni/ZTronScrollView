@@ -23,3 +23,4 @@ Open issues:
 Device feedback queue:
 | N-a | done | 3–4 | | nested ZTronScrollView arbitration API (docs/design/NESTED-arbitration.md, D28); SPEC amendment written with N-b (docs/progress/NESTED-s1.md) |
 | N-b | done | 1.5–2 | | nested demo `NestedPagerScreen` + `NestedPagerUITests` 13/13 on 27.0 + 17.5 both paths; D30 measurement isolation fix; SPEC S11/S12 + parity row (docs/progress/NESTED-s2.md) |
+| UIKIT-a | done | 1 | | D31 session (a): pure `TouchObserverCore` (100 % lines), `uikitTouchObserver` capability + DEBUG force switch, state flag; unit 520/520 on 27.0 + 17.5 (docs/progress/UIKIT-s1.md, 5aba0db); next (b) shell + wiring + UI tests + gate scripts |
