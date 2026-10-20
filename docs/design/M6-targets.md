@@ -27,7 +27,7 @@ behavior via `ZTronBridgedScrollTargetBehavior` (17+), `ZTronScrollPosition ⇄ 
 // Targets/ScrollTargetBehavior.swift
 public struct ZTronScrollTarget: Equatable, Sendable { public var rect: CGRect; public var anchor: UnitPoint?; public init(rect: CGRect, anchor: UnitPoint? = nil) }
 @dynamicMemberLookup public struct ZTronScrollTargetBehaviorContext {            // mirrors ScrollTargetBehaviorContext
-    public let originalTarget: ZTronScrollTarget; public let velocity: CGVector /* pt/s */; public let contentSize: CGSize /* scaled, UIKit-style */
+    public let originalTarget: ZTronScrollTarget; public let velocity: CGVector /* pt/ms, SwiftUI's unit (D32) */; public let contentSize: CGSize /* scaled, UIKit-style */
     public let containerSize: CGSize; public let axes: Axis.Set
     public subscript<T>(dynamicMember k: KeyPath<EnvironmentValues, T>) -> T          // backed by a captured EnvironmentValues
     let dragStart: CGPoint; let insets: EdgeInsets; let registry: TargetRegistry?; let zoomScale: CGFloat   // internal extras for built-ins

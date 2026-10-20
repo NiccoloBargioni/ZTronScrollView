@@ -173,8 +173,10 @@ extension ZTronScrollState {
         info.registry = targets
         let original = ZTronScrollTarget(rect: CGRect(origin: CGPoint(x: start.x + startInset.x, y: start.y + startInset.y),
                                                       size: container), anchor: nil)
+        // The public velocity is points per MILLISECOND like SwiftUI's `ScrollTargetBehaviorContext.velocity` (D32); the
+        // pipeline and `TargetReleaseInfo.rawVelocity` stay in pt/s.
         let context = ZTronScrollTargetBehaviorContext(
-            originalTarget: original, velocity: velocity, contentSize: content, containerSize: container, axes: axes,
+            originalTarget: original, velocity: CGVector(dx: velocity.dx / 1000, dy: velocity.dy / 1000), contentSize: content, containerSize: container, axes: axes,
             environment: CapturedTargetEnvironment(values: targetEnvironment), info: info)
         var target = original
         behavior.updateTarget(&target, context: context)

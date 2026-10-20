@@ -105,7 +105,7 @@ physics 111 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-
    agents were cut off by the 5-hour limit mid-run; the xcodebuild processes finished on their own and the logs were read directly.
 4. [ ] M5 (b) remainder (PanCoordinator resize rebase, adjusted insets into pan/pinch env) → M6–M9 builds from the
    ready designs (`docs/design/M6…M9`), M10. Sequencing per each design's resolutions.
-   M6 (a) done 2026-10-20 (`docs/progress/M6-s1.md`, 7243121), D27 in 96671ed, M6 (b) done 2026-10-20 (`docs/progress/M6-s2.md`, 612b068) → M6 (c) session 3 done 2026-10-20 (`docs/progress/M6-s3.md`, 07d8f54): M6 is complete (open: the velocity-unit decision D32, R5 on 17.5, lazy content = M9). M7 (a) done 2026-10-20 (`docs/progress/M7-s1.md`, b0ab38a) → next = M7 session 2 (phase ×2 with every `storage.phase =` site through the queue, target visibility, `EventLogScreen`) and M8-8 on the same hub. M8b-1 done 2026-10-20 (`docs/progress/M8b-s1.md`); M8 (1) chrome exemplar done 2026-10-20 (`docs/progress/M8-s1.md`) → next in the M8b split: M8b-2 (refresher API, indicators on `ChromeLeaf`, demo; wires the coordinator into the container), M8b-3; next in M8: M8-2 (ContentMargins, ContainerRelativeFrame, ClipAndBackground) on the M8-1 pattern.
+   M6 (a) done 2026-10-20 (`docs/progress/M6-s1.md`, 7243121), D27 in 96671ed, M6 (b) done 2026-10-20 (`docs/progress/M6-s2.md`, 612b068) → M6 (c) session 3 done 2026-10-20 (`docs/progress/M6-s3.md`, 07d8f54): M6 is complete (open: R5 on 17.5, lazy content = M9). M7 (a) done 2026-10-20 (`docs/progress/M7-s1.md`, b0ab38a) → next = M7 session 2 (phase ×2 with every `storage.phase =` site through the queue, target visibility, `EventLogScreen`) and M8-8 on the same hub. M8b-1 done 2026-10-20 (`docs/progress/M8b-s1.md`); M8 (1) chrome exemplar done 2026-10-20 (`docs/progress/M8-s1.md`) → next in the M8b split: M8b-2 (refresher API, indicators on `ChromeLeaf`, demo; wires the coordinator into the container), M8b-3; next in M8: M8-2 (ContentMargins, ContainerRelativeFrame, ClipAndBackground) on the M8-1 pattern.
 5. [ ] **UIKit touch observer for iOS 15–16 (D31)** — **(a) done 2026-10-20 (`docs/progress/UIKIT-s1.md`, 5aba0db)**; next = (b). After the M6/M7/M8 sessions have committed: session (a) Sonnet builder
    `docs/design/UIKIT-touch-observer.md` §builder split (core `Gesture/UIKit/TouchObserverCore.swift` + `TouchObserverCoreTests`
    100 %, `ZTronCapability.uikitTouchObserver`, state let); then (b) shell + wiring + `UIKitObserverUITests` + the two gate
@@ -162,7 +162,7 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
 7. ~45 UIKit "Observation tracking feedback loop detected" warnings in the full 27.0 unit run since M6 s1 (none on 17.5, none per suite alone): re-check
    after M7 session 1 (hub; not re-checked in s1, the hub reads no tracked values); suspect the hosted test windows, not the library.
 8. N-a/N-b handoffs: `docs/progress/NESTED-s1.md`, `NESTED-s2.md` (N-b done 2026-10-20; SPEC S11/S12 amendment + parity row written). Still open: user device check of the pager + zoomer on `.innerWhenZoomed` incl. a second finger landing during an outer-owned drag (not scriptable in XCUITest), ZTronPages adoption (R6), three-level phase 2.
-9. M6 s3 leftovers (`docs/progress/M6-s3.md`): D32 (velocity unit) needs the user's call; R5 on 17.5 (SwiftUI's `scrollPosition(id:)` reported 0 in the aligned comparison, only ours is asserted there); `scrollTo(point:)` is an offset, not SwiftUI's content-space point (untested against native); native `ScrollPosition` bridge exercised on 18+ only through a hosted `ScrollView` (edge); lazy content (R2) is M9's; the full demo UI suite was not re-run (TargetsUITests only).
+9. M6 s3 leftovers (`docs/progress/M6-s3.md`): R5 on 17.5 (SwiftUI's `scrollPosition(id:)` reported 0 in the aligned comparison, only ours is asserted there); `scrollTo(point:)` is an offset, not SwiftUI's content-space point (untested against native); native `ScrollPosition` bridge exercised on 18+ only through a hosted `ScrollView` (edge); lazy content (R2) is M9's; the full demo UI suite was not re-run (TargetsUITests only).
 
 ## Decisions (keep)
 - D1 Naming map in CLAUDE.md (ZoomScroll → ZTronScroll, `ztronScroll…` modifiers; matches ZTronPages' `ztronPage()`).
@@ -292,12 +292,11 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
   overlay filter; `.direct` + `.pencil`; MagnificationGesture for recognition only; ForceAllFallbacks turns the observer
   off; gates run by the orchestrator/test-runner, no hook/CI yet; cancelled-line scheme accepted); starts after the
   M6/M7/M8 sessions commit; ≈ 3–3.5 Sonnet builder sessions.
-- D32 (2026-10-20, M6-s3, measured in `TargetsUITests.testNativeAndZTronTargetVelocityUnits`, **awaiting the user's confirmation**)
+- D32 (2026-10-20, M6-s3, measured in `TargetsUITests.testNativeAndZTronTargetVelocityUnits`; **user decision 2026-10-20: match SwiftUI**)
   SwiftUI's `ScrollTargetBehaviorContext.velocity` is points per MILLISECOND (UIKit's `willEndDragging` unit; the same real swipe
-  reads 0.6 natively and 644 pt/s in ours, on 27.0 and 17.5). `ZTronScrollTargetBehaviorContext.velocity` stays points per
-  SECOND as designed (M6 §2) and `ZTronScrollTargetBehaviorContext(native)` multiplies by 1000, so every behavior inside the library
-  sees one unit. Cost of the choice: a behavior ported from SwiftUI that compares the velocity with a constant must scale it; the
-  alternative is to switch ours to pt/ms (one place: `decideTarget`, plus the built-ins' sign reads and `TargetBehaviorTests`).
+  reads 0.6 natively and 644 pt/s in ours, on 27.0 and 17.5). `ZTronScrollTargetBehaviorContext.velocity` is therefore pt/ms too
+  (`decideTarget` divides its pt/s by 1000; `TargetReleaseInfo.rawVelocity`, `PagingSolver` and the physics stay pt/s;
+  `ZTronScrollTargetBehaviorContext(native)` passes SwiftUI's value through), so a behavior ported from SwiftUI sees the same numbers.
 - D16 (user, 2026-10-18) Physics and the post-rotation re-centering are generated and tested by **Fable 5.1**
   (builder agents with model fable). Re-centering ports ZTronMapKit's normalized-centre discipline
   (ContentGeometry: capture before resize, restore = centre × newContentSize − newViewport/2, clamp, centre smaller

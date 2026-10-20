@@ -73,8 +73,8 @@ struct TargetReleaseInfo {
     var registry: TargetRegistry?
 }
 
-/// What a behavior sees at a release: mirrors `ScrollTargetBehaviorContext`. `velocity` is the release velocity in pt/s
-/// (limited when the behavior's properties say so), `contentSize` is the zoomed content size (UIKit's `contentSize`),
+/// What a behavior sees at a release: mirrors `ScrollTargetBehaviorContext`. `velocity` is the release velocity in points
+/// per MILLISECOND, SwiftUI's unit (UIKit's `willEndDragging` unit; D32), (limited when the behavior's properties say so), `contentSize` is the zoomed content size (UIKit's `contentSize`),
 /// `containerSize` the unobscured size (viewport minus the adjusted insets, SwiftUI's). Environment values are read
 /// with `context.horizontalSizeClass`.
 @dynamicMemberLookup
@@ -119,14 +119,13 @@ extension ZTronScrollTargetBehaviorContext {
         var info = TargetReleaseInfo()
         info.origin = target.rect.origin
         info.dragStart = target.rect.origin
-        // SwiftUI's velocity is in points per MILLISECOND (UIKit's `willEndDragging` unit; measured in the demo's
-        // `TargetsUITests.testNativeAndZTronTargetVelocityUnits`: 0.6 against our 644 pt/s for the same swipe). Ours is pt/s.
-        let velocity = CGVector(dx: native.velocity.dx * 1000, dy: native.velocity.dy * 1000)
-        info.rawVelocity = velocity
+        // SwiftUI's velocity is in points per MILLISECOND (measured in the demo's `TargetsUITests`: 0.6 for the swipe we
+        // read as 644 pt/s) and so is ours (D32); the internal `rawVelocity` is pt/s.
+        info.rawVelocity = CGVector(dx: native.velocity.dx * 1000, dy: native.velocity.dy * 1000)
         info.viewport = native.containerSize
         info.boundsX = AxisBounds(contentLength: native.contentSize.width, viewportLength: native.containerSize.width, insets: .zero)
         info.boundsY = AxisBounds(contentLength: native.contentSize.height, viewportLength: native.containerSize.height, insets: .zero)
-        self.init(originalTarget: target, velocity: velocity, contentSize: native.contentSize,
+        self.init(originalTarget: target, velocity: native.velocity, contentSize: native.contentSize,
                   containerSize: native.containerSize, axes: native.axes,
                   environment: NativeTargetEnvironment(context: native), info: info)
     }

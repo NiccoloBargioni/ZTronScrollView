@@ -235,7 +235,7 @@ final class TargetsUITests: XCTestCase {
         XCTAssertGreaterThan(abs(native), 0)
         XCTAssertGreaterThan(abs(ours), 0)
         XCTAssertEqual(native > 0, ours > 0, "same direction")
-        // SwiftUI's context.velocity is points per MILLISECOND (UIKit's unit), ours points per second.
-        XCTAssertEqual(native * 1000 / ours, 1, accuracy: 0.5, "native \(native) pt/ms vs ours \(ours) pt/s")
+        // SwiftUI's context.velocity is points per MILLISECOND (UIKit's unit) and ours is the same (D32).
+        XCTAssertEqual(native / ours, 1, accuracy: 0.5, "native \(native) vs ours \(ours)")
     }
 }

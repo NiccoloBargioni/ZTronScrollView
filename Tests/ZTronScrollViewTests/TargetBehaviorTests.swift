@@ -113,9 +113,9 @@ struct TargetBehaviorTests {
         s.endDrag(request(CGPoint(x: 0, y: 300)), tracker: tracker(vy: 1000), env: Self.env, settings: ReleaseSettings())
         #expect(log.contexts.count == 1)
         let c = log.contexts[0]
-        // The accelerated velocity the delegate sees in pt/ms, in pt/s here.
-        #expect(abs(c.velocity.dy - (d.seenVelocity?.y ?? 0) * 1000) < 1e-6)
-        #expect(abs(c.velocity.dy - 1000) < 100 && c.velocity.dx == 0)
+        // The accelerated velocity the delegate sees, in pt/ms like SwiftUI's context (D32).
+        #expect(abs(c.velocity.dy - (d.seenVelocity?.y ?? 0)) < 1e-9)
+        #expect(abs(c.velocity.dy - 1) < 0.1 && c.velocity.dx == 0)
         #expect(c.contentSize == CGSize(width: 300, height: 900))
         #expect(c.containerSize == CGSize(width: 100, height: 200))
         #expect(c.axes == [.horizontal, .vertical])
@@ -230,7 +230,7 @@ struct TargetBehaviorTests {
         s.targetBehavior = AnyZTronScrollTargetBehavior(limited)
         let (_, my) = s.endDrag(request(CGPoint(x: 0, y: 300)), tracker: tracker(vy: 10_000), env: Self.env, settings: ReleaseSettings())
         let c = log.contexts[0]
-        #expect(c.velocity.dy < 10_000 / 10)                                     // capped (about 2 containers per second)
+        #expect(c.velocity.dy < 10_000 / 10 / 1000)                              // capped (about 2 containers per second, in pt/ms)
         #expect(abs(c.originalTarget.rect.origin.y - 500) < 1e-6)               // 300 + one container
         #expect(abs(my.endPosition - 500) < 1e-6)
         #expect((d.seenVelocity?.y ?? 0) > 9)                                    // the delegate still sees the gesture's velocity
@@ -245,7 +245,7 @@ struct TargetBehaviorTests {
         s.targetBehavior = AnyZTronScrollTargetBehavior(limited)
         s.endDrag(request(CGPoint(x: 0, y: 300)), tracker: tracker(vy: 300), env: Self.env, settings: ReleaseSettings())
         let c = log.contexts[0]
-        #expect(abs(c.velocity.dy - 300) < 30)
+        #expect(abs(c.velocity.dy - 0.3) < 0.03)
         #expect(abs(c.originalTarget.rect.origin.y - (300 + 300 * 0.4995)) < 20)  // the plain natural rest
     }
 
