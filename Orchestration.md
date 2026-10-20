@@ -108,8 +108,7 @@ physics 111 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-
 5. [ ] **UIKit touch observer for iOS 15–16 (D31)** — after the M6/M7/M8 sessions have committed: session (a) Sonnet builder
    `docs/design/UIKIT-touch-observer.md` §builder split (core `Gesture/UIKit/TouchObserverCore.swift` + `TouchObserverCoreTests`
    100 %, `ZTronCapability.uikitTouchObserver`, state let); then (b) shell + wiring + `UIKitObserverUITests` + the two gate
-   scripts, coverage chased to 100 % on 27.0 and 17.5 with `-ZTronForceUIKitObserver`; (c) docs. The user answers the design's
-   open questions first (overlay filter, pencil, MagnificationGesture kept, ForceAllFallbacks on device, hook/CI, cancel route).
+   scripts, coverage chased to 100 % on 27.0 and 17.5 with `-ZTronForceUIKitObserver`; (c) docs. Open questions answered (R1–R6 in the design note).
 
 **Builder kickoff template** (any part):
 ```
@@ -288,8 +287,10 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
   SwiftUI with its documented divergences; 18+ keeps SpatialEventGesture. Gates (user: 100 % coverage of the UIKit
   code): `scripts/coverage-uikit.sh` (100 % line coverage of that directory, union of the unit run and the forced demo
   UI run) + `scripts/check-uikit-scope.sh` (grep), before any commit touching it and at milestone end. Does not touch
-  Open item 1. Design `docs/design/UIKIT-touch-observer.md` (open questions at its end); starts after the M6/M7/M8
-  sessions commit; ≈ 3–3.5 Sonnet builder sessions.
+  Open item 1. Design `docs/design/UIKIT-touch-observer.md`, resolutions R1–R6 at its end (user, 2026-10-20: rect-only
+  overlay filter; `.direct` + `.pencil`; MagnificationGesture for recognition only; ForceAllFallbacks turns the observer
+  off; gates run by the orchestrator/test-runner, no hook/CI yet; cancelled-line scheme accepted); starts after the
+  M6/M7/M8 sessions commit; ≈ 3–3.5 Sonnet builder sessions.
 - D32 (2026-10-20, M6-s3, measured in `TargetsUITests.testNativeAndZTronTargetVelocityUnits`, **awaiting the user's confirmation**)
   SwiftUI's `ScrollTargetBehaviorContext.velocity` is points per MILLISECOND (UIKit's `willEndDragging` unit; the same real swipe
   reads 0.6 natively and 644 pt/s in ours, on 27.0 and 17.5). `ZTronScrollTargetBehaviorContext.velocity` stays points per

@@ -203,3 +203,17 @@ each see every touch — fine by note A, re-verify on the pager screen under the
 4. `-ZTronForceAllFallbacks` on a real 15–16 device turns the observer off (keeps the pure path testable there) — agreed?
 5. The gates run by the orchestrator/test-runner before commits touching the directory and at milestone end; add a git pre-commit hook or a CI job?
 6. If `touchesCancelled` cannot be produced on the simulator, is the "execute the line with an empty set + core tests + your device check" scheme acceptable?
+
+## Orchestrator resolutions (2026-10-20, user: "accetto le risposte proposte dall'architetto")
+- R1 Overlay touches: rect-only filter (a touch that begins inside the viewport rect counts, overlays included); no
+  `DragGesture(minimumDistance: 0)` confirmation on 15–16.
+- R2 Touch types observed on 15–16: `.direct` and `.pencil`; indirect/pointer input stays a 27+ topic (S3).
+- R3 `MagnificationGesture` stays attached on 15–16 for recognition only; magnification and centroid come from the observer.
+- R4 `-ZTronForceAllFallbacks` turns the observer off, also on a real 15–16 device, so the pure SwiftUI path stays testable there;
+  `-ZTronForceUIKitObserver` turns it on on 17+ simulators.
+- R5 The two gates (`scripts/coverage-uikit.sh`, `scripts/check-uikit-scope.sh`) are run by the orchestrator / test-runner
+  before any commit touching `Gesture/UIKit/` and at milestone end (S14); no pre-commit hook or CI job now (no CI exists),
+  revisit when CI appears.
+- R6 If `touchesCancelled` cannot be produced on the simulator: executing the override with an empty set counts for the line
+  gate only, the behaviour is proven by the core tests, and the user's device check closes it; the coverage report must say so.
+
