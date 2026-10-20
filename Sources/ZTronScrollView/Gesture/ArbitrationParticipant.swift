@@ -6,37 +6,29 @@ import ScrollArbitration
 /// its own calls (`owner`), never per scroll frame. Registration, frame updates and unregistration are cold-path.
 @MainActor
 final class ArbitrationParticipant: ScrollArbitrationParticipant {
-    let arbiter: any ScrollArbiter
+    /// The registration half (token, frame, ownership question): shared with the public registration type.
+    let registrar: ArbitrationRegistrar
     private weak var coordinator: PanCoordinator?
-    private(set) var token: ScrollArbitrationToken?
-    private(set) var frame: CGRect = .zero
 
     init(arbiter: any ScrollArbiter, coordinator: PanCoordinator) {
-        self.arbiter = arbiter
+        registrar = ArbitrationRegistrar(arbiter: arbiter)
         self.coordinator = coordinator
+        registrar.participant = self
     }
 
-    var isRegistered: Bool { token != nil }
+    var arbiter: any ScrollArbiter { registrar.arbiter }
+    var token: ScrollArbitrationToken? { registrar.token }
+    var frame: CGRect { registrar.frame }
+    var isRegistered: Bool { registrar.isRegistered }
 
     /// On appear. `frame` is in `.named(arbiter.coordinateSpaceName)`. A second call acts as `update`.
-    func register(frame: CGRect) {
-        self.frame = frame
-        if let token { arbiter.update(token, frame: frame) } else { token = arbiter.register(self, frame: frame) }
-    }
+    func register(frame: CGRect) { registrar.register(frame: frame) }
 
     /// On frame change (cold). Ignored while unregistered.
-    func update(frame: CGRect) {
-        guard let token, frame != self.frame else { return }
-        self.frame = frame
-        arbiter.update(token, frame: frame)
-    }
+    func update(frame: CGRect) { registrar.update(frame: frame) }
 
     /// On disappear.
-    func unregister() {
-        guard let token else { return }
-        arbiter.unregister(token)
-        self.token = nil
-    }
+    func unregister() { registrar.unregister() }
 
     /// Rule 5's answer, through the view's `ZTronNestedScrollPolicy` (NESTED §3): `.innerWhileScrollable` is the
     /// bounds test, `.innerWhenZoomed` is `zoomScale > minimumZoomScale + ε`, `.inner` / `.outer` are constant and
@@ -93,14 +85,12 @@ final class ArbitrationParticipant: ScrollArbitrationParticipant {
 
     /// `startLocation` is local to the viewport. Not registered yet: we own the swipe.
     func owner(startLocation: CGPoint, translation: CGSize, touchCount: Int) -> ScrollOwner {
-        guard let token else { return .participant }
-        let start = CGPoint(x: frame.minX + startLocation.x, y: frame.minY + startLocation.y)
-        return arbiter.owner(ofDragFrom: start, translation: translation, touchCount: touchCount, participant: token)
+        registrar.owner(startLocation: startLocation, translation: translation, touchCount: touchCount)
     }
 }
 
-/// Reads the viewport frame in the arbiter's space and keeps the participant registered (cold: only when the frame
-/// changes). Lives in a background, so it never touches the content body.
+/// Keeps the viewport's participant registered with the arbiter in the environment (frame in the arbiter's space, cold:
+/// see `ParticipantFrameRegistration`). Lives in a background, so it never touches the content body.
 struct ArbitrationRegistration: ViewModifier {
     @ObservedObject var coordinator: PanCoordinator
     /// `ZTronScrollView.nestedScrollPolicy(_:)`; nil falls back to the environment twin.
@@ -111,17 +101,7 @@ struct ArbitrationRegistration: ViewModifier {
     func body(content: Content) -> some View {
         let policy = policy ?? envPolicy
         coordinator.setArbiter(arbiter, policy: policy)
-        return content.background(
-            Group {
-                if let arbiter, policy.joins(arbiter) {
-                    GeometryReader { proxy in
-                        let frame = proxy.frame(in: .named(arbiter.coordinateSpaceName))
-                        Color.clear
-                            .onAppear { coordinator.participant?.register(frame: frame) }
-                            .onChange(of: frame) { coordinator.participant?.update(frame: $0) }
-                            .onDisappear { coordinator.participant?.unregister() }
-                    }
-                }
-            })
+        // The coordinator has a participant exactly when there is an arbiter this view joins (`policy.joins`).
+        return content.modifier(ParticipantFrameRegistration(registrar: coordinator.participant?.registrar))
     }
 }

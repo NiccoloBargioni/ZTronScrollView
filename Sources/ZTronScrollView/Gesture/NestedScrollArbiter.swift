@@ -79,8 +79,11 @@ final class NestedScrollArbiter: ScrollArbiter {
         return reference.containerOwner(ofDragFrom: start, translation: translation, touchCount: touchCount)
     }
 
-    /// First finger down on the outer. A no-op while a sequence is active.
+    /// First finger down on the outer. A no-op while a sequence the outer began is active; a sequence that began lazily
+    /// at an ask is superseded (an external participant cannot call `participantSequenceEnded()`, so a drag the outer's
+    /// pan never recognized must not leave a stale owner for this touch).
     func beginSequence() {
+        if beganLazily { endSequence() }
         beginSequence(lazily: false)
     }
 
