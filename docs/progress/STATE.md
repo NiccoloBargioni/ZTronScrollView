@@ -1,6 +1,6 @@
 # STATE
 Status: RUNNING
-Current: M5 (b): rotation criteria A+B met on both user trees (D18/D19) and criterion C (D20), the 16:9-tree bounce (D21), the double tap (D22, calibrated against native) and the one-finger-lift snap (D23/D25) fixed and CONFIRMED by the user on the device (2026-10-19) → full demo UI re-run (Orchestration step 3), PanCoordinator rebase; MC freeze blocked on a user decision
+Current: step 3 done 2026-10-20 (full demo UI suite: 42/42 on 27.0 both paths, 41/42 on 17.5 both paths = the known Q3 pager case); M6 (a) + N-a done; D27 decided → next = step 4 (M5 (b) remainder, M6 (b) session 2 in the SwiftUI target space, then M8b-1); Debugger item 6 (27.0 forced duplicate content copy); MC freeze blocked on the user's Q3 decision
 
 | Milestone | Status | Budget % | Used % (my readings) | Notes |
 |---|---|---|---|---|
@@ -9,7 +9,7 @@ Current: M5 (b): rotation criteria A+B met on both user trees (D18/D19) and crit
 | M1 | done | 6–9 | | physics 99 tests, availability 16 tests, design note; weekly limit hit in fix round (recovered 2026-10-18) |
 | M2 | done | 7–10 | | render proof green on 27.0 + 17.5, both paths (docs/progress/M2-s3.md) |
 | M3 | done | 8–10 | | pan/release/catch/delegate/arbitration; 123 unit tests; demo UI 14/14 on 27.0 both paths; PanUITests 7/7 on 17.5 both paths |
-| M4 | done | 5–7 | | zoom state + pinch adapter + demo; criterion C staggered-lift fix (D20, docs/progress/M4-s3.md); ZoomUITests 7/7 on 27.0 (both paths) + 17.5 preferred; 17.5 forced pending |
+| M4 | done | 5–7 | | zoom state + pinch adapter + demo; criterion C staggered-lift fix (D20, docs/progress/M4-s3.md); ZoomUITests 7/7 on 27.0 (both paths) + 17.5 both paths (full demo UI re-run 2026-10-20, step 3) |
 | M5 | partial | 5–7 | | (a) done; (b) rotation acceptance A+B green on 27.0 + 17.5 both paths (docs/progress/M5-s2.md s4); D21 render-path pixel tolerance, D22 programmatic zoom = native ease-in-out + duration law (ZoomTiming, docs/progress/USER-s3.md), D23 hand-off overscroll (docs/progress/USER-s2.md), D24 pinch overscroll rubber band + didZoom cadence kept per SPEC, D25 lift snap = trailing magnify sample ignored (USER-s4.md); device checks of C, D21, D22, D25 done by the user; left: PanCoordinator rebase, insets into pan/pinch env |
 | M6 | partial | 8–11 | | (a) session 1 done (`docs/progress/M6-s1.md`, 7243121): target-behavior family + `.paging` ≡ `isPagingEnabled`, member/twin, reader/proxy `scrollTo`, `ztronScrollID` registry; unit 275/275 on 27.0 + 17.5, ZoomUITests 7/7; open: target space vs SwiftUI's (decide before session 2); left: session 2 (ViewAligned, NativeBridges, ScrollTargetLayout), session 3 (Position, DefaultScrollAnchor, TargetsScreen) |
 | M7 | todo | 6–8 | | |

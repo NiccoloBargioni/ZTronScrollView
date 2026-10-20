@@ -1,11 +1,13 @@
 # ZTronScrollView · Orchestration (resume here)
 
-Last updated: 2026-10-19 (session 3 + side session s3-C end, weekly all-models 20% · Fable 39%) · Status: **M0–M4 done ·
+Last updated: 2026-10-20 (side session M8b-s0 acting as orchestrator: step 3 full demo UI re-run done, D27; weekly all-models 36% ·
+Fable 68%; 2026-10-19 session 3 + s3-C ended at 20% · 39%) · Status: **M0–M4 done ·
 physics calibrated (unit) · M5 rotation: user full-screen tree PASSES criteria A+B on 27.0 + 17.5 (D18/D19) · criterion C
 fixed in code (D20, staggered lift; probe + ZoomUITests 7/7 on 27.0 pref+forced, 17.5 pref) · user bounce report fixed
 (D21, pixel-rounded effect size: 16:9 trees drew clamped + stayed `.animating`) · double-tap snap (D22) and
 one-finger-lift snap (D23) fixed · programmatic zoom calibrated against native (D22 final, `ZoomTiming`), user device
-checks DONE on the device (C, D21, D22, D25) · pinch overscroll rubber band (D24) → next = step 3** · MC freeze
+checks DONE on the device (C, D21, D22, D25) · pinch overscroll rubber band (D24) · step 3 DONE 2026-10-20 (demo UI 42/42 on 27.0
+both paths; 17.5 both paths green except the known Q3 pager case) · M6 (a) + N-a done → next = step 4** · MC freeze
 blocked (user decision). **M8b/M8 designs amended 2026-10-19 per the user's three decisions (side session M8b-s0, D26): M8b-3 and
 M8-8 build from the amended SPEC S9/S10/S11 + `docs/design/M8b-refresh-header.md` §2–3 + `M8-chrome.md` §7b.**
 ## Resume in a new session (cheapest path)
@@ -31,7 +33,7 @@ M8-8 build from the amended SPEC S9/S10/S11 + `docs/design/M8b-refresh-header.md
 | M3 (b) gestures + demo | done | catch fixed; fling acceleration on the state clock (D14). iOS <18 catch observer is now gated (`CatchArming`: attached only while content moves or a seen touch is down), so UIKit controls work on 17.5. PanUITests 7/7 on 17.5 and 27.0, preferred and forced; demo UI 14/14 on 27.0 |
 | M3 (c) arbitration | done | participant + 9 unit tests; demo pager stand-in (`PagerScreen`, ReferenceScrollArbiter) + `PagerUITests` green on 27.0; demo now links ScrollArbitration (`M3-s3.md`) |
 | M4 (a) zoom state + PinchSession | done | `Gesture/PinchSession.swift`, `zoomRange`, solver-based `setZoomScale` (`M4-s1.md`) |
-| M4 (b) pinch adapter + demo | done* | pinch adapter, double tap, ZoomScreen; ZoomUITests **7/7** on 27.0 pref+forced, 17.5 pref (2026-10-19, after D20); criterion C staggered-lift fix in PanCoordinator (`M4-s3.md`, 6 new unit tests × 2 OS paths); 17.5 forced ZoomUITests + full-suite 27 forced / 17.5 forced still pending (`M4-s2.md`) |
+| M4 (b) pinch adapter + demo | done | pinch adapter, double tap, ZoomScreen; ZoomUITests **7/7** on 27.0 pref+forced, 17.5 pref (2026-10-19, after D20); criterion C staggered-lift fix in PanCoordinator (`M4-s3.md`, 6 new unit tests × 2 OS paths); step 3 re-run 2026-10-20: full suite green on 27.0 both paths and on 17.5 both paths except the known Q3 pager case (`ORCH-s1.md`) |
 | M5 design | done | `docs/design/M5-resize.md` (+ orchestrator resolutions C1–C3, Q1–Q3 at the end) |
 | M6–M9 designs | done | `docs/design/{M6-targets,M7-observation,M8-chrome,M8b-refresh-header,M9-virtualization}.md`, each ending with "Orchestrator resolutions" (read those first) and a builder-session split with file ownership + sequencing; **M8b amended 2026-10-19** (user decisions: refresh single source, `withScalingHeader` header preceding the content with `.preserve`/`.stretch`, delegate modifiers → SPEC S9/S10/S11/S14, M8b §2–3, M8-chrome §7b/M8-8; `docs/progress/M8b-s0.md`) |
 | M5 (a) state + render | done | `docs/progress/M5-s1.md`: ResizeMath/Commit, TransformHost above layout host (C1 gate: Proof 6/6, demo UI 20/20 on 27.0), 134 unit tests on 27.0 + 17.5 |
@@ -41,7 +43,7 @@ M8-8 build from the amended SPEC S9/S10/S11 + `docs/design/M8b-refresh-header.md
 | N-a nested arbitration | done | 3e8ae26 (design `docs/design/NESTED-arbitration.md` + resolutions a30a008): `ZTronNestedScrollPolicy`, `nestedScrollPolicy(_:)` / `ztronNestedScrollPolicy(_:)`, internal `NestedScrollArbiter`; `NestedArbitrationTests` 18 on both OS paths; no handoff file (the nested session went idle after the commit). N-b (demo `NestedPagerScreen` + `NestedPagerUITests`) and the SPEC amendment follow step 3 (NESTED-arbitration.md §4); polish (review findings): D15 effective axes for the paging axis, no `@_exported` re-export, `.independent` opts out of the nested container only, public `ZTronNestedScrollContext` init, consistent three-level rig + content-space conversion test; handoff `docs/progress/NESTED-s1.md` |
 | M6 (b,c) … M10 | todo | SPEC O4 l.970–990; M6 (b) = session 2 (ViewAligned, NativeBridges, ScrollTargetLayout), (c) = session 3 (Position, DefaultScrollAnchor, TargetsScreen) |
 
-Test totals now: `ZTronScrollViewTests` **275** (26 suites; M6 s1's 79 and N-a's `NestedArbitrationTests` included) green on iOS 27.0 and 17.5 (both OS paths) · M2 `ProofUITests` 6/6 ·
+Test totals now: `ZTronScrollViewTests` **275** (26 suites; M6 s1's 79 and N-a's `NestedArbitrationTests` included) green on iOS 27.0 and 17.5 (both OS paths) · M2 `ProofUITests` 6/6 · **demo UI full suite (2026-10-20, 5eca9a7): 42/42 on 27.0 preferred + forced, 41/42 on 17.5 preferred + forced (only the known Q3 pager case)** ·
 physics 111 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-contract,M2-render,M3-pan,M4-zoom}.md`.
 
 ## Next steps (in order; prompts are ready to paste)
@@ -82,8 +84,11 @@ physics 111 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-
    **approved by the user (2026-10-19)**, with two constraints: keep `.refresher { action }` (default loader) and `.refresher(refreshView:action:)`
    as spelled (S9 "Mandatory shapes"), and no introspection anywhere (S2; the S10 mention is the reference's technique). No library or demo code.
    Handoff `docs/progress/M8b-s0.md`.
-3. [ ] Re-run the full demo UI suite after the physics commits (`dff908b`, `9091f20`) on 27.0 + 17.5, both paths;
-   PagerUITests "trailing edge pages" still fails on 27.0 --forced and 17.5 (`M4-s2.md`).
+3. [x] **Full demo UI suite re-run** — done 2026-10-20 at 5eca9a7 (`docs/progress/ORCH-s1.md`): 27.0 preferred 42/42 and 27.0 forced 42/42
+   (the earlier 27.0 --forced pager failure of `M4-s2.md` did not recur); 17.5 preferred and forced 41/42 each, the only failure
+   `PagerUITests.testPagerArbitration` "swipe at the trailing edge pages" = the known spike Q3 = NO on iOS ≤ 17 (Open item 1, user
+   decision). CalibrateUITests' 4 tests skip by design. Two test-runner subagents in parallel, one simulator each, separate derived data
+   (`.build/dd-ui27`, `.build/dd-ui175`): ~9 min per run on 27.0, 7–16 min on 17.5 (a 600 s "collecting diagnostics" timeout inflated the forced run).
 4. [ ] M5 (b) remainder (PanCoordinator resize rebase, adjusted insets into pan/pinch env) → M6–M9 builds from the
    ready designs (`docs/design/M6…M9`), M10. Sequencing per each design's resolutions.
    M6 (a) done 2026-10-20 (`docs/progress/M6-s1.md`, 7243121): Open 1 decided (D27, 2026-10-20) → next = M6 (b) session 2 (ViewAligned in the SwiftUI target space), then M8b-1
@@ -258,6 +263,9 @@ Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (≤ 2 simulators at 
   (M3 (b): 99 min) — enforce the 2-attempt rule and escalate to the Debugger.
 - 2026-10-14: one ultracode workflow (11 Opus/Fable agents, 1.64 M tokens) used the whole remaining weekly budget.
   Don't fan out builders; follow SPEC O2/O5.
+- 2026-10-20: orchestrating step 3 (4 demo UI runs through test-runner subagents) + D27 + bookkeeping from the Fable M8b-s0 session with a
+  ~400 K context cost Fable 49% → 68% in one evening (all-models 25% → 36%, the Sonnet M6 s1 session included). Verification-only steps
+  belong in a Sonnet session; keep Fable for design and the hard physics.
 - 2026-10-19: lean ultracode works: 3 sequential workflows (measure 1 agent → fix+verify 4 → follow-ups+verify 3; one
   Fable builder at a time, review and the two simulators in parallel) = all-models 7% → 10%, Fable 13% → 18%
   in ~3 h (predicted 9–11 all-models points; actual 3). One fix+verify workflow (Fable builder xhigh 38 min + Fable review + 2 Sonnet test runners,
@@ -274,3 +282,4 @@ Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (≤ 2 simulators at 
 | 2026-10-19 | Fable 5.1 #3 orchestrator, ultracode ×3 | measured the rotation event order; D18/D19 turn-origin capture + settle window; user full-screen tree passes A+B on 27.0 + 17.5; jump monitor = drawn frames; 160 unit tests | all 7% → 10% · Fable 13% → 18% |
 | 2026-10-19 | Fable 5.1 #3 side session M8b-s0 (Architect, design only) | user amendment: SPEC S9/S10/S11/S14 + M8b design §2–3 rewritten (`withScalingHeader`, `.preserve`/`.stretch`, proxy + reader geometry, iOS 15 fallback, counter tests, builder split) + M8-chrome §7b/M8-8 delegate modifiers; D26; A1–A10 for the user; no code | all 20% → 25% · Fable 39% → 49% (upper bound: the orchestrator ran concurrently) |
 | 2026-10-19/20 | Sonnet 5.5 side session M6-s1 (Builder) | M6 session 1: type mirror, `.paging` ≡ knob, member/twin, reader/proxy/`scrollTo`, `ztronScrollID` registry; 79 new tests; findings in `M6-s1.md` + notes folder: SwiftUI's target space, 27.0 forced-fallback content duplication (pre-existing), sibling `onAppear` order, `EnvironmentValues` retention | all ≈30% → 32% · Fable 58% → 60% (all sessions together) |
+| 2026-10-20 | Fable 5.1 side session M8b-s0, resumed as orchestrator | D27 (target space, M6-s1 Open 1) + M6 resolutions; N-a state row + open items 6–8; step 3: full demo UI suite ×4 (27.0/17.5 × preferred/forced) via test-runner subagents, all green except the known Q3 pager case on 17.5; handoff `ORCH-s1.md` | all 25% → 36% · Fable 49% → 68% |
