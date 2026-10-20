@@ -56,6 +56,13 @@ Red-before evidence: the old gate + the oracle in a scratch worktree at b9215cf:
 3. The 18.x slider step of `testControlsUsable` (DBG-s2 Open 2) still fails on 18.6 (slider stays 0.2); unrelated to the gate.
 
 ## Tests
-(see the end of this file, filled in after the final runs)
+Private clones of idle devices per lane, own derived data, `-collect-test-diagnostics never`; host load 130–850 from other sessions.
+- Unit: `scripts/test.sh` (all of `ZTronScrollViewTests`) → 599 tests in 53 suites green on 17.5 and 27.0 at 86ae809 (+12: `ContentGatePolicyTests` 8, `TextEditingMonitorTests` 4; 587 before).
+- Demo UI, the requested set (PanUITests, ProofUITests, ResizeUITests, ZoomUITests, ImageUITests, NestedPagerUITests, PagerUITests, TargetsUITests; 69 executed, none skipped), final tree 86ae809:
+  27.0 preferred 69/69 · 27.0 `--forced` 69/69 · 17.5 preferred 68/69 · 17.5 `--forced` 68/69. The one failure on 17.5 is `PagerUITests.testPagerArbitration` (spike Q3), as before.
+- PanUITests alone (18 tests): 17.5 18/18, 26.5 18/18, 27.0 18/18, 18.6 17/18 (`testControlsUsable`, the 18.x slider step: DBG-s2 Open 2).
+- UIKit observer path (`--uikit`, D31): PanUITests + ZoomUITests 25/25 on 17.5 and 27.0.
+- Red before: a scratch worktree at b9215cf with only the oracle (the monitor's counters) and the new tests: 17.5 11/16 (animated scroll, drag, fling, scale wrapper, rotation wrapper red), 27.0 13/16 (animated scroll, drag, fling red); the same tests are 16/16 at 1a9be45 on both OS.
+- `scripts/check-uikit-scope.sh` clean (95 files). About 40 matrix runs of the lever variants (GestureMask, shield, eater, hit-only, hold, split pan modes) are in the notes folder as one patch plus the logs of the decisive runs.
 
-Usage: not measured (about 120 simulator runs on 8 private clones, deleted at the end; the scratch worktree too). Notes folder: `side-session-notes/local_936c3932-…/gate-focus/` (FINDINGS.md, the experiment patch with every variant, the runner scripts, red / green logs).
+Usage: not measured (about 150 simulator runs on 8 private clones, deleted at the end; the scratch worktree too). Notes folder: `side-session-notes/local_936c3932-…/gate-focus/` (FINDINGS.md, the experiment patch with every variant, the runner scripts, red / green logs).
