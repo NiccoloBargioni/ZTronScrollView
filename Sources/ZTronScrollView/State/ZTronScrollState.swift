@@ -126,6 +126,8 @@ public final class ZTronScrollState {
     private var batchStart: (CGPoint, CGFloat)?
     private var pendingEndNotification = false
     private var pendingEndDecelerating = false
+    /// `scrollToTop(animated:)` was accepted: `didScrollToTop` follows the end-of-motion callbacks.
+    private var pendingDidScrollToTop = false
     private var didScrollPending = false
     private var didZoomPending = false
     private var pendingEndZoomScale: CGFloat?
@@ -257,26 +259,30 @@ public final class ZTronScrollState {
             #if DEBUG
             ZTronRenderCounters.increment("didZoom")
             #endif
-            delegate?.scrollViewDidZoom(self)
+            notifyDidZoom()
         }
         if didScrollPending {
             didScrollPending = false
             #if DEBUG
             ZTronRenderCounters.increment("didScroll")
             #endif
-            delegate?.scrollViewDidScroll(self)
+            notifyDidScroll()
         }
         if pendingEndDecelerating {
             pendingEndDecelerating = false
-            delegate?.scrollViewDidEndDecelerating(self)
+            notifyDidEndDecelerating()
         }
         if pendingEndNotification {
             pendingEndNotification = false
-            delegate?.scrollViewDidEndScrollingAnimation(self)
+            notifyDidEndScrollingAnimation()
         }
         if let scale = pendingEndZoomScale {
             pendingEndZoomScale = nil
-            delegate?.scrollViewDidEndZooming(self, atScale: scale)
+            notifyDidEndZooming(atScale: scale)
+        }
+        if pendingDidScrollToTop, motion == nil, transactionToken == nil {
+            pendingDidScrollToTop = false
+            notifyDidScrollToTop()
         }
         deliverObservers()
         evaluateReachEdges()
@@ -304,6 +310,7 @@ public final class ZTronScrollState {
 
     /// The user or code is about to move the view: any resize in flight commits and the sticky intent is dropped.
     private func beginIntervention() {
+        pendingDidScrollToTop = false          // a newer command or a finger supersedes a scroll to top in flight
         positionDriver.interventionBegan()
         resizeIntent = nil
         turnOrigin = nil                      // the new offset is the truth for the rest of this turn
@@ -602,7 +609,7 @@ public final class ZTronScrollState {
 
     // MARK: Resize (SPEC S7, design M5)
 
-    private func notifyAdjustedInsetChange() { delegate?.scrollViewDidChangeAdjustedContentInset(self) }
+    private func notifyAdjustedInsetChange() { notifyDidChangeAdjustedContentInset() }
 
     /// `contentInset` / behavior changed: recompute the adjusted inset and apply the inset-only rule.
     private func adjustedInputsChanged() {
@@ -629,6 +636,8 @@ public final class ZTronScrollState {
         #endif
         if postResizeTurns > 0, resizeAlignedIDs != nil { realignAlignedItems() }
         positionDriver.layoutChanged()
+        // Target-visibility observers recompute when the frames moved without any scroll (M7 T9).
+        if observers.hasTargetObservers { observers.requestDelivery?() }
     }
 
     /// The view-aligned behavior in effect, when it has targets to keep aligned across a resize.
@@ -867,7 +876,7 @@ public final class ZTronScrollState {
             #endif
             resizeSawAnimation = true
             resizeStableTicks = 0
-            if storage.phase == .idle { storage.phase = .animating }
+            if storage.phase == .idle { writePhase(.animating) }
         } else if !resizeSawAnimation {
             #if DEBUG
             closeReason = "tick-never-animated"; dbg("tick never-animated probe:\(f(p.size)) -> close")
@@ -906,7 +915,7 @@ public final class ZTronScrollState {
             unanimated {
                 storage.metrics = m
                 writeBoth(offset: r.offset, zoom: r.scale)
-                if storage.phase == .animating, motion == nil, transactionToken == nil { storage.phase = .idle }
+                if storage.phase == .animating, motion == nil, transactionToken == nil { writePhase(.idle) }
             }
             #if DEBUG
             dbg("close reason:\(closeReason) vp:\(f(m.resize.current.viewport)) content:\(f(m.contentSize)) o:\(f(r.offset)) z:\(f(r.scale)) target:\(f(s.targetOffset))")
@@ -921,10 +930,25 @@ public final class ZTronScrollState {
         realignAlignedItems()
     }
     func setPhase(_ phase: ZTronScrollPhase) {
-        batch {
-            observers.enqueuePhase(old: storage.snapshot().phase, new: phase, velocity: currentVelocity())
-            storage.phase = phase
-        }
+        batch { writePhase(phase) }
+    }
+    /// THE one place the phase changes (M7 s2): the transition is queued for the phase observers (flushed last in the next
+    /// delivery, after the delegate calls) and then written. Callers run inside a `batch` or hold the flush (`holdingPhase`).
+    private func writePhase(_ phase: ZTronScrollPhase) {
+        let old = storage.phase
+        guard old != phase else { return }
+        if observers.hasPhaseObservers { observers.enqueuePhase(old: old, new: phase, velocity: currentVelocity()) }
+        storage.phase = phase
+    }
+    /// > 0 while a site runs the delegate call that has to precede the phase transition it just wrote (T8).
+    private var phaseHold = 0
+    /// Runs `body` (the state writes and their delegate call); the queued phase transitions flush after it, so
+    /// `willBeginDragging` precedes `.tracking → .interacting`, `willBeginDecelerating` precedes `→ .decelerating`.
+    private func holdingPhase(_ body: () -> Void) {
+        phaseHold += 1
+        body()
+        phaseHold -= 1
+        if phaseHold == 0, batchDepth == 0 { observers.flushPhase(self) }
     }
     /// pt/s of the running clock motion, else unknown (`ZTronScrollPhaseChangeContext.velocity`).
     func currentVelocity() -> CGVector? {
@@ -933,7 +957,7 @@ public final class ZTronScrollState {
         return CGVector(dx: m.x.sample(at: t).velocity, dy: m.y.sample(at: t).velocity)
     }
     /// Geometry, visibility and target observers, then the queued phase transitions (after the delegate calls).
-    func deliverObservers() { observers.deliver(self); observers.flushPhase(self) }
+    func deliverObservers() { observers.deliver(self); if phaseHold == 0 { observers.flushPhase(self) } }
 
     /// Frame clock tick. No-op while nothing runs.
     func step(to date: Date) {
@@ -959,7 +983,7 @@ public final class ZTronScrollState {
                 motion = nil
                 storage.isZoomBouncing = false
                 storage.isZooming = false
-                if transactionToken == nil, !storage.isTracking { storage.phase = .idle }
+                if transactionToken == nil, !storage.isTracking { writePhase(.idle) }
                 if didBeginZooming { pendingEndZoomScale = sample.scale }
                 didBeginZooming = false
                 willBeginZoomingPending = false
@@ -995,10 +1019,10 @@ public final class ZTronScrollState {
             storage.isZoomAnimating = false
             if m.kind == .deceleration {
                 storage.isDecelerating = false
-                if transactionToken == nil, !storage.isTracking { storage.phase = .idle }
+                if transactionToken == nil, !storage.isTracking { writePhase(.idle) }
                 pendingEndDecelerating = true
             } else {
-                if transactionToken == nil { storage.phase = .idle }
+                if transactionToken == nil { writePhase(.idle) }
                 pendingEndNotification = true
             }
         }
@@ -1025,7 +1049,7 @@ public final class ZTronScrollState {
             storage.presentationZoom = s.targetZoom
             if motion == nil {
                 storage.isScrollAnimating = false
-                storage.phase = .idle
+                writePhase(.idle)
                 storage.isClockRunning = false
             }
             pendingEndNotification = true
@@ -1054,6 +1078,18 @@ public final class ZTronScrollState {
                 unanimated { writeBoth(offset: offset, zoom: s.presentationZoom) }
             }
         }
+    }
+
+    /// UIKit's scroll-to-top (status-bar tap, `scrollToTop(animated:)`): asks `scrollViewShouldScrollToTop` (the delegate and
+    /// every `onZTronScrollShouldScrollToTop` predicate; any veto wins), then moves to the top edge (x kept, the top inset
+    /// revealed) and reports `scrollViewDidScrollToTop` after the end-of-motion callbacks. Returns whether it ran.
+    @discardableResult
+    public func scrollToTop(animated: Bool = true) -> Bool {
+        guard notifyShouldScrollToTop() else { return false }
+        setContentOffset(CGPoint(x: storage.snapshot().presentationOffset.x, y: -adjustedContentInset.top), animated: animated)
+        pendingDidScrollToTop = true
+        if motion == nil, transactionToken == nil { deliverPending() }
+        return true
     }
 
     /// UIKit `setZoomScale(_:animated:)`: clamped to the zoom range, anchored at the visible center (insets and
@@ -1171,7 +1207,7 @@ public final class ZTronScrollState {
                 storage.targetOffset = s.presentationOffset
                 storage.targetZoom = s.presentationZoom
             }
-            if wasMoving || s.phase == .animating { storage.phase = .idle }
+            if wasMoving || s.phase == .animating { writePhase(.idle) }
             storage.isClockRunning = storage.isTracking || storage.isZooming
         }
     }
@@ -1187,18 +1223,20 @@ public final class ZTronScrollState {
         beginIntervention()
         batch {
             storage.isTracking = true
-            storage.phase = .tracking
+            writePhase(.tracking)
             storage.isClockRunning = true
         }
     }
 
     /// Recognized drag: `willBeginDragging`, phase `.interacting`.
     func beginDragging() {
-        batch {
-            storage.isDragging = true
-            storage.phase = .interacting
+        holdingPhase {
+            batch {
+                storage.isDragging = true
+                writePhase(.interacting)
+            }
+            notifyWillBeginDragging()
         }
-        delegate?.scrollViewWillBeginDragging(self)
     }
 
     /// Sequence over without a deceleration (tap, ignored sequence, released at rest). No delegate.
@@ -1208,7 +1246,7 @@ public final class ZTronScrollState {
             storage.isTracking = false
             storage.isDragging = false
             if motion == nil, transactionToken == nil, !storage.isZooming {
-                if storage.phase == .tracking || storage.phase == .interacting { storage.phase = .idle }
+                if storage.phase == .tracking || storage.phase == .interacting { writePhase(.idle) }
                 storage.isClockRunning = false
             }
         }
@@ -1234,17 +1272,19 @@ public final class ZTronScrollState {
     /// left alone (it equals the presentation) so the transform host sees one write per tick, never a jump to the end.
     func beginDeceleration(x: AxisMotion, y: AxisMotion, at time: TimeInterval, displayScale: CGFloat? = nil) {
         catchLocksContent = false
-        batch {
-            cancelMotion()
-            motion = ClockMotion(x: x, y: y, kind: .deceleration,
-                                 snapScale: displayScale ?? storage.snapshot().metrics.displayScale)
-            storage.isTracking = false
-            storage.isDragging = false
-            storage.isDecelerating = true
-            storage.phase = .decelerating
-            storage.isClockRunning = true
+        holdingPhase {
+            batch {
+                cancelMotion()
+                motion = ClockMotion(x: x, y: y, kind: .deceleration,
+                                     snapScale: displayScale ?? storage.snapshot().metrics.displayScale)
+                storage.isTracking = false
+                storage.isDragging = false
+                storage.isDecelerating = true
+                writePhase(.decelerating)
+                storage.isClockRunning = true
+            }
+            notifyWillBeginDecelerating()
         }
-        delegate?.scrollViewWillBeginDecelerating(self)
     }
 
     // MARK: Zoom gesture hooks (M4, driven by the pan coordinator)
@@ -1255,7 +1295,7 @@ public final class ZTronScrollState {
         beginIntervention()
         batch {
             storage.isZooming = true
-            storage.phase = .interacting
+            writePhase(.interacting)
             storage.isClockRunning = true
         }
         willBeginZoomingPending = true
@@ -1269,7 +1309,7 @@ public final class ZTronScrollState {
         if willBeginZoomingPending, scale != storage.snapshot().presentationZoom {
             willBeginZoomingPending = false
             didBeginZooming = true
-            delegate?.scrollViewWillBeginZooming(self)
+            notifyWillBeginZooming()
         }
         batch(deferScroll: true) { unanimated { writeBoth(offset: offset, zoom: scale) } }
     }
@@ -1281,8 +1321,8 @@ public final class ZTronScrollState {
             storage.isZooming = false
             storage.isZoomBouncing = false
             if motion == nil, transactionToken == nil {
-                if !storage.isTracking { storage.phase = .idle; storage.isClockRunning = false }
-                else if storage.phase == .interacting { storage.phase = storage.isDragging ? .interacting : .tracking }
+                if !storage.isTracking { writePhase(.idle); storage.isClockRunning = false }
+                else if storage.phase == .interacting { writePhase(storage.isDragging ? .interacting : .tracking) }
             }
             if didBeginZooming { pendingEndZoomScale = scale }
             didBeginZooming = false
@@ -1300,7 +1340,7 @@ public final class ZTronScrollState {
                                  bounce: m, kind: .zoomBounce)
             storage.isZooming = true
             storage.isZoomBouncing = abs(m.logScale.target - m.logScale.origin) > 1e-12
-            storage.phase = .decelerating
+            writePhase(.decelerating)
             storage.isClockRunning = true
         }
     }
@@ -1309,7 +1349,7 @@ public final class ZTronScrollState {
     func endDragWithoutDeceleration() {
         flushPendingScroll()
         let wasDragging = storage.isDragging
-        if wasDragging { delegate?.scrollViewDidEndDragging(self, willDecelerate: false) }
+        if wasDragging { notifyDidEndDragging(willDecelerate: false) }
         endTracking()
     }
 
@@ -1326,12 +1366,12 @@ public final class ZTronScrollState {
         storage.isZoomAnimating = false
         storage.isDecelerating = false
         let phase = storage.snapshot().phase
-        if phase == .animating || phase == .decelerating { storage.phase = .idle }
+        if phase == .animating || phase == .decelerating { writePhase(.idle) }
         storage.isClockRunning = false
     }
 
     private func startAnimating(scroll: Bool, zoom: Bool) {
-        storage.phase = .animating
+        writePhase(.animating)
         storage.isScrollAnimating = scroll
         storage.isZoomAnimating = zoom
         storage.isClockRunning = true

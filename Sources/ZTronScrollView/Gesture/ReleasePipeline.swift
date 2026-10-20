@@ -89,8 +89,7 @@ extension ZTronScrollState {
         let decision = decideTarget(r, env: env, settings: settings, ix: ix, iy: iy, enabledX: enabledX, enabledY: enabledY,
                                     natural: natural)
         var proposed = decision.proposed
-        delegate?.scrollViewWillEndDragging(self, withVelocity: CGPoint(x: vx / 1000, y: vy / 1000),
-                                            targetContentOffset: &proposed)
+        notifyWillEndDragging(velocity: CGPoint(x: vx / 1000, y: vy / 1000), target: &proposed)
         let targetX = (decision.snapsX || proposed.x != natural.x) ? proposed.x : nil
         let targetY = (decision.snapsY || proposed.y != natural.y) ? proposed.y : nil
         // The motion runs on the state clock. `lift` is a gesture event time, which may use another time base
@@ -99,7 +98,7 @@ extension ZTronScrollState {
         let mx = ReleasePipeline.motion(ix, target: targetX, at: start)
         let my = ReleasePipeline.motion(iy, target: targetY, at: start)
         let willDecelerate = mx.willDecelerate || my.willDecelerate
-        delegate?.scrollViewDidEndDragging(self, willDecelerate: willDecelerate)
+        notifyDidEndDragging(willDecelerate: willDecelerate)
         if willDecelerate {
             beginDeceleration(x: mx, y: my, at: start, displayScale: settings.displayScale)
         } else {

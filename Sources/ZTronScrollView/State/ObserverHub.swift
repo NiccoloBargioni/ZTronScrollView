@@ -50,7 +50,7 @@ final class TypedGeometryBox<T: Equatable>: GeometryObserverBox {
     override func reset() { last = nil }
 }
 
-/// `onScrollPhaseChange`: runs `action(old, new, context)` for each queued transition (session 2 adds the modifiers).
+/// `onScrollPhaseChange`: runs `action(old, new, context)` for each queued transition.
 @MainActor
 final class PhaseObserverBox: ObserverBox {
     var action: (ZTronScrollPhase, ZTronScrollPhase, ZTronScrollPhaseChangeContext) -> Void
@@ -60,6 +60,34 @@ final class PhaseObserverBox: ObserverBox {
     }
 
     override func add(to hub: ObserverHub) -> ObserverHub.Token { hub.addPhase(self) }
+}
+
+/// One `onZTronScroll…` delegate modifier (M8-8, SPEC S11 "Delegate callbacks as modifiers"): the closure of one
+/// `UIScrollViewDelegate` method. The hub runs it at the delegate's call site, after the delegate, in registration order.
+@MainActor
+final class DelegateObserverBox: ObserverBox {
+    enum Kind: Hashable {
+        case didScroll, didZoom, willBeginDragging, willEndDragging, didEndDragging, willBeginDecelerating, didEndDecelerating
+        case didEndScrollingAnimation, willBeginZooming, didEndZooming, shouldScrollToTop, didScrollToTop, didChangeAdjustedContentInset
+    }
+    /// The typed closure for the kind (`plain` serves every method that has only the state).
+    enum Handler {
+        case plain(@MainActor (ZTronScrollState) -> Void)
+        case willEndDragging(@MainActor (ZTronScrollState, CGPoint, inout CGPoint) -> Void)
+        case didEndDragging(@MainActor (ZTronScrollState, Bool) -> Void)
+        case didEndZooming(@MainActor (ZTronScrollState, CGFloat) -> Void)
+        case shouldScrollToTop(@MainActor (ZTronScrollState) -> Bool)
+    }
+    let kind: Kind
+    /// Re-assigned on every body evaluation of the owning modifier (R7: never stale).
+    var handler: Handler
+
+    init(kind: Kind, handler: Handler) {
+        self.kind = kind
+        self.handler = handler
+    }
+
+    override func add(to hub: ObserverHub) -> ObserverHub.Token { hub.addDelegate(self) }
 }
 
 /// `onZTronScrollVisibilityChange` (content level): the view's frame in the unscaled content space (cold: the frame
@@ -100,7 +128,7 @@ final class VisibilityObserverBox: ObserverBox {
 }
 
 /// `onScrollTargetVisibilityChange`: the ids of the registered targets whose visible fraction reaches the threshold,
-/// in layout order (session 2 adds the modifiers; the hub side is here so M8-8 finds one mechanism).
+/// in layout order (the typed boxes with the modifiers are in `Observation/ScrollObservers.swift`).
 @MainActor
 class TargetVisibilityObserverBox: ObserverBox {
     var threshold: Double
@@ -111,9 +139,14 @@ class TargetVisibilityObserverBox: ObserverBox {
 
     override func add(to hub: ObserverHub) -> ObserverHub.Token { hub.addTargetVisibility(self) }
 
-    /// Called with the visible ids (all registered types); subclasses filter and call their typed action.
+    /// Which registered ids this box reports (the typed subclass filters by `ID`); the filter runs BEFORE the change check,
+    /// so a change among ids of another type is silent.
+    func accepts(_ id: AnyHashable) -> Bool { true }
+    /// Called with the visible, accepted ids in layout order; the subclass calls its typed action.
     func fire(_ ids: [AnyHashable]) {}
     func reset() { lastKey = nil; lastIDs = nil }
+    /// The threshold changed: recompute at the next delivery (fires only when the list differs).
+    func invalidate() { lastKey = nil }
 
     func evaluate(_ g: ZTronScrollGeometry, registry: TargetRegistry, axes: Axis.Set) -> Bool {
         let visibleRect = g.visibleRect
@@ -121,7 +154,7 @@ class TargetVisibilityObserverBox: ObserverBox {
         lastKey = (visibleRect, registry.version)
         let horizontal = axes == .horizontal
         let visible = registry.frames.filter {
-            VisibilityMath.isVisible(frame: $0.value, in: visibleRect, threshold: threshold)
+            accepts($0.key) && VisibilityMath.isVisible(frame: $0.value, in: visibleRect, threshold: threshold)
         }
         .sorted { l, r in
             let lm = horizontal ? (l.value.minX, l.value.minY) : (l.value.minY, l.value.minX)
@@ -164,6 +197,7 @@ final class ObserverHub {
     private var phase: [(token: Token, box: PhaseObserverBox)] = []
     private var visibility: [(token: Token, box: VisibilityObserverBox)] = []
     private var targets: [(token: Token, box: TargetVisibilityObserverBox)] = []
+    private var delegates: [(token: Token, box: DelegateObserverBox)] = []
     /// Boxes registered through the container (identity-diffed by `sync`); the content-level modifiers register on their own.
     private var synced: [ObjectIdentifier: Token] = [:]
     private var pendingPhases: [(old: ZTronScrollPhase, new: ZTronScrollPhase, velocity: CGVector?)] = []
@@ -179,8 +213,10 @@ final class ObserverHub {
     private func count(_ kind: String) { fires[kind, default: 0] += 1 }
     #endif
 
-    var isEmpty: Bool { geometry.isEmpty && phase.isEmpty && visibility.isEmpty && targets.isEmpty }
+    var isEmpty: Bool { geometry.isEmpty && phase.isEmpty && visibility.isEmpty && targets.isEmpty && delegates.isEmpty }
     var hasPhaseObservers: Bool { !phase.isEmpty }
+    var hasTargetObservers: Bool { !targets.isEmpty }
+    var hasDelegateObservers: Bool { !delegates.isEmpty }
 
     private func newToken() -> Token {
         nextID += 1
@@ -218,7 +254,14 @@ final class ObserverHub {
         return t
     }
 
+    func addDelegate(_ box: DelegateObserverBox) -> Token {
+        let t = newToken()
+        delegates.append((t, box))
+        return t
+    }
+
     func remove(_ token: Token) {
+        delegates.removeAll { $0.token == token }
         geometry.removeAll { $0.token == token }
         phase.removeAll { $0.token == token }
         visibility.removeAll { $0.token == token }
@@ -238,6 +281,12 @@ final class ObserverHub {
         for box in boxes where synced[ObjectIdentifier(box)] == nil {
             synced[ObjectIdentifier(box)] = box.add(to: self)
             added = true
+        }
+        // Delegate boxes run in registration order = the container's order (environment twins outermost first, then the
+        // members): a box that joins later takes its place in that order, not the end of the list.
+        if added, delegates.count > 1 {
+            let order = Dictionary(uniqueKeysWithValues: boxes.enumerated().map { (ObjectIdentifier($1), $0) })
+            delegates.sort { (order[ObjectIdentifier($0.box)] ?? .max) < (order[ObjectIdentifier($1.box)] ?? .max) }
         }
         if added { requestDelivery?() }
     }
@@ -311,5 +360,51 @@ final class ObserverHub {
                 entry.box.action(transition.old, transition.new, context)
             }
         }
+    }
+
+    // MARK: Delegate modifiers (M8-8): one entry point per `UIScrollViewDelegate` method, run after the delegate itself.
+
+    private func runPlain(_ kind: DelegateObserverBox.Kind, _ state: ZTronScrollState) {
+        for entry in delegates where entry.box.kind == kind {
+            if case let .plain(f) = entry.box.handler { f(state) }
+        }
+    }
+
+    func didScroll(_ s: ZTronScrollState) { runPlain(.didScroll, s) }
+    func didZoom(_ s: ZTronScrollState) { runPlain(.didZoom, s) }
+    func willBeginDragging(_ s: ZTronScrollState) { runPlain(.willBeginDragging, s) }
+    func willBeginDecelerating(_ s: ZTronScrollState) { runPlain(.willBeginDecelerating, s) }
+    func didEndDecelerating(_ s: ZTronScrollState) { runPlain(.didEndDecelerating, s) }
+    func didEndScrollingAnimation(_ s: ZTronScrollState) { runPlain(.didEndScrollingAnimation, s) }
+    func willBeginZooming(_ s: ZTronScrollState) { runPlain(.willBeginZooming, s) }
+    func didScrollToTop(_ s: ZTronScrollState) { runPlain(.didScrollToTop, s) }
+    func didChangeAdjustedContentInset(_ s: ZTronScrollState) { runPlain(.didChangeAdjustedContentInset, s) }
+
+    /// `velocity` in pt/ms (the delegate's unit); `target` is threaded through each box in registration order.
+    func willEndDragging(_ s: ZTronScrollState, velocity: CGPoint, target: inout CGPoint) {
+        for entry in delegates where entry.box.kind == .willEndDragging {
+            if case let .willEndDragging(f) = entry.box.handler { f(s, velocity, &target) }
+        }
+    }
+
+    func didEndDragging(_ s: ZTronScrollState, willDecelerate: Bool) {
+        for entry in delegates where entry.box.kind == .didEndDragging {
+            if case let .didEndDragging(f) = entry.box.handler { f(s, willDecelerate) }
+        }
+    }
+
+    func didEndZooming(_ s: ZTronScrollState, atScale scale: CGFloat) {
+        for entry in delegates where entry.box.kind == .didEndZooming {
+            if case let .didEndZooming(f) = entry.box.handler { f(s, scale) }
+        }
+    }
+
+    /// The conjunction of every predicate (`true` when there is none). Every predicate runs (none is skipped by an earlier veto).
+    func shouldScrollToTop(_ s: ZTronScrollState) -> Bool {
+        var answer = true
+        for entry in delegates where entry.box.kind == .shouldScrollToTop {
+            if case let .shouldScrollToTop(f) = entry.box.handler, !f(s) { answer = false }
+        }
+        return answer
     }
 }

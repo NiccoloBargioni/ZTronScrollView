@@ -57,6 +57,62 @@ extension ObserverDescriptor {
     }
 }
 
+extension ObserverDescriptor {
+    static func phase(key: AnyHashable,
+                      action: @escaping (ZTronScrollPhase, ZTronScrollPhase, ZTronScrollPhaseChangeContext) -> Void) -> ObserverDescriptor {
+        ObserverDescriptor(
+            key: key,
+            make: { PhaseObserverBox(action: action) },
+            apply: { box in
+                guard let typed = box as? PhaseObserverBox else { return false }
+                typed.action = action
+                return true
+            })
+    }
+
+    static func targetVisibility<ID: Hashable>(key: AnyHashable, threshold: Double,
+                                               action: @escaping ([ID]) -> Void) -> ObserverDescriptor {
+        ObserverDescriptor(
+            key: key,
+            make: { TypedTargetVisibilityBox<ID>(threshold: threshold, action: action) },
+            apply: { box in
+                guard let typed = box as? TypedTargetVisibilityBox<ID> else { return false }
+                typed.action = action
+                if typed.threshold != threshold {
+                    typed.threshold = threshold
+                    typed.invalidate()
+                }
+                return true
+            })
+    }
+
+    static func delegate(key: AnyHashable, kind: DelegateObserverBox.Kind,
+                         handler: DelegateObserverBox.Handler) -> ObserverDescriptor {
+        ObserverDescriptor(
+            key: key,
+            make: { DelegateObserverBox(kind: kind, handler: handler) },
+            apply: { box in
+                guard let typed = box as? DelegateObserverBox, typed.kind == kind else { return false }
+                typed.handler = handler
+                return true
+            })
+    }
+}
+
+/// `onScrollTargetVisibilityChange`: the typed box over the M6 registry. Only ids castable to `ID` count, in layout order.
+@MainActor
+final class TypedTargetVisibilityBox<ID: Hashable>: TargetVisibilityObserverBox {
+    var action: ([ID]) -> Void
+
+    init(threshold: Double, action: @escaping ([ID]) -> Void) {
+        self.action = action
+        super.init(threshold: threshold)
+    }
+
+    override func accepts(_ id: AnyHashable) -> Bool { id.base is ID }
+    override func fire(_ ids: [AnyHashable]) { action(ids.compactMap { $0.base as? ID }) }
+}
+
 /// Registers the container's boxes with the state on appear, whenever the box set changes, and removes them on disappear.
 struct ObserverRegistration: ViewModifier {
     let state: ZTronScrollState
@@ -85,6 +141,32 @@ extension ZTronScrollView {
     }
 }
 
+extension ZTronScrollView {
+    /// `onScrollPhaseChange` for this view on iOS 15+: `action(old, new)` on every phase transition (never an initial call).
+    /// A transition runs after the delegate call that belongs to it (`willBeginDragging` before `.tracking → .interacting`).
+    public func onScrollPhaseChange(_ action: @escaping (ZTronScrollPhase, ZTronScrollPhase) -> Void) -> Self {
+        onScrollPhaseChange { old, new, _ in action(old, new) }
+    }
+
+    /// `onScrollPhaseChange` with the context: the geometry at the delivery and the velocity in pt/s (`nil` when unknown,
+    /// e.g. when a finger touches down).
+    public func onScrollPhaseChange(
+        _ action: @escaping (ZTronScrollPhase, ZTronScrollPhase, ZTronScrollPhaseChangeContext) -> Void) -> Self {
+        var copy = self
+        copy.config.observers.append(.phase(key: "member.\(config.observers.count)", action: action))
+        return copy
+    }
+
+    /// `onScrollTargetVisibilityChange(idType:threshold:_:)` for this view: the ids (of `idType`) of the `ztronScrollID` targets
+    /// that are at least `threshold` visible, in layout order, once at the start and whenever the list changes.
+    public func onScrollTargetVisibilityChange<ID: Hashable>(idType: ID.Type, threshold: Double = 0.5,
+                                                             _ action: @escaping ([ID]) -> Void) -> Self {
+        var copy = self
+        copy.config.observers.append(.targetVisibility(key: "member.\(config.observers.count)", threshold: threshold, action: action))
+        return copy
+    }
+}
+
 // MARK: Twins (S8-2b)
 
 extension View {
@@ -94,6 +176,64 @@ extension View {
     public func onZTronScrollGeometryChange<T: Equatable>(for type: T.Type, of transform: @escaping (ZTronScrollGeometry) -> T,
                                                           action: @escaping (T, T) -> Void) -> some View {
         modifier(GeometryObserverModifier(transform: transform, action: action))
+    }
+}
+
+extension View {
+    /// Environment twin of ``ZTronScrollView/onScrollPhaseChange(_:)-(_:(ZTronScrollPhase,ZTronScrollPhase)->Void)``; on iOS 18+ it
+    /// also applies SwiftUI's modifier, so one call observes native and ZTron scroll views alike.
+    public func onZTronScrollPhaseChange(_ action: @escaping (ZTronScrollPhase, ZTronScrollPhase) -> Void) -> some View {
+        onZTronScrollPhaseChange { old, new, _ in action(old, new) }
+    }
+
+    /// Environment twin with the context (geometry + velocity pt/s).
+    public func onZTronScrollPhaseChange(
+        _ action: @escaping (ZTronScrollPhase, ZTronScrollPhase, ZTronScrollPhaseChangeContext) -> Void) -> some View {
+        modifier(PhaseObserverModifier(action: action))
+    }
+
+    /// Environment twin of ``ZTronScrollView/onScrollTargetVisibilityChange(idType:threshold:_:)``; on iOS 18+ it also applies
+    /// SwiftUI's modifier.
+    public func onZTronScrollTargetVisibilityChange<ID: Hashable>(idType: ID.Type, threshold: Double = 0.5,
+                                                                  _ action: @escaping ([ID]) -> Void) -> some View {
+        modifier(TargetVisibilityObserverModifier(idType: idType, threshold: threshold, action: action))
+    }
+}
+
+struct PhaseObserverModifier: ViewModifier {
+    let action: (ZTronScrollPhase, ZTronScrollPhase, ZTronScrollPhaseChangeContext) -> Void
+    @State private var key = ObserverKey()
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        let descriptor = ObserverDescriptor.phase(key: key, action: action)
+        let overlaid = content.transformEnvironment(\.ztronScrollConfig) { $0.observers.append(descriptor) }
+        if #available(iOS 18, *) {
+            let forward = action
+            overlaid.onScrollPhaseChange { old, new, context in
+                forward(ZTronScrollPhase(old), ZTronScrollPhase(new), ZTronScrollPhaseChangeContext(context))
+            }
+        } else {
+            overlaid
+        }
+    }
+}
+
+struct TargetVisibilityObserverModifier<ID: Hashable>: ViewModifier {
+    let idType: ID.Type
+    let threshold: Double
+    let action: ([ID]) -> Void
+    @State private var key = ObserverKey()
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        let descriptor = ObserverDescriptor.targetVisibility(key: key, threshold: threshold, action: action)
+        let overlaid = content.transformEnvironment(\.ztronScrollConfig) { $0.observers.append(descriptor) }
+        if #available(iOS 18, *) {
+            overlaid.onScrollTargetVisibilityChange(idType: idType, threshold: threshold, action)
+        } else {
+            overlaid
+        }
     }
 }
 
