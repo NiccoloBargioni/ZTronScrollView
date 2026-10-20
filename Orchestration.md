@@ -72,6 +72,10 @@ physics 111 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-
    native fixtures in `NativeCalibrationTests`. Confirmed by the user on the device (2026-10-19): double tap in/out native.
 2e. [x] **Pinch overscroll rubber band + didZoom cadence** — done 2026-10-19 (D24, `USER-s4.md`): two-finger slide past an
    edge resists like a one-finger drag, hand-off continuous; didZoom per frame kept by SPEC (documented).
+2h. [x] **Second finger down again during the continuation (D29)** — done 2026-10-20 (`USER-s4.md` addendum D29): the old
+   magnify gesture's cumulative magnification re-armed the pinch with base 1 at the re-touch; the first sample is the base
+   now. Unit-tested both OS paths (XCUITest cannot stagger fingers). User device check pending; coordinator guard for the
+   drag-end ordering left open (shared files busy).
 2f. [x] **Snap at the lift, from the user's video (D25)** — done 2026-10-19 (`USER-s4.md` addendum): the magnify gesture's
    trailing `.changed` after the observer's hand-off re-armed the pinch with base 1 (2× → 4× in one frame). Ignored now.
    **Confirmed by the user on the device (2026-10-19, main 1486752): lifting one finger during the pinch and dragging no
@@ -246,6 +250,12 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
   `.independent` opts out of the nested container only (an external ZTronPages arbiter is still joined); a
   scroll-disabled or axis-less outer is never a container; the paging axis is the outer's D15 effective axis; no
   Binding API (`.custom` gets a non-tracked `ZTronNestedScrollContext`); no mid-gesture hand-off in v1.
+- D29 (2026-10-20, user report "second finger again on screen during the one-finger continuation → snappy animation")
+  A pinch session begun by the observer (two fingers reported while the magnify gesture has not begun anew) takes its
+  magnification base from its first `.changed` sample instead of 1: SwiftUI's MagnifyGesture ends only when all its
+  touches end, so after a re-touch the OLD gesture reports its cumulative magnification and the current scale was
+  multiplied by it in one frame (D25's family). `USER-s4.md` addendum D29. Open: if SwiftUI ends the one-finger DragGesture
+  at the second landing before the observer's count change, the pan flings for a frame (guard proposed there).
 - D16 (user, 2026-10-18) Physics and the post-rotation re-centering are generated and tested by **Fable 5.1**
   (builder agents with model fable). Re-centering ports ZTronMapKit's normalized-centre discipline
   (ContentGeometry: capture before resize, restore = centre × newContentSize − newViewport/2, clamp, centre smaller

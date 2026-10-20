@@ -368,6 +368,7 @@ struct NestedArbitrationTests {
         let c = CGPoint(x: 50, y: 100)
         r.inner.coord.handlePinch(.fingerCountChanged(count: 2, remaining: c, time: r.now))
         r.outer.coord.cancelIfActive()
+        r.inner.coord.handlePinch(.began(centroid: c, time: r.now))        // the magnify gesture begins (adapter)
         r.inner.coord.handlePinch(.changed(magnification: 1.5, centroid: c, time: r.now))
         r.tick()
         #expect(r.inner.zoom > 1.4, "inner zoom \(r.inner.zoom)")

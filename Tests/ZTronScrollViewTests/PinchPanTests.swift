@@ -13,11 +13,14 @@ import ZTronScrollPhysics
 @Suite(.serialized)
 struct PinchPanTests {
     final class Clock { var t: TimeInterval = 100 }
+    /// The adapter's `Began` flag: the magnify gesture reports `.began` once before its first `.changed`.
+    final class GestureBox { var began = false }
     @MainActor struct Rig {
         let state: ZTronScrollState
         let coord: PanCoordinator
         let delegate: ZoomDelegate
         let clock: Clock
+        let gesture = GestureBox()
         var now: TimeInterval {
             get { clock.t }
             nonmutating set { clock.t = newValue }
@@ -53,7 +56,14 @@ struct PinchPanTests {
         r.coord.handlePinch(.fingerCountChanged(count: 2, remaining: c, time: r.now))
     }
     func centroid(_ r: Rig, _ c: CGPoint) { r.coord.handlePinch(.fingerCountChanged(count: 2, remaining: c, time: r.now)) }
-    func magnify(_ r: Rig, _ m: CGFloat, at c: CGPoint) { r.coord.handlePinch(.changed(magnification: m, centroid: c, time: r.now)) }
+    /// A magnify-gesture sample as the adapter delivers it: `.began` once per gesture, then `.changed`.
+    func magnify(_ r: Rig, _ m: CGFloat, at c: CGPoint) {
+        if !r.gesture.began {
+            r.gesture.began = true
+            r.coord.handlePinch(.began(centroid: c, time: r.now))
+        }
+        r.coord.handlePinch(.changed(magnification: m, centroid: c, time: r.now))
+    }
 
     // MARK: 1. scale only
 
@@ -490,6 +500,44 @@ struct PinchPanTests {
         r.now += 0.016
         r.coord.synthesizePan(location: CGPoint(x: 120, y: 180), time: r.now)
         #expect(abs(r.state.contentOffset.y - (o.y + 20)) < 1e-6 && abs(r.state.zoomScale - 2) < 1e-9, "pans 1:1 at 2×")
+    }
+
+    // MARK: 9. second finger down again during the one-finger continuation (D29)
+
+    /// Pinch to 1.5×, lift one finger, pan on with the other, then put the second finger back: the pinch resumes from
+    /// the current scale and offset with no jump and no release motion, whichever gesture reports next (the old magnify
+    /// gesture with its cumulative magnification, or a new one), and the fingers then zoom and pan 1:1 from there.
+    @Test(arguments: OSPath.allCases) func secondFingerDownDuringTheContinuationResumesWithoutASnap(path: OSPath) {
+        let r = make(path, limits: 1...4)
+        let c = CGPoint(x: 100, y: 200)
+        twoFingersDown(r, at: c)
+        magnify(r, 1.5, at: c); r.tick()
+        r.now += 0.016
+        r.coord.handlePinch(.fingerCountChanged(count: 1, remaining: CGPoint(x: 120, y: 200), time: r.now))
+        r.coord.handlePinch(.ended(time: r.now))         // the adapter's `.ended` after the hand-off (D25)
+        r.now += 0.016
+        r.coord.synthesizePan(location: CGPoint(x: 120, y: 170), time: r.now)   // the remaining finger pans 30 pt
+        let o = r.state.contentOffset
+        #expect(abs(r.state.zoomScale - 1.5) < 1e-9)
+        // The second finger lands: the observer sees two fingers at their centroid.
+        r.now += 0.3
+        let c2 = CGPoint(x: 100, y: 170)
+        r.coord.handlePinch(.fingerCountChanged(count: 2, remaining: c2, time: r.now))
+        #expect(r.state.contentOffset == o && abs(r.state.zoomScale - 1.5) < 1e-9, "nothing moves at the touch")
+        #expect(!r.state.isDecelerating && r.state.phase != .decelerating && r.state.phase != .animating, "no release motion")
+        let u = r.under(c2)
+        // The old magnify gesture keeps reporting its cumulative magnification (1.5, then 1.65).
+        r.coord.handlePinch(.changed(magnification: 1.5, centroid: c2, time: r.now))
+        #expect(abs(r.state.zoomScale - 1.5) < 1e-9 && Self.dist(r.state.contentOffset, o) < 1e-6, "first sample: no jump")
+        r.now += 0.016
+        r.coord.handlePinch(.changed(magnification: 1.65, centroid: c2, time: r.now)); r.tick()
+        #expect(abs(r.state.zoomScale - 1.65) < 1e-9, "then relative: \(r.state.zoomScale)")
+        #expect(Self.dist(r.under(c2), u) < 0.5, "anchored under the centroid")
+        // Two-finger pan from there: 1:1.
+        let o2 = r.state.contentOffset
+        centroid(r, CGPoint(x: 100, y: 150))
+        #expect(abs(r.state.contentOffset.y - (o2.y + 20)) < 1e-6 && r.state.contentOffset.x == o2.x)
+        #expect(r.state.isZooming && r.state.phase == .interacting)
     }
 
     // MARK: iOS 15–17 estimate (documented gap)

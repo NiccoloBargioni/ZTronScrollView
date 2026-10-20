@@ -33,6 +33,24 @@ sends `.ended` after the hand-off substitution. Tests: PinchSessionTests `traili
 PinchPanTests section 8 `trailingMagnifySampleAfterTheLiftDoesNotJump` (both OS paths). The second visible change in the video
 (≈ 1.6 s) is a fast drag, continuous at 60 fps. Frames: `ffmpeg -ss 0.88 -t 0.2 -vf fps=60,crop=1290:800:0:120,tile=4x3`.
 
+## Addendum · D29 (user report via the orchestrator, 2026-10-20): second finger down again during the one-finger continuation
+Report: "Start magnification with two fingers, lift one finger but continue, second finger again on screen → a snappy animation."
+Not expressible in XCUITest (single-touch API; no two-finger composition), so reproduced at the coordinator level with the events
+the adapters deliver (PinchPanTests section 9, PinchSessionTests `secondFingerDuringTheContinuationContinuesFromTheCurrentScale`).
+Root cause (same family as D25): at the re-touch the spatial observer reports two fingers and re-arms the pinch from the current
+geometry (correct), but the gesture that reports next is the OLD magnify gesture — SwiftUI ends a MagnifyGesture only when all its
+touches end — with its CUMULATIVE magnification; `PinchSession.apply` used base 1 for the re-armed session, so the first sample
+multiplied the current scale by the old gesture's magnification (1.5× · 1.5 = 2.25× in one frame). Fix: a session begun by the
+observer (`fingerCountChanged(count ≥ 2)`, or a `.changed` without `.began`) takes its magnification base from its FIRST `.changed`
+sample (`Pinch.baseMagnificationPending`); a gesture-begun session keeps base 1. Both OS paths; nothing else changes.
+Not done here (shared tree: `PanCoordinator.swift` and `PinchGestureAdapter.swift` carry other sessions' uncommitted edits): the
+second hypothesis — if SwiftUI ENDS the one-finger DragGesture when the second finger lands and that `.dragEnded` arrives BEFORE the
+observer's count change, the pan is released through the pipeline (a fling from the finger's speed) and the pinch then catches it
+(`.catchMotion`): a 1–2 frame release motion. Proposed guard, to implement when the coordinator is free: a `.dragEnded` while
+`panContinuedFromPinch` is held until the observer's `.touchesEnded` (then released as today) or dropped at `fingerCountChanged(count ≥ 2)`
+(`endDragWithoutDeceleration`). Unit test to add: ordering X (dragEnded, then count 2) → no deceleration, offset continuous.
+Tests for D29: see the end of this file. Device confirmation by the user pending.
+
 Tests: `scripts/test.sh -only-testing:ZTronScrollViewTests` → **178/178** (19 suites) on iOS 27.0 and 17.5 after D25 (176 after D24; PinchSessionTests
 `offsetPastTheBoundsFollowsThePanBouncePerAxis` ×2 new; `focalPointIsInvariant` now checks the band applied to the exact
 focal-invariant offset, and exact invariance inside the bounds); `scripts/test-physics.sh` 111/111 unchanged;

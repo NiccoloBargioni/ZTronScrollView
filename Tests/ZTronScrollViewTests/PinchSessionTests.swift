@@ -118,6 +118,35 @@ import ZTronScrollPhysics
         #expect(abs(scale - 3) < 1e-9, "fresh pinch: 2 × 1.5")
     }
 
+    /// D29 (user report): second finger down again during the one-finger continuation. The observer re-arms the
+    /// session from the current scale; the gesture that reports next is the OLD magnify gesture with its cumulative
+    /// magnification (SwiftUI ends it only when all touches end): the first sample must not multiply the scale again.
+    @Test func secondFingerDuringTheContinuationContinuesFromTheCurrentScale() {
+        var e = Self.env(limits: 1...4)
+        var s = PinchSession()
+        _ = s.handle(.began(centroid: CGPoint(x: 100, y: 100), time: 0), env: e)
+        _ = s.handle(.changed(magnification: 1.5, centroid: CGPoint(x: 100, y: 100), time: 0.1), env: e)
+        _ = s.handle(.fingerCountChanged(count: 1, remaining: CGPoint(x: 120, y: 100), time: 0.2), env: e)
+        #expect(!s.isActive)
+        e.presentationScale = 1.5                              // what the state shows after the hand-off
+        // Second finger lands: the observer reports two fingers; the old gesture keeps reporting 1.5, 1.6, ...
+        let armed = s.handle(.fingerCountChanged(count: 2, remaining: CGPoint(x: 110, y: 100), time: 1), env: e)
+        #expect(armed == [] && s.isActive)
+        let first = s.handle(.changed(magnification: 1.5, centroid: CGPoint(x: 110, y: 100), time: 1.01), env: e)
+        guard case let .setZoom(z1, _)? = first.last else { Issue.record("no setZoom: \(first)"); return }
+        #expect(abs(z1 - 1.5) < 1e-9, "no jump at the re-touch: \(z1)")
+        let second = s.handle(.changed(magnification: 1.6, centroid: CGPoint(x: 110, y: 100), time: 1.02), env: e)
+        guard case let .setZoom(z2, _)? = second.last else { Issue.record("no setZoom: \(second)"); return }
+        #expect(abs(z2 - 1.6) < 1e-9, "relative from there: \(z2)")
+        // A NEW gesture instead: its `.began` makes the samples relative to 1 again (the fingers did move 2 %).
+        var t = PinchSession()
+        _ = t.handle(.fingerCountChanged(count: 2, remaining: CGPoint(x: 110, y: 100), time: 2), env: e)
+        _ = t.handle(.began(centroid: CGPoint(x: 110, y: 100), time: 2.01), env: e)   // already armed: resets the base
+        let fresh = t.handle(.changed(magnification: 1.02, centroid: CGPoint(x: 110, y: 100), time: 2.02), env: e)
+        guard case let .setZoom(z3, _)? = fresh.last else { Issue.record("no setZoom: \(fresh)"); return }
+        #expect(abs(z3 - 1.5 * 1.02) < 1e-9, "a new gesture applies its first sample: \(z3)")
+    }
+
     @Test func withoutBouncesZoomTheScaleAndOffsetAreClamped() {
         let e = Self.env(limits: 1...3, bounces: false)
         #expect(PinchSession.shownScale(startScale: 1, magnification: 6, env: e) == 3)

@@ -67,6 +67,10 @@ struct PinchSession: Equatable {
         var hasZoomed: Bool
         /// Magnification at which `startScale` applies (re-anchoring resets it).
         var baseMagnification: CGFloat = 1
+        /// The session was begun by the observer (fingers), not by the gesture's own `.began`: the gesture that will
+        /// report next may be the OLD one, still running with its cumulative magnification (D29), so the first
+        /// `.changed` sample defines the base instead of 1.
+        var baseMagnificationPending = false
         var limits: ClosedRange<CGFloat>
         var geometry: ZoomGeometry
         var shown: CGFloat
@@ -139,8 +143,13 @@ struct PinchSession: Equatable {
         switch event {
         case let .began(centroid, _):
             gestureEndPending = false                       // a new gesture
-            guard env.isZoomEnabled, !isActive else { return [] }
-            begin(centroid: centroid, env: env)
+            guard env.isZoomEnabled else { return [] }
+            if isActive {
+                // Already armed by the observer: the gesture now begins anew, so its samples are relative to 1.
+                update { $0.baseMagnificationPending = false }
+                return []
+            }
+            begin(centroid: centroid, env: env, fromGesture: true)
             return env.isMovingWithoutFinger ? [.catchMotion] : []
 
         case let .changed(m, centroid, _):
@@ -149,7 +158,7 @@ struct PinchSession: Equatable {
                 // The ended gesture's trailing sample (D25): nothing to apply it to.
                 if gestureEndPending { return [] }
                 // A change without a began (observer missed it): the gesture start is this sample.
-                begin(centroid: centroid, env: env)
+                begin(centroid: centroid, env: env, fromGesture: false)
             }
             var effects: [PinchEffect] = []
             if case var .armed(p) = phase {
@@ -164,6 +173,12 @@ struct PinchSession: Equatable {
             }
             guard case var .pinching(p) = phase else { return effects }
             if let c = centroid { p.centroid = c }
+            if p.baseMagnificationPending {
+                // First sample of an observer-begun session: whatever gesture reports (the old one, cumulative, or a
+                // new one near 1), this sample is the base; the scale continues from the current one (D29).
+                p.baseMagnification = m
+                p.baseMagnificationPending = false
+            }
             if p.limits != env.limits || p.geometry != env.geometry { reanchor(&p, magnification: m, env: env) }
             apply(&p, magnification: m, env: env)
             phase = .pinching(p)
@@ -171,7 +186,14 @@ struct PinchSession: Equatable {
 
         case let .fingerCountChanged(count, remaining, time):
             guard isActive else {
-                if count >= 2, env.isZoomEnabled { return handle(.began(centroid: remaining, time: time), env: env) }
+                if count >= 2, env.isZoomEnabled {
+                    // Two fingers again (a second finger landing during the one-finger continuation, D29, or a pinch
+                    // the gesture has not reported yet): begin from the current geometry; the magnification base is
+                    // the next sample's.
+                    gestureEndPending = false
+                    begin(centroid: remaining, env: env, fromGesture: false)
+                    return env.isMovingWithoutFinger ? [.catchMotion] : []
+                }
                 return []
             }
             if count >= 2 {
@@ -243,7 +265,7 @@ struct PinchSession: Equatable {
         }
     }
 
-    private mutating func begin(centroid: CGPoint?, env: PinchEnvironment) {
+    private mutating func begin(centroid: CGPoint?, env: PinchEnvironment, fromGesture: Bool) {
         let start = centroid ?? env.geometry.visibleCenter
         let scale = env.presentationScale
         let startScale = ZoomSolver.unresisted(shownScale: scale, limits: env.limits, logDimension: env.logDimension)
@@ -251,7 +273,8 @@ struct PinchSession: Equatable {
                                              geometry: env.geometry)
         phase = .armed(Pinch(startScale: startScale, anchor: anchor, anchorPending: centroid == nil,
                              startCentroid: start, centroid: start, panTranslationAtStart: nil,
-                             lastRaw: startScale, fingers: 2, hasZoomed: false, limits: env.limits,
+                             lastRaw: startScale, fingers: 2, hasZoomed: false,
+                             baseMagnificationPending: !fromGesture, limits: env.limits,
                              geometry: env.geometry, shown: scale, offset: env.presentationOffset))
     }
 
@@ -262,6 +285,7 @@ struct PinchSession: Equatable {
         p.startScale = ZoomSolver.unresisted(shownScale: env.presentationScale, limits: env.limits,
                                              logDimension: env.logDimension)
         p.baseMagnification = m
+        p.baseMagnificationPending = false
         p.limits = env.limits
         p.geometry = env.geometry
     }
