@@ -58,9 +58,11 @@ private struct NativePositionBridge: ViewModifier {
     let anchor: UnitPoint?
     @State private var cache = Cache()
 
+    /// `native` is type-erased: a stored `ScrollPosition` would make the class's metadata need an iOS 18 type, and the
+    /// runtime realizes every class at load, which crashes before iOS 18.
     final class Cache {
         var ours: ZTronScrollPosition?
-        var native = ScrollPosition()
+        var native: Any?
     }
 
     func body(content: Content) -> some View {
@@ -68,11 +70,11 @@ private struct NativePositionBridge: ViewModifier {
         let binding = Binding<ScrollPosition>(
             get: {
                 let current = position.wrappedValue
-                if cache.ours != current {
+                if cache.ours != current || cache.native == nil {
                     cache.ours = current
                     cache.native = current.native
                 }
-                return cache.native
+                return (cache.native as? ScrollPosition) ?? current.native
             },
             set: { new in
                 cache.native = new
