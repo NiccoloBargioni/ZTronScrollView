@@ -201,6 +201,12 @@ struct TransformHost: ViewModifier {
         // modifier changes on the placeholder and an overlay: content bodies are not re-evaluated.
         let lock = ContentGatePolicy.lock(phase: storage.phase, isTracking: storage.isTracking, isDragging: storage.isDragging,
                                           isEditingText: TextEditingMonitor.shared.isEditing)
+        #if DEBUG
+        // Evaluations per means (the field tests of `PanUITests` check which path the gate took).
+        if lock.shields { ZTronRenderCounters.increment("gate.shield") }
+        if lock.disables { ZTronRenderCounters.increment("gate.disabled") }
+        if lock.masksGestures { ZTronRenderCounters.increment("gate.mask") }
+        #endif
         return content
             .modifier(ContentGate(lock: lock))
             .modifier(ContentTransform(offset: offset, scale: scale, insets: metrics.adjustedContentInset,

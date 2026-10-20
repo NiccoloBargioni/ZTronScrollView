@@ -8,11 +8,11 @@ final class PanUITests: XCTestCase {
     override func setUp() { continueAfterFailure = false }
 
     /// `wrap`: the controls screen's app-level effect around the scroll view, or "native" for a `ScrollView` (`ControlsScreen`).
-    private func launch(_ screen: String, wrap: String? = nil) -> XCUIApplication {
+    private func launch(_ screen: String, wrap: String? = nil, field: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-ZTronScreen", screen] + (forced ? ["-ZTronForceAllFallbacks"] : [])
             + (uikit ? ["-ZTronForceUIKitObserver"] : []) + (mode.map { ["-ZTronPanGestureMode", $0] } ?? [])
-            + (wrap.map { ["-ZTronControlsWrap", $0] } ?? [])
+            + (wrap.map { ["-ZTronControlsWrap", $0] } ?? []) + (field ? ["-ZTronPanField"] : [])
         app.launch()
         return app
     }
@@ -22,11 +22,14 @@ final class PanUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 0.8)
     }
 
-    private func info(_ app: XCUIApplication) -> (counters: [String: Int], y: Int, minY: Int, phase: String) {
+    /// `gate`: the field screen (`-ZTronPanField`), which shows a shorter list of counters, the gate's among them.
+    private func info(_ app: XCUIApplication, gate: Bool = false) -> (counters: [String: Int], y: Int, minY: Int, phase: String) {
         app.buttons["Snapshot"].tap()
         Thread.sleep(forTimeInterval: 0.4)
         var out: [String: Int] = [:]
-        for k in ["content.body", "didScroll", "button.fired", "clock.tick", "pan.catch", "pan.movingAtEvent", "pan.ev.down", "pan.ev.up", "pan.ev.dragEnd"] {
+        let keys = gate ? ["content.body", "didScroll", "button.fired", "pan.catch", "gate.shield", "gate.disabled", "gate.mask"]
+                        : ["content.body", "didScroll", "button.fired", "clock.tick", "pan.catch", "pan.movingAtEvent", "pan.ev.down", "pan.ev.up", "pan.ev.dragEnd"]
+        for k in keys {
             out[k] = Int(app.staticTexts["counter.\(k)"].value as? String ?? "") ?? -2
         }
         let s = app.staticTexts["stateInfo"].value as? String ?? ""
@@ -155,6 +158,55 @@ final class PanUITests: XCTestCase {
         let field = app.textFields["ctl.text"]
         field.tap()
         field.typeText("a"); XCTAssertEqual(field.value as? String, "a", "text field takes input")
+    }
+
+    // MARK: The same, with a text input being edited (the gate's other means: shield + mask instead of hit-testing + `.disabled`)
+
+    /// The field sits outside the scroll view (`-ZTronPanField`): editing is a global fact, and the gate asks for it.
+    private func launchEditing() -> XCUIApplication {
+        let app = launch("pan", field: true); reset(app)
+        let field = app.textFields["pan.field"]
+        field.tap()
+        field.typeText("a")
+        Thread.sleep(forTimeInterval: 1.0)
+        return app
+    }
+
+    /// The motion to catch is an animated scroll, so no press precedes the catching tap (a fling's own press, even from a gap,
+    /// can sit on a Button and fire it at the lift: the known gap below).
+    func testCatchWhileATextInputIsEditedDoesNotFireButton() {
+        let app = launchEditing()
+        let frame = scroller(app).frame
+        app.buttons["Animate"].tap()
+        point(app, frame: frame, 0.5, 0.5).tap()
+        Thread.sleep(forTimeInterval: 0.5)
+        let i = info(app, gate: true)
+        XCTAssertEqual(i.counters["pan.catch"], 1, "the tap caught the animation: \(i)")
+        XCTAssertEqual(i.counters["button.fired"], 0, "the shield keeps the catching tap from the button")
+        XCTAssertGreaterThan(i.counters["gate.shield"] ?? 0, 0, "the editing path was taken")
+        XCTAssertEqual(i.counters["gate.disabled"], 0, "nothing is disabled while a text input is edited")
+        XCTAssertEqual(i.counters["content.body"], 0)
+    }
+
+    /// Known gap, pinned: the mask ends the press under the finger on 17.5, not on 27.0 (a Button there keeps its press), and
+    /// `.disabled` is out of the question while a field is edited. Between them nothing is asserted.
+    func testPanStartingOnAButtonWhileATextInputIsEditedScrolls() {
+        let app = launchEditing()
+        let row = app.buttons["row.2"]
+        let a = row.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        a.press(forDuration: 0.05, thenDragTo: a.withOffset(CGVector(dx: 0, dy: -150)), withVelocity: .slow, thenHoldForDuration: 0.2)
+        Thread.sleep(forTimeInterval: 1.5)
+        let i = info(app, gate: true)
+        XCTAssertGreaterThan(i.y, 50, "the pan scrolled")
+        XCTAssertGreaterThan(i.counters["gate.mask"] ?? 0, 0, "the editing path was taken")
+        XCTAssertEqual(i.counters["gate.disabled"], 0, "nothing is disabled while a text input is edited")
+        XCTAssertEqual(i.counters["content.body"], 0)
+        if #unavailable(iOS 18) {
+            XCTAssertEqual(i.counters["button.fired"], 0, "iOS 17: the mask ends the press under the finger")
+        } else if #available(iOS 27, *) {
+            XCTExpectFailure("iOS 27: the mask does not reach a Button, a pan that began on it fires it on lift while a field is edited")
+            XCTAssertEqual(i.counters["button.fired"], 0)
+        }
     }
 
     // MARK: A locked content leaves a focused text field alone (DBG-s3)

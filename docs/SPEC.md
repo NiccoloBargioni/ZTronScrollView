@@ -781,6 +781,11 @@ Coexistence with a delegate object:
   - Buttons in a scaling header work, and drags that start on the header scroll the content.
   - Lifting one finger mid-pinch continues as a pan.
   - Content scrolled outside the viewport receives no touches.
+  - A focused `TextField` keeps the keyboard while the content is dragged, flung, scrolled by an animation or resized, as in a native `ScrollView`
+    (Amendment 2026-10-20, DBG-s3, measured on 17.5 and 27.0). The content gate that keeps a catching touch away and ends the press under a recognized
+    drag uses `allowsHitTesting(false)` and `.disabled` only while no text input is being edited, because both make UIKit resign the focused field;
+    otherwise a shield overlay and a gesture mask. Gap, documented: in that state on iOS 27 a pan that began on a Button can still fire it on lift (the mask
+    does not reach a Button there).
 - **Approximate** `delaysContentTouches` and `canCancelContentTouches`, and document the gap.
 
 ### Inside a pager (ScrollArbitration)
@@ -826,7 +831,7 @@ starvation of the pager case does not apply, and no gesture names are needed.
   No mid-swipe hand-off in v1 (`synthesizePan` stays the route for a later `handsOffAtEdge`). Pinch while the outer owns the drag: the outer's DragGesture ends on
   the second finger and releases (settles or pages); the inner's pinch zooms. A pinch that starts on the inner, with both fingers down together, zooms it under
   every policy (demo UI test); a pinch whose second finger lands while the outer is already dragging cannot be scripted in XCUITest and stays a device check
-  (the outer locks its content, `.disabled`, while it drags, so the inner's pinch is expected to start only after the drag ends).
+  (the outer locks its content while it drags — `.disabled`, or the shield and the mask while a text input is edited, S12 — so the inner's pinch is expected to start only after the drag ends).
 - **`.independent` is not "both move".** Nobody is told to ignore the sequence, both recognize the drag, but the outer's drag starts at its hysteresis and
   locks its content, which cuts the inner's drag after a few points: on a zoomed image the outer pages and the image moves ~3 pt (demo UI test,
   `docs/progress/NESTED-s2.md`). That is the pre-N-a behaviour, kept.

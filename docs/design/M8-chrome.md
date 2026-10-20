@@ -118,6 +118,9 @@ extension View { public func ztronScrollDismissesKeyboard(_:) -> some View; publ
   scroll view, as UIKit). Pure-SwiftUI dismissal: the viewport root is `.focusable(true, interactions: .activate)` with a private `@FocusState`;
   on `.dragging` entry we set it, which moves focus off the text field and dismisses the keyboard (17+, capability `keyboardScrolling` reused).
   `.interactively` cannot track the keyboard frame without UIKit → behaves as `.immediately` (gap). <17: no public way to resign focus → no-op (gap).
+  **The `.never` half is real since DBG-s3** (`docs/progress/DBG-s3.md`, D34): until then the M3b content gate resigned a focused text field on every drag, fling, animated
+  scroll and resize (`.disabled` / `allowsHitTesting(false)` on the content make UIKit resign it); while a text input is being edited the gate now uses a shield overlay and
+  a gesture mask instead, and the focus survives all four as in a native `ScrollView` (`PanUITests.testDragKeepsFocusedTextField` and its siblings, native reference included).
 - `scrollInputBehavior` (27 SDK, D3): ours gates each source — `.drag` → pan gesture disabled like `isScrollEnabled`; `.keyboard` → §5 handlers off;
   `.accessibility` → §5 actions removed; `.scrollIndicator` → accepted (thumb dragging is a gap anyway). Native kinds convert where the SDK declares
   them (`#if compiler(>=6.4)`), unknown kinds map to `.drag`. Names/minimum OS confirmed by compile test (open Q3).
