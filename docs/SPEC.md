@@ -47,6 +47,16 @@ Requirements:
 
 - **Allowed imports:** SwiftUI, Combine, Observation (gated) and Foundation. CoreGraphics value types are fine. Also ScrollArbitration (S16), a small shared package that itself imports only SwiftUI and Foundation.
 - **Not allowed:** UIKit/AppKit, *Representable types, UIHostingController, CADisplayLink, introspection, Mirror/reflection into SwiftUI internals, private API. Don't wrap SwiftUI's ScrollView. The one exception is the MC spike app (S16), which no library target depends on.
+  - **Amendment 2026-10-20 (user) — the iOS 15–16 touch observer.** One library exception: UIKit may be used **only on iOS 15.0–16.x** and
+    **only to observe raw touches** (touch-down, per-touch locations, count, lift, cancel) for the catch, the live pinch centroid and the
+    finger count — never for scrolling, rendering, layout, hit-testing or gesture recognition. Rules (design `docs/design/UIKIT-touch-observer.md`):
+    - UIKit code lives **only** in `Sources/ZTronScrollView/Gesture/UIKit/`, wrapped in `#if canImport(UIKit) && os(iOS)`, and runs only under
+      `if #unavailable(iOS 17)` (or the DEBUG launch argument `-ZTronForceUIKitObserver`, which exists so the 17.5 / 27.0 simulators can run it).
+    - Allowed there: one passive `UIGestureRecognizer` subclass that never leaves `.possible` (cancels nothing, delays nothing, simultaneous with
+      everything) and the zero-size `UIViewRepresentable` that installs it on the window. Still forbidden everywhere: `UIScrollView`,
+      `UIHostingController`, introspection, superview/class walks that identify SwiftUI internals, private API.
+    - That directory has a **100 % line-coverage gate** and a **scope gate** (S14 §5). iOS 17 stays pure SwiftUI with the S3 fallbacks and
+      their documented divergences; iOS 18+ keeps `SpatialEventGesture`.
 - **Minimum deployment:** iOS/iPadOS 15.0, the lowest Xcode 27 accepts.
   - Every newer API sits behind `if #available` / `@available`.
   - Each gated API has a fallback that keeps the same public API and behavior.
@@ -63,8 +73,12 @@ Requirements:
 | Layout without proposal changes | `Layout` (16) | `fixedSize` on scrollable axes + top-leading viewport frame |
 | Geometry callbacks | `onGeometryChange` (16) | GeometryReader + PreferenceKey |
 | Render-time child effects | `visualEffect` (17) | leaf modifier reading geometry |
-| Raw touches: catch, centroid, timestamps | `SpatialEventGesture` (18) | `DragGesture(minimumDistance: 0)` |
-| Pinch | `MagnifyGesture` (17) + live centroid (18) | `MagnificationGesture` + drag-location focal estimate |
+| Raw touches: catch, centroid, count, timestamps — 18+ | `SpatialEventGesture` (18) | see the 17 and 15–16 rows (Amendment 2026-10-20 (user)) |
+| Raw touches — 17 | — | `DragGesture(minimumDistance: 0)`, armed only while content moves or a touch is down (`CatchArming`): touch-down a few ms late, count = 1, no centroid |
+| Raw touches — 15–16 | UIKit touch observer (S2 amendment): touch-down at rest, live centroid, count, lift, cancel | `DragGesture(minimumDistance: 0)` as on 17 (`forceFallback(.uikitTouchObserver)`) |
+| Pinch — 18+ | `MagnifyGesture` (17) + live centroid from the observer | — |
+| Pinch — 17 | `MagnifyGesture` | centroid = `startLocation` + pan-drag follow (focal estimate); one-finger lift ends the pinch |
+| Pinch — 15–16 | `MagnificationGesture` for recognition only; magnification = distance ratio of the two observed touches, centroid = their mean (Amendment 2026-10-20 (user)) | `MagnificationGesture` + drag-location focal estimate (`.dragOnly`) |
 | Pointer / indirect / pencil input | gesture input kinds (27) | — |
 | Curves | `Spring` / `UnitCurve` (17) | own closed forms |
 | Animation completion | `Transaction.addAnimationCompletion` (17) | presentation probe settled for 2 frames |
@@ -757,7 +771,9 @@ Coexistence with a delegate object:
   - timestamped samples for the velocity tracker
   - one-finger-lift transitions
 
-  On older OSes, use the S3 fallbacks.
+  On older OSes, use the S3 fallbacks. Amendment 2026-10-20 (user): on iOS 15–16 the UIKit touch observer (S2 exception) feeds the same
+  observer stream (`PanEvent` / `PinchEvent`), so the catch, the live centroid, the finger count and the one-finger hand-off work there as on 18+;
+  only iOS 17 keeps the fallbacks' divergences. It does not change the ≤ 17 pager case (note E, Orchestration Open item 1).
 - **On 27+, consider gesture input kinds** for pointer/indirect input (e.g. trackpad or mouse panning).
 - **Choose between `.gesture`, `.simultaneousGesture` and `.highPriorityGesture` empirically** against the tests below. Arbitration changes between releases, so run them on 15/16 (Xcode 26.x), 17, 18 and 27.
   - A tap on a Button in the content fires. A pan that starts on a Button scrolls and doesn't fire it.
@@ -891,6 +907,11 @@ Run each test on both the preferred and the forced-fallback paths.
   - natural height (`.fit`): re-measured on width (rotation), Dynamic Type and (16+) content changes, with the inset changing discretely; the 15 measuring pass gives the same resting height
   - zero-height cases: full collapse to 0, hidden from hit-testing and accessibility; a flexible-only `.fit` header, plus the DEBUG warning; `min` ≥ resting: fixed height, progress 0, no snapping, `.stretch` still grows
   - delegate modifiers (S11 amendment): each fires at the same site and in the same order as the delegate; `willEndDragging` target threading; `shouldScrollToTop` conjunction; attaching all of them re-evaluates no content body
+- **UIKit touch observer core** (Amendment 2026-10-20 (user); `Gesture/UIKit/TouchObserverCore.swift`, pure, synthetic samples):
+  - touch bookkeeping by id (began / moved / ended / cancelled, out-of-order ids, a third finger), viewport filtering (inside / outside / pointer and indirect touches ignored)
+  - emitted sequence identical to the 18+ spatial observer for: tap, drag, pinch, one-finger lift and continuation, re-touch (D29), staggered lift (D20), both up at once, cancel mid-pinch
+  - magnification = distance ratio of the two oldest touches, re-based on every count change; centroid = mean of the active touches
+  - every branch, including the defensive ones (unknown id, empty sets, zero distance)
 - **Arbitration** (with `ReferenceScrollArbiter`):
   - registration, frame updates and unregistration
   - `canFollow` at every edge, zoomed in and at fit, with insets, with content that fits, and with scrolling disabled
@@ -916,7 +937,10 @@ For each item, state how it was verified (counters, `Self._printChanges()`, the 
   - a pull and a refresh
   - a header collapse
 - **Readers:** a zoom-only reader doesn't update during pure panning; a quantized reader updates only when its bucket changes.
-- **Pinch:** focal error ≤ 0.5 pt on 18+; report the fallback error.
+- **Pinch:** focal error ≤ 0.5 pt on 18+; report the fallback error. Amendment 2026-10-20 (user): the same ≤ 0.5 pt target on 15–16 with the UIKit touch observer; the 17 estimate's error is reported.
+- **UIKit touch observer gates** (Amendment 2026-10-20 (user)), both run by the test-runner at every milestone end and before any commit that touches `Sources/ZTronScrollView/Gesture/UIKit/`; a failure blocks the commit:
+  - **Coverage gate** — `scripts/coverage-uikit.sh`: **100 % line coverage** of every file under `Sources/ZTronScrollView/Gesture/UIKit/`, measured on the `ZS_DEST` simulator (Debug, `-enableCodeCoverage YES`, `-resultBundlePath`) as the union of two runs: the package unit tests and the demo UI tests launched with `-ZTronForceUIKitObserver` (with and without `-ZTronForceAllFallbacks`); `xcrun xccov view --report --json` / `--archive --file` filtered to that directory; exits 1 below 100 % and prints every uncovered line. Lines executed only by a direct call of an override with an empty touch set count for coverage but not for behavior (the design says which lines those are and how their behavior is proven instead).
+  - **Scope gate** — `scripts/check-uikit-scope.sh`: `import UIKit` (and `UIKit.`-qualified names, `UIViewRepresentable`) appear only under that directory; every file there that imports UIKit starts with `#if canImport(UIKit) && os(iOS)`; `UIScrollView`, `UIHostingController`, `NSClassFromString`, `value(forKey`, `Mirror(` appear nowhere in `Sources/` or `Packages/`; exits 1 otherwise.
 - **Rotation:** keeps the visible center within 1 pt, with no jump frame. Check it at fit, zoomed in, near edges, in a pager, mid-deceleration, and with a scaling header.
 - **Targets:** a fling lands exactly on a target modified by the delegate, a behavior, or header snapping.
 - **Catch:** a touch during deceleration stops it without triggering a Button.

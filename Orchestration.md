@@ -102,6 +102,11 @@ physics 111 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-
 4. [ ] M5 (b) remainder (PanCoordinator resize rebase, adjusted insets into pan/pinch env) → M6–M9 builds from the
    ready designs (`docs/design/M6…M9`), M10. Sequencing per each design's resolutions.
    M6 (a) done 2026-10-20 (`docs/progress/M6-s1.md`, 7243121), D27 in 96671ed, M6 (b) done 2026-10-20 (`docs/progress/M6-s2.md`, 612b068) → next = M6 (c) session 3 (Position, DefaultScrollAnchor, TargetsScreen; R5). M8b-1 done 2026-10-20 (`docs/progress/M8b-s1.md`) → next in the M8b split: M8-1 (`ChromeLeaf`), M8b-2 (refresher API, indicators, demo; wires the coordinator into the container), M8b-3.
+5. [ ] **UIKit touch observer for iOS 15–16 (D31)** — after the M6/M7/M8 sessions have committed: session (a) Sonnet builder
+   `docs/design/UIKIT-touch-observer.md` §builder split (core `Gesture/UIKit/TouchObserverCore.swift` + `TouchObserverCoreTests`
+   100 %, `ZTronCapability.uikitTouchObserver`, state let); then (b) shell + wiring + `UIKitObserverUITests` + the two gate
+   scripts, coverage chased to 100 % on 27.0 and 17.5 with `-ZTronForceUIKitObserver`; (c) docs. The user answers the design's
+   open questions first (overlay filter, pencil, MagnificationGesture kept, ForceAllFallbacks on device, hook/CI, cancel route).
 
 **Builder kickoff template** (any part):
 ```
@@ -270,6 +275,17 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
   `.independent`). `MeasurementIsolation` (one `transformPreference` pair per scroll view, outside its receivers) clears both keys for ancestors.
   Red→green: `LayoutHostTests.nestedScrollViewMeasurementsDoNotLeakToTheOuter` on the forced path; demo matrix 6/12 red → 13/13 green; unit 279/279 on 27.0 + 17.5. Nesting on real
   iOS 15/16 was broken until this.
+- D31 (2026-10-20, user) SPEC S2 amended: UIKit is allowed only on iOS 15–16, only to observe raw touches, only in
+  `Sources/ZTronScrollView/Gesture/UIKit/` (`#if canImport(UIKit) && os(iOS)`, runtime `#unavailable(iOS 17)` or DEBUG
+  `-ZTronForceUIKitObserver`): a never-recognizing `UIGestureRecognizer` on the window, installed by a zero-size
+  representable at the viewport origin, filtered to the viewport, feeding the existing `PanEvent`/`PinchEvent` stream in
+  SpatialCatchGesture's order (touch-down at rest, live centroid, count, magnification from the two touches;
+  MagnificationGesture kept for recognition only), so D20/D23/D25/D29 work on 15–16 unchanged. iOS 17 stays pure
+  SwiftUI with its documented divergences; 18+ keeps SpatialEventGesture. Gates (user: 100 % coverage of the UIKit
+  code): `scripts/coverage-uikit.sh` (100 % line coverage of that directory, union of the unit run and the forced demo
+  UI run) + `scripts/check-uikit-scope.sh` (grep), before any commit touching it and at milestone end. Does not touch
+  Open item 1. Design `docs/design/UIKIT-touch-observer.md` (open questions at its end); starts after the M6/M7/M8
+  sessions commit; ≈ 3–3.5 Sonnet builder sessions.
 - D16 (user, 2026-10-18) Physics and the post-rotation re-centering are generated and tested by **Fable 5.1**
   (builder agents with model fable). Re-centering ports ZTronMapKit's normalized-centre discipline
   (ContentGeometry: capture before resize, restore = centre × newContentSize − newViewport/2, clamp, centre smaller
