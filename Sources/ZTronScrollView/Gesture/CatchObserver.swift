@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// Raw-touch observer (design M3-pan §8): touch-down "catch" and last-finger-up. SpatialEventGesture on 18+,
-/// `DragGesture(minimumDistance: 0)` otherwise. Emits `PanEvent`s through `send`; holds no logic.
+/// Raw-touch observer (design M3-pan §8): touch-down "catch" and last-finger-up. SpatialEventGesture on 26+ (D34: its
+/// recognizer cancels UIKit controls' touches on 18.x), `DragGesture(minimumDistance: 0)` otherwise. Emits `PanEvent`s
+/// through `send`; holds no logic.
 final class CatchObserverState: @unchecked Sendable {   // touched on the main thread only
     var activeCount = 0
     var down = false

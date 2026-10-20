@@ -18,11 +18,15 @@ public enum ZTronCapability: String, CaseIterable, Sendable, Hashable {
     case geometryChange
     /// `visualEffect` (iOS 17). Fallback: a leaf modifier reading geometry.
     case visualEffect
-    /// `SpatialEventGesture`: raw touches, catch, timestamps (iOS 18). Fallback: `DragGesture(minimumDistance: 0)`.
+    /// `SpatialEventGesture`: raw touches, catch, timestamps. The API ships in iOS 18 but the library uses it from
+    /// **iOS 26** (D34): on 18.x its recognizer begins with the first touch movement and cancels the touches of
+    /// UIKit-backed controls (a SwiftUI `Slider` inside the scroll view never moves). Fallback, also on 18.x:
+    /// `DragGesture(minimumDistance: 0)`, armed only while content moves or a touch it saw is down (`CatchArming`).
     case spatialEvents
     /// `MagnifyGesture` (iOS 17). Fallback: `MagnificationGesture`.
     case magnifyGesture
-    /// Live pinch centroid via `SpatialEventGesture` (iOS 18). Fallback: drag-location focal estimate.
+    /// Live pinch centroid via `SpatialEventGesture` (used from iOS 26 like ``spatialEvents``, D34). Fallback:
+    /// drag-location focal estimate.
     case liveMagnifyCentroid
     /// `GestureInputKinds`: pointer / indirect / pencil (iOS 27). No fallback: every input is treated as direct touch.
     /// The type exists only in the iOS 27 SDK: call sites need `#if compiler(>=6.4)` around `#available(iOS 27, *)`
@@ -63,7 +67,8 @@ public enum ZTronCapability: String, CaseIterable, Sendable, Hashable {
     /// The library's minimum deployment target (SPEC S2).
     static let deploymentTarget: (major: Int, minor: Int) = (15, 0)
 
-    /// The first iOS release that ships the preferred API.
+    /// The first iOS release on which the library uses the preferred API. Usually the release that ships it; later for
+    /// `spatialEvents` and `liveMagnifyCentroid` (shipped in 18, used from 26, D34).
     public var minimumOS: (major: Int, minor: Int) {
         switch self {
         case .frameClock, .uikitTouchObserver:
@@ -75,8 +80,10 @@ public enum ZTronCapability: String, CaseIterable, Sendable, Hashable {
         case .perPropertyObservation, .visualEffect, .magnifyGesture, .nativeCurves, .animationCompletion,
              .keyPathTransaction, .keyboardScrolling, .sensoryFeedback, .namedCoordinateSpace:
             return (17, 0)
-        case .spatialEvents, .liveMagnifyCentroid, .subviewContainers:
+        case .subviewContainers:
             return (18, 0)
+        case .spatialEvents, .liveMagnifyCentroid:
+            return (26, 0)
         case .gestureInputKinds:
             return (27, 0)
         }

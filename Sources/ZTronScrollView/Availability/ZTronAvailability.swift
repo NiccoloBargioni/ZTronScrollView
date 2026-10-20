@@ -120,8 +120,11 @@ public enum ZTronAvailability {
         case .perPropertyObservation, .visualEffect, .magnifyGesture, .nativeCurves, .animationCompletion,
              .keyPathTransaction, .keyboardScrolling, .sensoryFeedback, .namedCoordinateSpace:
             if #available(iOS 17, *) { return true } else { return false }
-        case .spatialEvents, .liveMagnifyCentroid, .subviewContainers:
+        case .subviewContainers:
             if #available(iOS 18, *) { return true } else { return false }
+        case .spatialEvents, .liveMagnifyCentroid:
+            // The API ships in iOS 18; used from 26 only (D34, see ``ZTronCapability/spatialEvents``).
+            if #available(iOS 26, *) { return true } else { return false }
         case .gestureInputKinds:
             #if compiler(>=6.4)
             if #available(iOS 27, *) { return true } else { return false }

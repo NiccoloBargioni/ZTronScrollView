@@ -14,8 +14,8 @@ struct AvailabilityTests {
     @Test func minimumOSMatchesDesignMatrix() {
         let expected: [ZTronCapability: (major: Int, minor: Int)] = [
             .perPropertyObservation: (17, 0), .layoutProtocol: (16, 0), .geometryChange: (16, 0),
-            .visualEffect: (17, 0), .spatialEvents: (18, 0), .magnifyGesture: (17, 0),
-            .liveMagnifyCentroid: (18, 0), .gestureInputKinds: (27, 0), .nativeCurves: (17, 0),
+            .visualEffect: (17, 0), .spatialEvents: (26, 0), .magnifyGesture: (17, 0),
+            .liveMagnifyCentroid: (26, 0), .gestureInputKinds: (27, 0), .nativeCurves: (17, 0),
             .animationCompletion: (17, 0), .keyPathTransaction: (17, 0), .keyboardScrolling: (17, 0),
             .accessibilityZoom: (16, 0), .sensoryFeedback: (17, 0), .namedCoordinateSpace: (17, 0),
             .subviewContainers: (18, 0), .scrollBounceBehaviorType: (16, 4), .frameClock: (15, 0),
