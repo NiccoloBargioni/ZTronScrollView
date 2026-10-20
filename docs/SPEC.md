@@ -56,7 +56,7 @@ Requirements:
       everything) and the zero-size `UIViewRepresentable` that installs it on the window. Still forbidden everywhere: `UIScrollView`,
       `UIHostingController`, introspection, superview/class walks that identify SwiftUI internals, private API.
     - That directory has a **100 % line-coverage gate** and a **scope gate** (S14 §5). iOS 17 stays pure SwiftUI with the S3 fallbacks and
-      their documented divergences; iOS 26+ keeps `SpatialEventGesture`. **Amendment D34 (2026-10-20): 26+, not 18+** — on iOS 18.x the observer's
+      their documented divergences; iOS 26+ keeps `SpatialEventGesture`. **Amendment D34 (2026-10-20, confirmed by the user 2026-10-21): 26+, not 18+** — on iOS 18.x the observer's
       SwiftUI recognizer begins with the first touch movement and cancels the touches of UIKit-backed controls (a `Slider` inside the scroll view never
       moved on 18.0–18.6), so 18.x takes the iOS 17 row; measured in `docs/progress/DBG-s3.md`.
 - **Minimum deployment:** iOS/iPadOS 15.0, the lowest Xcode 27 accepts.

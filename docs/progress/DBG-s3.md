@@ -1,5 +1,5 @@
 # DBG-s3 handoff · 2026-10-20 · Sonnet 5.5 · Debugger (`PanUITests.testControlsUsable` on iOS 18.x, the slider step)
-Status: done. Root cause measured, fixed (D34, commit 9c27d26), two regression tests red without / green with the fix on 18.5 (both paths), first full demo UI picture for 18.x recorded. Closes (b) of Orchestration open item 10 (DBG-s2, branch `claude/determined-lederberg-7907ea`, not in this tree). **D34 overrides a user amendment and needs the user's confirmation (Open 1).**
+Status: done. Root cause measured, fixed (D34, commit 9c27d26), two regression tests red without / green with the fix on 18.5 (both paths), first full demo UI picture for 18.x recorded. Closes (b) of Orchestration open item 10 (DBG-s2, branch `claude/determined-lederberg-7907ea`, not in this tree). D34 overrides a user amendment (SPEC S2) and **the user confirmed it on 2026-10-21**.
 
 Root cause (measured with a temporary UIKit probe in the demo: `UISlider` control events + `UITouch.gestureRecognizers` on every touch; probe, logs and runners are in the notes folder `slider-18x/`):
 - The slider is a UIKit `UISlider` (`PlatformViewHost<…SystemSlider>`), touch-based up to iOS 18: it tracks through `touchesBegan/Moved`, not through recognizers.
@@ -23,8 +23,8 @@ Changed (9c27d26 code and tests; docs in the second commit):
 - `Demo/ZTronScrollViewDemoUITests/PagerUITests.swift` — the trailing edge is `900 − frame.width` (it was `x >= 500`).
 - Docs: SPEC S2 amendment note, S3 rows, S12; `design-note.md`, `M3-pan.md`, `M4-zoom.md`; Orchestration D34 + open item 11 + log row; STATE row.
 Decisions:
-- D34: `SpatialEventGesture` from iOS 26; 18.x uses the armed `DragGesture` observer with the documented iOS 17 divergences (touch-down at rest waits for the first drag sample, count 1, pinch centroid = `startLocation` + drag follow). Chosen because it needs no new UIKit and no new spec row. **It overrides SPEC S2's "iOS 18+ keeps `SpatialEventGesture`" (user amendment 2026-10-20, made before any 18.x run).**
-- Not taken, needs the user: the D31 UIKit touch observer on 18.x (SPEC S2 exception widened from 15–16 to 15–16 + 18.x; an availability change, the 100 % gate and the scope gate exist). Measured on 18.5 with `--uikit` (the same code as that option): slider 0.2 → 0.9576 ×3, `PanUITests` 8/9 (only the DBG-s2 keyboard step), `ZoomUITests` 7/7; it would keep touch-down at rest, the live centroid and the finger count on 18.x.
+- D34: `SpatialEventGesture` from iOS 26; 18.x uses the armed `DragGesture` observer with the documented iOS 17 divergences (touch-down at rest waits for the first drag sample, count 1, pinch centroid = `startLocation` + drag follow). Chosen because it needs no new UIKit and no new spec row. **It overrides SPEC S2's "iOS 18+ keeps `SpatialEventGesture`" (user amendment 2026-10-20, made before any 18.x run); confirmed by the user 2026-10-21.**
+- Not taken (the user chose D34 on 2026-10-21): the D31 UIKit touch observer on 18.x (SPEC S2 exception widened from 15–16 to 15–16 + 18.x; an availability change, the 100 % gate and the scope gate exist). Measured on 18.5 with `--uikit` (the same code as that option): slider 0.2 → 0.9576 ×3, `PanUITests` 8/9 (only the DBG-s2 keyboard step), `ZoomUITests` 7/7; it would keep touch-down at rest, the live centroid and the finger count on 18.x.
 - `PagerUITests`: see the picture. The red on 17.5 that was filed as "the known Q3 case" is this device-width bug (below), not Q3.
 
 First full demo UI picture, iOS 18.5 (iPhone 16 clone, `scripts/test-demo-ui.sh`; the suite is now **84 tests** + the 2 new = 86, 4 skipped by design: `CalibrateUITests` ×4; "63 tests" in the brief is the older size):
@@ -42,11 +42,11 @@ Other runs (fixed tree):
 - Unit (`scripts/test.sh`, private clones): 587 tests / 51 suites green on 18.5, 27.0 and 17.5. `scripts/check-uikit-scope.sh` clean.
 
 Open:
-1. **User: confirm D34, or ask for the D31 UIKit observer on 18.x** (above). Either is a few lines in `ZTronCapability` / `ZTronAvailability`; D34's tests and docs then change accordingly.
+1. ~~User: confirm D34 or ask for the D31 UIKit observer on 18.x~~ RESOLVED 2026-10-21: the user kept D34 (18.x on the iOS 17 armed `DragGesture` observer, `SpatialEventGesture` from 26).
 2. Touch-based UIKit controls on 26+/27.0 under the always-on `SpatialEventGesture` observer are not measured (Stepper, segmented Picker, DatePicker, Menu). The Slider and the Toggle are recognizer-based there. If one fails, `minimumOS` of the two capabilities moves up.
 3. `ProofUITests.testNoClockTicksAtRest` is flaky on fresh clones of 18.5 and 27.0 forced (DBG-s1 Open; `transform.effect` 1–2 at rest right after Reset; ~15 % of runs either tree); a session of its own if it matters.
 4. The iPhone 16 Pro Max 18.5 pager run was lost (the clone got stuck in creation); the 27.0 Pro Max (same width) passes. 18.1 / 18.3 runtimes are not installed; the five installed 18.x behaved identically.
 5. Orchestration's "known Q3 pager case" for 17.5 in the State rows and handoffs (ORCH-s1, M3-s3 notes) is superseded: with the edge fix the demo suite on 17.5 is green except DBG-s2's keyboard step.
-Next: 1. user answers Open 1; 2. land DBG-s2 (e8c5674 + its docs) and this branch (they overlap in `PanUITests.swift` and the append-only lines of Orchestration / STATE: keep both sides); 3. then `testControlsUsable` ×5 on 18.5 / 17.5 / 27.0 both paths (it is 1/1 here only in the scratch tree with both changes).
+Next: 1. land DBG-s2 (e8c5674 + its docs) and this branch (they overlap in `PanUITests.swift` and the append-only lines of Orchestration / STATE: keep both sides); 2. then `testControlsUsable` ×5 on 18.5 / 17.5 / 27.0 both paths (it is 1/1 here only in the scratch tree with both changes).
 Tests: `scripts/test.sh` full ×3 (587 green); demo UI as listed above, every run on a private clone (`xcrun simctl clone`, own derived data, `-collect-test-diagnostics never`, deleted afterwards); `Executed N tests` checked against the suite size (86 = 84 + 2, 4–5 skipped).
 Usage: not measured (about 70 simulator runs on 14 clones; host load average 100–740 from other sessions, taps held up, one load flake above).
