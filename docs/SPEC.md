@@ -703,19 +703,19 @@ public enum ZTronContentOverlaySize: Equatable {
     case fillMaxHeight(_ aspectRatio: CGFloat? = nil)   // height = content height; width = height × aspectRatio (ideal when nil)
     case relative(CGSize)                               // (content width × width, content height × height)
     case absolute(CGSize)                               // unscaled content points
-    case intrinsic                                      // the view's ideal size (`fixedSize()`)
+    case ideal                                          // the view's ideal size (`fixedSize()`)
 }
 public enum ZTronContentOverlayScaling: Equatable { case withContent, counterScaled }   // default .withContent; .counterScaled = S6 helper
 // origin = anchorPoint(content rect) − overlayAnchor × overlaySize, for every anchor case (.absolute(A) pins the overlayAnchor point at A);
 // `overlayAnchor` is a plain UnitPoint: SwiftUI's nine statics .topLeading … .bottomTrailing are the user's list, no new enum.
 extension ZTronScrollView {   // laid out in the unscaled content space, under the transform; the frame follows the content's drawn size
-    public func scrollContentIntegralOverlay<V: View>(anchor: ZTronContentOverlayAnchor, overlayAnchor: UnitPoint = .topLeading,
+    public func scrollContentIntegralOverlay<V: View>(anchor: ZTronContentOverlayAnchor = .center, overlayAnchor: UnitPoint = .topLeading,
                                                       size: ZTronContentOverlaySize = .fillMaxSize,
                                                       scaling: ZTronContentOverlayScaling = .withContent,
                                                       @ViewBuilder content: () -> V) -> Self
 }
 extension View {              // environment twin: every ZTronScrollView below (members draw above it); no native counterpart
-    public func ztronScrollContentIntegralOverlay<V: View>(anchor: ZTronContentOverlayAnchor, overlayAnchor: UnitPoint = .topLeading,
+    public func ztronScrollContentIntegralOverlay<V: View>(anchor: ZTronContentOverlayAnchor = .center, overlayAnchor: UnitPoint = .topLeading,
                                                            size: ZTronContentOverlaySize = .fillMaxSize,
                                                            scaling: ZTronContentOverlayScaling = .withContent,
                                                            @ViewBuilder content: () -> V) -> some View
@@ -903,7 +903,7 @@ The demo app includes:
   - content full of controls
   - ScrollViewReader and ScrollPosition jump menus
   - Amendment 2026-10-21 (user): the user trees of the resize screen with a content-integral marker at `.relative(0.3, 0.65)` (`overlayAnchor:
-    .center`, `.intrinsic`), a `.fillMaxWidth(16/9)` banner at `.bottom` (with a Button) and a `.fillMaxSize` tint, plus a counter-scaled
+    .center`, `.ideal`), a `.fillMaxWidth(16/9)` banner at `.bottom` (with a Button) and a `.fillMaxSize` tint, plus a counter-scaled
     variant of the marker
 - **Refresh and header**
   - a refresher gallery: system, default, overlay on an image, custom indicator, completion-handler variant, load-more, `.refreshable` mapping
