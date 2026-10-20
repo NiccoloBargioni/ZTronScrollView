@@ -195,17 +195,19 @@ struct TransformHost: ViewModifier {
             offset = CGPoint(x: ContentGeometry.snap(offset.x, scale: displayScale),
                              y: ContentGeometry.snap(offset.y, scale: displayScale))
         }
-        // Content is not hit-testable while it moves without a finger (a catching touch must not fire a Button) or
-        // while a drag is recognized (a Button under the finger is cancelled instead of firing on lift).
-        // A leaf modifier change on the placeholder: content bodies are not re-evaluated.
-        let blocked = (storage.phase == .decelerating || storage.phase == .animating) && !storage.isTracking || storage.isDragging
+        // The content takes no new touch while it moves without a finger (a catching touch must not fire a Button) or while a
+        // drag is recognized (a Button under the finger is cancelled instead of firing on lift). `ContentGatePolicy` says how:
+        // while a text input is edited without `.disabled` and `allowsHitTesting(false)`, which make UIKit resign it. Leaf
+        // modifier changes on the placeholder and an overlay: content bodies are not re-evaluated.
+        let lock = ContentGatePolicy.lock(phase: storage.phase, isTracking: storage.isTracking, isDragging: storage.isDragging,
+                                          isEditingText: TextEditingMonitor.shared.isEditing)
         return content
-            .allowsHitTesting(!blocked)
-            .disabled(blocked)
+            .modifier(ContentGate(lock: lock))
             .modifier(ContentTransform(offset: offset, scale: scale, insets: metrics.adjustedContentInset,
                                        commit: metrics.resize, limits: state.zoomLimits, alignment: state.contentAlignment,
                                        paging: state.isPagingEnabled ? axes : [], probe: state.probe))
             .modifier(CompletionObserver(state: state))
+            .overlay(ContentShield(active: lock.shields))
     }
 }
 
