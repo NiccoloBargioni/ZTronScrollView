@@ -8,6 +8,12 @@ struct DemoApp: App {
         if ProcessInfo.processInfo.arguments.contains("-ZTronForceAllFallbacks") {
             ZTronAvailability.forceAllFallbacks(true)
         }
+        // The iOS 15-16 UIKit touch observer (D31) on a 17+ simulator: spatial events off, observer on. With
+        // -ZTronForceAllFallbacks it is the shipped 15-16 shape.
+        if ProcessInfo.processInfo.arguments.contains("-ZTronForceUIKitObserver") {
+            ZTronAvailability.forceFallback(.spatialEvents, true)
+            ZTronAvailability.forceUIKitTouchObserver(true)
+        }
     }
 
     static var screenName: String {

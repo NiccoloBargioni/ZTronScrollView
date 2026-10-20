@@ -57,17 +57,20 @@ struct PanGestureAdapter: ViewModifier {
             coordinator.handle(event)
             if case .touchesEnded = event { arming.touchEnded() }
         }
-        let gated = !coordinator.state.usesSpatialEvents
+        // iOS 15-16 (D31): the window recognizer replaces the SwiftUI observer gesture, so nothing is armed or gated.
+        let uikit = coordinator.state.usesUIKitTouchObserver
+        let gated = !coordinator.state.usesSpatialEvents && !uikit
         let obs = observer
         let tap = doubleTap.map { PinchGestureAdapter.doubleTap(coordinator: coordinator, observer: obs, config: $0) }
         return content
             .modifier(NativeEnabledBridge(coordinator: coordinator))
             .modifier(ArbitrationRegistration(coordinator: coordinator, policy: nestedPolicy))
-            .modifier(GatedGestureAttach(mode: mode, pan: pan(send: send), observer: observerGestureBox(send: send),
-                                         arming: arming, gated: gated))
+            .modifier(GatedGestureAttach(mode: mode, pan: pan(send: send),
+                                         observer: uikit ? nil : observerGestureBox(send: send), arming: arming, gated: gated))
             .modifier(PinchGestureAttach(pinch: PinchGestureAdapter.gesture(coordinator: coordinator, observer: observer),
                                          doubleTap: tap))
             .modifier(CatchArmingProbe(state: gated ? coordinator.state : nil, arming: arming, observer: observer))
+            .modifier(UIKitObserverAttach(enabled: uikit, coordinator: coordinator, catchState: observer))
     }
 
     private func pan(send: @escaping @MainActor (PanEvent) -> Void) -> some Gesture {
@@ -79,7 +82,8 @@ struct PanGestureAdapter: ViewModifier {
                     send(.dragChanged(translation: v.translation, startLocation: v.startLocation,
                                       time: v.time.timeIntervalSinceReferenceDate))
                     // 15-17 centroid estimate follows the drag (spatial events carry the true centroid on 18+).
-                    if !coordinator.state.usesSpatialEvents, PinchGestureAdapter.dragFollow, coordinator.isPinching {
+                    if !coordinator.state.usesSpatialEvents, !coordinator.state.usesUIKitTouchObserver, PinchGestureAdapter.dragFollow,
+                       coordinator.isPinching {
                         coordinator.handlePinch(.panTranslation(v.translation, time: v.time.timeIntervalSinceReferenceDate))
                     }
                 }
@@ -112,11 +116,11 @@ struct PanGestureAdapter: ViewModifier {
     }
 }
 
-/// Attaches pan and observer according to `mode`.
+/// Attaches pan and observer according to `mode`. `observer` is nil on the iOS 15-16 UIKit observer path (D31).
 struct GestureAttach<P: Gesture>: ViewModifier {
     let mode: PanGestureMode
     let pan: P
-    let observer: AnyGesture<Void>
+    let observer: AnyGesture<Void>?
     var observerEnabled = true
 
     @ViewBuilder
@@ -124,23 +128,27 @@ struct GestureAttach<P: Gesture>: ViewModifier {
         if #available(iOS 18, *) {
             // Named so a pager's UIKit pan can run alongside (SPEC S12, S16).
             let n = scrollArbitrationGestureName
-            switch mode {
-            case .simultaneous:
+            switch (mode, observer) {
+            case (.simultaneous, let observer?):
                 content.simultaneousGesture(observer, name: n).simultaneousGesture(pan, name: n)
-            case .gesture:
+            case (.gesture, let observer?):
                 content.gesture(observer.simultaneously(with: pan), name: n)
-            case .high:
+            case (.high, let observer?):
                 content.highPriorityGesture(observer.simultaneously(with: pan), name: n)
+            case (_, nil):
+                content.simultaneousGesture(pan, name: n)
             }
         } else {
-            switch mode {
-            case .simultaneous:
+            switch (mode, observer) {
+            case (.simultaneous, let observer?):
                 content.simultaneousGesture(observer, including: observerEnabled ? .all : .subviews)
                     .simultaneousGesture(pan)
-            case .gesture:
+            case (.gesture, let observer?):
                 content.gesture(observer.simultaneously(with: pan))
-            case .high:
+            case (.high, let observer?):
                 content.highPriorityGesture(observer.simultaneously(with: pan))
+            case (_, nil):
+                content.simultaneousGesture(pan)
             }
         }
     }
@@ -207,12 +215,36 @@ struct CatchArmingProbe: ViewModifier {
 struct GatedGestureAttach<P: Gesture>: ViewModifier {
     let mode: PanGestureMode
     let pan: P
-    let observer: AnyGesture<Void>
+    let observer: AnyGesture<Void>?
     @ObservedObject var arming: CatchArming
     let gated: Bool
 
     func body(content: Content) -> some View {
         content.modifier(GestureAttach(mode: mode, pan: pan, observer: observer,
                                        observerEnabled: !gated || arming.isArmed))
+    }
+}
+
+/// iOS 15-16 observer path (D31): a zero-size anchor at the viewport's top-leading corner installs the window recognizer
+/// (`Gesture/UIKit/UIKitTouchObserver.swift`). Anywhere else the content passes through.
+struct UIKitObserverAttach: ViewModifier {
+    let enabled: Bool
+    let coordinator: PanCoordinator
+    let catchState: CatchObserverState
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        #if canImport(UIKit) && os(iOS)
+        if enabled {
+            content.background(alignment: .topLeading) {
+                UIKitTouchObserverAnchor(coordinator: coordinator, catchState: catchState)
+                    .frame(width: 0, height: 0).allowsHitTesting(false)
+            }
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
     }
 }

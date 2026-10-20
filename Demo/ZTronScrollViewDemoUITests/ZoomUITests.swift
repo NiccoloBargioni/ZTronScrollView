@@ -3,13 +3,14 @@ import XCTest
 final class ZoomUITests: XCTestCase {
     private var forced: Bool { ProcessInfo.processInfo.environment["ZS_DEMO_FORCED"] == "1" }
     private var centroidMode: String? { ProcessInfo.processInfo.environment["ZS_PINCH_CENTROID"] }
+    private var uikit: Bool { ProcessInfo.processInfo.environment["ZS_DEMO_UIKIT"] == "1" }
 
     override func setUp() { continueAfterFailure = false }
 
     private func launch(_ extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-ZTronScreen", "zoom"] + (forced ? ["-ZTronForceAllFallbacks"] : [])
-            + (centroidMode.map { ["-ZTronPinchCentroid", $0] } ?? []) + extra
+            + (uikit ? ["-ZTronForceUIKitObserver"] : []) + (centroidMode.map { ["-ZTronPinchCentroid", $0] } ?? []) + extra
         app.launch()
         app.buttons["Reset"].tap()
         Thread.sleep(forTimeInterval: 0.8)

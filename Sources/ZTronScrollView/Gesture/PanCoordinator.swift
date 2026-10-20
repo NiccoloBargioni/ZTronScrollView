@@ -62,7 +62,7 @@ final class PanCoordinator: ObservableObject {
     init(state: ZTronScrollState, axes: Axis.Set) {
         self.state = state
         self.axes = axes
-        if state.usesSpatialEvents {
+        if state.usesSpatialEvents || state.usesUIKitTouchObserver {   // the UIKit observer (D31) provides the centroid too
             pinch.centroidSource = .spatial
         } else if state.usesMagnifyGesture {
             pinch.centroidSource = .startLocationPlusDrag

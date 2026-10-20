@@ -17,8 +17,11 @@ enum PinchGestureAdapter {
     @MainActor
     static func gesture(coordinator: PanCoordinator, observer: CatchObserverState) -> AnyGesture<Void> {
         let spatial = coordinator.state.usesSpatialEvents
+        // iOS 15-16 (D31): the gesture stays attached for recognition only; the UIKit observer feeds the pinch.
+        let uikit = coordinator.state.usesUIKitTouchObserver
         let began = Began()
         let onChange: @MainActor (CGFloat, CGPoint?) -> Void = { [coordinator] magnification, start in
+            guard !uikit else { return }
             let now = Date().timeIntervalSinceReferenceDate
             if !began.value {
                 began.value = true
@@ -29,6 +32,7 @@ enum PinchGestureAdapter {
                                              time: now))
         }
         let onEnd: @MainActor () -> Void = { [coordinator] in
+            guard !uikit else { return }
             began.value = false
             let now = Date().timeIntervalSinceReferenceDate
             // 18+: the magnify gesture ends when one finger lifts. If the observer still sees that one finger, this IS

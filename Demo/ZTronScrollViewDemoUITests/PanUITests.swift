@@ -3,13 +3,14 @@ import XCTest
 final class PanUITests: XCTestCase {
     private var forced: Bool { ProcessInfo.processInfo.environment["ZS_DEMO_FORCED"] == "1" }
     private var mode: String? { ProcessInfo.processInfo.environment["ZS_PAN_MODE"] }
+    private var uikit: Bool { ProcessInfo.processInfo.environment["ZS_DEMO_UIKIT"] == "1" }
 
     override func setUp() { continueAfterFailure = false }
 
     private func launch(_ screen: String) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-ZTronScreen", screen] + (forced ? ["-ZTronForceAllFallbacks"] : [])
-            + (mode.map { ["-ZTronPanGestureMode", $0] } ?? [])
+            + (uikit ? ["-ZTronForceUIKitObserver"] : []) + (mode.map { ["-ZTronPanGestureMode", $0] } ?? [])
         app.launch()
         return app
     }
