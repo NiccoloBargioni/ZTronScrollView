@@ -23,6 +23,7 @@ struct DemoApp: App {
             case "controls": ControlsScreen()
             case "pager": PagerScreen()
             case "nestedPager": NestedPagerScreen()
+            case "targets": TargetsScreen()
             case "zoom": ZoomScreen()
             case "image": ImageScreen()
             case "calibrate": CalibrateScreen()

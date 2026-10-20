@@ -9,14 +9,20 @@ public enum ZTronScrollAnimation: Equatable {
 }
 
 /// The `ZTronScrollView`s inside one ``ZTronScrollViewReader`` (and the readers nested in it). A scroll view joins the
-/// nearest scope when it appears; the proxy searches own members first, in appear order, then the nested scopes
-/// (outer to inner): the first scroll view that registered the id wins, like SwiftUI's proxy.
+/// nearest scope when it appears; the proxy searches own members first, then the nested scopes (outer to inner): the
+/// first scroll view that registered the id wins. "First" is frame order (top, then leading) in the reader's space, which
+/// is what SwiftUI's proxy does over two scroll views holding the same id (measured on 27.0 in the demo's twin section:
+/// the upper one scrolls; `onAppear` itself fires in reverse tree order there). A member whose frame is not known yet
+/// comes after the ones that have one, in appear order.
 @MainActor
 final class ProxyScope: ObservableObject, Equatable {
     private struct WeakScope { weak var scope: ProxyScope? }
 
     private(set) var members: [ZTronScrollState] = []
     private var children: [WeakScope] = []
+    /// The coordinate space the reader declares on its content; its scroll views report their frames in it.
+    let spaceName = "ztronReader.\(UUID().uuidString)"
+    private var frames: [ObjectIdentifier: CGRect] = [:]
 
     func attach(_ state: ZTronScrollState) {
         guard !members.contains(where: { $0 === state }) else { return }
@@ -25,6 +31,28 @@ final class ProxyScope: ObservableObject, Equatable {
 
     func detach(_ state: ZTronScrollState) {
         members.removeAll { $0 === state }
+        frames.removeValue(forKey: ObjectIdentifier(state))
+    }
+
+    /// A scroll view's frame in ``spaceName`` (cold: on appear and when it changes).
+    func report(_ state: ZTronScrollState, frame: CGRect) {
+        frames[ObjectIdentifier(state)] = frame
+    }
+
+    /// The members in the order the proxy searches them.
+    var ordered: [ZTronScrollState] {
+        let tolerance: CGFloat = 1
+        return members.enumerated().sorted { a, b in
+            switch (frames[ObjectIdentifier(a.element)], frames[ObjectIdentifier(b.element)]) {
+            case let (fa?, fb?):
+                if abs(fa.minY - fb.minY) > tolerance { return fa.minY < fb.minY }
+                if abs(fa.minX - fb.minX) > tolerance { return fa.minX < fb.minX }
+                return a.offset < b.offset
+            case (_?, nil): return true
+            case (nil, _?): return false
+            default: return a.offset < b.offset
+            }
+        }.map(\.element)
     }
 
     func attach(child: ProxyScope) {
@@ -39,7 +67,7 @@ final class ProxyScope: ObservableObject, Equatable {
 
     /// The first scroll view, own members before nested scopes, whose registry holds `id`.
     func owner(of id: AnyHashable) -> ZTronScrollState? {
-        if let member = members.first(where: { $0.targets.frame(of: id) != nil }) { return member }
+        if let member = ordered.first(where: { $0.targets.frame(of: id) != nil }) { return member }
         for child in children {
             if let found = child.scope?.owner(of: id) { return found }
         }
@@ -109,6 +137,8 @@ public struct ZTronScrollViewReader<Content: View>: View {
     private let content: (ZTronScrollViewProxy) -> Content
     @StateObject private var scope = ProxyScope()
     @Environment(\.ztronProxyScope) private var outer
+    /// Fixed at creation (R6): which coordinate-space API the reader's space uses.
+    private let usesNamedSpace = ZTronAvailability.isAvailable(.namedCoordinateSpace)
 
     public init(@ViewBuilder content: @escaping (ZTronScrollViewProxy) -> Content) {
         self.content = content
@@ -118,8 +148,25 @@ public struct ZTronScrollViewReader<Content: View>: View {
         ScrollViewReader { native in
             content(ZTronScrollViewProxy(scope: scope, native: native))
         }
+        .modifier(NamedSpaceModifier(name: scope.spaceName, useNew: usesNamedSpace))
         .environment(\.ztronProxyScope, scope)
         .onAppear { outer?.attach(child: scope) }
         .onDisappear { outer?.detach(child: scope) }
+    }
+}
+
+/// Reports a scroll view's frame in its reader's space, so the proxy can search by position (cold: it fires on appear and
+/// when the frame changes, never while the view scrolls). Lives in the container's background.
+struct ProxyFrameReporter: View {
+    let scope: ProxyScope
+    let state: ZTronScrollState
+
+    var body: some View {
+        GeometryReader { proxy in
+            let frame = proxy.frame(in: .named(scope.spaceName))
+            Color.clear
+                .onAppear { scope.report(state, frame: frame) }
+                .onChangeCompat(of: frame) { scope.report(state, frame: $0) }
+        }
     }
 }

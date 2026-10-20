@@ -159,15 +159,16 @@ struct ProxyTests {
         unhost(w)
     }
 
-    @Test(arguments: OSPath.allCases) func anIDInBothScrollsTheFirstToAppear(path: OSPath) {
-        let (a, _, box, w) = hostedPair(path)
-        // "First" is first in appear order (design M6 §5), which SwiftUI does not promise to be tree order: ask the scope.
+    @Test(arguments: OSPath.allCases) func anIDInBothScrollsTheUpperOne(path: OSPath) {
+        let (a, b, box, w) = hostedPair(path)
+        // "First" is frame order in the reader's space (Open 4: SwiftUI's proxy scrolls the upper of two scroll views holding
+        // the id, while `onAppear` can fire in reverse tree order, so the appear order is not the answer).
         guard let members = box.proxy?.scope.members, members.count == 2 else { Issue.record("both scroll views join the scope"); return }
+        #expect(box.proxy?.scope.ordered.first === a)
         box.proxy?.scrollTo("shared", anchor: .top)
         pump(0.3)
-        let expectFirst = members[0] === a ? CGPoint(x: 0, y: 300) : CGPoint(x: 0, y: 500)
-        #expect(members[0].contentOffset == expectFirst)
-        #expect(members[1].contentOffset == .zero)
+        #expect(a.contentOffset == CGPoint(x: 0, y: 300))
+        #expect(b.contentOffset == .zero)
         unhost(w)
     }
 

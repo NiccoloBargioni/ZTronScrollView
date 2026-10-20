@@ -75,6 +75,8 @@ struct NativeBridgeTests {
         #expect(context.axes == .vertical)
         #expect(abs(context.containerSize.height - (native.bounds.height - inset.top - inset.bottom)) < 1)
         #expect(context.containerSize.width == 200 && context.contentSize.height >= 1000)
+        // `context.velocity` is 0 for a delegate-injected release (SwiftUI reads the gesture's own velocity); its unit
+        // (points per millisecond, bridged ×1000 to ours) is measured by the demo's TargetsUITests during a real pan.
         // SwiftUI's target space (R4, measured on 17.5 and 27.0): the rect is in content coordinates, UIKit's offset plus
         // the top inset, so a view at rest reports origin 0. Which offset it starts from differs by OS: the proposed
         // target (17.5) or the current one (27.0). The library's own pipeline presents offsets (docs/progress/M6-s1.md).

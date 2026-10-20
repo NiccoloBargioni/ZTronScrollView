@@ -115,8 +115,11 @@ public struct ZTronViewAlignedScrollTargetBehavior: ZTronScrollTargetBehavior, Z
         case .never, .automatic:
             return TargetSnapping.nearest(to: natural, candidates: candidates, direction: direction)
         case .alwaysByOne:
+            // SwiftUI (calibrated in the demo's aligned section, R5): the first item beyond where the finger lifted, not
+            // beyond the item the drag started on, so a drag that already crossed items still moves by one more.
             if direction == 0 { return candidates[nearestIndex(origin)] }
-            return candidates[min(max(start + Int(direction), 0), candidates.count - 1)]
+            if direction > 0 { return candidates.first { $0 > origin + 1e-6 } ?? candidates[candidates.count - 1] }
+            return candidates.last { $0 < origin - 1e-6 } ?? candidates[0]
         case .alwaysByFew:
             let reachable = candidates.filter { abs($0 - candidates[start]) <= container + 1e-6 }
             return TargetSnapping.nearest(to: natural, candidates: reachable, direction: direction)

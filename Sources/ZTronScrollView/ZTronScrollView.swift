@@ -138,6 +138,7 @@ struct ScrollContainer<Content: View>: View {
             .modifier(MeasurementIsolation())
             .background(FrameClockDriver(state: state))
             .background(TargetEnvironmentCapture(state: state))
+            .background(Group { if let proxyScope { ProxyFrameReporter(scope: proxyScope, state: state) } })
             .clipped()
             .contentShape(Rectangle())
             .modifier(PanGestureAdapter(coordinator: coordinator, axes: axes, doubleTap: doubleTap ?? envDoubleTap,

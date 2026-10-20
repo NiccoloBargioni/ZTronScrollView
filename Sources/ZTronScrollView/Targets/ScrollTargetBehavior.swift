@@ -119,11 +119,14 @@ extension ZTronScrollTargetBehaviorContext {
         var info = TargetReleaseInfo()
         info.origin = target.rect.origin
         info.dragStart = target.rect.origin
-        info.rawVelocity = native.velocity
+        // SwiftUI's velocity is in points per MILLISECOND (UIKit's `willEndDragging` unit; measured in the demo's
+        // `TargetsUITests.testNativeAndZTronTargetVelocityUnits`: 0.6 against our 644 pt/s for the same swipe). Ours is pt/s.
+        let velocity = CGVector(dx: native.velocity.dx * 1000, dy: native.velocity.dy * 1000)
+        info.rawVelocity = velocity
         info.viewport = native.containerSize
         info.boundsX = AxisBounds(contentLength: native.contentSize.width, viewportLength: native.containerSize.width, insets: .zero)
         info.boundsY = AxisBounds(contentLength: native.contentSize.height, viewportLength: native.containerSize.height, insets: .zero)
-        self.init(originalTarget: target, velocity: native.velocity, contentSize: native.contentSize,
+        self.init(originalTarget: target, velocity: velocity, contentSize: native.contentSize,
                   containerSize: native.containerSize, axes: native.axes,
                   environment: NativeTargetEnvironment(context: native), info: info)
     }

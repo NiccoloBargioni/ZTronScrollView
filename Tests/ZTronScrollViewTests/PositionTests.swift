@@ -95,6 +95,29 @@ struct PositionTests {
         #expect(s.positionDriver.writes == 0 && box.sets.isEmpty)
     }
 
+    /// The binding was reset to something else after a write-back (the demo's Reset button): landing on the same view again
+    /// must write again, and asking for the view the user left must scroll again.
+    @Test(arguments: OSPath.allCases) func aWriteBackIsNotSkippedAfterTheBindingChangedAndAnEarlierRequestReapplies(path: OSPath) {
+        let (s, box) = make(path, offset: CGPoint(x: 0, y: 300))
+        flingToTheNextCell(s)
+        run(s)
+        let landed = box.position.viewID(type: Int.self) ?? -1
+        let writes = s.positionDriver.writes
+        box.position = ZTronScrollPosition(edge: .top)                              // the app moves the binding
+        s.positionDriver.receive(box.position)
+        #expect(s.peek.presentationOffset.y == 0)
+        s.track(offset: CGPoint(x: 0, y: 300), zoom: 1)
+        flingToTheNextCell(s)
+        run(s)
+        #expect(s.positionDriver.writes == writes + 1 || s.positionDriver.writes == writes + 2)
+        #expect(box.position.viewID(type: Int.self) == landed && box.position.isPositionedByUser)
+        // And the request the app made before the user scrolled is a new request when made again.
+        let applied = s.positionDriver.applied
+        box.position = ZTronScrollPosition(edge: .top)
+        s.positionDriver.receive(box.position)
+        #expect(s.positionDriver.applied == applied + 1)
+    }
+
     @Test(arguments: OSPath.allCases) func theValueUnderTheAnchorIsWritten(path: OSPath) {
         for (anchor, expected) in [(UnitPoint.topLeading, 3), (UnitPoint.center, 4), (UnitPoint.bottom, 4)]   // the bottom edge (500) belongs to the cell above it
  {
@@ -239,6 +262,53 @@ struct PositionTests {
         let model = Model(id: id), counts = BodyCount()
         let w = withOSPath(path) { host(Carousel(state: s, counts: counts, model: model)) }
         return (s, model, counts, w)
+    }
+
+    // MARK: twins (test 10)
+
+    struct TwinHost: View {
+        let state: ZTronScrollState
+        @ObservedObject var model: Model
+        var memberWins = false
+        var body: some View {
+            if memberWins {
+                ZTronScrollView(.vertical, state: state) { VStack(spacing: 0) { ForEach(0..<10, id: \.self) { Color.red.frame(height: 100).ztronScrollID($0) } } }
+                    .scrollPosition(id: $model.id, anchor: .top)
+                    .ztronScrollPosition($model.position)
+            } else {
+                ZTronScrollView(.vertical, state: state) { VStack(spacing: 0) { ForEach(0..<10, id: \.self) { Color.red.frame(height: 100).ztronScrollID($0) } } }
+                    .ztronScrollPosition($model.position)
+            }
+        }
+    }
+
+    @Test(arguments: OSPath.allCases) func theTwinAboveBindsAndTheMemberWins(path: OSPath) {
+        let s = makeState(path)
+        s.contentInsetAdjustmentBehavior = .never
+        let model = Model()
+        let w = withOSPath(path) { host(TwinHost(state: s, model: model)) }
+        pump(0.3)
+        model.position = ZTronScrollPosition(edge: .bottom)
+        pump(0.3)
+        let maxY = s.makeZoomGeometry().y.bounds(at: 1).max                             // the window has safe areas: the viewport is shorter than 200
+        #expect(maxY > 700 && abs(s.contentOffset.y - maxY) < 0.5)
+        model.position = ZTronScrollPosition(id: 3, anchor: .top)
+        pump(0.3)
+        #expect(abs(s.contentOffset.y - 300) < 0.5)
+        unhost(w)
+
+        let t = makeState(path)
+        t.contentInsetAdjustmentBehavior = .never
+        let m2 = Model()
+        let w2 = withOSPath(path) { host(TwinHost(state: t, model: m2, memberWins: true)) }
+        pump(0.3)
+        m2.position = ZTronScrollPosition(edge: .bottom)                            // the twin's binding is ignored
+        pump(0.3)
+        #expect(t.contentOffset.y == 0)
+        m2.id = 5
+        pump(0.3)
+        #expect(abs(t.contentOffset.y - 500) < 0.5)                                 // the member's id binding: cell 5 at the top
+        unhost(w2)
     }
 
     @Test(arguments: OSPath.allCases) func aPendingIDBeforeTheFirstLayoutAppliesOnce(path: OSPath) {

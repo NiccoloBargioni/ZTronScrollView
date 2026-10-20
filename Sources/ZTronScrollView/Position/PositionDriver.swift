@@ -96,9 +96,15 @@ final class PositionDriver {
     func receive(_ position: ZTronScrollPosition?) {
         guard let position else { return }
         seenSerial = position.serial
-        guard let request = position.request else { return }
+        guard let request = position.request else {
+            lastWritten = nil
+            lastApplied = nil
+            return
+        }
         let key = Key(request: request, serial: position.serial)
-        guard key != lastWritten, key != lastApplied else { return }
+        if key == lastWritten { return }                    // our own write-back read again
+        lastWritten = nil                                    // the binding no longer holds what we wrote
+        guard key != lastApplied else { return }
         lastApplied = key
         apply(request)
     }
@@ -212,6 +218,7 @@ final class PositionDriver {
         guard key != lastWritten else { return }
         let value = ZTronScrollPosition(request: request, serial: seenSerial, isPositionedByUser: true)
         lastWritten = key
+        lastApplied = nil                                    // asking for the earlier request again is a new request
         if binding.write(value) {
             writes += 1
             #if DEBUG

@@ -82,6 +82,18 @@ struct ViewAlignedTests {
         #expect(near(release(w, from: 360, dragStart: 300, vy: 0, behavior: .init(limitBehavior: .alwaysByOne)).endPosition, 400))
     }
 
+    /// R5, calibrated against SwiftUI in the demo's aligned section (a 240 pt drag across 120 pt cells landed on the cell
+    /// after the lift in both): `.alwaysByOne` moves to the first item beyond where the finger lifted.
+    @Test(arguments: OSPath.allCases) func alwaysByOneStartsFromTheLiftNotFromTheDragStart(path: OSPath) {
+        let s = make(path)
+        #expect(near(release(s, from: 430, dragStart: 300, vy: 3000, behavior: .init(limitBehavior: .alwaysByOne)).endPosition, 500))
+        let t = make(path)
+        #expect(near(release(t, from: 170, dragStart: 300, vy: -3000, behavior: .init(limitBehavior: .alwaysByOne)).endPosition, 100))
+        // Lifted exactly on an item: the next one.
+        let u = make(path)
+        #expect(near(release(u, from: 400, dragStart: 400, vy: 3000, behavior: .init(limitBehavior: .alwaysByOne)).endPosition, 500))
+    }
+
     @Test(arguments: OSPath.allCases) func alwaysByOneAtTheEndsStaysOnTheLastTarget(path: OSPath) {
         let s = make(path, at: CGPoint(x: 0, y: 0))
         #expect(near(release(s, from: 0, vy: -3000, behavior: .init(limitBehavior: .alwaysByOne)).endPosition, 0))
