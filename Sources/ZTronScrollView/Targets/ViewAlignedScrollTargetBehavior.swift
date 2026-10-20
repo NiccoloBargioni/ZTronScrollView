@@ -48,7 +48,7 @@ public struct ZTronViewAlignedScrollTargetBehavior: ZTronScrollTargetBehavior, Z
         let info = context.info
         guard let registry = info.registry, registry.layoutEnabled, !registry.frames.isEmpty else { return }
         let kind = Self.resolved(limitBehavior, sizeClass: context.horizontalSizeClass)
-        let a = target.anchor ?? anchor ?? .topLeading
+        let a = target.anchor ?? anchor ?? registry.state?.alignmentAnchor ?? .topLeading
         let geometry = registry.state?.makeZoomGeometry()
         let scale = info.zoomScale
         var origin = target.rect.origin

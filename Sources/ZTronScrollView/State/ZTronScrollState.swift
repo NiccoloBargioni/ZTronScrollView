@@ -62,6 +62,12 @@ public final class ZTronScrollState {
     var scrollAxes: Axis.Set = .vertical
     /// A developer `defaultScrollAnchor(_:for: .sizeChanges)` replaces the center rule (the only override of SPEC S7).
     var sizeChangesAnchor: UnitPoint?
+    /// `defaultScrollAnchor(_:for: .initialOffset)`: where the content starts, applied once at the first layout (M6 s3).
+    var initialOffsetAnchor: UnitPoint?
+    /// `defaultScrollAnchor(_:for: .alignment)`: where content that fits sits, and the point of a view-aligned item that meets the container.
+    var alignmentAnchor: UnitPoint?
+    /// Keeps a `scrollPosition` binding and this view in step (M6 s3); cold.
+    let positionDriver = PositionDriver()
     weak var targetRegistry: (any ScrollTargetRegistry)?
     /// The scroll targets (`ztronScrollID`) registered inside this view (M6): owned here, searched by the proxy.
     let targets: TargetRegistry
@@ -174,6 +180,8 @@ public final class ZTronScrollState {
         targets.state = self
         targetRegistry = targets
         observers.requestDelivery = { [weak self] in self?.deliverObservers() }
+        positionDriver.state = self
+        onReleaseTargetDecided = { [positionDriver] landing in positionDriver.releaseDecided(landing) }
     }
 
     /// State used by readers created outside any scroll view.
@@ -289,6 +297,7 @@ public final class ZTronScrollState {
 
     /// The user or code is about to move the view: any resize in flight commits and the sticky intent is dropped.
     private func beginIntervention() {
+        positionDriver.interventionBegan()
         resizeIntent = nil
         turnOrigin = nil                      // the new offset is the truth for the rest of this turn
         idleGeometryChangedThisTurn = false
@@ -395,6 +404,7 @@ public final class ZTronScrollState {
             storage.metrics = m
         }
         resolveZoomLimits()
+        positionDriver.layoutChanged()
     }
 
     static func adjusted(contentInset: EdgeInsets, safe: EdgeInsets, behavior: ZTronContentInsetAdjustmentBehavior,
@@ -485,11 +495,12 @@ public final class ZTronScrollState {
             #endif
         }
         resolveZoomLimits()
+        positionDriver.layoutChanged()
     }
 
     /// Where content sits on an axis where it is smaller than the viewport (design M2 section 5). Not observed.
     /// Centered once zooming is enabled (SPEC S6), the native top-leading default otherwise.
-    var contentAlignment: UnitPoint { isZoomEnabled ? .center : .topLeading }
+    var contentAlignment: UnitPoint { alignmentAnchor ?? (isZoomEnabled ? .center : .topLeading) }
 
     /// Solver geometry for `metrics` (adjusted insets included).
     func makeZoomGeometry(_ m: ScrollMetrics? = nil) -> ZoomGeometry {
@@ -610,6 +621,7 @@ public final class ZTronScrollState {
         ZTronRenderCounters.increment("registry.frameChanged")
         #endif
         if postResizeTurns > 0, resizeAlignedIDs != nil { realignAlignedItems() }
+        positionDriver.layoutChanged()
     }
 
     /// The view-aligned behavior in effect, when it has targets to keep aligned across a resize.
@@ -624,7 +636,7 @@ public final class ZTronScrollState {
         -> (x: AnyHashable?, y: AnyHashable?)? {
         guard let aligned = alignedBehavior else { return nil }
         let g = ResizeMath.geometry(viewport: cap.viewport, content: cap.contentSize, insets: cap.insets, alignment: alignment)
-        let a = aligned.anchor ?? .topLeading
+        let a = aligned.anchor ?? alignmentAnchor ?? .topLeading
         func id(_ axis: Axis, _ ag: AxisGeometry, _ o: CGFloat, _ unit: CGFloat) -> AnyHashable? {
             targets.nearestAligned(axis: axis, anchor: unit, scale: scale, pad: ag.alignmentPadding(at: scale),
                                    container: ag.adjustedViewportLength, to: o + ag.insets.start)
@@ -638,7 +650,7 @@ public final class ZTronScrollState {
         guard let ids = resizeAlignedIDs, !isResizeOpen, motion == nil, transactionToken == nil, !storage.isTracking,
               !storage.isZooming, let aligned = alignedBehavior else { return }
         let s = storage.snapshot()
-        let g = makeZoomGeometry(s.metrics), scale = s.presentationZoom, a = aligned.anchor ?? .topLeading
+        let g = makeZoomGeometry(s.metrics), scale = s.presentationZoom, a = aligned.anchor ?? alignmentAnchor ?? .topLeading
         var o = s.presentationOffset
         if let id = ids.x, let f = targets.frame(of: id) {
             o.x = TargetScrollMath.alignedOffset(lower: f.minX, length: f.width, anchor: a.x, scale: scale,
@@ -657,6 +669,7 @@ public final class ZTronScrollState {
     /// transform effect maps the animated container size to the offset/scale in lockstep with the system transition.
     func setViewport(_ viewport: ViewportMetrics) {
         applyViewport(size: viewport.size, safe: viewport.safeArea, header: nil)
+        positionDriver.layoutChanged()
     }
 
     private func applyViewport(size: CGSize, safe: EdgeInsets, header: CGFloat?) {
@@ -927,6 +940,7 @@ public final class ZTronScrollState {
             }
         }
         deliverPending()
+        if !storage.snapshot().isClockRunning, storage.phase == .idle { positionDriver.settled() }
     }
 
     private func stepClockMotion(_ m: ClockMotion, at t: TimeInterval) {

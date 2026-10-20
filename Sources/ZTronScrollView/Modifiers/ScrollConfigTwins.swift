@@ -11,6 +11,9 @@ struct ScrollViewConfig {
     /// Observer recipes (M7): the member's calls, or on the environment the `onZTronScroll…` twins' (appended, outermost
     /// first). The container builds one box per recipe (`ObserverStore`).
     var observers: [ObserverDescriptor] = []
+    /// `scrollPosition` (M6 s3) and the `defaultScrollAnchor` roles; an anchor that is absent is the role's default.
+    var position: PositionBinding?
+    var anchors: [ZTronScrollAnchorRole: UnitPoint] = [:]
 }
 
 private struct ScrollConfigKey: EnvironmentKey {

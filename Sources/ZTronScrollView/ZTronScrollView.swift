@@ -104,6 +104,15 @@ struct ScrollContainer<Content: View>: View {
         let edges = state.contentInsetAdjustmentBehavior.edges(for: axes)
         // Member, else environment twin (M6): a cold write, never observed.
         state.targetBehavior = config.behavior ?? envConfig.behavior
+        // Anchors and the position binding (M6 s3): cold writes; the binding's value is read here so a new one re-evaluates
+        // this view and nothing in the content.
+        state.initialOffsetAnchor = config.anchor(.initialOffset, else: envConfig)
+        state.sizeChangesAnchor = config.anchor(.sizeChanges, else: envConfig)
+        state.alignmentAnchor = config.anchor(.alignment, else: envConfig)
+        let positionBinding = config.position ?? envConfig.position
+        state.positionDriver.bind(positionBinding)
+        let position = positionBinding?.read()
+        let ticket = state.positionDriver.ticket(for: position)
         // Container role (NESTED §3): the ZTronScrollViews in the content register with this view's arbiter, with
         // frames in a named space on the content (cold: they do not change while this view scrolls). Constant per
         // identity, so the environment write never re-evaluates content bodies.
@@ -129,6 +138,10 @@ struct ScrollContainer<Content: View>: View {
                                         nestedPolicy: nestedPolicy))
             .modifier(ObserverRegistration(state: state, boxes: observerBoxes))
             .onAppear { state.zoomLimits = effectiveLimits }
+            .modifier(PositionTicket(ticket: ticket))
+            .transaction { state.positionDriver.noteTransaction($0) }
+            .onAppear { state.positionDriver.receive(position) }
+            .onChangeCompat(of: position) { state.positionDriver.receive($0) }
             .onAppear { proxyScope?.attach(state) }
             .onDisappear { proxyScope?.detach(state) }
             .onChangeCompat(of: effectiveLimits) { state.zoomLimits = $0 }
