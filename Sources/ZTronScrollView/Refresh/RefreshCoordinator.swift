@@ -72,6 +72,10 @@ final class RefreshCoordinator: ObservableObject {
     /// pipeline decays from there and never reaches the hold bound, so `finishRelease()` scrolls it there.
     private var revealAfterRelease: Set<Edge> = []
     private var scrollEnabled = true
+    /// The finger has lifted (the release pipeline is running) but the state still reports it as tracking until the
+    /// release has been handed over: a flush inside that window must not read the pull as a new one (the lift resets
+    /// `firedThisPull`, so a pull whose action had already returned would fire a second time).
+    private var liftedThisTouch = false
     private var isApplying = false
     /// The deadline the pending one-shot timer covers (one timer per deadline, however many frames sample meanwhile).
     private var wakeDeadline: TimeInterval?
@@ -144,6 +148,7 @@ final class RefreshCoordinator: ObservableObject {
     /// A frame (the `didScroll` flush / clock tick): pull progress, the trigger, and the deadline of a finishing edge.
     func sample(isScrollEnabled: Bool) {
         scrollEnabled = isScrollEnabled
+        if liftedThisTouch, !state.isTracking { liftedThisTouch = false }
         guard !isApplying, !engines.isEmpty else { return }
         for edge in Self.order where engines[edge] != nil { send(edge, .sample(input(edge))) }
         scheduleWake()
@@ -159,6 +164,7 @@ final class RefreshCoordinator: ObservableObject {
         state.flushPendingScroll()
         let before = state.peek.metrics.adjustedContentInset
         for edge in Self.order where engines[edge] != nil { send(edge, .lift(input(edge), cancelled: cancelled)) }
+        liftedThisTouch = true
         runDeferredBegins()
         scheduleWake()
         return state.peek.metrics.adjustedContentInset != before
@@ -175,6 +181,7 @@ final class RefreshCoordinator: ObservableObject {
     /// The touch sequence ended with no release behind it (a tap, an ignored or pinch-owned sequence).
     func sequenceEnded(isScrollEnabled: Bool) {
         scrollEnabled = isScrollEnabled
+        liftedThisTouch = false
         guard !engines.isEmpty else { return }
         for edge in Self.order where engines[edge] != nil { send(edge, .sequenceEnd(input(edge))) }
         runDeferredBegins()
@@ -226,7 +233,7 @@ final class RefreshCoordinator: ObservableObject {
         let s = state.peek
         var i = RefreshEngine.Input()
         i.time = state.now()
-        i.isTracking = s.isTracking
+        i.isTracking = s.isTracking && !liftedThisTouch
         i.isSettled = !(s.phase == .decelerating || s.phase == .animating || s.isZoomBouncing)
         i.pull = RefreshMath.pull(edge: edge, offset: s.presentationOffset, zoom: s.presentationZoom, metrics: s.metrics,
                                   alignment: state.contentAlignment)

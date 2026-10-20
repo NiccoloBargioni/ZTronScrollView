@@ -132,6 +132,7 @@ struct ScrollContainer<Content: View>: View {
             .modifier(ContentLayoutHost(axes: axes, useLayout: state.usesLayoutProtocol))
             .modifier(TransformHost(state: state, axes: axes))
             .modifier(NamedSpaceModifier(name: "ztronScroll.viewport", useNew: state.usesNamedCoordinateSpace))
+            .overlay(RefreshOverlay(state: state, pan: coordinator, axes: axes, member: config.refreshers))   // refresh indicators (M8b)
             .overlay(ScrollIndicatorsOverlay(state: state, member: chrome))   // chrome leaves: the viewport's own frame (M8)
             .ignoresSafeArea(.all, edges: edges)
             .modifier(ViewportObserver(state: state, edges: edges))

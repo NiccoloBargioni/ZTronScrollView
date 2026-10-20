@@ -14,6 +14,8 @@ struct ScrollViewConfig {
     /// `scrollPosition` (M6 s3) and the `defaultScrollAnchor` roles; an anchor that is absent is the role's default.
     var position: PositionBinding?
     var anchors: [ZTronScrollAnchorRole: UnitPoint] = [:]
+    /// The member `refresher(…)` calls in order (M8b-2); the twins' travel in `EnvironmentValues.ztronRefreshSpecs`.
+    var refreshers: [RefresherDecl] = []
 }
 
 private struct ScrollConfigKey: EnvironmentKey {
