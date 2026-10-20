@@ -64,7 +64,10 @@ struct ScrollMetrics: Equatable, Sendable {
     var contentInset: EdgeInsets = EdgeInsets()
     /// Observed safe area of the container (bars, keyboard), unmasked.
     var safeAreaInsets: EdgeInsets = EdgeInsets()
-    /// `contentInset` + the safe area on the adjusted edges (SPEC S6); derived by the state.
+    /// The inset a refreshing edge keeps open for its indicator (M8b): the coordinator sets it at the lift and clears it
+    /// when the refresh ends. Included in `adjustedContentInset`.
+    var refreshHold: EdgeInsets = EdgeInsets()
+    /// `contentInset` + the safe area on the adjusted edges + `refreshHold` (SPEC S6); derived by the state.
     var adjustedContentInset: EdgeInsets = EdgeInsets()
     /// Scaling-header height (M8b hook): shifts the unobscured center only, never the bounds.
     var headerObscured: CGFloat = 0

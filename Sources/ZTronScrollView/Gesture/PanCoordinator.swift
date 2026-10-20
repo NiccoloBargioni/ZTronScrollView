@@ -30,6 +30,9 @@ final class PanCoordinator: ObservableObject {
     let nestedArbiter = NestedScrollArbiter()
     /// The sequence caught motion and the owner is not decided yet (sticky `isMovingWithoutFinger`, design §12 Q3).
     private(set) var caughtUndecided = false
+    /// The refresh engines of this view (M8b); nil without a refresher. Sampled at every flush, told of the lift before
+    /// the release reads the bounds, and the reason an axis bounces even when its content fits.
+    var refresh: RefreshCoordinator?
     /// Pinch state machine (design M4 §1); the coordinator is the only object touching both sessions.
     var pinch = PinchSession()
     var isPinching: Bool { pinch.isActive }
@@ -62,6 +65,7 @@ final class PanCoordinator: ObservableObject {
             pinch.centroidSource = .dragOnly
         }
         state.onZoomBounceSettled = { [weak self] in self?.rebaseAfterBounce() }
+        state.onFlush = { [weak self] in self?.refreshFlush() }
         nestedArbiter.container = self
     }
 
@@ -140,6 +144,12 @@ final class PanCoordinator: ObservableObject {
         env.bouncesY = BounceConfiguration(behavior: settings.bounceY, bounces: state.bounces,
                                            alwaysBounce: state.alwaysBounceVertical)
             .resolve(isAxisEnabled: effAxes.contains(.vertical), isScrollable: by.isScrollable)
+        // A refresher on an edge makes its axis bounce even when the content fits (UIKit sets `alwaysBounceVertical` for a
+        // refresh control): axis-wide, regardless of the bounce behavior.
+        if let refresh {
+            if refresh.bouncesVertical { env.bouncesY = true }
+            if refresh.bouncesHorizontal { env.bouncesX = true }
+        }
         env.viewport = m.viewportSize
         env.isMovingWithoutFinger = (state.phase == .decelerating || state.phase == .animating) && !state.isTracking
         env.interruptedVelocity = state.lastInterruptedVelocity
@@ -276,14 +286,21 @@ final class PanCoordinator: ObservableObject {
                 pinchOwnedPan = false
                 if pendingBegin { pendingBegin = false; state.beginDragging() }
                 state.endDragWithoutDeceleration()
+                refresh?.sequenceEnded(isScrollEnabled: env.isScrollEnabled)
             case let .release(r):
                 if pendingBegin { pendingBegin = false; state.beginDragging() }
                 var release = ReleaseSettings()
                 release.rate = state.decelerationRate == .fast ? .fast : .normal
                 release.isPagingEnabled = state.isPagingEnabled
                 release.displayScale = settings.displayScale
-                state.endDrag(r, tracker: tracker, env: env, settings: release)
-            case .endSequence: pendingBegin = false; pinchOwnedPan = false; state.endTracking()
+                // The refresh hold opens (or its reset closes) BEFORE the release reads the bounds: an over-pulled release
+                // springs to the hold position, a late reset springs back to rest.
+                let boundsChanged = refresh?.lift(isScrollEnabled: env.isScrollEnabled, cancelled: r.zeroVelocity) ?? false
+                state.endDrag(r, tracker: tracker, env: boundsChanged ? peekEnvironment() : env, settings: release)
+                if boundsChanged { refresh?.finishRelease() }
+            case .endSequence:
+                pendingBegin = false; pinchOwnedPan = false; state.endTracking()
+                refresh?.sequenceEnded(isScrollEnabled: env.isScrollEnabled)
             case let .askOwner(start, translation, touchCount):
                 // Once per sequence, at the hysteresis. `owner` is from our side: `.participant` = we drag.
                 // Participant role first (our container's arbiter), then container role: an inner under the touch
@@ -301,6 +318,12 @@ final class PanCoordinator: ObservableObject {
                 queue.insert(contentsOf: session.decided(owner, env: env), at: 0)
             }
         }
+    }
+
+    /// A `didScroll` flush (the end of `deliverPending`): the refresh engines sample the offset, at most once per frame.
+    private func refreshFlush() {
+        guard let refresh, refresh.isActive else { return }
+        refresh.sample(isScrollEnabled: state.isScrollEnabled && settings.isScrollEnabled && nativeScrollEnabled)
     }
 
     // MARK: Pinch

@@ -1,0 +1,305 @@
+import SwiftUI
+import ZTronScrollPhysics
+
+/// The pure per-edge refresh state machine (design M8b §1.3). No clock, no SwiftUI, no scroll state: the coordinator
+/// feeds it events carrying one `Input` each and applies the effects it returns, so every transition is a test of values.
+///
+/// One pull is one finger-down sequence: the action fires at most once per pull (`firedThisPull`), and a second pull
+/// during a refresh never fires it. The hold (the inset the indicator keeps open) is applied at the lift, never mid-drag:
+/// changing the bounds under a finger would remap the rubber band and make the content jump.
+struct RefreshEngine: Equatable {
+    enum Phase: Equatable {
+        case idle
+        /// Finger down, pulling, below the trigger.
+        case pulling
+        /// `.onRelease`: crossed the trigger, the action waits for the lift.
+        case armed
+        /// The action runs and the finger is still down: the hold waits for the lift.
+        case triggered
+        case refreshing(since: TimeInterval)
+        /// The action returned; the hold stays until `until` (minimum visible time), then clears.
+        case finishing(until: TimeInterval)
+    }
+
+    /// What the coordinator knows when it talks to the engine.
+    struct Input: Equatable {
+        /// Displayed overscroll past this edge (`RefreshMath.pull`), ≥ 0.
+        var pull: CGFloat = 0
+        var isTracking = false
+        /// Zoom at its minimum (or `disablesWhenZoomed` off), scrolling enabled, no other edge refreshing.
+        var enabled = true
+        /// No motion without a finger is running: the hold may clear without fighting it.
+        var isSettled = true
+        var time: TimeInterval = 0
+    }
+
+    enum Event: Equatable {
+        /// A frame: pull progress while the finger is down, the deadline check while finishing.
+        case sample(Input)
+        /// The finger lifted and the release pipeline follows. `cancelled`: the system cancelled the touch.
+        case lift(Input, cancelled: Bool)
+        /// The touch sequence ended without a release (nothing followed the finger).
+        case sequenceEnd(Input)
+        /// `beginRefreshing()` (`runAction: false`, UIKit parity) or the accessibility action (`runAction: true`).
+        case begin(Input, runAction: Bool)
+        /// The action returned, or `endRefreshing()`.
+        case done(Input)
+        /// The view disappeared / the refresher was removed: everything back to rest, unanimated.
+        case cancel
+    }
+
+    enum Effect: Equatable {
+        case progress(CGFloat)
+        case mode(ZTronRefreshState.Mode, animated: Bool)
+        /// Start the action (once) and the haptic.
+        case trigger
+        /// Open the hold. `reveal`: nothing follows the offset (no release pipeline), so scroll to it when at the edge.
+        case hold(CGFloat, reveal: Bool)
+        /// Close the hold. `atLift`: the release pipeline follows and springs the offset back; otherwise the M5 inset rule
+        /// returns the content to rest (animated per `resetAnimation` iff `animated`).
+        case clearHold(atLift: Bool, animated: Bool)
+        case announce(String)
+    }
+
+    let config: ZTronRefreshConfiguration
+    let edge: Edge
+    /// Inset the hold opens (`holdSize`); 0 for an overlay indicator.
+    let holdSize: CGFloat
+    private(set) var phase: Phase = .idle
+    private(set) var mode = ZTronRefreshState.Mode.notRefreshing
+    private(set) var progress: CGFloat = 0
+    private(set) var firedThisPull = false
+    private(set) var holdApplied = false
+    private var sequenceActive = false
+
+    init(config: ZTronRefreshConfiguration, edge: Edge, overlay: Bool = false) {
+        self.config = config
+        self.edge = edge
+        self.holdSize = Self.holdSize(edge: edge, config: config, overlay: overlay)
+    }
+
+    /// `holdOffset ?? indicatorHeight`, plus `loadMorePadding` on the end edges; an overlay never pushes the content.
+    static func holdSize(edge: Edge, config: ZTronRefreshConfiguration, overlay: Bool) -> CGFloat {
+        guard !overlay else { return 0 }
+        let base = max(0, config.holdOffset ?? config.indicatorHeight)
+        let isEnd = edge == .bottom || edge == .trailing
+        return base + (isEnd ? max(0, config.loadMorePadding) : 0)
+    }
+
+    /// `pull ÷ triggerDistance`, clamped to 0…1.
+    func progress(for pull: CGFloat) -> CGFloat {
+        guard pull > 0 else { return 0 }
+        guard config.triggerDistance > 0 else { return 1 }
+        return min(1, pull / config.triggerDistance)
+    }
+
+    /// Any phase but `.idle`: the coordinator keeps sampling.
+    var isActive: Bool { phase != .idle }
+    /// Triggered, refreshing or finishing: this edge owns the (global) refresh.
+    var isRefreshing: Bool {
+        switch phase {
+        case .triggered, .refreshing, .finishing: return true
+        default: return false
+        }
+    }
+
+    mutating func handle(_ event: Event) -> [Effect] {
+        var fx: [Effect] = []
+        switch event {
+        case let .sample(i): sample(i, &fx)
+        case let .lift(i, cancelled): lift(i, cancelled: cancelled, &fx)
+        case let .sequenceEnd(i): sequenceEnd(i, &fx)
+        case let .begin(i, runAction): begin(i, runAction: runAction, &fx)
+        case let .done(i): done(i, &fx)
+        case .cancel: cancel(&fx)
+        }
+        return fx
+    }
+
+    // MARK: Transitions
+
+    private mutating func sample(_ i: Input, _ fx: inout [Effect]) {
+        switch phase {
+        case .idle, .pulling, .armed:
+            guard i.enabled, i.isTracking, i.pull > 0 else {
+                // Not (or no longer) pulling: back to rest without a trigger.
+                if phase != .idle { phase = .idle; reset(&fx) }
+                return
+            }
+            sequenceActive = true
+            let p = progress(for: i.pull)
+            if phase == .idle { phase = .pulling; setMode(.pulling, animated: false, &fx) }
+            setProgress(p, &fx)
+            if p >= 1, !firedThisPull {
+                if config.triggerMode == .whilePulling { fire(&fx) } else { phase = .armed }
+            } else if phase == .armed, p < 1 {
+                phase = .pulling                                  // .onRelease disarms below the trigger
+            }
+        case .triggered:
+            if !i.isTracking { startHold(i, reveal: true, &fx) }  // the lift was missed: nothing springs the offset
+        case .refreshing:
+            break
+        case let .finishing(until):
+            if i.time >= until, !i.isTracking, i.isSettled { finish(atLift: false, &fx) }
+        }
+    }
+
+    private mutating func lift(_ i: Input, cancelled: Bool, _ fx: inout [Effect]) {
+        switch phase {
+        case .idle, .pulling, .armed:
+            // The lift is a position too: a crossing between two samples still counts, a pull below the trigger disarms.
+            if i.enabled, !cancelled, i.pull > 0, progress(for: i.pull) >= 1, !firedThisPull {
+                sequenceActive = true
+                setProgress(1, &fx)
+                fire(&fx)
+                startHold(i, reveal: false, &fx)
+            } else if phase != .idle {
+                phase = .idle
+                reset(&fx)
+            }
+        case .triggered:
+            startHold(i, reveal: false, &fx)
+        case .refreshing:
+            break
+        case let .finishing(until):
+            // The reset waited for the lift; the release pipeline springs the offset to the cleared bounds.
+            if i.time >= until, i.isSettled { finish(atLift: true, &fx) }
+        }
+        sequenceActive = false
+        if phase == .idle { firedThisPull = false }
+    }
+
+    private mutating func sequenceEnd(_ i: Input, _ fx: inout [Effect]) {
+        switch phase {
+        case .pulling, .armed:
+            phase = .idle
+            reset(&fx)
+        case .triggered:
+            startHold(i, reveal: true, &fx)
+        case let .finishing(until):
+            if i.time >= until, i.isSettled { finish(atLift: false, &fx) }
+        case .idle, .refreshing:
+            break
+        }
+        sequenceActive = false
+        if phase == .idle { firedThisPull = false }
+    }
+
+    private mutating func begin(_ i: Input, runAction: Bool, _ fx: inout [Effect]) {
+        guard phase == .idle else { return }                      // a refresh is already running: no-op
+        setProgress(1, &fx)
+        setMode(.refreshing, animated: true, &fx)
+        startHold(i, reveal: true, &fx)
+        if runAction { fx.append(.trigger) }
+        fx.append(.announce("Refreshing"))
+    }
+
+    private mutating func done(_ i: Input, _ fx: inout [Effect]) {
+        switch phase {
+        case let .refreshing(since):
+            let until = max(i.time, since + config.minimumVisibleTime)
+            phase = .finishing(until: until)
+            if i.time >= until, !i.isTracking, i.isSettled { finish(atLift: false, &fx) }
+        case .triggered:
+            // The action returned while the finger was still down: nothing was held yet, so there is nothing to wait for.
+            phase = .idle
+            setMode(.notRefreshing, animated: true, &fx)
+            fx.append(.announce("Refresh complete"))
+        default:
+            break                                                 // idempotent: a second `done`, or one after a cancel
+        }
+    }
+
+    private mutating func cancel(_ fx: inout [Effect]) {
+        phase = .idle
+        firedThisPull = false
+        sequenceActive = false
+        if holdApplied {
+            holdApplied = false
+            fx.append(.clearHold(atLift: false, animated: false))
+        }
+        setProgress(0, &fx)
+        setMode(.notRefreshing, animated: false, &fx)
+    }
+
+    // MARK: Helpers
+
+    private mutating func fire(_ fx: inout [Effect]) {
+        firedThisPull = true
+        phase = .triggered
+        setProgress(1, &fx)                                       // stays 1 while refreshing
+        setMode(.refreshing, animated: true, &fx)
+        fx.append(.trigger)
+        fx.append(.announce("Refreshing"))
+    }
+
+    private mutating func startHold(_ i: Input, reveal: Bool, _ fx: inout [Effect]) {
+        phase = .refreshing(since: i.time)
+        holdApplied = true
+        fx.append(.hold(holdSize, reveal: reveal))
+    }
+
+    private mutating func finish(atLift: Bool, _ fx: inout [Effect]) {
+        phase = .idle
+        setProgress(0, &fx)
+        setMode(.notRefreshing, animated: true, &fx)
+        if holdApplied {
+            holdApplied = false
+            fx.append(.clearHold(atLift: atLift, animated: true))
+        }
+        fx.append(.announce("Refresh complete"))
+        if atLift || !sequenceActive { firedThisPull = false }
+    }
+
+    private mutating func reset(_ fx: inout [Effect]) {
+        setProgress(0, &fx)
+        setMode(.notRefreshing, animated: true, &fx)
+    }
+
+    private mutating func setMode(_ m: ZTronRefreshState.Mode, animated: Bool, _ fx: inout [Effect]) {
+        guard m != mode else { return }
+        mode = m
+        fx.append(.mode(m, animated: animated))
+    }
+
+    private mutating func setProgress(_ p: CGFloat, _ fx: inout [Effect]) {
+        guard p != progress else { return }
+        progress = p
+        fx.append(.progress(p))
+    }
+}
+
+/// Geometry of a pull (design M8b §1.3), against the bounds WITHOUT the refresh hold: the displayed, rubber-banded
+/// overscroll, as `UIRefreshControl` reads `contentOffset`.
+enum RefreshMath {
+    /// Signed distance of `offset` past the `edge` bound: positive = pulled past it, negative = inside (the distance
+    /// to the bound). Bounds are those of `metrics` minus its own refresh hold at this zoom.
+    static func signedPull(edge: Edge, offset: CGPoint, zoom: CGFloat, metrics m: ScrollMetrics,
+                           alignment: UnitPoint) -> CGFloat {
+        let aci = m.adjustedContentInset, hold = m.refreshHold
+        let base = EdgeInsets(top: aci.top - hold.top, leading: aci.leading - hold.leading,
+                              bottom: aci.bottom - hold.bottom, trailing: aci.trailing - hold.trailing)
+        let b = ResizeMath.geometry(viewport: m.viewportSize, content: m.contentSize, insets: base, alignment: alignment)
+            .bounds(at: zoom)
+        switch edge {
+        case .top: return b.y.min - offset.y
+        case .bottom: return offset.y - b.y.max
+        case .leading: return b.x.min - offset.x
+        case .trailing: return offset.x - b.x.max
+        }
+    }
+
+    static func pull(edge: Edge, offset: CGPoint, zoom: CGFloat, metrics: ScrollMetrics, alignment: UnitPoint) -> CGFloat {
+        max(0, signedPull(edge: edge, offset: offset, zoom: zoom, metrics: metrics, alignment: alignment))
+    }
+
+    /// The hold inset one edge opens.
+    static func holdInsets(edge: Edge, amount: CGFloat) -> EdgeInsets {
+        switch edge {
+        case .top: return EdgeInsets(top: amount, leading: 0, bottom: 0, trailing: 0)
+        case .bottom: return EdgeInsets(top: 0, leading: 0, bottom: amount, trailing: 0)
+        case .leading: return EdgeInsets(top: 0, leading: amount, bottom: 0, trailing: 0)
+        case .trailing: return EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: amount)
+        }
+    }
+}

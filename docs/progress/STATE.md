@@ -1,6 +1,6 @@
 # STATE
 Status: RUNNING
-Current: step 3 done 2026-10-20 (full demo UI suite: 42/42 on 27.0 both paths, 41/42 on 17.5 both paths = the known Q3 pager case); M6 (a) + N-a done; D27 in 96671ed, M6 (b) session 2 done (612b068) → next = step 4 (M5 (b) remainder, M6 (c) session 3, M8b-1); Debugger item 6 (27.0 forced duplicate content copy); MC freeze blocked on the user's Q3 decision
+Current: step 3 done 2026-10-20 (full demo UI suite: 42/42 on 27.0 both paths, 41/42 on 17.5 both paths = the known Q3 pager case); M6 (a) + N-a done; D27 in 96671ed, M6 (b) session 2 done (612b068) ; M8b-1 refresh engine done 2026-10-20 (`docs/progress/M8b-s1.md`) → next = step 4 (M5 (b) remainder, M6 (c) session 3, M8-1 / M8b-2); Debugger item 6 (27.0 forced duplicate content copy); MC freeze blocked on the user's Q3 decision
 
 | Milestone | Status | Budget % | Used % (my readings) | Notes |
 |---|---|---|---|---|
@@ -14,7 +14,7 @@ Current: step 3 done 2026-10-20 (full demo UI suite: 42/42 on 27.0 both paths, 4
 | M6 | partial | 8–11 | | (a) session 1 done (`docs/progress/M6-s1.md`, 7243121): target-behavior family + `.paging` ≡ `isPagingEnabled`, member/twin, reader/proxy `scrollTo`, `ztronScrollID` registry; unit 275/275 on 27.0 + 17.5, ZoomUITests 7/7; open: target space vs SwiftUI's (decide before session 2); session 2 done (`M6-s2.md`, 612b068): ViewAligned + LimitBehavior, NativeBridges, `ztronScrollTargetLayout`, resize keeps the aligned item, ViewAlignedTests 16; left: session 3 (Position, DefaultScrollAnchor, TargetsScreen; R5 calibration) |
 | M7 | todo | 6–8 | | |
 | M8 | todo | 6–9 | | |
-| M8b | todo | 6–9 | | design amended 2026-10-19 per the user (SPEC S9/S10/S11/S14, M8b §2–3, M8-chrome §7b/M8-8; docs/progress/M8b-s0.md); A1–A10 approved by the user 2026-10-19; refresher shapes `.refresher { }` / `.refresher(refreshView:)` guaranteed, no introspection |
+| M8b | partial | 6–9 | | (1) refresh engine done (`docs/progress/M8b-s1.md`): engine + coordinator + hold in `adjustedContentInset` + `beginRefreshing/endRefreshing` + reach-edge watchers, 43 tests, unit 345/345 on 27.0 + 17.5, not wired into the container; left: M8b-2 (refresher API, indicators, accessibility, demo `RefreshScreen`), M8b-3 (scaling header); device risks R1–R3 open; design amended 2026-10-19 per the user (SPEC S9/S10/S11/S14, M8b §2–3, M8-chrome §7b/M8-8; docs/progress/M8b-s0.md); A1–A10 approved by the user 2026-10-19; refresher shapes `.refresher { }` / `.refresher(refreshView:)` guaranteed, no introspection |
 | M9 | todo | 9–13 | | |
 | M10 | todo | 6–8 | | |
 

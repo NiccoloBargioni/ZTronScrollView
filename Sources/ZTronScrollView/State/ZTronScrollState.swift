@@ -37,8 +37,20 @@ public final class ZTronScrollState {
     public var contentInsetAdjustmentBehavior = ZTronContentInsetAdjustmentBehavior.automatic {
         didSet { if contentInsetAdjustmentBehavior != oldValue { adjustedInputsChanged() } }
     }
-    /// `contentInset` + the safe area on the adjusted edges (cold: publishes on the metrics channel).
+    /// `contentInset` + the safe area on the adjusted edges + the refresh hold (cold: publishes on the metrics channel).
     public var adjustedContentInset: EdgeInsets { storage.metrics.adjustedContentInset }
+    /// The inset a refreshing edge keeps open for its indicator (M8b), already part of `adjustedContentInset`.
+    var refreshHoldInset: EdgeInsets { storage.metrics.refreshHold }
+    /// The refresh coordinator that answers `beginRefreshing` / `endRefreshing` (the container owns it, M8b).
+    weak var refresh: RefreshCoordinator?
+    /// A `didScroll` flush happened (the end of `deliverPending`, ≤ 1 per frame while a finger or a motion writes): the
+    /// pan hands it to the refresh engine as a sample.
+    var onFlush: (() -> Void)?
+    /// `setRefreshHold(_:followsOffset: true)` runs the inset-only path with this hold instead of the stored one.
+    private var holdOverride: EdgeInsets?
+    /// The `onZTronScrollReachEdge` registrations, evaluated at every flush and metrics change (M8b).
+    private(set) var reachEdgeWatchers: [ReachEdgeWatcher] = []
+    private var isEvaluatingReachEdges = false
     /// Scrollable axes (set by the container); decides the adjusted edges and the paging axes.
     var scrollAxes: Axis.Set = .vertical
     /// A developer `defaultScrollAnchor(_:for: .sizeChanges)` replaces the center rule (the only override of SPEC S7).
@@ -240,6 +252,8 @@ public final class ZTronScrollState {
             pendingEndZoomScale = nil
             delegate?.scrollViewDidEndZooming(self, atScale: scale)
         }
+        evaluateReachEdges()
+        onFlush?()
     }
 
     /// Finger / clock writes are unanimated (cancels an in-flight SwiftUI animation without a jump).
@@ -363,7 +377,8 @@ public final class ZTronScrollState {
         batch {
             var m = metrics
             m.adjustedContentInset = Self.adjusted(contentInset: m.contentInset, safe: m.safeAreaInsets,
-                                                   behavior: contentInsetAdjustmentBehavior, axes: scrollAxes)
+                                                   behavior: contentInsetAdjustmentBehavior, axes: scrollAxes,
+                                                   hold: m.refreshHold)
             syncCommit(&m, open: false)
             storage.metrics = m
         }
@@ -371,12 +386,12 @@ public final class ZTronScrollState {
     }
 
     static func adjusted(contentInset: EdgeInsets, safe: EdgeInsets, behavior: ZTronContentInsetAdjustmentBehavior,
-                         axes: Axis.Set) -> EdgeInsets {
+                         axes: Axis.Set, hold: EdgeInsets = EdgeInsets()) -> EdgeInsets {
         let e = behavior.edges(for: axes)
-        return EdgeInsets(top: contentInset.top + (e.contains(.top) ? safe.top : 0),
-                          leading: contentInset.leading + (e.contains(.leading) ? safe.leading : 0),
-                          bottom: contentInset.bottom + (e.contains(.bottom) ? safe.bottom : 0),
-                          trailing: contentInset.trailing + (e.contains(.trailing) ? safe.trailing : 0))
+        return EdgeInsets(top: contentInset.top + (e.contains(.top) ? safe.top : 0) + hold.top,
+                          leading: contentInset.leading + (e.contains(.leading) ? safe.leading : 0) + hold.leading,
+                          bottom: contentInset.bottom + (e.contains(.bottom) ? safe.bottom : 0) + hold.bottom,
+                          trailing: contentInset.trailing + (e.contains(.trailing) ? safe.trailing : 0) + hold.trailing)
     }
 
     /// Keeps the committed geometry equal to the metrics unless a resize is in flight (then only `current` moves).
@@ -487,6 +502,74 @@ public final class ZTronScrollState {
         batch { unanimated { writeBoth(offset: r.offset, zoom: r.scale) } }
     }
 
+    // MARK: Refresh (SPEC S9, design M8b)
+
+    /// UIKit `UIRefreshControl.beginRefreshing()`: opens the hold of `edge`, scrolls to reveal it when the content sits at
+    /// that edge (otherwise only the mode changes: the indicator spins off screen), and runs NO action. A no-op without
+    /// a refresher on `edge` or while one is running. While a finger is down it waits for the lift.
+    public func beginRefreshing(edge: Edge = .top) { refresh?.begin(edge, runAction: false) }
+
+    /// UIKit `endRefreshing()`: ends a refresh begun by `beginRefreshing()` or by a pull (a running action is cancelled).
+    /// The hold clears once the minimum visible time has passed; a no-op when nothing is refreshing.
+    public func endRefreshing(edge: Edge = .top) { refresh?.end(edge) }
+
+    /// Sets the whole refresh hold (the coordinator sums its edges). `followsOffset == false` changes the bounds only: the
+    /// offset stays where the finger or the release left it, so a hold opened at the lift lets the release pipeline spring
+    /// an over-pull to `-(aci.top + H)` (changing the bounds mid-drag would remap the rubber band and make the content
+    /// jump, M5 section 5). `true` is the inset-only rule of M5 section 6: an offset at (or inside) the start edge follows
+    /// it, in the caller's transaction, so clearing a hold returns the content to rest inside `resetAnimation`.
+    func setRefreshHold(_ hold: EdgeInsets, followsOffset: Bool) {
+        guard hold != storage.snapshot().metrics.refreshHold else { return }
+        if followsOffset {
+            holdOverride = hold
+            adjustedInputsChanged()
+            holdOverride = nil
+            return
+        }
+        batch {
+            var m = storage.snapshot().metrics
+            m.refreshHold = hold
+            m.adjustedContentInset = Self.adjusted(contentInset: m.contentInset, safe: m.safeAreaInsets,
+                                                   behavior: contentInsetAdjustmentBehavior, axes: scrollAxes, hold: hold)
+            syncCommit(&m, open: isResizeOpen)
+            storage.metrics = m
+            notifyAdjustedInsetChange()
+        }
+        resolveZoomLimits()
+    }
+
+    // MARK: Reach edges (SPEC S9 "Edges", design M8b)
+
+    func addReachEdgeWatcher(_ watcher: ReachEdgeWatcher) {
+        guard !reachEdgeWatchers.contains(where: { $0 === watcher }) else { return }
+        reachEdgeWatchers.append(watcher)
+        evaluateReachEdges()
+    }
+
+    func removeReachEdgeWatcher(_ watcher: ReachEdgeWatcher) {
+        reachEdgeWatchers.removeAll { $0 === watcher }
+    }
+
+    /// Fires the watchers that just arrived at their edge (once per arrival, re-armed 1 pt away). Runs at the end of every
+    /// flush, so also after a content size or inset change: a load-more append moves the end edge away and re-arms it.
+    /// Silent until the first layout (a zero viewport is at every edge).
+    func evaluateReachEdges() {
+        guard !reachEdgeWatchers.isEmpty, !isEvaluatingReachEdges else { return }
+        let s = storage.snapshot()
+        let m = s.metrics
+        guard m.viewportSize.width > 0, m.viewportSize.height > 0, m.contentSize.width > 0, m.contentSize.height > 0 else { return }
+        isEvaluatingReachEdges = true
+        defer { isEvaluatingReachEdges = false }
+        let geometry = makeZoomGeometry(m)
+        var fired: [ReachEdgeWatcher] = []
+        for watcher in reachEdgeWatchers {
+            let d = ReachEdgeWatcher.distance(edge: watcher.edge, offset: s.presentationOffset, zoom: s.presentationZoom,
+                                              geometry: geometry)
+            if watcher.update(distance: d) { fired.append(watcher) }
+        }
+        for watcher in fired { watcher.perform() }
+    }
+
     // MARK: Resize (SPEC S7, design M5)
 
     private func notifyAdjustedInsetChange() { delegate?.scrollViewDidChangeAdjustedContentInset(self) }
@@ -576,8 +659,10 @@ public final class ZTronScrollState {
         var m = old
         m.viewportSize = size
         m.safeAreaInsets = safe
+        if let hold = holdOverride { m.refreshHold = hold }
         m.adjustedContentInset = Self.adjusted(contentInset: contentInset, safe: safe,
-                                               behavior: contentInsetAdjustmentBehavior, axes: scrollAxes)
+                                               behavior: contentInsetAdjustmentBehavior, axes: scrollAxes,
+                                               hold: m.refreshHold)
         m.contentInset = contentInset
         if let header { m.headerObscured = header }
         guard m != old || m.adjustedContentInset != old.adjustedContentInset else { return }
