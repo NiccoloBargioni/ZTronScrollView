@@ -113,6 +113,7 @@ Requirements:
    | view reading only zoom | zoom changes only, not pure panning |
    | `ZoomScrollReader` / geometry-change modifiers | only when the derived Equatable value changes |
    | view reading phase / flags | phase transitions only |
+   | content-integral overlay host (S11, Amendment 2026-10-21 (user)) | layout passes only, when the content's drawn size changes (every frame of an animated reflow); never a body, and nothing at all during scroll, zoom, refresh or collapse; the overlay's own body never for those |
 5. **Hot and cold values stay separate:** separate stored properties on 17+, separate channels on 15–16. Never put them in one struct, which would wake every reader every frame. Guard writes with `!=` and publish at most once per frame.
 6. **Never mirror hot values into a parent's state through a Binding.** That re-runs the parent body and rebuilds the content every frame. Document why.
 7. **Zero idle cost:** the frame clock is paused whenever nothing moves.
@@ -319,6 +320,12 @@ SwiftUI's own implementations are private and tied to its UIKit-backed ScrollVie
   - `contentMargins(_:_:for:)` (scroll content vs. indicators), `safeAreaPadding`
   - `scrollClipDisabled(_:)`, `scrollContentBackground(_:)`, `ScrollContentOffsetAdjustmentBehavior`
   - Every `containerRelativeFrame` overload, resolved against this viewport.
+  - Amendment 2026-10-21 (user): `scrollContentIntegralOverlay(anchor:overlayAnchor:size:scaling:content:)` + twin
+    `ztronScrollContentIntegralOverlay` — an overlay laid out in the unscaled content space (it scrolls and zooms with the content): the
+    overlay's `overlayAnchor` point (a `UnitPoint`, default `.topLeading`) is pinned on the content point `anchor`, the size is resolved
+    against the content size (`.fillMaxSize` default, as SwiftUI's `.overlay` fills the modified view), both re-laid out from the content's
+    drawn size in every frame it changes (rotation in lockstep). No SwiftUI counterpart: `.overlay(alignment:)` on a `ScrollView` is the
+    viewport's and keeps that meaning here. Design `docs/design/M6b-content-overlay.md`.
 - **Behavior**
   - `scrollDisabled`
   - `scrollBounceBehavior(_:axes:)` + `ScrollBounceBehavior`
@@ -684,6 +691,36 @@ public struct ZTronNestedScrollPolicy: Sendable {
 extension ZTronScrollView { public func nestedScrollPolicy(_ policy: ZTronNestedScrollPolicy) -> Self }   // on the inner
 extension View { public func ztronNestedScrollPolicy(_ policy: ZTronNestedScrollPolicy) -> some View }   // environment twin; propagates; the member wins
 
+// Content-integral overlay — Amendment 2026-10-21 (user; design `docs/design/M6b-content-overlay.md`, semantics §1, mechanism §2):
+public enum ZTronContentOverlayAnchor: Equatable {   // a content point, unscaled content space
+    case topLeading, top, topTrailing, leading, center, trailing, bottomLeading, bottom, bottomTrailing   // sugar for .relative(UnitPoint.<same>)
+    case relative(UnitPoint)     // fraction of the content size per axis
+    case absolute(CGPoint)       // unscaled content points
+}
+public enum ZTronContentOverlaySize: Equatable {
+    case fillMaxSize                                    // the whole content rect (DEFAULT; anchor / overlayAnchor ignored) = SwiftUI `.overlay`
+    case fillMaxWidth(_ aspectRatio: CGFloat? = nil)    // width = content width; height = width / aspectRatio (ideal when nil)
+    case fillMaxHeight(_ aspectRatio: CGFloat? = nil)   // height = content height; width = height × aspectRatio (ideal when nil)
+    case relative(CGSize)                               // (content width × width, content height × height)
+    case absolute(CGSize)                               // unscaled content points
+    case intrinsic                                      // the view's ideal size (`fixedSize()`)
+}
+public enum ZTronContentOverlayScaling: Equatable { case withContent, counterScaled }   // default .withContent; .counterScaled = S6 helper
+// origin = anchorPoint(content rect) − overlayAnchor × overlaySize, for every anchor case (.absolute(A) pins the overlayAnchor point at A);
+// `overlayAnchor` is a plain UnitPoint: SwiftUI's nine statics .topLeading … .bottomTrailing are the user's list, no new enum.
+extension ZTronScrollView {   // laid out in the unscaled content space, under the transform; the frame follows the content's drawn size
+    public func scrollContentIntegralOverlay<V: View>(anchor: ZTronContentOverlayAnchor, overlayAnchor: UnitPoint = .topLeading,
+                                                      size: ZTronContentOverlaySize = .fillMaxSize,
+                                                      scaling: ZTronContentOverlayScaling = .withContent,
+                                                      @ViewBuilder content: () -> V) -> Self
+}
+extension View {              // environment twin: every ZTronScrollView below (members draw above it); no native counterpart
+    public func ztronScrollContentIntegralOverlay<V: View>(anchor: ZTronContentOverlayAnchor, overlayAnchor: UnitPoint = .topLeading,
+                                                           size: ZTronContentOverlaySize = .fillMaxSize,
+                                                           scaling: ZTronContentOverlayScaling = .withContent,
+                                                           @ViewBuilder content: () -> V) -> some View
+}
+
 @MainActor public final class ZoomScrollState {   // Observation-backed on 17+, channels on 15–16
     public private(set) var contentOffset: CGPoint        // presentation, hot
     public private(set) var zoomScale: CGFloat            // presentation, hot
@@ -865,6 +902,9 @@ The demo app includes:
   - a view-aligned carousel with scroll transitions
   - content full of controls
   - ScrollViewReader and ScrollPosition jump menus
+  - Amendment 2026-10-21 (user): the user trees of the resize screen with a content-integral marker at `.relative(0.3, 0.65)` (`overlayAnchor:
+    .center`, `.intrinsic`), a `.fillMaxWidth(16/9)` banner at `.bottom` (with a Button) and a `.fillMaxSize` tint, plus a counter-scaled
+    variant of the marker
 - **Refresh and header**
   - a refresher gallery: system, default, overlay on an image, custom indicator, completion-handler variant, load-more, `.refreshable` mapping
   - a scaling-header profile screen (`.fixed` size, `.preserve`, avatar scale and title fade through the reader, both snap modes, system refresher) — Amendment 2026-10-19 (user): names per S10
@@ -891,6 +931,9 @@ Run each test on both the preferred and the forced-fallback paths.
 - **Zoom and layout:**
   - focal-point invariance
   - resize anchoring (center, fit, reflow, paging, scaling header)
+  - content-integral overlay (Amendment 2026-10-21 (user)): anchor / size resolution for every case incl. degenerate content; the frame after
+    a reflow equals the formula at the new content size; render counters: 0 content and 0 overlay body evaluations during scroll, zoom, refresh
+    and animated scrolls, 0 layout passes of the host on the Layout path; identity kept when the modifier is re-applied
   - target behaviors (paging, viewAligned limits, custom)
 - **Callbacks:** delegate and SwiftUI-callback order.
 - **Refresh:**
@@ -943,6 +986,10 @@ For each item, state how it was verified (counters, `Self._printChanges()`, the 
   - **Scope gate** — `scripts/check-uikit-scope.sh`: `import UIKit` (and `UIKit.`-qualified names, `UIViewRepresentable`) appear only under that directory; every file there that imports UIKit starts with `#if canImport(UIKit) && os(iOS)`; `UIScrollView`, `UIHostingController`, `NSClassFromString`, `value(forKey`, `Mirror(` appear nowhere in `Sources/` or `Packages/`; exits 1 otherwise.
 - **Rotation:** keeps the visible center within 1 pt, with no jump frame. Check it at fit, zoomed in, near edges, in a pager, mid-deceleration, and with a scaling header.
 - **Targets:** a fling lands exactly on a target modified by the delegate, a behavior, or header snapping.
+- **Content-integral overlay** (Amendment 2026-10-21 (user)): in the user trees, rotate ×4 zoomed on a detail: the marker overlay's screen
+  frame coincides with the content fraction it is anchored to after every rotation (≤ 1 pt, via `XCUIElement.frame`), the banner is content-wide
+  with its aspect and bottom edge on the content's (≤ 1 pt), and even rotations land every overlay back on its initial frame (≤ 0.5 pt); on
+  27.0 and 17.5, preferred and forced paths. A tap on a Button in the banner fires; a pan starting on it scrolls.
 - **Catch:** a touch during deceleration stops it without triggering a Button.
 - **Ports:** these behave like the originals once ported by swapping the container type:
   - Apple's documentation examples for each SwiftUI scroll API
