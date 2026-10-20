@@ -6,9 +6,12 @@ import ZTronScrollPhysics
 // types exist only on iOS 17+ and cannot be constructed publicly, so the mirror is what runs in the release pipeline.
 // Names follow the SDK (`properties(context:)`, `limitsScrolls`); `limitsVelocity` is the design's spelling of the same flag.
 
-/// Where a release will land: mirrors `ScrollTarget`. `rect` is the visible rect the scroll view should end at, in
-/// `contentOffset` space (its origin is the offset); `anchor` places the rect's origin along the container: the
-/// pipeline lands at `rect.origin + anchor · (rect.size - containerSize)` (`nil` = `.zero`).
+/// Where a release will land: mirrors `ScrollTarget`, in SwiftUI's space (D27, measured against a native `ScrollView`).
+/// `rect` is the visible rect the scroll view should end at, in content coordinates: its origin is the content offset
+/// plus the adjusted content inset on the start edges (so a view at rest at the top reports `y == 0`, whatever the safe
+/// area), its size the unobscured container (`containerSize`, the viewport minus the insets). `anchor` places the rect's
+/// origin along the container: the pipeline lands at `rect.origin + anchor · (rect.size - containerSize)` minus the
+/// start insets (`nil` = `.zero`). With zero insets content coordinates and offsets are the same numbers.
 public struct ZTronScrollTarget: Equatable, Sendable {
     public var rect: CGRect
     public var anchor: UnitPoint?
@@ -47,6 +50,8 @@ struct CapturedTargetEnvironment: TargetEnvironmentSource {
 }
 
 /// What the library's own behaviors need beyond the public context (internal: the pipeline fills it, built-ins read it).
+/// The geometry here stays in OFFSET space (`UIScrollView.contentOffset`, bounds from `-inset.start`); the public
+/// context and target are in content coordinates, and `decideTarget` is the one place that converts.
 struct TargetReleaseInfo {
     /// The offset at the lift.
     var origin: CGPoint = .zero
@@ -56,6 +61,10 @@ struct TargetReleaseInfo {
     var rawVelocity: CGVector = .zero
     /// Adjusted content inset (`state.adjustedContentInset`).
     var insets = EdgeInsets()
+    /// The inset on the start edges (x: leading, y: top): content coordinates are offsets plus this.
+    var startInset: CGPoint = .zero
+    /// The whole viewport (the public `containerSize` is this minus the insets).
+    var viewport: CGSize = .zero
     /// Scrollable offset range per axis at the current zoom.
     var boundsX = AxisBounds(min: 0, max: 0)
     var boundsY = AxisBounds(min: 0, max: 0)
@@ -66,7 +75,8 @@ struct TargetReleaseInfo {
 
 /// What a behavior sees at a release: mirrors `ScrollTargetBehaviorContext`. `velocity` is the release velocity in pt/s
 /// (limited when the behavior's properties say so), `contentSize` is the zoomed content size (UIKit's `contentSize`),
-/// `containerSize` the viewport. Environment values are read with `context[\.horizontalSizeClass]`.
+/// `containerSize` the unobscured size (viewport minus the adjusted insets, SwiftUI's). Environment values are read
+/// with `context.horizontalSizeClass`.
 @dynamicMemberLookup
 public struct ZTronScrollTargetBehaviorContext {
     public let originalTarget: ZTronScrollTarget
@@ -110,6 +120,7 @@ extension ZTronScrollTargetBehaviorContext {
         info.origin = target.rect.origin
         info.dragStart = target.rect.origin
         info.rawVelocity = native.velocity
+        info.viewport = native.containerSize
         info.boundsX = AxisBounds(contentLength: native.contentSize.width, viewportLength: native.containerSize.width, insets: .zero)
         info.boundsY = AxisBounds(contentLength: native.contentSize.height, viewportLength: native.containerSize.height, insets: .zero)
         self.init(originalTarget: target, velocity: native.velocity, contentSize: native.contentSize,

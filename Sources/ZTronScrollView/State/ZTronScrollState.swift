@@ -48,10 +48,11 @@ public final class ZTronScrollState {
     let targets: TargetRegistry
     /// What decides where a release lands (member or environment twin, resolved by the container; M6). Cold.
     var targetBehavior: AnyZTronScrollTargetBehavior?
-    /// `targetBehavior`, else `.paging` while the `isPagingEnabled` knob is set: the knob is the paging behavior, and an
-    /// explicit behavior wins over it.
+    /// `targetBehavior`, else paging while the `isPagingEnabled` knob is set: the knob is the paging behavior with
+    /// UIKit's page length (the viewport; public `.paging` pages by the unobscured container, D27), and an explicit
+    /// behavior wins over it.
     var effectiveTargetBehavior: AnyZTronScrollTargetBehavior? {
-        targetBehavior ?? (isPagingEnabled ? AnyZTronScrollTargetBehavior(ZTronPagingScrollTargetBehavior()) : nil)
+        targetBehavior ?? (isPagingEnabled ? AnyZTronScrollTargetBehavior.pagingKnob : nil)
     }
     /// Called once per release with the offset its motion lands at (the position driver's write-back hook, M6).
     var onReleaseTargetDecided: ((CGPoint) -> Void)?

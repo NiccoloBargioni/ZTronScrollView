@@ -111,13 +111,16 @@ extension ZTronScrollState {
         return (mx, my)
     }
 
-    /// The scroll-target behavior step (M6 §4). `natural` is the clamped rest point of the decay; a behavior whose
-    /// properties limit the velocity sees (and starts from) the natural point of the capped fling, at most one
-    /// container length away. The behavior moves the target rect; `proposed = rect.origin + anchor · (rect.size -
-    /// container)`, clamped to the bounds. Axes the pan does not drive keep the natural rest; no behavior = natural.
+    /// The scroll-target behavior step (M6 §4, D27). THE one place that converts between the pipeline's offset space and
+    /// SwiftUI's target space: the behavior sees `rect.origin = offset + startInset` (content coordinates) and
+    /// `rect.size == containerSize == viewport - insets` (the unobscured size); the landing is
+    /// `rect.origin + anchor · (rect.size - container) - startInset`, clamped to the bounds. `natural` is the clamped rest
+    /// point of the decay; a behavior whose properties limit the velocity sees (and starts from) the natural point of the
+    /// capped fling, at most one (unobscured) container length away. Axes the pan does not drive keep the natural rest;
+    /// no behavior = natural.
     private func decideTarget(_ r: ReleaseRequest, env: PanEnvironment, settings: ReleaseSettings, ix: ReleaseInput,
                               iy: ReleaseInput, enabledX: Bool, enabledY: Bool, natural: CGPoint) -> ReleaseTargetDecision {
-        let behavior = targetBehavior ?? (settings.isPagingEnabled ? AnyZTronScrollTargetBehavior(ZTronPagingScrollTargetBehavior()) : nil)
+        let behavior = targetBehavior ?? (settings.isPagingEnabled ? AnyZTronScrollTargetBehavior.pagingKnob : nil)
         guard let behavior, enabledX || enabledY else { return ReleaseTargetDecision(proposed: natural) }
         var axes: Axis.Set = []
         if enabledX { axes.insert(.horizontal) }
@@ -125,7 +128,11 @@ extension ZTronScrollState {
         let snapshot = peek
         let scale = snapshot.presentationZoom
         let content = CGSize(width: snapshot.metrics.contentSize.width * scale, height: snapshot.metrics.contentSize.height * scale)
-        let container = env.viewport
+        let viewport = env.viewport
+        let inset = snapshot.metrics.adjustedContentInset
+        let startInset = CGPoint(x: inset.leading, y: inset.top)
+        let container = CGSize(width: max(0, viewport.width - inset.leading - inset.trailing),
+                               height: max(0, viewport.height - inset.top - inset.bottom))
         let properties = behavior.properties(context: ZTronScrollTargetBehaviorPropertiesContext(
             axes: axes, contentSize: content, containerSize: container, environment: targetEnvironment))
 
@@ -158,20 +165,23 @@ extension ZTronScrollState {
         info.origin = r.origin
         info.dragStart = r.dragStart
         info.rawVelocity = CGVector(dx: ix.velocity, dy: iy.velocity)
-        info.insets = snapshot.metrics.adjustedContentInset
+        info.insets = inset
+        info.startInset = startInset
+        info.viewport = viewport
         info.boundsX = env.boundsX
         info.boundsY = env.boundsY
         info.zoomScale = scale
         info.registry = targets
-        let original = ZTronScrollTarget(rect: CGRect(origin: start, size: container), anchor: nil)
+        let original = ZTronScrollTarget(rect: CGRect(origin: CGPoint(x: start.x + startInset.x, y: start.y + startInset.y),
+                                                      size: container), anchor: nil)
         let context = ZTronScrollTargetBehaviorContext(
             originalTarget: original, velocity: velocity, contentSize: content, containerSize: container, axes: axes,
             environment: CapturedTargetEnvironment(values: targetEnvironment), info: info)
         var target = original
         behavior.updateTarget(&target, context: context)
         let anchor = target.anchor ?? .zero
-        let landing = CGPoint(x: target.rect.origin.x + anchor.x * (target.rect.width - container.width),
-                              y: target.rect.origin.y + anchor.y * (target.rect.height - container.height))
+        let landing = CGPoint(x: target.rect.origin.x + anchor.x * (target.rect.width - container.width) - startInset.x,
+                              y: target.rect.origin.y + anchor.y * (target.rect.height - container.height) - startInset.y)
 
         var decision = ReleaseTargetDecision(proposed: natural)
         if enabledX {

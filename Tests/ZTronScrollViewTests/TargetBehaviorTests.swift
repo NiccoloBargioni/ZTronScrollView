@@ -51,13 +51,23 @@ final class OrderedDelegate: ZTronScrollViewDelegate {
 struct TargetBehaviorTests {
     static let env = PanSessionTests.env()
 
-    func make(_ path: OSPath, at offset: CGPoint = CGPoint(x: 0, y: 300), zoom: CGFloat = 1) -> (ZTronScrollState, BehaviorLog, OrderedDelegate) {
+    /// Offset bounds of the 100 x 200 viewport over 300 x 900 content with `inset`: `-start ... content + end - viewport`.
+    static func env(_ inset: EdgeInsets) -> PanEnvironment {
+        var e = PanSessionTests.env()
+        e.boundsX = AxisBounds(min: -inset.leading, max: 200 + inset.trailing)
+        e.boundsY = AxisBounds(min: -inset.top, max: 700 + inset.bottom)
+        return e
+    }
+
+    func make(_ path: OSPath, at offset: CGPoint = CGPoint(x: 0, y: 300), zoom: CGFloat = 1, inset: EdgeInsets = EdgeInsets())
+        -> (ZTronScrollState, BehaviorLog, OrderedDelegate) {
         let s = makeState(path)
         let log = BehaviorLog()
         let d = OrderedDelegate(log)
         s.delegate = d
         s.now = { 100 }
-        s.setMetrics(ScrollMetrics(viewportSize: CGSize(width: 100, height: 200), contentSize: CGSize(width: 300, height: 900), displayScale: 2))
+        s.setMetrics(ScrollMetrics(viewportSize: CGSize(width: 100, height: 200), contentSize: CGSize(width: 300, height: 900),
+                                   contentInset: inset, displayScale: 2))
         s.track(offset: offset, zoom: zoom)
         s.beginTracking(); s.beginDragging()
         return (s, log, d)
@@ -88,6 +98,12 @@ struct TargetBehaviorTests {
 
     /// A retargeted decay lands on its target to within rounding (1e-13), not bit for bit.
     func near(_ a: CGFloat, _ b: CGFloat) -> Bool { abs(a - b) < 1e-6 }
+
+    /// The clamped rest point of the decay of the fling the delegate saw (offset space), the number a behavior starts from.
+    func naturalRest(from origin: CGFloat, _ delegate: OrderedDelegate, inset: EdgeInsets = EdgeInsets()) -> CGFloat {
+        let rest = TargetSnapping.projectedRest(origin: origin, velocity: (delegate.seenVelocity?.y ?? 0) * 1000, rate: .normal)
+        return min(max(rest, -inset.top), 700 + inset.bottom)
+    }
 
     // MARK: 1 · pipeline
 
@@ -252,6 +268,112 @@ struct TargetBehaviorTests {
         #expect(plain.count == 1 && plain[0].y == my2.endPosition)
     }
 
+    // MARK: D27 · the target space is SwiftUI's (content coordinates, unobscured container)
+
+    /// The native fixture: a 200 pt window with a 62 pt top inset, as measured against a hosted `ScrollView` (NativeBridgeTests).
+    static let topInset = EdgeInsets(top: 62, leading: 0, bottom: 0, trailing: 0)
+    static let bothInsets = EdgeInsets(top: 62, leading: 0, bottom: 30, trailing: 0)
+
+    @Test(arguments: OSPath.allCases) func aBehaviorSeesContentCoordinatesAndTheUnobscuredContainer(path: OSPath) {
+        let (s, log, d) = make(path, at: CGPoint(x: 0, y: 300), inset: Self.topInset)
+        s.targetBehavior = AnyZTronScrollTargetBehavior(RecordingBehavior(log: log))
+        s.endDrag(request(CGPoint(x: 0, y: 300)), tracker: tracker(vy: 200), env: Self.env(Self.topInset), settings: ReleaseSettings())
+        let c = log.contexts[0]
+        #expect(c.containerSize == CGSize(width: 100, height: 138))                 // 200 - 62
+        #expect(c.originalTarget.rect.size == CGSize(width: 100, height: 138))
+        #expect(c.contentSize == CGSize(width: 300, height: 900))
+        // A fling that stays inside the bounds: the original target is the natural rest, 62 pt further in content coordinates.
+        #expect(near(c.originalTarget.rect.origin.y, naturalRest(from: 300, d, inset: Self.topInset) + 62))
+        #expect(c.originalTarget.rect.origin.y > 300 + 62 && c.originalTarget.rect.origin.x == 0)
+        #expect(log.propertiesContexts[0].containerSize == CGSize(width: 100, height: 138))
+        // At rest at the top a view reports origin 0, whatever the inset.
+        let (s2, log2, _) = make(path, at: CGPoint(x: 0, y: -62), inset: Self.topInset)
+        s2.targetBehavior = AnyZTronScrollTargetBehavior(RecordingBehavior(log: log2))
+        s2.endDrag(request(CGPoint(x: 0, y: -62)), tracker: PointVelocityTracker(), env: Self.env(Self.topInset), settings: ReleaseSettings())
+        #expect(near(log2.contexts[0].originalTarget.rect.origin.y, 0))
+    }
+
+    @Test(arguments: OSPath.allCases) func theLandingIsConvertedBackToAnOffset(path: OSPath) {
+        let (s, log, d) = make(path, at: CGPoint(x: 0, y: 300), inset: Self.topInset)
+        var move = RecordingBehavior(log: log)
+        move.edit = { $0.rect.origin.y = 420 }                                       // content coordinates
+        s.targetBehavior = AnyZTronScrollTargetBehavior(move)
+        let (_, my) = s.endDrag(request(CGPoint(x: 0, y: 300)), tracker: tracker(vy: 1500), env: Self.env(Self.topInset), settings: ReleaseSettings())
+        #expect(near(my.endPosition, 420 - 62))
+        #expect(near(d.seenTarget?.y ?? .nan, 420 - 62))                             // the delegate speaks UIKit offsets
+        // Content origin = the top of the content: offset -62.
+        let (s2, log2, _) = make(path, at: CGPoint(x: 0, y: 300), inset: Self.topInset)
+        var top = RecordingBehavior(log: log2)
+        top.edit = { $0.rect.origin.y = 0 }
+        s2.targetBehavior = AnyZTronScrollTargetBehavior(top)
+        let (_, my2) = s2.endDrag(request(CGPoint(x: 0, y: 300)), tracker: tracker(vy: -1500), env: Self.env(Self.topInset), settings: ReleaseSettings())
+        #expect(near(my2.endPosition, -62))
+    }
+
+    @Test(arguments: OSPath.allCases) func theAnchorPlacesTheRectAlongTheUnobscuredContainer(path: OSPath) {
+        let (s, log, _) = make(path, at: CGPoint(x: 0, y: 300), inset: Self.topInset)
+        var move = RecordingBehavior(log: log)
+        // A 400 pt rect starting at content y 100, anchored at the bottom of the 138 pt container: 100 + (400 - 138) - 62.
+        move.edit = { $0.rect = CGRect(x: 0, y: 100, width: 100, height: 400); $0.anchor = UnitPoint(x: 0, y: 1) }
+        s.targetBehavior = AnyZTronScrollTargetBehavior(move)
+        let (_, my) = s.endDrag(request(CGPoint(x: 0, y: 300)), tracker: tracker(vy: 1500), env: Self.env(Self.topInset), settings: ReleaseSettings())
+        #expect(near(my.endPosition, 100 + (400 - 138) - 62))
+    }
+
+    @Test(arguments: OSPath.allCases) func limitsVelocityCapsToTheUnobscuredLength(path: OSPath) {
+        let (s, log, _) = make(path, at: CGPoint(x: 0, y: 300), inset: Self.bothInsets)   // container 200 - 62 - 30 = 108
+        var limited = RecordingBehavior(log: log)
+        limited.limitsVelocity = true
+        s.targetBehavior = AnyZTronScrollTargetBehavior(limited)
+        let (_, my) = s.endDrag(request(CGPoint(x: 0, y: 300)), tracker: tracker(vy: 10_000), env: Self.env(Self.bothInsets), settings: ReleaseSettings())
+        let c = log.contexts[0]
+        #expect(c.containerSize.height == 108)
+        #expect(near(c.originalTarget.rect.origin.y, 300 + 108 + 62))               // one unobscured container from the lift, in content coordinates
+        #expect(near(my.endPosition, 300 + 108))
+    }
+
+    @Test(arguments: OSPath.allCases) func zeroInsetsLeaveTheSpaceUntouched(path: OSPath) {
+        let (s, log, d) = make(path)
+        s.targetBehavior = AnyZTronScrollTargetBehavior(RecordingBehavior(log: log))
+        s.endDrag(request(CGPoint(x: 0, y: 300)), tracker: tracker(vy: 200), env: Self.env, settings: ReleaseSettings())
+        let c = log.contexts[0]
+        #expect(c.containerSize == CGSize(width: 100, height: 200))
+        #expect(near(c.originalTarget.rect.origin.y, naturalRest(from: 300, d)))
+    }
+
+    /// Public `.paging` pages by the unobscured container (native numbers), the knob by the viewport (UIKit), the offset
+    /// bounds start at `-inset.start`: boundaries at `-62 + n · pageLength`.
+    func legacyPage(origin: CGFloat, dragStart: CGFloat, velocity: CGFloat, pageLength: CGFloat, inset: EdgeInsets) -> CGFloat {
+        PagingSolver.target(current: origin, dragStart: dragStart, velocity: velocity, pageLength: pageLength,
+                            bounds: AxisBounds(min: -inset.top, max: 700 + inset.bottom))
+    }
+
+    @Test(arguments: OSPath.allCases) func pagingUnderAnInsetMatchesSwiftUIAndTheKnobKeepsUIKitsPages(path: OSPath) {
+        // The measured fixture: a rest at 130 under a 62 pt top inset in a 200 pt window becomes 76 in SwiftUI's `.paging`.
+        let (s, _, _) = make(path, at: CGPoint(x: 0, y: 130), inset: Self.topInset)
+        s.targetBehavior = AnyZTronScrollTargetBehavior(ZTronPagingScrollTargetBehavior())
+        let (_, native) = s.endDrag(request(CGPoint(x: 0, y: 130)), tracker: PointVelocityTracker(), env: Self.env(Self.topInset), settings: ReleaseSettings())
+        #expect(near(native.endPosition, 76))
+        // The knob: pages of the whole viewport (200): the same release goes to the page at -62 + 200.
+        let (k, _, _) = make(path, at: CGPoint(x: 0, y: 130), inset: Self.topInset)
+        var knob = ReleaseSettings(); knob.isPagingEnabled = true
+        let (_, uikit) = k.endDrag(request(CGPoint(x: 0, y: 130)), tracker: PointVelocityTracker(), env: Self.env(Self.topInset), settings: knob)
+        #expect(near(uikit.endPosition, 138))
+        // A table of lifts and flings under the inset, against the solver with each page length.
+        for row in Self.pagingTable where row.origin >= -62 {
+            let (a, _, ad) = make(path, at: CGPoint(x: 0, y: row.origin), inset: Self.topInset)
+            a.targetBehavior = AnyZTronScrollTargetBehavior(ZTronPagingScrollTargetBehavior())
+            let (_, pub) = a.endDrag(request(CGPoint(x: 0, y: row.origin), dragStart: CGPoint(x: 0, y: row.start)),
+                                     tracker: tracker(vy: row.vy), env: Self.env(Self.topInset), settings: ReleaseSettings())
+            let v = (ad.seenVelocity?.y ?? 0) * 1000
+            #expect(near(pub.endPosition, legacyPage(origin: row.origin, dragStart: row.start, velocity: v, pageLength: 138, inset: Self.topInset)), "public \(row)")
+            let (b, _, _) = make(path, at: CGPoint(x: 0, y: row.origin), inset: Self.topInset)
+            let (_, ku) = b.endDrag(request(CGPoint(x: 0, y: row.origin), dragStart: CGPoint(x: 0, y: row.start)),
+                                    tracker: tracker(vy: row.vy), env: Self.env(Self.topInset), settings: knob)
+            #expect(near(ku.endPosition, legacyPage(origin: row.origin, dragStart: row.start, velocity: v, pageLength: 200, inset: Self.topInset)), "knob \(row)")
+        }
+    }
+
     // MARK: 2 · .paging ≡ isPagingEnabled
 
     /// The legacy `isPagingEnabled` formula (M3), the reference for the equivalence: `PagingSolver` from the lift offset,
@@ -333,6 +455,8 @@ struct TargetBehaviorTests {
         #expect(s.effectiveTargetBehavior == nil)
         s.isPagingEnabled = true
         #expect(s.effectiveTargetBehavior?.base is ZTronPagingScrollTargetBehavior)
+        #expect((s.effectiveTargetBehavior?.base as? ZTronPagingScrollTargetBehavior)?.pageLength == .viewport)   // UIKit's page
+        #expect(ZTronPagingScrollTargetBehavior().pageLength == .container)                                       // SwiftUI's page
         let log = BehaviorLog()
         s.targetBehavior = AnyZTronScrollTargetBehavior(RecordingBehavior(log: log))
         #expect(s.effectiveTargetBehavior?.base is RecordingBehavior)

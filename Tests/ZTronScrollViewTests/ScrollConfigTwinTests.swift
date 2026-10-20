@@ -95,6 +95,7 @@ struct ScrollConfigTwinTests {
 
     @Test(arguments: OSPath.allCases) func theTwinReachesTheReleasePipeline(path: OSPath) {
         let s = makeState(path)
+        s.contentInsetAdjustmentBehavior = .never                                  // the hosting window has a safe area
         let w = withOSPath(path) { host(scroller(s).ztronScrollTargetBehavior(SnapTo(value: 123))) }
         pump(0.2)
         var env = PanEnvironment()
