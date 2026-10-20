@@ -1,6 +1,6 @@
 # STATE
 Status: RUNNING
-Current: step 3 done 2026-10-20 (full demo UI suite: 42/42 on 27.0 both paths, 41/42 on 17.5 both paths = the known Q3 pager case); M6 (a) + N-a done; D27 in 96671ed, M6 (b) session 2 done (612b068) ; M8b-1 refresh engine done 2026-10-20 (`docs/progress/M8b-s1.md`) → next = step 4 (M5 (b) remainder, M6 (c) session 3, M8-1 / M8b-2); Debugger item 6 (27.0 forced duplicate content copy); MC freeze blocked on the user's Q3 decision
+Current: integrated HEAD f985f95 verified 2026-10-20 (unit 349/349 on 27.0 + 17.5; demo UI 55 executed per run, green on 27.0 both paths, 17.5 both paths = the known Q3 pager case only); M6 (a)+(b), N-a/N-b, M8b-1, DBG-s1 (open item 6) done; D27 confirmed, D29/D30 in; M8-1 running (parent session) → next = step 4 (M5 (b) remainder / M6 s3 / M8b-2) from a Sonnet orchestrator; MC freeze blocked on the user's Q3 decision
 
 | Milestone | Status | Budget % | Used % (my readings) | Notes |
 |---|---|---|---|---|

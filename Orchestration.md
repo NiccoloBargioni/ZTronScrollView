@@ -1,7 +1,7 @@
 # ZTronScrollView · Orchestration (resume here)
 
-Last updated: 2026-10-20 (side session M8b-s0 acting as orchestrator: step 3 full demo UI re-run done, D27; weekly all-models 36% ·
-Fable 68%; 2026-10-19 session 3 + s3-C ended at 20% · 39%) · Status: **M0–M4 done ·
+Last updated: 2026-10-20 05:05 (side session M8b-s0 acting as orchestrator: step 3, D27 and the integrated verification of the fan-out green at f985f95; weekly all-models 44% ·
+Fable 79%; 2026-10-19 session 3 + s3-C ended at 20% · 39%) · Status: **M0–M4 done ·
 physics calibrated (unit) · M5 rotation: user full-screen tree PASSES criteria A+B on 27.0 + 17.5 (D18/D19) · criterion C
 fixed in code (D20, staggered lift; probe + ZoomUITests 7/7 on 27.0 pref+forced, 17.5 pref) · user bounce report fixed
 (D21, pixel-rounded effect size: 16:9 trees drew clamped + stayed `.animating`) · double-tap snap (D22) and
@@ -46,7 +46,7 @@ M8-8 build from the amended SPEC S9/S10/S11 + `docs/design/M8b-refresh-header.md
 | M8b (1) refresh engine | done | `docs/progress/M8b-s1.md`: pure per-edge `RefreshEngine` + `RefreshCoordinator` (action `Task` once per pull, hold, minimum visible time on a one-shot timer), `ScrollMetrics.refreshHold` folded into `adjustedContentInset` (opened bounds-only at the lift, BEFORE the release reads the bounds, so an over-pull springs to `−(aci.top + H)`; cleared by the M5 inset rule), `beginRefreshing` / `endRefreshing`, `ReachEdgeWatcher` list on the state, axis-wide bounce force + sample / lift hooks in `PanCoordinator`; `RefreshEngineTests` + `RefreshHoldTests` + `ReachEdgeTests` (43 tests, both OS paths) and the whole unit suite (345) green on 27.0 + 17.5; NOT wired into the container yet (M8b-2); device risks R1–R3 open |
 | M6 (c) … M10 | todo | SPEC O4 l.970–990; M6 (c) = session 3 (Position, DefaultScrollAnchor, TargetsScreen) |
 
-Test totals now: `ZTronScrollViewTests` **345** (30 suites; M6 s1's 79, N-a's `NestedArbitrationTests`, M6 s2's `ViewAlignedTests`, D29's pinch tests and M8b-1's `RefreshEngineTests` / `RefreshHoldTests` / `ReachEdgeTests` (43); measured 2026-10-20 in a clean worktree at 46725ad + M8b-1) green on iOS 27.0 and 17.5 (both OS paths) · M2 `ProofUITests` 6/6 · **demo UI full suite (2026-10-20, 5eca9a7): 42/42 on 27.0 preferred + forced, 41/42 on 17.5 preferred + forced (only the known Q3 pager case)** ·
+Test totals now (integrated HEAD f985f95, 2026-10-20 05:00, after the fan-out M6 s2 + DBG-s1 + M8b-1 + N-b/D30 + D29): `ZTronScrollViewTests` **349** (31 suites) green on iOS 27.0 and 17.5 (both OS paths) · demo UI full suite **55 executed + 4 skipped by design per run**: 27.0 preferred 55/55, 27.0 forced 55/55, 17.5 preferred 54/55, 17.5 forced 54/55 (the one failure = `PagerUITests.testPagerArbitration`, spike Q3 on iOS ≤ 17, Open item 1; `ProofUITests.testNoClockTicksAtRest` green on both devices and paths, so DBG-s1's fresh-simulator failure was a device artifact) · physics 111 · arbitration 39.
 physics 111 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-contract,M2-render,M3-pan,M4-zoom}.md`.
 
 ## Next steps (in order; prompts are ready to paste)
@@ -96,6 +96,9 @@ physics 111 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-
    `PagerUITests.testPagerArbitration` "swipe at the trailing edge pages" = the known spike Q3 = NO on iOS ≤ 17 (Open item 1, user
    decision). CalibrateUITests' 4 tests skip by design. Two test-runner subagents in parallel, one simulator each, separate derived data
    (`.build/dd-ui27`, `.build/dd-ui175`): ~9 min per run on 27.0, 7–16 min on 17.5 (a 600 s "collecting diagnostics" timeout inflated the forced run).
+3b. [x] **Integrated verification after the 2026-10-20 fan-out** — done at f985f95 (`docs/progress/ORCH-s1.md` addendum): unit 349/349 on 27.0 and 17.5; demo UI 55 executed per run,
+   27.0 preferred + forced 0 failures, 17.5 preferred + forced only the known Q3 pager case; `NestedPagerUITests` 13/13 everywhere; ZoomUITests/PanUITests green with D29. Two test-runner
+   agents were cut off by the 5-hour limit mid-run; the xcodebuild processes finished on their own and the logs were read directly.
 4. [ ] M5 (b) remainder (PanCoordinator resize rebase, adjusted insets into pan/pinch env) → M6–M9 builds from the
    ready designs (`docs/design/M6…M9`), M10. Sequencing per each design's resolutions.
    M6 (a) done 2026-10-20 (`docs/progress/M6-s1.md`, 7243121), D27 in 96671ed, M6 (b) done 2026-10-20 (`docs/progress/M6-s2.md`, 612b068) → next = M6 (c) session 3 (Position, DefaultScrollAnchor, TargetsScreen; R5). M8b-1 done 2026-10-20 (`docs/progress/M8b-s1.md`) → next in the M8b split: M8-1 (`ChromeLeaf`), M8b-2 (refresher API, indicators, demo; wires the coordinator into the container), M8b-3.
@@ -285,6 +288,10 @@ Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (≤ 2 simulators at 
   (M3 (b): 99 min) — enforce the 2-attempt rule and escalate to the Debugger.
 - 2026-10-14: one ultracode workflow (11 Opus/Fable agents, 1.64 M tokens) used the whole remaining weekly budget.
   Don't fan out builders; follow SPEC O2/O5.
+- 2026-10-20 05:00: the same session then coordinated four concurrent sessions (M6 s2, DBG-s1, M8b-1, N-b) by message and ran the integrated verification
+  (2 unit + 4 demo UI runs): Fable 68% → 79%, all-models 36% → 44% in ~2 h; two runners died at the 5-hour limit. Fable is now the scarce budget: hand the
+  orchestration of builds/verification to a Sonnet session and keep Fable for design and physics only. `test-runner` (haiku) may run only the four
+  scripts in its definition; demo UI runs need `general-purpose` with the exact `scripts/test-demo-ui.sh` command.
 - 2026-10-20: orchestrating step 3 (4 demo UI runs through test-runner subagents) + D27 + bookkeeping from the Fable M8b-s0 session with a
   ~400 K context cost Fable 49% → 68% in one evening (all-models 25% → 36%, the Sonnet M6 s1 session included). Verification-only steps
   belong in a Sonnet session; keep Fable for design and the hard physics.
@@ -307,3 +314,4 @@ Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (≤ 2 simulators at 
 | 2026-10-20 | Fable 5.1 side session M8b-s0, resumed as orchestrator | D27 (target space, M6-s1 Open 1) + M6 resolutions; N-a state row + open items 6–8; step 3: full demo UI suite ×4 (27.0/17.5 × preferred/forced) via test-runner subagents, all green except the known Q3 pager case on 17.5; handoff `ORCH-s1.md` | all 25% → 36% · Fable 49% → 68% |
 | 2026-10-20 | Sonnet 5.5 side session M8b-1 (Builder) | refresh engine: `Refresh/{RefreshTypes,RefreshEngine,RefreshCoordinator,ReachEdgeWatcher}`, hold in `adjustedContentInset`, `beginRefreshing` / `endRefreshing`, reach-edge list, `PanCoordinator` bounce force + sample / lift hooks; 43 new tests; verified in a clean worktree because other sessions were editing the pinch files in the shared checkout | all 36% → 40% · Fable 68% → 72% (all sessions together; this one is Sonnet) |
 | 2026-10-20 | Opus 5.5 side session DBG-s1 (Debugger) | open item 6 root cause (body-time capability reads flip a structural branch when the forced set changes; 18+ only) → `let` flags on the state, `ParentReevaluationTests`; unit 303/303 on 27.0 + 17.5; Proof+Resize UI 27.0 both paths 18/19 (pre-existing `testNoClockTicksAtRest`) | not measured |
+| 2026-10-20 (03:00–05:05) | Fable 5.1 side session M8b-s0 as orchestrator (cont.) | coordinated M6 s1 (D27 impl.), M6 s2, DBG-s1, M8b-1, N-b in one checkout by message (file ownership, path commits, simulator split); integrated verification at f985f95: unit 349/349 ×2, demo UI 55/55 ×2 on 27.0 and 54/55 ×2 on 17.5 (known Q3 case); D27 confirmed by the user | all 36% → 44% · Fable 68% → 79% |
