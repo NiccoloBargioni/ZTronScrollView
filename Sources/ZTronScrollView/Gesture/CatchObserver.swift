@@ -11,14 +11,6 @@ final class CatchObserverState: @unchecked Sendable {   // touched on the main t
     var panStart: CGPoint?
 }
 
-enum CatchObserver {
-    /// Whether the 18+ observer is used (S3 capability fallback: forced fallbacks use the drag).
-    static var usesSpatial: Bool {
-        if #available(iOS 18, *) { return ZTronAvailability.isAvailable(.spatialEvents) }
-        return false
-    }
-}
-
 enum DragCatchGesture {
     @MainActor
     static func gesture(observer: CatchObserverState, send: @escaping @MainActor (PanEvent) -> Void) -> some Gesture {

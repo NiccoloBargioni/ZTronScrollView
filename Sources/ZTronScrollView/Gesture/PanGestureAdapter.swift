@@ -57,7 +57,7 @@ struct PanGestureAdapter: ViewModifier {
             coordinator.handle(event)
             if case .touchesEnded = event { arming.touchEnded() }
         }
-        let gated = !CatchObserver.usesSpatial
+        let gated = !coordinator.state.usesSpatialEvents
         let obs = observer
         let tap = doubleTap.map { PinchGestureAdapter.doubleTap(coordinator: coordinator, observer: obs, config: $0) }
         return content
@@ -79,7 +79,7 @@ struct PanGestureAdapter: ViewModifier {
                     send(.dragChanged(translation: v.translation, startLocation: v.startLocation,
                                       time: v.time.timeIntervalSinceReferenceDate))
                     // 15-17 centroid estimate follows the drag (spatial events carry the true centroid on 18+).
-                    if !CatchObserver.usesSpatial, PinchGestureAdapter.dragFollow, coordinator.isPinching {
+                    if !coordinator.state.usesSpatialEvents, PinchGestureAdapter.dragFollow, coordinator.isPinching {
                         coordinator.handlePinch(.panTranslation(v.translation, time: v.time.timeIntervalSinceReferenceDate))
                     }
                 }
@@ -100,7 +100,7 @@ struct PanGestureAdapter: ViewModifier {
 
     private func observerGestureBox(send: @escaping @MainActor (PanEvent) -> Void) -> AnyGesture<Void> {
         let obs = observer
-        if #available(iOS 18, *), CatchObserver.usesSpatial {
+        if #available(iOS 18, *), coordinator.state.usesSpatialEvents {
             let now: @Sendable () -> TimeInterval = { Date().timeIntervalSinceReferenceDate }
             let c = coordinator
             return AnyGesture(SpatialCatchGesture.gesture(

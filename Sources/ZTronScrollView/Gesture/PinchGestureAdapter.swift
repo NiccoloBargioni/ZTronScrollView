@@ -16,7 +16,7 @@ enum PinchGestureAdapter {
 
     @MainActor
     static func gesture(coordinator: PanCoordinator, observer: CatchObserverState) -> AnyGesture<Void> {
-        let spatial = CatchObserver.usesSpatial
+        let spatial = coordinator.state.usesSpatialEvents
         let began = Began()
         let onChange: @MainActor (CGFloat, CGPoint?) -> Void = { [coordinator] magnification, start in
             let now = Date().timeIntervalSinceReferenceDate
@@ -41,7 +41,7 @@ enum PinchGestureAdapter {
             // session without effects.
             coordinator.handlePinch(.ended(time: now))
         }
-        if #available(iOS 17, *), ZTronAvailability.isAvailable(.magnifyGesture) {
+        if #available(iOS 17, *), coordinator.state.usesMagnifyGesture {
             return AnyGesture(MagnifyGesture()
                 .onChanged { v in MainActor.assumeIsolated { onChange(v.magnification, v.startLocation) } }
                 .onEnded { _ in MainActor.assumeIsolated { onEnd() } }

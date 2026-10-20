@@ -57,9 +57,9 @@ final class PanCoordinator: ObservableObject {
     init(state: ZTronScrollState, axes: Axis.Set) {
         self.state = state
         self.axes = axes
-        if ZTronAvailability.isAvailable(.spatialEvents) {
+        if state.usesSpatialEvents {
             pinch.centroidSource = .spatial
-        } else if ZTronAvailability.isAvailable(.magnifyGesture) {
+        } else if state.usesMagnifyGesture {
             pinch.centroidSource = .startLocationPlusDrag
         } else {
             pinch.centroidSource = .dragOnly

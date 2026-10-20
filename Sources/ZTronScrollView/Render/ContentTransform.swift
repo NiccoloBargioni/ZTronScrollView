@@ -215,7 +215,7 @@ struct CompletionObserver: ViewModifier {
 
     @ViewBuilder
     func body(content: Content) -> some View {
-        if ZTronAvailability.isAvailable(.animationCompletion), #available(iOS 17, *) {
+        if state.usesAnimationCompletion, #available(iOS 17, *) {
             content.transaction { t in
                 guard t.animation != nil, !t.disablesAnimations, let token = MainActor.assumeIsolated({ state.activeTransactionToken })
                 else { return }

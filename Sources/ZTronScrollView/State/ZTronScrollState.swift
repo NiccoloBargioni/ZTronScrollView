@@ -10,6 +10,11 @@ public final class ZTronScrollState {
     let usesLayoutProtocol: Bool
     let usesNamedCoordinateSpace: Bool
     let usesGeometryChange: Bool
+    /// Gesture and completion paths, fixed here like the render paths (R6): a body that read the switch would flip
+    /// branch when it re-evaluates under another forced set and rebuild the content (DBG-s1).
+    let usesSpatialEvents: Bool
+    let usesMagnifyGesture: Bool
+    let usesAnimationCompletion: Bool
     let probe = PresentationBox()
 
     public weak var delegate: (any ZTronScrollViewDelegate)?
@@ -160,6 +165,9 @@ public final class ZTronScrollState {
         usesLayoutProtocol = ZTronAvailability.isAvailable(.layoutProtocol)
         usesNamedCoordinateSpace = ZTronAvailability.isAvailable(.namedCoordinateSpace)
         usesGeometryChange = ZTronAvailability.isAvailable(.geometryChange)
+        usesSpatialEvents = ZTronAvailability.isAvailable(.spatialEvents)
+        usesMagnifyGesture = ZTronAvailability.isAvailable(.magnifyGesture)
+        usesAnimationCompletion = ZTronAvailability.isAvailable(.animationCompletion)
         targets = TargetRegistry(usesGeometryChange: usesGeometryChange)
         targets.state = self
         targetRegistry = targets

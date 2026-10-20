@@ -141,10 +141,12 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
    `ZTronScrollPhysics` enum shares its module's name and top-level names (`Velocity`, `Decay`) are generic.
 5. User actions: push ScrollArbitration to its own repo + tag 1.0.0, then switch both projects to
    `.upToNextMinor(from: "1.0.0")`; iOS 15/16 + Xcode 26.6 runs; device checks (ProMotion, gesture feel).
-6. **27.0 + all fallbacks forced: a parent re-evaluation builds a second copy of the scroll view's content for a moment** (`@State` ids 2,
-   `onAppear` again; M6-s1 Open 3, notes `M6-s1-findings.md` §2; present at 39f09c8, absent on 17.5 both paths and on 27.0 preferred; real iOS 15/16
-   unverified). One Debugger session after step 3: suspects the fallback layout host `Color.clear.overlay { content.fixedSize }`, the
-   `ContentSizeMeasure`/`ViewportObserver` preference pairs, the named space. The M6 registry already tolerates it (one report per live reporter).
+6. ~~27.0 + all fallbacks forced: a second copy of the content on a parent re-evaluation~~ RESOLVED 2026-10-20
+   (`docs/progress/DBG-s1.md`): gesture/completion paths were chosen in bodies from the process-wide switch
+   (`CatchObserver.usesSpatial` → `CatchArmingProbe`'s `if let` around the content), so a re-evaluation outside the
+   test's `withOSPath` scope flipped the branch on 18+. Now `let` flags on `ZTronScrollState` (R6). App/real 15–16
+   never flipped (the set is fixed at launch). New open: `ProofUITests.testNoClockTicksAtRest` red on a fresh 27.0
+   simulator at fd3d17a with and without the patch (DBG-s1 Open).
 7. ~45 UIKit "Observation tracking feedback loop detected" warnings in the full 27.0 unit run since M6 s1 (none on 17.5, none per suite alone): re-check
    after M7 session 1 (hub); suspect the hosted test windows, not the library.
 8. N-a handoff: `docs/progress/NESTED-s1.md`. Still to do after step 3: N-b (demo `NestedPagerScreen` + `NestedPagerUITests`, 27.0 + 17.5 both paths) and the SPEC S11/S12 amendment (policy API, default-on, D7 timing for outers with inners, three-level phase-2 limitation), parity-matrix row.
@@ -296,3 +298,4 @@ Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (≤ 2 simulators at 
 | 2026-10-19/20 | Sonnet 5.5 side session M6-s1 (Builder) | M6 session 1: type mirror, `.paging` ≡ knob, member/twin, reader/proxy/`scrollTo`, `ztronScrollID` registry; 79 new tests; findings in `M6-s1.md` + notes folder: SwiftUI's target space, 27.0 forced-fallback content duplication (pre-existing), sibling `onAppear` order, `EnvironmentValues` retention | all ≈30% → 32% · Fable 58% → 60% (all sessions together) |
 | 2026-10-20 | Fable 5.1 side session M8b-s0, resumed as orchestrator | D27 (target space, M6-s1 Open 1) + M6 resolutions; N-a state row + open items 6–8; step 3: full demo UI suite ×4 (27.0/17.5 × preferred/forced) via test-runner subagents, all green except the known Q3 pager case on 17.5; handoff `ORCH-s1.md` | all 25% → 36% · Fable 49% → 68% |
 | 2026-10-20 | Sonnet 5.5 side session M8b-1 (Builder) | refresh engine: `Refresh/{RefreshTypes,RefreshEngine,RefreshCoordinator,ReachEdgeWatcher}`, hold in `adjustedContentInset`, `beginRefreshing` / `endRefreshing`, reach-edge list, `PanCoordinator` bounce force + sample / lift hooks; 43 new tests; verified in a clean worktree because other sessions were editing the pinch files in the shared checkout | all 36% → 40% · Fable 68% → 72% (all sessions together; this one is Sonnet) |
+| 2026-10-20 | Opus 5.5 side session DBG-s1 (Debugger) | open item 6 root cause (body-time capability reads flip a structural branch when the forced set changes; 18+ only) → `let` flags on the state, `ParentReevaluationTests`; unit 303/303 on 27.0 + 17.5; Proof+Resize UI 27.0 both paths 18/19 (pre-existing `testNoClockTicksAtRest`) | not measured |
