@@ -237,7 +237,7 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
   adjustedContentInset.start` (content coordinates; the inset includes the safe area, the scaling header's resting height and the refresh hold) and
   `containerSize = rect.size = unobscured size`; `ReleasePipeline.decideTarget` is the single conversion point (landing `−= I.start`, velocity cap on the
   unobscured length). Public `.paging` pages by the unobscured length (SwiftUI); the `isPagingEnabled` knob keeps the viewport page length (UIKit) through an
-  internal paging behavior; both coincide with zero insets (M3 table unchanged). `docs/design/M6-targets.md` resolutions 2026-10-20.
+  internal paging behavior; both coincide with zero insets (M3 table unchanged). `docs/design/M6-targets.md` resolutions 2026-10-20. **Implemented in 96671ed** (M6-s1 addendum).
 - D28 (2026-10-19/20, NESTED-arbitration R1–R7 + review) Nested `ZTronScrollView`s arbitrate by default (`.automatic` =
   inner while it can follow, UIScrollView parity); `.innerWhenZoomed` is the user's literal rule (outer iff zoom == min);
   the policy only replaces rule 5 inside the participant's `canFollow`, the frozen ScrollArbitration rules do the
