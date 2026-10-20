@@ -218,3 +218,27 @@ depends on N-a; both after the demo full re-run (Orchestration step 3) so the ba
 - Sequencing: N-a now (library + `NestedArbitrationTests`, both OS paths); N-b (demo `NestedPagerScreen` +
   `NestedPagerUITests`) and the docs/SPEC amendment follow once N-a is green and committed.
 
+
+## 6. Mixed topologies (2026-10-21, user question: native `ScrollView` and bridged `UIScrollView`, both ways)
+
+Shared fact: SwiftUI's `ScrollView` is a `UIScrollView` on iOS, and its pan is a UIKit recognizer whose delegate is
+UIKit's. Our side can decide (arbiter), freeze itself (`.ignored`) and, on 15–16, observe (D31); it can never make a
+UIKit pan it does not own give up a touch or skip a bounce. The only external levers are `isScrollEnabled`
+(`scrollDisabled`, 16+, read by UIKit at touch-down) and SwiftUI gesture priority (fixed when attached, D12). Hence
+the §3 guarantees (G1 one owner per swipe decided at the hysteresis with the direction known; G2 the loser frozen: no
+motion, bounce or delegate; G3 policy; G4 iOS 15; S4 holds in every row below) degrade per topology:
+
+| Topology | G1 | G2 | G3 | G4 | What it takes |
+|---|---|---|---|---|---|
+| **A** native `ScrollView` inside ZTron (outer ours) | yes: the outer asks its own arbiter | outer only; same-axis at the inner's edge = outer scrolls **and** inner bounces, so no edge take-over | per-axis constants; an 18+ `onScrollGeometryChange` edge mirror is possible but keeps the double motion | yes | pure SwiftUI, ~1 session: `.ztronNestedScrollPolicy(.inner)` on a native `ScrollView` registers a *passive region participant* (frame from a cold GeometryReader in the outer's content space, `canFollow` = its axes, `isMovingWithoutFinger` false). Rules 1/5 then make cross-axis drags exclusive (today a diagonal moves both; S12's "nested horizontal native ScrollView" row); use a 45° tolerance for native regions, UIKit's own axis test. Same axis: inner wins when touched, outer only outside it |
+| **B** ZTron inside native `ScrollView` (outer theirs) | no: UIKit decides at touch-down from `isScrollEnabled`, no direction | inner only; the native outer scrolls whenever its pan begins | zoomed / not zoomed only | 16+; 15 only via the blocker → | caller side today: `ZTronScrollReader(state, of: { $0.zoomScale > 1 }) { zoomed in ScrollView { … }.scrollDisabled(zoomed) }` (derived reader: one re-render per crossing, S4-safe). Library options, both to spike on 15/17/18/27: (i) `.innerWhenZoomed` with no container makes the inner ignore one-finger pans at minimum zoom (else a tall-at-fit image moves with the outer); (ii) while zoomed, arm a `highPriorityGesture(DragGesture(minimumDistance: 10), including:)` blocker through the `GatedGestureAttach` pattern so the UIScrollView pan waits for it; Button/Slider inside zoomed content must be re-checked (D12 risk) |
+| **C** bridged `UIScrollView` hosting ZTron (= T2 / ZTronPages) | yes | yes | full (§3, unchanged) | 18+ yes; ≤ 17 = note E, Open item 1 | nothing new in the library. The representable's `UIScrollView` subclass owns a `ReferenceScrollArbiter`, injects it into the hosted content's environment, allows simultaneous recognition with `scrollArbitrationGestureName` (18+), asks `containerOwner` from `gestureRecognizerShouldBegin` (or the first `.changed`, note B) and begins/ends sequences from a passive observer recognizer (note A). The spike app is the recipe |
+| **D** bridged `UIScrollView` inside ZTron (inner theirs, cooperating) | yes | yes: its pan returns `false` from `gestureRecognizerShouldBegin` on `.container` | full, written by the caller as `canFollow` | yes | the representable reads `context.environment.scrollArbiter` and the arbiter's `coordinateSpaceName` (both public today), implements `ScrollArbitrationParticipant` on its `UIScrollView` subclass and asks `owner(...)` in `shouldBegin`. Worth a public `ztronScrollArbitrationParticipant(_:)` modifier that registers any participant with the nearest arbiter and keeps its frame cold (~1 session with a spike row). A vanilla `UIScrollView` is row A |
+
+Not reachable: freezing a UIScrollView we do not own, and UIKit in the library beyond D31 (rows C/D are app-side
+UIKit, rows A/B pure SwiftUI). Recommendation: C and D are the ZTronPages family and deserve the participant modifier
+plus a written recipe; A is cheap and also fixes the diagonal double motion; B stays caller-side (`scrollDisabled`)
+unless iOS 15 needs the blocker, which is a spike first. Open: which of A/B/D to brief, and a per-OS spike row for
+B's blocker and D's `shouldBegin` timing (note B: the first UIKit sample can be 0–1 pt).
+
+Builder briefs for rows A and D (three sessions: D1 shared plumbing, then A and D2 in parallel): `docs/design/NESTED-mixed.md` (2026-10-21).
