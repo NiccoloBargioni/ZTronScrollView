@@ -146,7 +146,7 @@ struct ScrollContainer<Content: View>: View {
                                         nestedPolicy: nestedPolicy))
             .modifier(ObserverRegistration(state: state, boxes: observerBoxes))
             .onAppear { state.zoomLimits = effectiveLimits }
-            .modifier(PositionTicket(ticket: ticket))
+            .background(PositionTicketLeaf(ticket: ticket))   // a leaf, never a wrapper of the container
             .transaction { state.positionDriver.noteTransaction($0) }
             .onAppear { state.positionDriver.receive(position) }
             .onChangeCompat(of: position) { state.positionDriver.receive($0) }

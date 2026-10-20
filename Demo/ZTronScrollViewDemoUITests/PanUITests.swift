@@ -139,6 +139,23 @@ final class PanUITests: XCTestCase {
         field.typeText("a"); XCTAssertEqual(field.value as? String, "a", "text field takes input")
     }
 
+    /// Regression (M6 s3, iOS 17.5): a focused TextField inside the scroll view keeps the keyboard while the layout avoids it.
+    /// The position ticket wrapped the container in a `GeometryEffect`, SwiftUI interpolated the avoidance, the viewport observer
+    /// read the keyboard inset before the frame had moved, the resize watch reported `.animating` and the blocked content was
+    /// disabled, which made UIKit resign the field. The pause lets the avoidance and the watch finish before the second input.
+    func testFocusedTextFieldKeepsKeyboardThroughAvoidance() {
+        let app = launch("controls")
+        let field = app.textFields["ctl.text"]
+        field.tap()
+        field.typeText("a")
+        Thread.sleep(forTimeInterval: 1.5)
+        field.typeText("b")
+        XCTAssertEqual(field.value as? String, "ab", "the field keeps focus through the keyboard avoidance")
+        app.buttons["Info"].tap()
+        let s = app.staticTexts["stateInfo"].value as? String ?? ""
+        XCTAssertTrue(s.contains("phase=0"), "the keyboard left the scroll view idle: \(s)")
+    }
+
     func testVerticalDragOnSliderScrolls() {
         let app = launch("controls")
         let slider = app.sliders["ctl.slider"]
