@@ -233,7 +233,8 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
   ObservableObject / @Observable `headerGeo` (object-wide invalidation on 15–16, no derived gating, builder-scope hazard). Refresh API single
   source = S9's `refresher`; every UIScrollViewDelegate method also an `onZTronScroll…` modifier (M8-chrome §7b, task M8-8 on M7's hub:
   delegate first, then modifiers in application order; `willEndDragging` target threaded; `shouldScrollToTop` ANDed).
-- D27 (2026-10-20, M6-s1 Open 1, measured in `NativeBridgeTests`) Scroll-target space = SwiftUI's: a behavior sees `rect.origin = contentOffset +
+- D27 (2026-10-20, M6-s1 Open 1, measured in `NativeBridgeTests`; **confirmed by the user 2026-10-20 as implemented in 96671ed: public `.paging`
+  pages by the unobscured container like SwiftUI, only the `isPagingEnabled` knob keeps viewport-length pages**) Scroll-target space = SwiftUI's: a behavior sees `rect.origin = contentOffset +
   adjustedContentInset.start` (content coordinates; the inset includes the safe area, the scaling header's resting height and the refresh hold) and
   `containerSize = rect.size = unobscured size`; `ReleasePipeline.decideTarget` is the single conversion point (landing `−= I.start`, velocity cap on the
   unobscured length). Public `.paging` pages by the unobscured length (SwiftUI); the `isPagingEnabled` knob keeps the viewport page length (UIKit) through an
