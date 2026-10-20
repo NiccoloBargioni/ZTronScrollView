@@ -540,6 +540,65 @@ struct PinchPanTests {
         #expect(r.state.isZooming && r.state.phase == .interacting)
     }
 
+    // MARK: 10. the DragGesture ends when the second finger lands, before the observer's count change (D29 guard)
+
+    /// SwiftUI may end the one-finger DragGesture when a second finger lands; if that `.dragEnded` arrives before the
+    /// observer reports two fingers, it must not release the content (a fling from the finger's speed, then a catch):
+    /// it is held until the observer says two fingers are down (dropped: the pinch takes over, no motion).
+    @Test(arguments: OSPath.allCases) func dragEndBeforeTheSecondFingerIsReportedDoesNotFling(path: OSPath) {
+        let r = make(path, limits: 1...4)
+        let start = CGPoint(x: 100, y: 300)
+        r.coord.handle(.touchDown(location: start, time: r.now, touchCount: 1))
+        r.coord.handle(.dragChanged(translation: CGSize(width: 0, height: -40), startLocation: start, time: r.now))
+        let c = CGPoint(x: 100, y: 200)
+        r.coord.handlePinch(.fingerCountChanged(count: 2, remaining: c, time: r.now))
+        magnify(r, 1.5, at: c); r.tick()
+        r.now += 0.016
+        r.coord.handlePinch(.fingerCountChanged(count: 1, remaining: CGPoint(x: 100, y: 260), time: r.now))  // the other finger lifts
+        var t = CGSize(width: 0, height: -40)
+        for _ in 1...3 {                                                          // the drag's finger pans on at 2500 pt/s
+            r.now += 0.016; t.height -= 40
+            r.coord.handle(.dragChanged(translation: t, startLocation: start, time: r.now))
+        }
+        let o = r.state.contentOffset
+        // The second finger lands: SwiftUI ends the drag first, the observer reports two fingers after.
+        r.now += 0.016
+        r.coord.handle(.dragEnded(translation: t, time: r.now, fallbackVelocity: CGVector(dx: 0, dy: -2500)))
+        #expect(!r.state.isDecelerating && r.state.phase != .decelerating && r.state.contentOffset == o, "held, not released")
+        r.coord.handlePinch(.fingerCountChanged(count: 2, remaining: CGPoint(x: 100, y: 180), time: r.now))
+        #expect(!r.state.isDecelerating && !r.state.isDragging && r.state.phase != .decelerating, "dropped: the pinch takes over")
+        #expect(r.state.contentOffset == o)
+        r.coord.handlePinch(.began(centroid: CGPoint(x: 100, y: 180), time: r.now))
+        r.now += 0.016
+        r.coord.handlePinch(.changed(magnification: 1.1, centroid: CGPoint(x: 100, y: 180), time: r.now)); r.tick()
+        #expect(abs(r.state.zoomScale - 1.65) < 1e-9 && r.state.isZooming, "\(r.state.zoomScale)")
+        #expect(!r.delegate.log.contains("willBeginDecelerating"))
+    }
+
+    /// The same drag end followed by the observer's "no fingers" is a lift: released then, from the current time.
+    @Test(arguments: OSPath.allCases) func dragEndThenNoFingersReleasesAsALift(path: OSPath) {
+        let r = make(path, limits: 1...4)
+        let start = CGPoint(x: 100, y: 300)
+        r.coord.handle(.touchDown(location: start, time: r.now, touchCount: 1))
+        r.coord.handle(.dragChanged(translation: CGSize(width: 0, height: -40), startLocation: start, time: r.now))
+        let c = CGPoint(x: 100, y: 200)
+        r.coord.handlePinch(.fingerCountChanged(count: 2, remaining: c, time: r.now))
+        magnify(r, 1.5, at: c); r.tick()
+        r.now += 0.016
+        r.coord.handlePinch(.fingerCountChanged(count: 1, remaining: CGPoint(x: 100, y: 260), time: r.now))
+        var t = CGSize(width: 0, height: -40)
+        for _ in 1...3 {
+            r.now += 0.016; t.height -= 40
+            r.coord.handle(.dragChanged(translation: t, startLocation: start, time: r.now))
+        }
+        r.now += 0.016
+        r.coord.handle(.dragEnded(translation: t, time: r.now, fallbackVelocity: nil))
+        #expect(!r.state.isDecelerating, "held until the observer confirms the lift")
+        r.coord.handlePinch(.fingerCountChanged(count: 0, remaining: nil, time: r.now))
+        r.coord.handle(.touchesEnded(time: r.now))
+        #expect(r.state.isDecelerating && r.delegate.log.contains("willBeginDecelerating"), "a real lift flings")
+    }
+
     // MARK: iOS 15–17 estimate (documented gap)
 
     @Test func dragFollowEstimateMovesTheCentroidWithTheTrackedFinger() {

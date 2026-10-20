@@ -49,6 +49,11 @@ final class PanCoordinator: ObservableObject {
     private var panContinuedFromPinch = false
     /// `synthesizePan` is feeding a sample (so a `.dragChanged` is not the DragGesture reappearing).
     private var isFeedingSynthesizedSample = false
+    /// A release that arrived after a pinch hand-off while the finger may still be down (D29): SwiftUI ends the
+    /// one-finger DragGesture when a second finger lands, and that `.dragEnded` can precede the observer's count
+    /// change. Held until the observer says the fingers are gone (`touchesEnded`: released then, from the current
+    /// time) or that two are down again (`fingerCountChanged(≥ 2)` / `.began`: dropped, the pinch takes over).
+    private var heldRelease: (request: ReleaseRequest, env: PanEnvironment)?
     #if DEBUG
     var effectsLog: [PanEffect] = []
     var pinchLog: [PinchEffect] = []
@@ -214,9 +219,10 @@ final class PanCoordinator: ObservableObject {
         // New sequence: forget the previous finger samples.
         switch (session.phase, event) {
         case (.idle, .touchDown), (.idle, .dragChanged), (.released, .touchDown):
-            tracker.reset(); pinchOwnedPan = false; panContinuedFromPinch = false
+            tracker.reset(); pinchOwnedPan = false; panContinuedFromPinch = false; heldRelease = nil
         default: break
         }
+        if case .cancelled = incoming { heldRelease = nil }
         switch event {
         case let .dragChanged(translation, _, _):
             lastPanTranslation = translation
@@ -237,6 +243,16 @@ final class PanCoordinator: ObservableObject {
         if endsSynthesizedPan, case let .touchesEnded(time) = incoming {
             _ = session.handle(.touchesEnded(time: time), env: env)
         }
+        // All fingers are gone: a release held since the hand-off runs now, timed from now (a finger that stayed down
+        // and paused releases at rest: the tracker's rest rule sees the old samples).
+        if case .touchesEnded = incoming, let held = heldRelease {
+            heldRelease = nil
+            var r = held.request
+            r.liftTime = state.now()
+            isHandlingHeldRelease = true
+            apply([.release(r)], env: held.env)
+            isHandlingHeldRelease = false
+        }
         switch session.phase {
         case .idle, .released:
             caughtUndecided = false; panContinuedFromPinch = false
@@ -253,6 +269,9 @@ final class PanCoordinator: ObservableObject {
         guard isSequenceActive else { return }
         handle(.cancelled)
     }
+
+    /// The held release is being applied: `.release` must not be held again.
+    private var isHandlingHeldRelease = false
 
     private func apply(_ effects: [PanEffect], env: PanEnvironment) {
         var queue = effects
@@ -287,6 +306,10 @@ final class PanCoordinator: ObservableObject {
                 if pendingBegin { pendingBegin = false; state.beginDragging() }
                 state.endDragWithoutDeceleration()
                 refresh?.sequenceEnded(isScrollEnabled: env.isScrollEnabled)
+            case let .release(r) where panContinuedFromPinch && !r.zeroVelocity && heldRelease == nil
+                && !isHandlingHeldRelease:
+                // After a hand-off the DragGesture's end may be the second finger landing, not a lift (D29): hold it.
+                heldRelease = (r, env)
             case let .release(r):
                 if pendingBegin { pendingBegin = false; state.beginDragging() }
                 var release = ReleaseSettings()
@@ -347,6 +370,20 @@ final class PanCoordinator: ObservableObject {
     }
 
     func handlePinch(_ event: PinchEvent) {
+        // Two fingers are down again (D29): a release held since the hand-off was the DragGesture ending on the second
+        // finger, not a lift. The pan ends without motion and the pinch takes over.
+        if heldRelease != nil {
+            var twoFingers = false
+            switch event {
+            case .began: twoFingers = true
+            case let .fingerCountChanged(count, _, _): twoFingers = count >= 2
+            default: break
+            }
+            if twoFingers {
+                heldRelease = nil
+                state.endDragWithoutDeceleration()
+            }
+        }
         let env = makePinchEnvironment()
         applyPinch(pinch.handle(event, env: env), env: env, event: event)
     }

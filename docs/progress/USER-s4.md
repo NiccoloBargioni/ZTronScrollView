@@ -43,12 +43,13 @@ touches end — with its CUMULATIVE magnification; `PinchSession.apply` used bas
 multiplied the current scale by the old gesture's magnification (1.5× · 1.5 = 2.25× in one frame). Fix: a session begun by the
 observer (`fingerCountChanged(count ≥ 2)`, or a `.changed` without `.began`) takes its magnification base from its FIRST `.changed`
 sample (`Pinch.baseMagnificationPending`); a gesture-begun session keeps base 1. Both OS paths; nothing else changes.
-Not done here (shared tree: `PanCoordinator.swift` and `PinchGestureAdapter.swift` carry other sessions' uncommitted edits): the
-second hypothesis — if SwiftUI ENDS the one-finger DragGesture when the second finger lands and that `.dragEnded` arrives BEFORE the
-observer's count change, the pan is released through the pipeline (a fling from the finger's speed) and the pinch then catches it
-(`.catchMotion`): a 1–2 frame release motion. Proposed guard, to implement when the coordinator is free: a `.dragEnded` while
-`panContinuedFromPinch` is held until the observer's `.touchesEnded` (then released as today) or dropped at `fingerCountChanged(count ≥ 2)`
-(`endDragWithoutDeceleration`). Unit test to add: ordering X (dragEnded, then count 2) → no deceleration, offset continuous.
+Second mechanism, guarded too (once M8b-1 had landed and `PanCoordinator.swift` was free): if SwiftUI ENDS the one-finger
+DragGesture when the second finger lands and that `.dragEnded` arrives BEFORE the observer's count change, the pan was released
+through the pipeline (a fling from the finger's speed) and the pinch then caught it: a 1–2 frame release motion. Now a `.release`
+that follows a hand-off (`panContinuedFromPinch`) is HELD (`PanCoordinator.heldRelease`): the observer's `.touchesEnded` releases
+it from the current time (a lift that paused rests, per the tracker's rest rule), `fingerCountChanged(count ≥ 2)` or the gesture's
+`.began` drops it (`endDragWithoutDeceleration`, the pinch takes over); a new sequence or `.cancelled` clears it. Tests: PinchPanTests
+section 10 (`dragEndBeforeTheSecondFingerIsReportedDoesNotFling`, `dragEndThenNoFingersReleasesAsALift`, both OS paths).
 Tests for D29: see the end of this file. Device confirmation by the user pending.
 
 Tests: `scripts/test.sh -only-testing:ZTronScrollViewTests` → **178/178** (19 suites) on iOS 27.0 and 17.5 after D25 (176 after D24; PinchSessionTests

@@ -76,8 +76,8 @@ physics 111 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-
    edge resists like a one-finger drag, hand-off continuous; didZoom per frame kept by SPEC (documented).
 2h. [x] **Second finger down again during the continuation (D29)** — done 2026-10-20 (`USER-s4.md` addendum D29): the old
    magnify gesture's cumulative magnification re-armed the pinch with base 1 at the re-touch; the first sample is the base
-   now. Unit-tested both OS paths (XCUITest cannot stagger fingers). User device check pending; coordinator guard for the
-   drag-end ordering left open (shared files busy).
+   now, and a release after a hand-off is held until the observer confirms a lift or two fingers (coordinator guard).
+   Unit-tested both OS paths (XCUITest cannot stagger fingers); full suite 349/349 in a clean worktree. User device check pending.
 2f. [x] **Snap at the lift, from the user's video (D25)** — done 2026-10-19 (`USER-s4.md` addendum): the magnify gesture's
    trailing `.changed` after the observer's hand-off re-armed the pinch with base 1 (2× → 4× in one frame). Ignored now.
    **Confirmed by the user on the device (2026-10-19, main 1486752): lifting one finger during the pinch and dragging no
@@ -258,8 +258,9 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
   A pinch session begun by the observer (two fingers reported while the magnify gesture has not begun anew) takes its
   magnification base from its first `.changed` sample instead of 1: SwiftUI's MagnifyGesture ends only when all its
   touches end, so after a re-touch the OLD gesture reports its cumulative magnification and the current scale was
-  multiplied by it in one frame (D25's family). `USER-s4.md` addendum D29. Open: if SwiftUI ends the one-finger DragGesture
-  at the second landing before the observer's count change, the pan flings for a frame (guard proposed there).
+  multiplied by it in one frame (D25's family). `USER-s4.md` addendum D29. Guarded too: a release after a hand-off is held until the
+  observer confirms a lift (`touchesEnded`, released from the current time) or two fingers (dropped, the pinch takes over),
+  so a DragGesture ending at the second landing before the count change no longer flings.
 - D30 (2026-10-20, found by N-b `NestedPagerUITests`, `NESTED-s2.md`) Fallback measurements are per scroll view: on the fallback path (iOS 15, or
   `onGeometryChange` unavailable / forced) `ContentSizeKey` and `ViewportMetricsKey` preferences propagate to every ancestor, so an inner
   `ZTronScrollView` overwrote its container's content size and viewport (outer `ocw` 300 instead of 900: it fit its content and never scrolled, even under
