@@ -8,6 +8,9 @@ import SwiftUI
 /// The settings the members and the twins carry. M6 session 1 holds the target behavior; position and anchors follow.
 struct ScrollViewConfig {
     var behavior: AnyZTronScrollTargetBehavior?
+    /// Observer recipes (M7): the member's calls, or on the environment the `onZTronScroll…` twins' (appended, outermost
+    /// first). The container builds one box per recipe (`ObserverStore`).
+    var observers: [ObserverDescriptor] = []
 }
 
 private struct ScrollConfigKey: EnvironmentKey {

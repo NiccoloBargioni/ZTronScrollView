@@ -18,6 +18,8 @@ public final class ZTronScrollState {
     let probe = PresentationBox()
 
     public weak var delegate: (any ZTronScrollViewDelegate)?
+    /// M7: geometry / phase / visibility observers; they run inside `deliverPending` after the delegate (cold).
+    let observers = ObserverHub()
 
     // UIKit knobs (cold, not observed; the pan reads them per event).
     public var isScrollEnabled = true
@@ -171,6 +173,7 @@ public final class ZTronScrollState {
         targets = TargetRegistry(usesGeometryChange: usesGeometryChange)
         targets.state = self
         targetRegistry = targets
+        observers.requestDelivery = { [weak self] in self?.deliverObservers() }
     }
 
     /// State used by readers created outside any scroll view.
@@ -260,6 +263,7 @@ public final class ZTronScrollState {
             pendingEndZoomScale = nil
             delegate?.scrollViewDidEndZooming(self, atScale: scale)
         }
+        deliverObservers()
         evaluateReachEdges()
         onFlush?()
     }
@@ -896,7 +900,20 @@ public final class ZTronScrollState {
         resolveZoomLimits()
         realignAlignedItems()
     }
-    func setPhase(_ phase: ZTronScrollPhase) { batch { storage.phase = phase } }
+    func setPhase(_ phase: ZTronScrollPhase) {
+        batch {
+            observers.enqueuePhase(old: storage.snapshot().phase, new: phase, velocity: currentVelocity())
+            storage.phase = phase
+        }
+    }
+    /// pt/s of the running clock motion, else unknown (`ZTronScrollPhaseChangeContext.velocity`).
+    func currentVelocity() -> CGVector? {
+        guard let m = motion else { return nil }
+        let t = now()
+        return CGVector(dx: m.x.sample(at: t).velocity, dy: m.y.sample(at: t).velocity)
+    }
+    /// Geometry, visibility and target observers, then the queued phase transitions (after the delegate calls).
+    func deliverObservers() { observers.deliver(self); observers.flushPhase(self) }
 
     /// Frame clock tick. No-op while nothing runs.
     func step(to date: Date) {

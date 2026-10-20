@@ -43,3 +43,55 @@ public struct ZTronScrollGeometry: Equatable {
             && l.contentInsets == r.contentInsets && l.containerSize == r.containerSize
     }
 }
+
+// MARK: Value geometry (M7)
+
+extension ZTronScrollGeometry {
+    /// A geometry made from values (tests, bridges, the hub's frozen per-delivery copy). Every read returns what was given.
+    public init(contentOffset: CGPoint, contentSize: CGSize, contentInsets: EdgeInsets = EdgeInsets(), containerSize: CGSize,
+                zoomScale: CGFloat = 1) {
+        var snapshot = StorageSnapshot()
+        snapshot.presentationOffset = contentOffset
+        snapshot.targetOffset = contentOffset
+        snapshot.presentationZoom = zoomScale
+        snapshot.targetZoom = zoomScale
+        snapshot.metrics.contentSize = contentSize
+        snapshot.metrics.adjustedContentInset = contentInsets
+        snapshot.metrics.viewportSize = containerSize
+        self.init(snapshot: snapshot)
+    }
+
+    /// A frozen copy of `snapshot`: later writes to the state never change it.
+    init(snapshot: StorageSnapshot) {
+        self.init(storage: SnapshotStorage(snapshot), isTracked: false)
+    }
+
+    /// The viewport in scaled space: `contentOffset` and `containerSize` (native `ScrollGeometry.bounds`). Under zoom it
+    /// differs from `visibleRect`, which is in unscaled content space.
+    public var bounds: CGRect { CGRect(origin: contentOffset, size: containerSize) }
+}
+
+/// A `StateStorage` that only holds a snapshot: the backing of a value geometry. Writes mutate its private copy.
+@MainActor
+final class SnapshotStorage: StateStorage {
+    private var v: StorageSnapshot
+    init(_ snapshot: StorageSnapshot) { v = snapshot }
+
+    var targetOffset: CGPoint { get { v.targetOffset } set { v.targetOffset = newValue } }
+    var targetZoom: CGFloat { get { v.targetZoom } set { v.targetZoom = newValue } }
+    var presentationOffset: CGPoint { get { v.presentationOffset } set { v.presentationOffset = newValue } }
+    var presentationZoom: CGFloat { get { v.presentationZoom } set { v.presentationZoom = newValue } }
+    var metrics: ScrollMetrics { get { v.metrics } set { v.metrics = newValue } }
+    var phase: ZTronScrollPhase { get { v.phase } set { v.phase = newValue } }
+    var isScrollAnimating: Bool { get { v.isScrollAnimating } set { v.isScrollAnimating = newValue } }
+    var isZoomAnimating: Bool { get { v.isZoomAnimating } set { v.isZoomAnimating = newValue } }
+    var isClockRunning: Bool { get { v.isClockRunning } set { v.isClockRunning = newValue } }
+    var isTracking: Bool { get { v.isTracking } set { v.isTracking = newValue } }
+    var isDragging: Bool { get { v.isDragging } set { v.isDragging = newValue } }
+    var isDecelerating: Bool { get { v.isDecelerating } set { v.isDecelerating = newValue } }
+    var isZooming: Bool { get { v.isZooming } set { v.isZooming = newValue } }
+    var isZoomBouncing: Bool { get { v.isZoomBouncing } set { v.isZoomBouncing = newValue } }
+    func snapshot() -> StorageSnapshot { v }
+    func beginBatch() {}
+    func endBatch() {}
+}

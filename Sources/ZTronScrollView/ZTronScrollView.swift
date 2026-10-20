@@ -82,6 +82,7 @@ struct ScrollContainer<Content: View>: View {
     @Environment(\.ztronScrollConfig) private var envConfig
     @Environment(\.ztronProxyScope) private var proxyScope
     @StateObject private var coordinator: PanCoordinator
+    @StateObject private var observerStore = ObserverStore()
 
     init(axes: Axis.Set, state: ZTronScrollState, content: Content, zoomLimits: ZoomLimits? = nil,
          doubleTap: DoubleTapZoom? = nil, nestedPolicy: ZTronNestedScrollPolicy? = nil,
@@ -107,6 +108,7 @@ struct ScrollContainer<Content: View>: View {
         // frames in a named space on the content (cold: they do not change while this view scrolls). Constant per
         // identity, so the environment write never re-evaluates content bodies.
         let nested = coordinator.nestedArbiter
+        let observerBoxes = observerStore.boxes(for: envConfig.observers + config.observers)
         return content
             .environment(\.ztronTargetRegistry, state.targets)
             .environment(\.scrollArbiter, nested)
@@ -125,6 +127,7 @@ struct ScrollContainer<Content: View>: View {
             .contentShape(Rectangle())
             .modifier(PanGestureAdapter(coordinator: coordinator, axes: axes, doubleTap: doubleTap ?? envDoubleTap,
                                         nestedPolicy: nestedPolicy))
+            .modifier(ObserverRegistration(state: state, boxes: observerBoxes))
             .onAppear { state.zoomLimits = effectiveLimits }
             .onAppear { proxyScope?.attach(state) }
             .onDisappear { proxyScope?.detach(state) }
