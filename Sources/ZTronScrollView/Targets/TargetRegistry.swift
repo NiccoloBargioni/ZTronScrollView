@@ -34,7 +34,9 @@ final class TargetRegistry: ScrollTargetRegistry, Equatable {
     /// restored when the view reappears. Bounded.
     private var retired: [AnyHashable: CGRect] = [:]
     /// `ztronScrollTargetLayout(isEnabled:)` (M6 session 2): when `false` view-aligned behaviors leave the target alone.
+    /// Set by ``setLayout(_:enabled:)`` (false while any layout of this scroll view is disabled); tests may set it directly.
     var layoutEnabled = true
+    private var disabledLayouts: Set<UInt64> = []
     /// Bumps on every registered, moved or removed frame; pending requests retry on it.
     private(set) var version: UInt64 = 0
     /// Fixed at creation with the state (R6): which frame reporter the targets use.
@@ -106,6 +108,40 @@ final class TargetRegistry: ScrollTargetRegistry, Equatable {
 
     func frame(of id: AnyHashable) -> CGRect? { frames[id] }
 
+    /// The id of the target that `alignedOffsets` puts nearest `offset` (a resize keeps this item aligned, M5 §6).
+    func nearestAligned(axis: Axis, anchor: CGFloat, scale: CGFloat, pad: CGFloat, container: CGFloat, to offset: CGFloat) -> AnyHashable? {
+        var best: (id: AnyHashable, distance: CGFloat)?
+        for c in alignedOffsets(axis: axis, anchor: anchor, scale: scale, pad: pad, container: container) {
+            let d = abs(c.offset - offset)
+            if best == nil || d < best!.distance { best = (c.id, d) }
+        }
+        return best?.id
+    }
+
+    /// A `ztronScrollTargetLayout` reports whether it is enabled (`!=`-guarded; cold). The targets count only while no
+    /// layout of this scroll view is disabled.
+    func setLayout(_ token: ReporterToken, enabled: Bool) {
+        if enabled { disabledLayouts.remove(token.serial) } else { disabledLayouts.insert(token.serial) }
+        let all = disabledLayouts.isEmpty
+        if layoutEnabled != all { layoutEnabled = all }
+    }
+
+    func removeLayout(_ token: ReporterToken) { setLayout(token, enabled: true) }
+
+    /// Where each registered target aligns on `axis`, in SwiftUI's target space (D27: content coordinates, the rect
+    /// origin of a container `container` long whose `anchor` point sits on the target's `anchor` point), sorted ascending.
+    /// `scale` is the zoom and `pad` the alignment padding of content that fits (`x_v = s·x_c + pad - o`).
+    func alignedOffsets(axis: Axis, anchor: CGFloat, scale: CGFloat, pad: CGFloat, container: CGFloat)
+        -> [(id: AnyHashable, offset: CGFloat)] {
+        frames.map { id, frame in
+            let lower = axis == .horizontal ? frame.minX : frame.minY
+            let length = axis == .horizontal ? frame.width : frame.height
+            return (id, TargetScrollMath.alignedOffset(lower: lower, length: length, anchor: anchor, scale: scale, pad: pad,
+                                                       container: container))
+        }
+        .sorted { $0.offset != $1.offset ? $0.offset < $1.offset : String(describing: $0.id) < String(describing: $1.id) }
+    }
+
     /// The target whose frame contains `point`, else the nearest one (distance to its frame); ties go to the target
     /// nearer the content origin, so the answer never depends on dictionary order.
     func nearestTarget(to point: CGPoint) -> (id: AnyHashable, frame: CGRect)? {
@@ -142,6 +178,13 @@ extension EnvironmentValues {
 /// `s·x + pad − offset` in the viewport, with `s` the zoom and `pad` the alignment padding of content that fits.
 /// `frame` is the registered, unscaled frame; the result is clamped to the bounds at the current scale (zoom never changes).
 enum TargetScrollMath {
+    /// The rect origin (D27 space) that puts the point `anchor` of a target (`lower`, `length`, unscaled) on the point
+    /// `anchor` of a `container`-long rect: `s·lower + pad + a·s·length - a·container`.
+    static func alignedOffset(lower: CGFloat, length: CGFloat, anchor: CGFloat, scale: CGFloat, pad: CGFloat, container: CGFloat) -> CGFloat {
+        let s = scale.isFinite && scale > 0 ? scale : 1
+        return s * lower + pad + anchor * s * length - anchor * container
+    }
+
     static func offset(for frame: CGRect, anchor: UnitPoint?, current: CGPoint, scale: CGFloat, geometry g: ZoomGeometry) -> CGPoint {
         CGPoint(x: axisOffset(lower: frame.minX, length: frame.width, anchor: anchor?.x, current: current.x, scale: scale, axis: g.x),
                 y: axisOffset(lower: frame.minY, length: frame.height, anchor: anchor?.y, current: current.y, scale: scale, axis: g.y))

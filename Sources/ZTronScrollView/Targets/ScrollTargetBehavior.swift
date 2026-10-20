@@ -180,9 +180,16 @@ extension ZTronScrollTargetBehavior {
     @MainActor public func properties(context: PropertiesContext) -> Properties { Properties() }
 }
 
-/// Marks library behaviors that always retarget the release motion onto their snap point, even when it equals the
-/// natural landing point (a page flick back at the first page must not bounce).
-protocol ZTronSnappingBehavior {}
+/// Marks library behaviors that retarget the release motion onto their snap point, even when it equals the natural
+/// landing point (a page flick back at the first page must not bounce). A behavior with nothing to snap to (a view-aligned
+/// scroll view without targets) answers `false` and keeps the plain decay, edge bounce included.
+protocol ZTronSnappingBehavior {
+    @MainActor func snaps(_ info: TargetReleaseInfo) -> Bool
+}
+
+extension ZTronSnappingBehavior {
+    @MainActor func snaps(_ info: TargetReleaseInfo) -> Bool { true }
+}
 
 /// Mirrors `AnyScrollTargetBehavior` (`base`).
 public struct AnyZTronScrollTargetBehavior: ZTronScrollTargetBehavior {
@@ -204,6 +211,8 @@ public struct AnyZTronScrollTargetBehavior: ZTronScrollTargetBehavior {
         base.properties(context: context)
     }
 
-    /// The behavior always retargets (see ``ZTronSnappingBehavior``).
+    /// The behavior retargets (see ``ZTronSnappingBehavior``).
+    @MainActor func snaps(_ info: TargetReleaseInfo) -> Bool { (base as? any ZTronSnappingBehavior)?.snaps(info) ?? false }
+    /// Whether the behavior is a library snapping behavior at all (independent of the release).
     var snapsTarget: Bool { base is any ZTronSnappingBehavior }
 }

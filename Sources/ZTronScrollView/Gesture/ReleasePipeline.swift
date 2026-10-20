@@ -193,7 +193,7 @@ extension ZTronScrollState {
                 ZTronRenderCounters.increment("release.nonFiniteTarget")
                 #endif
             }
-            decision.snapsX = behavior.snapsTarget
+            decision.snapsX = behavior.snaps(info)
         }
         if enabledY {
             if landing.y.isFinite {
@@ -204,7 +204,7 @@ extension ZTronScrollState {
                 ZTronRenderCounters.increment("release.nonFiniteTarget")
                 #endif
             }
-            decision.snapsY = behavior.snapsTarget
+            decision.snapsY = behavior.snaps(info)
         }
         return decision
     }

@@ -45,21 +45,9 @@ extension View {
         let erased = AnyZTronScrollTargetBehavior(behavior)
         let overlaid = transformEnvironment(\.ztronScrollConfig) { $0.behavior = erased }
         if #available(iOS 17, *) {
-            overlaid.nativeScrollTargetBehavior(erased)
+            overlaid.applyingNativeScrollTargetBehavior(erased)
         } else {
             overlaid
-        }
-    }
-}
-
-@available(iOS 17, *)
-extension View {
-    @ViewBuilder
-    fileprivate func nativeScrollTargetBehavior(_ behavior: AnyZTronScrollTargetBehavior) -> some View {
-        if behavior.base is ZTronPagingScrollTargetBehavior {
-            scrollTargetBehavior(.paging)
-        } else {
-            scrollTargetBehavior(ZTronBridgedScrollTargetBehavior(behavior))
         }
     }
 }

@@ -133,6 +133,9 @@ public final class ZTronScrollState {
     /// resize, so it realises the sticky intent (ZTronMapKit: restore the normalized centre on every bounds change)
     /// instead of following the idle `.sizeChanges` rule, and does not drop the intent.
     private var postResizeTurns = 0
+    /// M5 hook for view-aligned targets (M6 s2, M5 §6): the registered item that was aligned before a resize, per axis
+    /// (the paging index of the view-aligned case). Re-aligned when the resize closes and while the settle window is open.
+    private var resizeAlignedIDs: (x: AnyHashable?, y: AnyHashable?)?
     private var settledThisTurn = false
 
     /// Chooses the storage once; the path never flips afterwards (R6).
@@ -265,6 +268,7 @@ public final class ZTronScrollState {
         idleGeometryChangedThisTurn = false
         settledThisTurn = false
         postResizeTurns = 0
+        resizeAlignedIDs = nil
         #if DEBUG
         closeReason = "intervention"
         #endif
@@ -315,7 +319,7 @@ public final class ZTronScrollState {
         settledThisTurn = false
         if postResizeTurns > 0 {
             postResizeTurns -= 1
-            if postResizeTurns > 0 { scheduleTurnHop() }
+            if postResizeTurns > 0 { scheduleTurnHop() } else { resizeAlignedIDs = nil }
         }
     }
 
@@ -510,6 +514,47 @@ public final class ZTronScrollState {
         #if DEBUG
         ZTronRenderCounters.increment("registry.frameChanged")
         #endif
+        if postResizeTurns > 0, resizeAlignedIDs != nil { realignAlignedItems() }
+    }
+
+    /// The view-aligned behavior in effect, when it has targets to keep aligned across a resize.
+    private var alignedBehavior: ZTronViewAlignedScrollTargetBehavior? {
+        guard let aligned = effectiveTargetBehavior?.base as? ZTronViewAlignedScrollTargetBehavior,
+              targets.layoutEnabled, !targets.frames.isEmpty else { return nil }
+        return aligned
+    }
+
+    /// The aligned item per scrollable axis at the offset drawn before the resize (`cap` is that geometry).
+    private func alignedIDs(offset: CGPoint, scale: CGFloat, in cap: ResizeCommit.Snapshot, alignment: UnitPoint)
+        -> (x: AnyHashable?, y: AnyHashable?)? {
+        guard let aligned = alignedBehavior else { return nil }
+        let g = ResizeMath.geometry(viewport: cap.viewport, content: cap.contentSize, insets: cap.insets, alignment: alignment)
+        let a = aligned.anchor ?? .topLeading
+        func id(_ axis: Axis, _ ag: AxisGeometry, _ o: CGFloat, _ unit: CGFloat) -> AnyHashable? {
+            targets.nearestAligned(axis: axis, anchor: unit, scale: scale, pad: ag.alignmentPadding(at: scale),
+                                   container: ag.adjustedViewportLength, to: o + ag.insets.start)
+        }
+        return (scrollAxes.contains(.horizontal) ? id(.horizontal, g.x, offset.x, a.x) : nil,
+                scrollAxes.contains(.vertical) ? id(.vertical, g.y, offset.y, a.y) : nil)
+    }
+
+    /// Puts the remembered items back on their alignment in the geometry that is committed now (unanimated, at rest only).
+    private func realignAlignedItems() {
+        guard let ids = resizeAlignedIDs, !isResizeOpen, motion == nil, transactionToken == nil, !storage.isTracking,
+              !storage.isZooming, let aligned = alignedBehavior else { return }
+        let s = storage.snapshot()
+        let g = makeZoomGeometry(s.metrics), scale = s.presentationZoom, a = aligned.anchor ?? .topLeading
+        var o = s.presentationOffset
+        if let id = ids.x, let f = targets.frame(of: id) {
+            o.x = TargetScrollMath.alignedOffset(lower: f.minX, length: f.width, anchor: a.x, scale: scale,
+                                                 pad: g.x.alignmentPadding(at: scale), container: g.x.adjustedViewportLength) - g.x.insets.start
+        }
+        if let id = ids.y, let f = targets.frame(of: id) {
+            o.y = TargetScrollMath.alignedOffset(lower: f.minY, length: f.height, anchor: a.y, scale: scale,
+                                                 pad: g.y.alignmentPadding(at: scale), container: g.y.adjustedViewportLength) - g.y.insets.start
+        }
+        o = g.clamped(o, at: scale)
+        if o != s.presentationOffset { unanimated { writeBoth(offset: o, zoom: scale) } }
     }
 
     /// Viewport size / safe-area change (SPEC S7). Motion stops at its presentation value, then the content point at
@@ -653,11 +698,12 @@ public final class ZTronScrollState {
             c.focus = focus
             c.isOpen = true
             c.intent = intent
-            if isPagingEnabled {
+            if isPagingEnabled, alignedBehavior == nil {          // an explicit view-aligned behavior wins over the knob
                 func index(_ o: CGFloat, _ len: CGFloat) -> Int? { len > 0 ? Int((o / len).rounded()) : nil }
                 if scrollAxes.contains(.horizontal) { c.pagingIndex.x = index(offset.x, cap.viewport.width) }
                 if scrollAxes.contains(.vertical) { c.pagingIndex.y = index(offset.y, cap.viewport.height) }
             }
+            if resizeAlignedIDs == nil { resizeAlignedIDs = alignedIDs(offset: offset, scale: scale, in: cap, alignment: al) }
             let r = ResizeMath.resolve(size: c.current.viewport, offset: offset, scale: scale, insetsAnimated: c.current.insets,
                                        commit: c, limits: zoomLimits, alignment: al, paging: isPagingEnabled ? scrollAxes : [])
             m.resize = c
@@ -755,6 +801,7 @@ public final class ZTronScrollState {
         postResizeTurns = 3
         scheduleTurnHop()
         resolveZoomLimits()
+        realignAlignedItems()
     }
     func setPhase(_ phase: ZTronScrollPhase) { batch { storage.phase = phase } }
 
