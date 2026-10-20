@@ -649,6 +649,27 @@ extension ZTronScrollView {
 // comment (natural height, zero height, min ≥ max → fixed height, no 150/350 defaults) now live in S10 "Size variants" and
 // "Zero height, degenerate range".
 
+// Nested scrolling — Amendment 2026-10-20 (N-a/N-b, D28; behaviour in S12 "Nested ZTronScrollViews"):
+public enum ZTronNestedScrollOwner: Sendable, Hashable { case inner, outer }
+public struct ZTronNestedScrollPolicy: Sendable {
+    public static let automatic: Self             // = .innerWhileScrollable (default): inner while it can follow, outer at its edge
+    public static let innerWhileScrollable: Self
+    public static let innerWhenZoomed: Self       // inner iff zoomScale > minimumZoomScale (rubber-bands at its edge), outer at min zoom
+    public static let inner: Self                 // the container never takes a drag that starts here
+    public static let outer: Self                 // this view never pans a shared on-axis drag (pinches stay)
+    public static let independent: Self           // no arbitration with the nested container: both follow (today's behaviour)
+    public static func custom(_ decide: @escaping @MainActor @Sendable (ZTronNestedScrollContext) -> ZTronNestedScrollOwner) -> Self
+}
+@MainActor public struct ZTronNestedScrollContext {   // built cold at the decision, never in a body
+    public let geometry: ZTronScrollGeometry          // non-tracked snapshot of the inner (contentOffset, zoomScale, visibleRect, …)
+    public let minimumZoomScale: CGFloat
+    public let fingerDirection: FingerDirection       // ScrollArbitration's; not re-exported: naming it needs `import ScrollArbitration`
+    public let canFollow: Bool                        // what .innerWhileScrollable would answer
+    public init(geometry: ZTronScrollGeometry, minimumZoomScale: CGFloat, fingerDirection: FingerDirection, canFollow: Bool)
+}
+extension ZTronScrollView { public func nestedScrollPolicy(_ policy: ZTronNestedScrollPolicy) -> Self }   // on the inner
+extension View { public func ztronNestedScrollPolicy(_ policy: ZTronNestedScrollPolicy) -> some View }   // environment twin; propagates; the member wins
+
 @MainActor public final class ZoomScrollState {   // Observation-backed on 17+, channels on 15–16
     public private(set) var contentOffset: CGPoint        // presentation, hot
     public private(set) var zoomScale: CGFloat            // presentation, hot
@@ -764,6 +785,40 @@ When ZoomScroll sits in a page of a pager that provides a `ScrollArbiter` (ZTron
 - **Gesture names (iOS 18+).** Attach the pan, the pinch and the raw-touch observer with the `name:` variants of the gesture modifiers, using `scrollArbitrationGestureName`, so the pager's UIKit pan can run alongside them. On iOS 15–17 the pager handles this on its side.
 - **Touch during motion.** The S6 catch still applies; the arbiter agrees, because a moving ZoomScroll owns the touch.
 - **Scope.** The decision is made when each swipe starts. Reaching an edge partway through a swipe does not hand it to the pager; the next swipe pages. Mid-swipe takeover is deferred on both sides.
+
+### Nested ZTronScrollViews — Amendment 2026-10-20 (N-a/N-b, D28; design `docs/design/NESTED-arbitration.md`)
+
+A `ZTronScrollView` is the container of the `ZTronScrollView`s in its content, with nothing to declare: the same S16 rules, the same participant
+code path as a ZTronPages pager. It is a pure-SwiftUI case (both recognizers are SwiftUI gestures in one hosting view on every OS 15+); the iOS ≤ 17 UIKit-pan
+starvation of the pager case does not apply, and no gesture names are needed.
+
+- **Default on.** With no modifier the policy is `.automatic` (= `.innerWhileScrollable`, UIScrollView parity): the inner takes a swipe it can follow on the
+  outer's paging axis, the outer takes the rest; swipes more than 30° off the outer's axis and pinches are the inner's; a side that is moving keeps its catch.
+  Different axes (a vertical list in a horizontal pager) fall out of rule 1. `.independent` restores the former behaviour (both follow the same drag).
+- **Policy.** It replaces only the rule-5 answer inside the participant's `canFollow`; rules 1–4 always run. `.innerWhenZoomed` = the inner follows iff
+  `zoomScale > minimumZoomScale`: at its edge while zoomed it rubber-bands and the page stays; at the minimum zoom the outer takes every on-axis swipe (the
+  "pager unless zoomed" idiom). `.automatic` pages at the zoomed image's edge (UIScrollView). `.inner`, `.outer`, `.custom` (non-tracked
+  `ZTronNestedScrollContext`) as in S11. Declared on the inner (`nestedScrollPolicy`) or by environment (`ztronNestedScrollPolicy`, member wins); the same
+  answer feeds a ZTronPages pager that asks this view. `.independent` opts out of the nested container only: an external arbiter is still answered.
+- **Outer side.** The outer's paging axis is its single *effective* axis (D15); an outer effective on two axes decides with the translation's dominant axis and
+  no direction tolerance. A scroll-disabled or axis-less outer is not a container (the inner behaves as if alone; `ztronScrollDisabled(true)` on the outer is
+  the "switch it off" idiom). The inner's frame is registered in a named space on the outer's *content*, so it does not change while the outer scrolls and
+  registration stays cold (S4); the touch is converted to content coordinates at the ask.
+- **D7 tracking timing.** An outer that contains at least one `ZTronScrollView` defers `beginTracking` (so `isTracking`, `willBeginDragging`) from touch-down
+  to the owner decision at the hysteresis — the same deferral an inner already has under any arbiter. An outer with no inner behaves as before.
+- **Decided once per swipe**, on both sides; the loser ignores the whole sequence (no baseline, offset change, rubber band, indicator, delegate or phase change).
+  No mid-swipe hand-off in v1 (`synthesizePan` stays the route for a later `handsOffAtEdge`). Pinch while the outer owns the drag: the outer's DragGesture ends on
+  the second finger and releases (settles or pages); the inner's pinch zooms. A pinch that starts on the inner, with both fingers down together, zooms it under
+  every policy (demo UI test); a pinch whose second finger lands while the outer is already dragging cannot be scripted in XCUITest and stays a device check
+  (the outer locks its content, `.disabled`, while it drags, so the inner's pinch is expected to start only after the drag ends).
+- **`.independent` is not "both move".** Nobody is told to ignore the sequence, both recognize the drag, but the outer's drag starts at its hysteresis and
+  locks its content, which cuts the inner's drag after a few points: on a zoomed image the outer pages and the image moves ~3 pt (demo UI test,
+  `docs/progress/NESTED-s2.md`). That is the pre-N-a behaviour, kept.
+- **Nested scroll views measure themselves independently.** On the fallback path (`GeometryReader` + preference keys, iOS 15 and whenever `onGeometryChange`
+  is unavailable or forced off) the content-size and viewport preferences travel to every ancestor; each `ZTronScrollView` clears them for its ancestors
+  (`MeasurementIsolation`, D30), otherwise an outer scroll view measures its inner's size and never scrolls.
+- **Three levels (ZTronPages → outer → inner) are phase 2.** Each view talks only to its nearest container. When the pager wins a swipe, the middle view's `canFollow`
+  does not yet OR in "an inner under the touch can follow", so that inner may still pan under the pager's swipe. Not needed for the scenario; known limitation.
 
 ## S13 · Pitfalls
 

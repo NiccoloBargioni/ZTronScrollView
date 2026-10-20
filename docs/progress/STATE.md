@@ -21,4 +21,5 @@ Current: step 3 done 2026-10-20 (full demo UI suite: 42/42 on 27.0 both paths, 4
 Open issues:
 - iOS 15/16 simulator runtimes don't run on this Mac (macOS 27). Legacy smoke tests need Xcode 26.x on an older macOS (user).
 Device feedback queue:
-| N-a | done | 3–4 | | nested ZTronScrollView arbitration API (docs/design/NESTED-arbitration.md, D28); N-b demo + SPEC amendment pending (docs/progress/NESTED-s1.md) |
+| N-a | done | 3–4 | | nested ZTronScrollView arbitration API (docs/design/NESTED-arbitration.md, D28); SPEC amendment written with N-b (docs/progress/NESTED-s1.md) |
+| N-b | done | 1.5–2 | | nested demo `NestedPagerScreen` + `NestedPagerUITests` 13/13 on 27.0 + 17.5 both paths; D30 measurement isolation fix; SPEC S11/S12 + parity row (docs/progress/NESTED-s2.md) |
