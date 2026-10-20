@@ -188,8 +188,8 @@ final class PanUITests: XCTestCase {
         XCTAssertEqual(i.counters["content.body"], 0)
     }
 
-    /// Known gap, pinned: the mask ends the press under the finger on 17.5, not on 27.0 (a Button there keeps its press), and
-    /// `.disabled` is out of the question while a field is edited. Between them nothing is asserted.
+    /// Known gap, pinned: the mask ends the press under the finger on 17.5, not on 18.6, 26.5 and 27.0 (a Button there keeps its
+    /// press), and `.disabled` is out of the question while a field is edited.
     func testPanStartingOnAButtonWhileATextInputIsEditedScrolls() {
         let app = launchEditing()
         let row = app.buttons["row.2"]
@@ -203,8 +203,8 @@ final class PanUITests: XCTestCase {
         XCTAssertEqual(i.counters["content.body"], 0)
         if #unavailable(iOS 18) {
             XCTAssertEqual(i.counters["button.fired"], 0, "iOS 17: the mask ends the press under the finger")
-        } else if #available(iOS 27, *) {
-            XCTExpectFailure("iOS 27: the mask does not reach a Button, a pan that began on it fires it on lift while a field is edited")
+        } else {
+            XCTExpectFailure("iOS 18+ (measured 18.6, 26.5, 27.0): the mask does not reach a Button, a pan that began on it fires it on lift while a field is edited")
             XCTAssertEqual(i.counters["button.fired"], 0)
         }
     }

@@ -21,6 +21,9 @@ final class TextEditingMonitor {
 
     private let editors = NSHashTable<AnyObject>.weakObjects()
     private var tokens: [NSObjectProtocol] = []
+    /// Cheap answer for the common case: no session has begun since the table was last found empty (`isEditing` is read by every
+    /// evaluation of the transform host, a frame at a time while scrolling).
+    private var mayBeEditing = false
 
     init(center: NotificationCenter = .default) {
         for name in Self.beginNames {
@@ -29,6 +32,7 @@ final class TextEditingMonitor {
                 let source = Source(object: object)
                 MainActor.assumeIsolated {
                     self?.editors.add(source.object)
+                    self?.mayBeEditing = true
                     #if DEBUG
                     ZTronRenderCounters.increment("editing.begin")
                     #endif
@@ -49,5 +53,9 @@ final class TextEditingMonitor {
         }
     }
 
-    var isEditing: Bool { !editors.allObjects.isEmpty }
+    var isEditing: Bool {
+        guard mayBeEditing else { return false }
+        if editors.allObjects.isEmpty { mayBeEditing = false; return false }
+        return true
+    }
 }

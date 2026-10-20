@@ -9,7 +9,7 @@ struct ContentLock: Equatable {
     /// An overlay above the viewport absorbs the new touches (SwiftUI controls on every OS, UIKit-backed ones on iOS 27).
     var shields = false
     /// GestureMask `.none`: SwiftUI drops the gestures of the content subtree, which ends the same running press where SwiftUI
-    /// honours it (iOS 17.5 yes, iOS 27.0 no for a Button) and leaves every UIKit-backed control alone.
+    /// honours it (iOS 17.5 yes; 18.6, 26.5 and 27.0 no, for a Button) and leaves every UIKit-backed control alone.
     var masksGestures = false
 
     static let open = ContentLock()

@@ -784,8 +784,8 @@ Coexistence with a delegate object:
   - A focused `TextField` keeps the keyboard while the content is dragged, flung, scrolled by an animation or resized, as in a native `ScrollView`
     (Amendment 2026-10-20, DBG-s3, measured on 17.5 and 27.0). The content gate that keeps a catching touch away and ends the press under a recognized
     drag uses `allowsHitTesting(false)` and `.disabled` only while no text input is being edited, because both make UIKit resign the focused field;
-    otherwise a shield overlay and a gesture mask. Gap, documented: in that state on iOS 27 a pan that began on a Button can still fire it on lift (the mask
-    does not reach a Button there).
+    otherwise a shield overlay and a gesture mask. Gap, documented: in that state on iOS 18 and later (measured on 18.6, 26.5, 27.0) a pan that began on a Button can still fire it
+    on lift (the mask does not reach a Button there; on 17.5 it does).
 - **Approximate** `delaysContentTouches` and `canCancelContentTouches`, and document the gap.
 
 ### Inside a pager (ScrollArbitration)
