@@ -13,6 +13,9 @@ public final class ZTronScrollState {
     /// Gesture and completion paths, fixed here like the render paths (R6): a body that read the switch would flip
     /// branch when it re-evaluates under another forced set and rebuild the content (DBG-s1).
     let usesSpatialEvents: Bool
+    /// The iOS 15-16 UIKit touch observer feeds the observer stream (SPEC S2 amendment, D31); fixed here like the others.
+    /// Never together with `SpatialEventGesture`.
+    let usesUIKitTouchObserver: Bool
     let usesMagnifyGesture: Bool
     let usesAnimationCompletion: Bool
     let probe = PresentationBox()
@@ -177,6 +180,7 @@ public final class ZTronScrollState {
         usesNamedCoordinateSpace = ZTronAvailability.isAvailable(.namedCoordinateSpace)
         usesGeometryChange = ZTronAvailability.isAvailable(.geometryChange)
         usesSpatialEvents = ZTronAvailability.isAvailable(.spatialEvents)
+        usesUIKitTouchObserver = ZTronAvailability.isAvailable(.uikitTouchObserver) && !usesSpatialEvents
         usesMagnifyGesture = ZTronAvailability.isAvailable(.magnifyGesture)
         usesAnimationCompletion = ZTronAvailability.isAvailable(.animationCompletion)
         targets = TargetRegistry(usesGeometryChange: usesGeometryChange)

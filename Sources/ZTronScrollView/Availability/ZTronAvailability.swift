@@ -31,7 +31,8 @@ public enum ZTronAvailability {
     /// `true` when the preferred API is compiled in (``ZTronCapability/isInBuildSDK``), the running OS ships it, and
     /// the DEBUG switch has not forced its fallback.
     public static func isAvailable(_ capability: ZTronCapability) -> Bool {
-        osSupports(capability) && !isForced(capability)
+        if capability == .uikitTouchObserver, isUIKitTouchObserverForcedOn { return true }
+        return osSupports(capability) && !isForced(capability)
     }
 
     /// `true` in DEBUG builds, where the force-fallback switch works; `false` in release builds.
@@ -59,6 +60,17 @@ public enum ZTronAvailability {
         #endif
     }
 
+    /// DEBUG only: `on == true` makes ``ZTronCapability/uikitTouchObserver`` available on iOS 17+ too, so the 17.5 / 27.0
+    /// simulators run the iOS 15-16 observer shell (the demo's `-ZTronForceUIKitObserver`; combine it with
+    /// `forceFallback(.spatialEvents, true)`, the state only uses the observer when spatial events are off). A switch of its
+    /// own, independent of the forced-fallback set: `forceAllFallbacks` neither sets nor clears it, and it wins over a forced
+    /// fallback of the same capability. Inert in release builds.
+    public static func forceUIKitTouchObserver(_ on: Bool) {
+        #if DEBUG
+        ForcedFallbackStore.shared.setUIKitObserverOn(on)
+        #endif
+    }
+
     /// The capabilities currently force-fallbacked. Always empty in release builds.
     public static var forcedFallbacks: Set<ZTronCapability> {
         #if DEBUG
@@ -73,6 +85,14 @@ public enum ZTronAvailability {
     static func replaceForcedFallbacks(with forced: Set<ZTronCapability>) {
         #if DEBUG
         ForcedFallbackStore.shared.replace(with: forced)
+        #endif
+    }
+
+    static var isUIKitTouchObserverForcedOn: Bool {
+        #if DEBUG
+        return ForcedFallbackStore.shared.uikitObserverOn
+        #else
+        return false
         #endif
     }
 
@@ -91,6 +111,8 @@ public enum ZTronAvailability {
         switch capability {
         case .frameClock:
             return true
+        case .uikitTouchObserver:
+            if #unavailable(iOS 17) { return true } else { return false }
         case .layoutProtocol, .geometryChange, .accessibilityZoom:
             if #available(iOS 16, *) { return true } else { return false }
         case .scrollBounceBehaviorType:
@@ -118,6 +140,19 @@ final class ForcedFallbackStore: @unchecked Sendable {
 
     private let lock = NSLock()
     private var forced: Set<ZTronCapability> = []
+    private var observerOn = false
+
+    var uikitObserverOn: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return observerOn
+    }
+
+    func setUIKitObserverOn(_ on: Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+        observerOn = on
+    }
 
     func contains(_ capability: ZTronCapability) -> Bool {
         lock.lock()

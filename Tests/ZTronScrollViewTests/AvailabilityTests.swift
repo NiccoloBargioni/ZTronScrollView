@@ -19,6 +19,7 @@ struct AvailabilityTests {
             .animationCompletion: (17, 0), .keyPathTransaction: (17, 0), .keyboardScrolling: (17, 0),
             .accessibilityZoom: (16, 0), .sensoryFeedback: (17, 0), .namedCoordinateSpace: (17, 0),
             .subviewContainers: (18, 0), .scrollBounceBehaviorType: (16, 4), .frameClock: (15, 0),
+            .uikitTouchObserver: (15, 0),
         ]
         #expect(Set(expected.keys) == Set(ZTronCapability.allCases))
         for capability in ZTronCapability.allCases {
@@ -37,7 +38,7 @@ struct AvailabilityTests {
                 // The literal `#available` branch and the declared minimum agree on the running OS ...
                 #expect(
                     ZTronAvailability.osSupports(capability)
-                        == (RunningOS.isAtLeast(capability.minimumOS) && capability.isInBuildSDK),
+                        == (RunningOS.shipsPreferred(capability) && capability.isInBuildSDK),
                     "\(capability)"
                 )
                 // ... and the resolver is exactly "OS ships it and not forced".
@@ -51,10 +52,13 @@ struct AvailabilityTests {
     func everyCapabilityResolvesPreferredOnNewestOS() {
         withOSPath(.preferred) {
             #expect(ZTronAvailability.forcedFallbacks.isEmpty)
-            for capability in ZTronCapability.allCases {
+            for capability in ZTronCapability.allCases where capability.preferredOSCeiling == nil {
                 #expect(ZTronAvailability.osSupports(capability), "\(capability)")
                 #expect(ZTronAvailability.isAvailable(capability), "\(capability)")
             }
+            // The old-OS capability is the other way round: its preferred path ends below iOS 17.
+            #expect(!ZTronAvailability.osSupports(.uikitTouchObserver))
+            #expect(!ZTronAvailability.isAvailable(.uikitTouchObserver))
         }
     }
 
@@ -90,7 +94,8 @@ struct AvailabilityTests {
             for other in ZTronCapability.allCases where other != capability {
                 #expect(after[other] == baseline[other], "\(other) changed when toggling \(capability)")
             }
-            if ZTronAvailability.isForcingSupported, RunningOS.shipsEveryCapability {
+            if ZTronAvailability.isForcingSupported, RunningOS.shipsEveryCapability,
+               ZTronAvailability.osSupports(capability) {
                 #expect(after[capability] != baseline[capability], "\(capability) did not flip")
             }
             var expectedForced = baselineForced
@@ -100,6 +105,54 @@ struct AvailabilityTests {
             ZTronAvailability.forceFallback(capability, !force)
             #expect(snapshot() == baseline)
             #expect(ZTronAvailability.forcedFallbacks == baselineForced)
+        }
+    }
+
+    // MARK: - UIKit touch observer capability (D31)
+
+    /// The one capability whose preferred path is the OLD-OS one: available below iOS 17 only.
+    @Test func uikitTouchObserverIsAnOldOSCapability() {
+        let c = ZTronCapability.uikitTouchObserver
+        #expect(c.minimumOS == (15, 0))
+        #expect(c.preferredOSCeiling.map { [$0.major, $0.minor] } == [17, 0])
+        #expect(c.isGated)                        // gated although its minimum is the deployment target
+        #expect(c.hasFallback)
+        #expect(c.isInBuildSDK)
+        #expect(ZTronCapability.allCases.filter { $0.preferredOSCeiling != nil } == [c])
+        #expect(ZTronAvailability.osSupports(c) == !RunningOS.isAtLeast((17, 0)))
+        #expect(RunningOS.shipsPreferred(c) == ZTronAvailability.osSupports(c))
+    }
+
+    /// `-ZTronForceAllFallbacks` leaves the observer off, also where the OS ships it (R4).
+    @Test func forcingEverythingKeepsTheObserverOff() {
+        withOSPath(.preferred) {
+            ZTronAvailability.forceAllFallbacks(true)
+            #expect(!ZTronAvailability.isAvailable(.uikitTouchObserver) || !ZTronAvailability.isForcingSupported)
+            #expect(OSPath.forcedFallback.forcedSet.contains(.uikitTouchObserver) == ZTronAvailability.isForcingSupported)
+        }
+    }
+
+    /// DEBUG `forceUIKitTouchObserver(true)` makes it available on 17+ simulators, wins over a forced fallback of its
+    /// own capability, is not part of the forced-fallback set and is untouched by `forceAllFallbacks`.
+    @Test func forceUIKitTouchObserverMakesItAvailableOnEveryOS() {
+        withOSPath(.preferred) {
+            defer { ZTronAvailability.forceUIKitTouchObserver(false) }
+            let osShips = ZTronAvailability.osSupports(.uikitTouchObserver)
+            #expect(ZTronAvailability.isAvailable(.uikitTouchObserver) == osShips)
+
+            ZTronAvailability.forceUIKitTouchObserver(true)
+            #expect(ZTronAvailability.isAvailable(.uikitTouchObserver) == (ZTronAvailability.isForcingSupported || osShips))
+            #expect(ZTronAvailability.osSupports(.uikitTouchObserver) == osShips)          // the OS table itself is untouched
+            #expect(!ZTronAvailability.forcedFallbacks.contains(.uikitTouchObserver))
+            ZTronAvailability.forceAllFallbacks(true)
+            #expect(ZTronAvailability.isAvailable(.uikitTouchObserver) == ZTronAvailability.isForcingSupported)   // explicit on wins
+            ZTronAvailability.forceAllFallbacks(false)
+            #expect(ZTronAvailability.isAvailable(.uikitTouchObserver) == (ZTronAvailability.isForcingSupported || osShips))
+            // Another capability is never affected.
+            #expect(ZTronAvailability.isAvailable(.visualEffect) == ZTronAvailability.osSupports(.visualEffect))
+
+            ZTronAvailability.forceUIKitTouchObserver(false)
+            #expect(ZTronAvailability.isAvailable(.uikitTouchObserver) == osShips)
         }
     }
 

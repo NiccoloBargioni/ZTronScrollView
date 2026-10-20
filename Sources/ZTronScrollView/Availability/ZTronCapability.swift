@@ -51,6 +51,12 @@ public enum ZTronCapability: String, CaseIterable, Sendable, Hashable {
     /// environment cannot be mapped to cases without reflection. Fallback (every OS): the library's own
     /// `ztronScrollBounceBehavior(_:axes:)` modifier carrying `BounceBehavior`.
     case scrollBounceBehaviorType
+    /// The passive UIKit touch observer (SPEC S2 amendment 2026-10-20, D31): touch-down at rest, live pinch centroid and
+    /// finger count on **iOS 15-16 only**. The one capability whose preferred path is the OLD-OS one: it is available
+    /// below iOS 17 (`preferredOSCeiling`), never on 17+ (which keeps the `DragGesture` fallback with its documented
+    /// divergences) and never alongside `SpatialEventGesture`. Fallback: `DragGesture(minimumDistance: 0)` as on 17.
+    /// DEBUG only: ``ZTronAvailability/forceUIKitTouchObserver(_:)`` turns it on for 17+ simulators.
+    case uikitTouchObserver
     /// `TimelineView(.animation)` (iOS 15). Always available: never gated, never forced.
     case frameClock
 
@@ -60,7 +66,7 @@ public enum ZTronCapability: String, CaseIterable, Sendable, Hashable {
     /// The first iOS release that ships the preferred API.
     public var minimumOS: (major: Int, minor: Int) {
         switch self {
-        case .frameClock:
+        case .frameClock, .uikitTouchObserver:
             return (15, 0)
         case .layoutProtocol, .geometryChange, .accessibilityZoom:
             return (16, 0)
@@ -73,6 +79,18 @@ public enum ZTronCapability: String, CaseIterable, Sendable, Hashable {
             return (18, 0)
         case .gestureInputKinds:
             return (27, 0)
+        }
+    }
+
+    /// The first iOS release that no longer uses the preferred API, for the one capability whose preferred path is the
+    /// old-OS one (`uikitTouchObserver`: available from `minimumOS` up to, excluding, this release). `nil` for every
+    /// other capability: the preferred API runs on every OS from `minimumOS` on.
+    var preferredOSCeiling: (major: Int, minor: Int)? {
+        switch self {
+        case .uikitTouchObserver:
+            return (17, 0)
+        default:
+            return nil
         }
     }
 
@@ -109,6 +127,7 @@ public enum ZTronCapability: String, CaseIterable, Sendable, Hashable {
     /// Whether the capability needs a runtime check on the deployment target (iOS 15).
     /// Only gated capabilities can be force-fallbacked; `frameClock` is the one ungated case.
     public var isGated: Bool {
+        if preferredOSCeiling != nil { return true }
         let os = minimumOS
         let floor = Self.deploymentTarget
         return os.major > floor.major || (os.major == floor.major && os.minor > floor.minor)

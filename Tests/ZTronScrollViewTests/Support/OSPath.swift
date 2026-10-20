@@ -78,7 +78,14 @@ enum RunningOS {
         )
     }
 
-    /// `true` when the running OS ships every capability's preferred API (iOS 27+ today).
+    /// `true` when the running OS runs `capability`'s preferred API: from its `minimumOS` up and, for the one old-OS
+    /// capability (`uikitTouchObserver`, iOS 15-16), below its `preferredOSCeiling`.
+    static func shipsPreferred(_ capability: ZTronCapability) -> Bool {
+        isAtLeast(capability.minimumOS) && !(capability.preferredOSCeiling.map(isAtLeast) ?? false)
+    }
+
+    /// `true` when the running OS is at or above every capability's `minimumOS` (iOS 27+ today); capabilities whose
+    /// preferred path is the old-OS one still need ``shipsPreferred(_:)``.
     static var shipsEveryCapability: Bool {
         ZTronCapability.allCases.allSatisfy { isAtLeast($0.minimumOS) }
     }
