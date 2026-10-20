@@ -47,6 +47,18 @@ struct ContentSizeKey: PreferenceKey {
     }
 }
 
+/// Preference values travel to every ancestor, and the fallback measurements (`ContentSizeKey`, `ViewportMetricsKey`)
+/// belong to one `ZTronScrollView`: without this, a `ZTronScrollView` in the content of another one overwrote the
+/// outer's content size and viewport with its own (the outer then fit its content and never scrolled). Applied outside
+/// the receivers, so each view still reads its own values.
+struct MeasurementIsolation: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .transformPreference(ContentSizeKey.self) { $0 = ContentSizeKey.defaultValue }
+            .transformPreference(ViewportMetricsKey.self) { $0 = ViewportMetricsKey.defaultValue }
+    }
+}
+
 struct ContentSizeMeasure: ViewModifier {
     let state: ZTronScrollState
 

@@ -118,6 +118,7 @@ struct ScrollContainer<Content: View>: View {
             .modifier(NamedSpaceModifier(name: "ztronScroll.viewport", useNew: state.usesNamedCoordinateSpace))
             .ignoresSafeArea(.all, edges: edges)
             .modifier(ViewportObserver(state: state, edges: edges))
+            .modifier(MeasurementIsolation())
             .background(FrameClockDriver(state: state))
             .background(TargetEnvironmentCapture(state: state))
             .clipped()

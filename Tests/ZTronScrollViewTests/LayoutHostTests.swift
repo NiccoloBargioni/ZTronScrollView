@@ -57,6 +57,26 @@ struct LayoutHostTests {
         _ = w
     }
 
+    /// The fallback path measures through preferences, which reach every ancestor: an inner `ZTronScrollView` must not
+    /// overwrite its container's content size and viewport (N-b: the outer fit its content and never scrolled).
+    @Test(arguments: OSPath.allCases) func nestedScrollViewMeasurementsDoNotLeakToTheOuter(path: OSPath) {
+        let outer = makeState(path), inner = makeState(path)
+        let w = withOSPath(path) {
+            host(ZTronScrollView(.horizontal, state: outer) {
+                HStack(spacing: 0) {
+                    ZTronScrollView([.horizontal, .vertical], state: inner) { Color.blue.frame(width: 100, height: 60) }
+                        .frame(width: 150, height: 80)
+                    Color.red.frame(width: 250, height: 80)
+                }
+            })
+        }
+        #expect(outer.peek.metrics.contentSize.width == 400)
+        #expect(outer.peek.metrics.viewportSize.width == 200)
+        #expect(inner.peek.metrics.contentSize == CGSize(width: 100, height: 60))
+        #expect(inner.peek.metrics.viewportSize.width == 150, "inner viewport \(inner.peek.metrics.viewportSize)")
+        _ = w
+    }
+
     @Test(arguments: OSPath.allCases) func contentBodyNeverRunsDuringMotionAndStateSurvives(path: OSPath) {
         let s = makeState(path)
         let counts = BodyCount()
