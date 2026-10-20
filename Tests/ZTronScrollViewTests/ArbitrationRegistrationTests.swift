@@ -399,6 +399,13 @@ struct ArbitrationRegistrationTests {
         arbiter.log.compactMap { if case let .register(_, frame) = $0 { return frame } else { return nil } }
     }
 
+    /// Layout rounds to the screen's pixel grid (17.5 reports y = 29.83 for 30): compare within a point.
+    func near(_ frames: [CGRect], _ expected: [CGRect]) -> Bool {
+        frames.count == expected.count && zip(frames, expected).allSatisfy {
+            abs($0.minX - $1.minX) < 1 && abs($0.minY - $1.minY) < 1 && abs($0.width - $1.width) < 1 && abs($0.height - $1.height) < 1
+        }
+    }
+
     func updated(_ arbiter: ReferenceScrollArbiter) -> [CGRect] {
         arbiter.log.compactMap { if case let .update(_, frame, true) = $0 { return frame } else { return nil } }
     }
@@ -413,10 +420,10 @@ struct ArbitrationRegistrationTests {
         let w = host(HostedTree(model: model, a: a, b: b, reg: reg))
         // Appeared: registered once, with the frame in the arbiter's space.
         #expect(reg.isRegistered)
-        #expect(registered(a) == [CGRect(x: 20, y: 30, width: 60, height: 40)] && updated(a).isEmpty, "\(a.log)")
+        #expect(near(registered(a), [CGRect(x: 20, y: 30, width: 60, height: 40)]) && updated(a).isEmpty, "\(a.log)")
         // The UIKit side's `startLocation` is local to the view: (10, 10) there is (30, 40) in the arbiter's space.
         #expect(reg.owner(ofDragFrom: CGPoint(x: 10, y: 10), translation: CGSize(width: -40, height: 0), touchCount: 1) == .container)
-        #expect(a.log.contains { if case let .owner(_, _, start, _, _, _, resolved, _, _, _) = $0 { return start == CGPoint(x: 30, y: 40) && resolved != nil } else { return false } })
+        #expect(a.log.contains { if case let .owner(_, _, start, _, _, _, resolved, _, _, _) = $0 { return abs(start.x - 30) < 1 && abs(start.y - 40) < 1 && resolved != nil } else { return false } })
         // Cold: unrelated re-evaluations of the host do nothing; a frame change is one update.
         let before = a.log.count
         model.unrelated += 1
@@ -424,17 +431,17 @@ struct ArbitrationRegistrationTests {
         #expect(a.log.count == before)
         model.lead = 50
         pump(0.1)
-        #expect(updated(a) == [CGRect(x: 50, y: 30, width: 60, height: 40)] && registered(a).count == 1, "\(a.log)")
+        #expect(near(updated(a), [CGRect(x: 50, y: 30, width: 60, height: 40)]) && registered(a).count == 1, "\(a.log)")
         model.lead = 70
         model.lead = 90
         pump(0.1)
-        #expect(updated(a).count == 2 && updated(a).last == CGRect(x: 90, y: 30, width: 60, height: 40), "\(updated(a))")
+        #expect(updated(a).count == 2 && near(Array(updated(a).suffix(1)), [CGRect(x: 90, y: 30, width: 60, height: 40)]), "\(updated(a))")
         // Another arbiter in the environment: the old one hears the unregistration, the new one the registration with the
         // frame in its own space.
         model.useB = true
         pump(0.1)
         #expect(kinds(a).last == "unregistertrue" && reg.isRegistered)
-        #expect(registered(b) == [CGRect(x: 90, y: 30, width: 60, height: 40)], "\(b.log)")
+        #expect(near(registered(b), [CGRect(x: 90, y: 30, width: 60, height: 40)]), "\(b.log)")
         #expect(reg.registrar?.arbiter === b)
         // The view goes: unregistered; the participant stays set and registers again with the view.
         model.show = false
