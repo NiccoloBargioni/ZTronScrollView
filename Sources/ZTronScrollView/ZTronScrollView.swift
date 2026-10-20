@@ -12,6 +12,8 @@ public struct ZTronScrollView<Content: View>: View {
     private var doubleTap: DoubleTapZoom?
     private var nestedPolicy: ZTronNestedScrollPolicy?
     var config = ScrollViewConfig()
+    /// Chrome members (indicators, M8): the `ztron…` twins carry the same settings in the environment.
+    var chrome = ChromeConfig()
     @StateObject private var holder = StateHolder()
 
     public init(_ axes: Axis.Set = .vertical, showsIndicators: Bool = true, @ViewBuilder content: () -> Content) {
@@ -19,6 +21,7 @@ public struct ZTronScrollView<Content: View>: View {
         self.showsIndicators = showsIndicators
         self.externalState = nil
         self.content = content()
+        if !showsIndicators { chrome.showsIndicators = false }
     }
 
     public init(_ axes: Axis.Set = .vertical, state: ZTronScrollState, @ViewBuilder content: () -> Content) {
@@ -31,7 +34,7 @@ public struct ZTronScrollView<Content: View>: View {
     public var body: some View {
         let state = externalState ?? holder.state
         return ScrollContainer(axes: axes, state: state, content: content, zoomLimits: zoomLimits, doubleTap: doubleTap,
-                               nestedPolicy: nestedPolicy, config: config)
+                               nestedPolicy: nestedPolicy, config: config, chrome: chrome)
             .environment(\.ztronScrollState, state)
     }
 }
@@ -77,6 +80,7 @@ struct ScrollContainer<Content: View>: View {
     let doubleTap: DoubleTapZoom?
     let nestedPolicy: ZTronNestedScrollPolicy?
     let config: ScrollViewConfig
+    let chrome: ChromeConfig
     @Environment(\.ztronZoomLimits) private var envLimits
     @Environment(\.ztronDoubleTapZoom) private var envDoubleTap
     @Environment(\.ztronScrollConfig) private var envConfig
@@ -86,8 +90,9 @@ struct ScrollContainer<Content: View>: View {
 
     init(axes: Axis.Set, state: ZTronScrollState, content: Content, zoomLimits: ZoomLimits? = nil,
          doubleTap: DoubleTapZoom? = nil, nestedPolicy: ZTronNestedScrollPolicy? = nil,
-         config: ScrollViewConfig = ScrollViewConfig()) {
+         config: ScrollViewConfig = ScrollViewConfig(), chrome: ChromeConfig = ChromeConfig()) {
         self.zoomLimits = zoomLimits
+        self.chrome = chrome
         self.doubleTap = doubleTap
         self.nestedPolicy = nestedPolicy
         self.config = config
@@ -127,6 +132,7 @@ struct ScrollContainer<Content: View>: View {
             .modifier(ContentLayoutHost(axes: axes, useLayout: state.usesLayoutProtocol))
             .modifier(TransformHost(state: state, axes: axes))
             .modifier(NamedSpaceModifier(name: "ztronScroll.viewport", useNew: state.usesNamedCoordinateSpace))
+            .overlay(ScrollIndicatorsOverlay(state: state, member: chrome))   // chrome leaves: the viewport's own frame (M8)
             .ignoresSafeArea(.all, edges: edges)
             .modifier(ViewportObserver(state: state, edges: edges))
             .modifier(MeasurementIsolation())

@@ -67,6 +67,9 @@ struct ScrollMetrics: Equatable, Sendable {
     /// The inset a refreshing edge keeps open for its indicator (M8b): the coordinator sets it at the lift and clears it
     /// when the refresh ends. Included in `adjustedContentInset`.
     var refreshHold: EdgeInsets = EdgeInsets()
+    /// `ZTronScrollState.scrollIndicatorInsets` (M8-1): the extra inset of the scroll indicators' track. Cold; not part of
+    /// the content geometry, so nothing but the indicators reads it.
+    var indicatorInsets: EdgeInsets = EdgeInsets()
     /// `contentInset` + the safe area on the adjusted edges + `refreshHold` (SPEC S6); derived by the state.
     var adjustedContentInset: EdgeInsets = EdgeInsets()
     /// Scaling-header height (M8b hook): shifts the unobscured center only, never the bounds.

@@ -50,6 +50,9 @@ public final class ZTronScrollState {
     var refreshHoldInset: EdgeInsets { storage.metrics.refreshHold }
     /// The refresh coordinator that answers `beginRefreshing` / `endRefreshing` (the container owns it, M8b).
     weak var refresh: RefreshCoordinator?
+    /// The scroll indicators' fade controller (M8-1): the container's overlay attaches it while it is on screen;
+    /// `flashScrollIndicators()` asks it.
+    weak var indicatorController: IndicatorController?
     /// A `didScroll` flush happened (the end of `deliverPending`, ≤ 1 per frame while a finger or a motion writes): the
     /// pan hands it to the refresh engine as a sample.
     var onFlush: (() -> Void)?
