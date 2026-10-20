@@ -48,4 +48,5 @@ At the committed b528880 (on top of M8b-1 8b20900), clean worktree: 346/346 on 1
 (897F9D8D). A second xctest death ("Restarting after unexpected exit", in-flight tests listed, no assertion, no xctest
 crash report, `dtdeviceinfod` crashed that minute) hit 897F9D8D once more while a 17.5 run went in parallel; the control
 at 8b20900 and the re-run of b528880, each run alone, were green, so it is host load, not this patch.
+With D30 (d5813bd, `MeasurementIsolation`): `ParentReevaluationTests` green at c13a12f on 27.0 (897F9D8D) and 17.5 (7279872B).
 Usage: not measured (budget ~1–2 % weekly asked).
