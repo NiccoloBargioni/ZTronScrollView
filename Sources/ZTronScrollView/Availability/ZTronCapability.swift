@@ -3,7 +3,7 @@ import Foundation
 /// A newer-OS API family the library gates behind `#available` (SPEC S3).
 ///
 /// One case per row of the availability matrix in `docs/design/design-note.md` (checked by hand against the Xcode 27
-/// iOS SDK swiftinterfaces). The pinch row is split into `magnifyGesture` (17) and `liveMagnifyCentroid` (18), and
+/// iOS SDK swiftinterfaces). The pinch row is split into `magnifyGesture` (17) and `liveMagnifyCentroid` (shipped in 18, used from 26: D34), and
 /// `scrollBounceBehaviorType` (16.4) covers `ScrollBounceBehavior`.
 /// Resolve a capability with ``ZTronAvailability/isAvailable(_:)``; see its header for the call-site rules (including
 /// APIs newer than the Xcode 26 SDK).
