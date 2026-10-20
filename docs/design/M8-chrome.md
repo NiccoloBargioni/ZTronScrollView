@@ -53,7 +53,7 @@ enum IndicatorMath {   // pure, unit-tested; per axis, viewport points
                       indInset: (start: CGFloat, end: CGFloat), offset o: CGFloat, otherVisible: Bool) -> (origin: CGFloat, length: CGFloat)?
 }
 ```
-Resolution: `showsIndicators == false` ⇒ `.hidden` on both axes; else member per axis ?? our env ?? native env
+Resolution (order corrected by the M8-1 addendum below: an explicit value beats the flag): `showsIndicators == false` ⇒ `.hidden` on both axes; else member per axis ?? our env ?? native env
 (`horizontal/verticalScrollIndicatorVisibility`, read under `#available(iOS 16.4)`; confirm 16.0 vs 16.4 by compile test) ?? `.automatic`.
 Formulas (constants `thickness 3`, `edgeGap 3`, `minLength 36`, `minLengthRubber 8`, `hideDelay 0.4 s`, `fade 0.3 s`, `flashHold 0.6 s`; tune on device):
 `E = C·s + aci.start + aci.end`; `T = V − indInset.start − indInset.end − 2·edgeGap − (otherVisible ? thickness + edgeGap : 0)`;
@@ -284,3 +284,28 @@ containerRelativeFrame outside ours <17, large-title/toolbar/tabBar/status-bar-t
 - Risk accepted: if focus-steal can't dismiss the keyboard, `scrollDismissesKeyboard` is a documented gap.
 - (2026-10-19, user amendment) M8-8 delegate modifiers added (§7b, SPEC S11): depends on M7 session 1 (`ObserverHub`), not on M8-1…7; build it in the
   M7 session 2 slot or right after M7 s1, whichever comes first; one parity row per modifier (13) + `viewForZooming` → "replaced by zoomRange".
+
+## M8-1 addendum (2026-10-20, builder; the pattern the rest of the slice follows)
+- **Resolution order, measured** (hosted native `ScrollView` on iOS 17.5 and 27.0, `NativeIndicatorFixtureTests`): `showsIndicators: false` is the view's
+  own default, not a veto. Per axis: `member ?? twin ?? native environment (16.4+) ?? .automatic`; only when that is `.automatic` does `showsIndicators:
+  false` turn it into `.hidden`. An explicit `.visible` (member, twin, a native modifier above) beats the flag; `.hidden` / `.never` hide. This supersedes
+  the "showsIndicators > member" order of §2 and §10.
+- **Config shape**: `ChromeConfig` holds `AxisPair<T>` (an optional per axis, so an explicit `.automatic` overrides an outer `.hidden`), optional flags
+  (`flashOnAppear: Bool?`) and `AnyEquatable?` for the trigger (`scrollIndicatorsFlash(trigger:)` is only `Equatable`). Stored on the view as
+  `ZTronScrollView.chrome` (member side) and `EnvironmentValues.ztronChromeConfig` (twin side); later tasks append fields.
+- **Where the overlay sits**: `.overlay(ScrollIndicatorsOverlay(...))` goes right after the named viewport space and BEFORE `.ignoresSafeArea`: the
+  viewport root's frame there is the viewport itself (ignored safe-area edges included), so chrome positions are viewport coordinates. After
+  `.ignoresSafeArea` the frame is the safe-area-respecting one.
+- **Cold host + hot leaf**: `ScrollIndicatorsHost` (cold: resolution, `IndicatorController`, flash lifecycle; re-evaluates on configuration changes only)
+  renders a `ChromeLeaf` (hot: channels `.all` while something is drawn, `[]` otherwise). `ChromeLeaf` tracks the channels it declares and reads the
+  others as untracked snapshots (a `ChromeSample` is always a consistent read; undeclared fields do not wake the leaf).
+- **Activity**: `.interacting`, `.decelerating`, `.animating` with no resize open. `.tracking` (finger down, content not moving) shows nothing: UIKit shows the
+  thumb when the content moves, and `.animating` is also the resize watch's phase, which is not scrolling.
+- **Fade**: no frame clock. `IndicatorController` keeps `isShown`; it flips on at once and off through one `withAnimation(.linear(duration: fade))`,
+  with one one-shot timer per deadline (`schedule` injectable like the refresh coordinator's). Hold = `hideDelay` after activity, `flashHold` after a flash;
+  `.visible` axes ignore it.
+- **State API**: `scrollIndicatorInsets` is `ScrollMetrics.indicatorInsets` (cold, metrics channel, so the leaf follows a change); the track inset =
+  safe area the content adjusts for + `scrollIndicatorInsets` + the view's `contentMargins(for: .scrollIndicators)` (`ChromeConfig.indicatorInsets`, M8-2).
+  `ZTronScrollState.indicatorController` (weak) is how `flashScrollIndicators()` reaches the fade.
+- **Native availability, compile-confirmed against the iOS 27 SDK interface**: `scrollIndicators(_:axes:)` and the two environment keys are iOS 16.0,
+  `ScrollIndicatorVisibility: Equatable` is 16.4 (so the environment is read from 16.4 and `init?(_ native:)` is 16.4), `scrollIndicatorsFlash` is 17.0.
