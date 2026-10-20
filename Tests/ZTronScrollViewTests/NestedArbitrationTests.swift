@@ -83,11 +83,13 @@ struct NestedArbitrationTests {
     /// content space. Inner content 100x200 fits the viewport at zoom 1; at zoom 2 it pans in x 0…100, y 0…200.
     func make(_ path: OSPath, policy: ZTronNestedScrollPolicy = .automatic, outerAxes: Axis.Set = .horizontal,
               outerContent: CGSize = CGSize(width: 300, height: 200), outerOffset: CGPoint = .zero,
+              outerZoom: CGFloat = 1, outerLimits: ClosedRange<CGFloat> = 1...1, outerPaging: Bool = true,
               innerAxes: Axis.Set = [.horizontal, .vertical], innerContent: CGSize = CGSize(width: 100, height: 200),
               innerOffset: CGPoint = .zero, innerZoom: CGFloat = 1, innerLimits: ClosedRange<CGFloat> = 1...4,
               innerFrame: CGRect = CGRect(x: 0, y: 0, width: 100, height: 200)) -> Rig {
         let clock = Clock()
-        let outer = makeSide(path, axes: outerAxes, content: outerContent, offset: outerOffset, paging: true, clock: clock)
+        let outer = makeSide(path, axes: outerAxes, content: outerContent, offset: outerOffset, zoom: outerZoom,
+                             limits: outerLimits, paging: outerPaging, clock: clock)
         let inner = makeSide(path, axes: innerAxes, content: innerContent, offset: innerOffset, zoom: innerZoom,
                              limits: innerLimits, clock: clock)
         inner.coord.setArbiter(outer.coord.nestedArbiter, policy: policy)
@@ -300,6 +302,36 @@ struct NestedArbitrationTests {
         #expect(r.outer.coord.effectsLog.first == .beginTracking && r.inner.coord.effectsLog.first == .beginTracking)
     }
 
+    /// Review finding (N-a polish): `.independent` opts out of the nested container only. Toward an external
+    /// ScrollArbitration arbiter (a ZTronPages pager) the view still registers and answers like `.automatic`.
+    @Test(arguments: OSPath.allCases) func independentStillJoinsAnExternalArbiter(path: OSPath) {
+        let clock = Clock()
+        let side = makeSide(path, axes: [.horizontal, .vertical], content: CGSize(width: 100, height: 200),
+                            offset: .zero, limits: 1...4, clock: clock)
+        let pager = ReferenceScrollArbiter(pagingAxis: .horizontal, coordinateSpaceName: "pager")
+        side.coord.setArbiter(pager, policy: .independent)
+        #expect(side.coord.participant != nil && side.coord.participant?.arbiter === pager)
+        side.coord.participant?.register(frame: CGRect(x: 0, y: 0, width: 100, height: 200))
+        #expect(pager.participant(at: CGPoint(x: 50, y: 100)) != nil && side.coord.environment().hasArbiter)
+        // Zoom 1, fits: the pager takes the swipe; the view ignores the sequence.
+        pager.beginSequence()
+        side.coord.handle(.touchDown(location: start, time: clock.t, touchCount: 1))
+        side.coord.handle(.dragChanged(translation: CGSize(width: -40, height: 0), startLocation: start, time: clock.t))
+        #expect(pager.currentOwner == .container && !side.coord.effectsLog.contains(.beginDragging))
+        side.coord.handle(.dragEnded(translation: CGSize(width: -40, height: 0), time: clock.t, fallbackVelocity: nil))
+        side.coord.handle(.touchesEnded(time: clock.t))
+        pager.endSequence()
+        // Switching to the nested container with the same policy drops the participant (today's behaviour).
+        let outer = makeSide(path, axes: .horizontal, content: CGSize(width: 300, height: 200), offset: .zero,
+                             paging: true, clock: clock)
+        side.coord.setArbiter(outer.coord.nestedArbiter, policy: .independent)
+        #expect(side.coord.participant == nil && pager.participant(at: CGPoint(x: 50, y: 100)) == nil)
+        #expect(!outer.coord.nestedArbiter.hasParticipants)
+        // And back to the pager: registered again.
+        side.coord.setArbiter(pager, policy: .independent)
+        #expect(side.coord.participant?.arbiter === pager)
+    }
+
     @Test(arguments: OSPath.allCases) func customSeesColdGeometryAndDecides(path: OSPath) {
         @MainActor final class Seen { var contexts: [(tracked: Bool, canFollow: Bool, direction: FingerDirection, min: CGFloat, zoom: CGFloat, offset: CGPoint)] = [] }
         let seen = Seen()
@@ -309,11 +341,9 @@ struct NestedArbitrationTests {
             return .outer
         }
         let r = make(path, policy: policy, innerOffset: CGPoint(x: 50, y: 100), innerZoom: 2)   // could follow
-        ZTronRenderCounters.reset()
         swipe(r, dx: -40, dy: 0)
-        // No body ran and the context's geometry is the non-tracked `peekGeometry()`.
-        let bodies = ZTronRenderCounters.snapshot.filter { $0.key.hasSuffix(".body") }
-        #expect(bodies.isEmpty, "\(bodies)")
+        // The context's geometry is the non-tracked `peekGeometry()` (no SwiftUI view exists in this rig, so render
+        // counters would be vacuous here; `isTracked == false` is what keeps a body from observing the read).
         #expect(seen.contexts.count == 1)
         if let c = seen.contexts.first {
             #expect(!c.tracked && c.canFollow && c.direction == .left && c.min == 1 && c.zoom == 2
@@ -388,6 +418,45 @@ struct NestedArbitrationTests {
         expectLoser(single.outer, offset: .zero)
     }
 
+    // MARK: zoomable outer (D15 effective axes)
+
+    /// Review finding (N-a polish): the paging axis is the outer's *effective* axis. A vertical outer zoomed to 2x
+    /// exceeds the viewport horizontally, so a horizontal swipe on an inner that fits (zoom 1) must pan the outer:
+    /// with the declared axes rule 1 would call it off-axis and hand it to an inner that cannot move.
+    @Test(arguments: OSPath.allCases, [Order.innerFirst, .outerFirst])
+    func zoomedOuterPagesOnItsEffectiveAxis(path: OSPath, order: Order) {
+        // Outer 100x600 at zoom 2 (200x1200), offset (50, 300): both axes scrollable; its touch at local (50, 100)
+        // is content point (50, 200), which is also where the inner (frame (0, 100, 100, 200)) places its own touch.
+        func rig(outerZoom: CGFloat, outerOffset: CGPoint) -> Rig {
+            make(path, outerAxes: .vertical, outerContent: CGSize(width: 100, height: 600), outerOffset: outerOffset,
+                 outerZoom: outerZoom, outerLimits: 1...4, outerPaging: false,
+                 innerFrame: CGRect(x: 0, y: 100, width: 100, height: 200))
+        }
+        var r = rig(outerZoom: 2, outerOffset: CGPoint(x: 50, y: 300))
+        #expect(r.outer.coord.effectiveAxes == [.horizontal, .vertical] && r.outer.coord.axes == .vertical)
+        swipe(r, dx: -40, dy: 0, order: order)
+        #expect(r.outer.dragged && r.outer.offset.x > 50, "outer pans horizontally \(r.outer.offset)")
+        expectLoser(r.inner, offset: .zero)
+        #expect(r.decisions == 1)
+        if case let .owner(_, _, _, _, _, _, _, input, true, _) = r.arbiter.log.first(where: {
+            if case .owner = $0 { return true } else { return false }
+        }) ?? .endSequence(id: nil, ended: false) {
+            #expect(input?.pagingAxis == .horizontal && input?.directionTolerance == 90)
+        }
+        // A vertical swipe is the outer's as well (the inner fits), with the dominant axis.
+        r = rig(outerZoom: 2, outerOffset: CGPoint(x: 50, y: 300))
+        swipe(r, dx: 0, dy: -40, order: order)
+        #expect(r.outer.dragged && r.outer.offset.y > 300)
+        expectLoser(r.inner, offset: .zero)
+        // At zoom 1 the outer fits horizontally: its only effective axis is vertical, so the same horizontal swipe is
+        // off-axis (rule 1) and stays with the inner (which rubber-bands, as a zoomable view alone would), as before.
+        r = rig(outerZoom: 1, outerOffset: CGPoint(x: 0, y: 100))                // touch at content point (50, 200)
+        #expect(r.outer.coord.effectiveAxes == .vertical)
+        swipe(r, dx: -40, dy: 0, order: order)
+        expectLoser(r.outer, offset: CGPoint(x: 0, y: 100))
+        #expect(r.inner.coord.effectsLog.contains(.beginDragging) && r.decisions == 1)
+    }
+
     // MARK: sequences
 
     @Test(arguments: OSPath.allCases) func sequenceBeginsAtTouchDownOrLazilyAndEnds(path: OSPath) {
@@ -416,30 +485,88 @@ struct NestedArbitrationTests {
 
     // MARK: three levels: pager (ReferenceScrollArbiter) -> outer -> inner
 
-    @Test(arguments: OSPath.allCases) func threeLevelChainTalksToTheNearestContainer(path: OSPath) {
+    /// The outer is at offset 100 and shows page 1, so the inner is registered at page 1's frame in the outer's
+    /// content space (review finding: the rig used page 0's frame, which no touch could resolve). Both ask orders.
+    @Test(arguments: OSPath.allCases, [Order.innerFirst, .outerFirst])
+    func threeLevelChainTalksToTheNearestContainer(path: OSPath, order: Order) {
         func rig(innerZoom: CGFloat, innerOffset: CGPoint) -> (Rig, ReferenceScrollArbiter) {
-            let r = make(path, outerOffset: CGPoint(x: 100, y: 0), innerOffset: innerOffset, innerZoom: innerZoom)
+            let r = make(path, outerOffset: CGPoint(x: 100, y: 0), innerOffset: innerOffset, innerZoom: innerZoom,
+                         innerFrame: CGRect(x: 100, y: 0, width: 100, height: 200))
             let pager = ReferenceScrollArbiter(pagingAxis: .horizontal, coordinateSpaceName: "pager")
             r.outer.coord.setArbiter(pager)
             r.outer.coord.participant!.register(frame: CGRect(x: 0, y: 0, width: 100, height: 200))
             r.clearLogs()
             return (r, pager)
         }
+        // The outer's touch at local (50, 100) is content point (150, 100): inside page 1.
+        #expect(rig(innerZoom: 1, innerOffset: .zero).0.outer.coord.nestedStart(start) == CGPoint(x: 150, y: 100))
         // Inner at zoom 1: the outer can follow (pager -> .participant) and the inner cannot (nested -> .container).
         var (r, pager) = rig(innerZoom: 1, innerOffset: .zero)
-        swipe(r, dx: -40, dy: 0)
+        swipe(r, dx: -40, dy: 0, order: order)
         #expect(r.outer.dragged && r.outer.offset.x > 100)
         expectLoser(r.inner, offset: .zero)
+        #expect(r.decisions == 1)
         #expect(pager.currentOwner == nil && pager.log.contains {
             if case let .owner(_, _, _, _, _, _, _, _, decided, result) = $0 { return decided && result == .participant }
             return false
         })
         // Inner zoomed mid: the inner takes it; the outer ignores; the pager was told the outer owns it (no paging).
         (r, pager) = rig(innerZoom: 2, innerOffset: CGPoint(x: 50, y: 100))
-        swipe(r, dx: -40, dy: 0)
+        swipe(r, dx: -40, dy: 0, order: order)
         #expect(r.inner.dragged && r.inner.offset.x > 50)
         expectLoser(r.outer, offset: CGPoint(x: 100, y: 0))
         #expect(r.decisions == 1)
+    }
+
+    // MARK: the outer's touch in its content space (the conversion N-b trusts)
+
+    /// `PanCoordinator.nestedStart` = `ZoomSolver.contentPoint`: `(offset + local − pad(s)) / s`, with the outer's
+    /// offset, zoom and alignment padding. Outer 100x100 at zoom 1.5 (150x150 in a 100x200 viewport: x scrolls
+    /// 0…50, y is centered with 25 pt of padding), offset (20, 0): local (50, 100) is content point (46.67, 50).
+    @Test(arguments: OSPath.allCases, [Order.innerFirst, .outerFirst])
+    func outerTouchIsConvertedThroughOffsetZoomAndPadding(path: OSPath, order: Order) {
+        func rig() -> Rig {
+            make(path, outerContent: CGSize(width: 100, height: 100), outerOffset: CGPoint(x: 20, y: 0), outerZoom: 1.5,
+                 outerLimits: 1...4, outerPaging: false, innerOffset: CGPoint(x: 50, y: 100), innerZoom: 2,
+                 innerFrame: CGRect(x: 40, y: 40, width: 20, height: 20))
+        }
+        let r = rig()
+        let p = r.outer.coord.nestedStart(start)
+        #expect(abs(p.x - 140.0 / 3) < 1e-9 && abs(p.y - 50) < 1e-9, "\(p)")
+        #expect(r.outer.coord.makeZoomGeometry().alignmentPadding(at: 1.5) == CGPoint(x: 0, y: 25))
+        // Identity at zoom 1 without offset or padding (content overflowing both axes).
+        let plain = make(path)
+        #expect(plain.outer.coord.nestedStart(start) == start)
+        // Under the converted point sits a zoomed inner that can follow: it pans, the outer ignores. The unconverted
+        // local point (50, 100) lies outside its frame, so a naive conversion would page instead.
+        swipe(r, dx: -40, dy: 0, order: order)
+        #expect(r.inner.dragged && r.inner.offset.x > 50)
+        expectLoser(r.outer, offset: CGPoint(x: 20, y: 0), zoom: 1.5)
+        #expect(r.decisions == 1)
+        if case let .owner(_, askedBy, s, _, _, _, resolved, _, _, _) = r.arbiter.log.first(where: {
+            if case .owner(_, .container, _, _, _, _, _, _, _, _) = $0 { return true } else { return false }
+        }) ?? .endSequence(id: nil, ended: false) {
+            #expect(askedBy == .container && abs(s.x - 140.0 / 3) < 1e-9 && s.y == 50 && resolved != nil)
+        }
+        // A touch above the content's padded top edge (local (50, 20) → y = −3.3) is under no inner (such a touch
+        // never reaches the inner's gesture, so only the outer sees it): the outer takes it without a participant.
+        let edge = rig()
+        let top = CGPoint(x: 50, y: 20)
+        #expect(edge.outer.coord.nestedStart(top).y < 0)
+        edge.outer.coord.handle(.touchDown(location: top, time: edge.now, touchCount: 1))
+        edge.now += 0.02
+        edge.outer.coord.handle(.dragChanged(translation: CGSize(width: -40, height: 0), startLocation: top, time: edge.now))
+        #expect(edge.outer.dragged && edge.outer.offset.x > 20)
+        expectLoser(edge.inner, offset: CGPoint(x: 50, y: 100), zoom: 2)
+        #expect(edge.arbiter.log.contains {
+            if case let .owner(_, .container, _, _, _, _, resolved, _, decided, result) = $0 {
+                return resolved == nil && !decided && result == .container
+            }
+            return false
+        })
+        edge.outer.coord.handle(.dragEnded(translation: CGSize(width: -40, height: 0), time: edge.now, fallbackVelocity: nil))
+        edge.outer.coord.handle(.touchesEnded(time: edge.now))
+        #expect(!edge.arbiter.isSequenceActive)
     }
 
     // MARK: default behaviour of a standalone view and of the registration modifier inputs

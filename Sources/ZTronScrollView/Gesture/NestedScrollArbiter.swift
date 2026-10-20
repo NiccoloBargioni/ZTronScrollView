@@ -7,8 +7,9 @@ import ScrollArbitration
 /// not change while the outer scrolls, so registration stays cold.
 ///
 /// Decisions go through `ScrollArbitrationRules.decide` (a `ReferenceScrollArbiter` does the bookkeeping):
-/// - `pagingAxis` is the outer's single axis; a two-axis outer decides with the dominant axis of the translation and
-///   rule 1 disabled (it can follow any direction);
+/// - `pagingAxis` is the outer's single *effective* axis (D15: declared axes plus any axis its zoomed content
+///   exceeds the viewport on, read at the deciding call); an outer effective on two axes decides with the dominant
+///   axis of the translation and rule 1 disabled (it can follow any direction);
 /// - `isContainerMoving` is the outer's `isMovingWithoutFinger`, snapshotted when the sequence begins;
 /// - a sequence begins at the outer's touch-down (18+ spatial observer) or lazily at the first ask (≤ 17, gated
 ///   observer) and ends when the outer's pan session returns to idle;
@@ -106,7 +107,9 @@ final class NestedScrollArbiter: ScrollArbiter {
 
     private func prepare(_ translation: CGSize) {
         if !reference.isSequenceActive { beginSequence(lazily: true) }
-        let axes = container?.axes ?? [.horizontal, .vertical]
+        // D15 effective axes, not the declared ones: a zoomed outer whose content exceeds the viewport on an axis
+        // outside `axes` pages on that axis too (rule 1 must not hand such a swipe to an inner that cannot move).
+        let axes = container?.effectiveAxes ?? [.horizontal, .vertical]
         switch (axes.contains(.horizontal), axes.contains(.vertical)) {
         case (true, false):
             reference.pagingAxis = .horizontal

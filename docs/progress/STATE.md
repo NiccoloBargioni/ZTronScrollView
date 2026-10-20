@@ -21,3 +21,4 @@ Current: M5 (b): rotation criteria A+B met on both user trees (D18/D19) and crit
 Open issues:
 - iOS 15/16 simulator runtimes don't run on this Mac (macOS 27). Legacy smoke tests need Xcode 26.x on an older macOS (user).
 Device feedback queue:
+| N-a | done | 3–4 | | nested ZTronScrollView arbitration API (docs/design/NESTED-arbitration.md, D28); N-b demo + SPEC amendment pending (docs/progress/NESTED-s1.md) |

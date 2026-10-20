@@ -113,7 +113,7 @@ struct ArbitrationRegistration: ViewModifier {
         coordinator.setArbiter(arbiter, policy: policy)
         return content.background(
             Group {
-                if let arbiter, !policy.isIndependent {
+                if let arbiter, policy.joins(arbiter) {
                     GeometryReader { proxy in
                         let frame = proxy.frame(in: .named(arbiter.coordinateSpaceName))
                         Color.clear

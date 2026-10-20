@@ -69,10 +69,11 @@ final class PanCoordinator: ObservableObject {
     func makeZoomGeometry() -> ZoomGeometry { state.makeZoomGeometry() }
 
     /// Called by the registration modifier on every body evaluation; cheap unless the arbiter instance changed.
-    /// `.independent` opts out of arbitration: no participant, whatever the environment offers.
+    /// `.independent` opts out of the *nested* container only (no participant toward an outer `ZTronScrollView`);
+    /// an external ScrollArbitration arbiter (a ZTronPages pager) is always joined.
     func setArbiter(_ arbiter: (any ScrollArbiter)?, policy: ZTronNestedScrollPolicy = .automatic) {
         nestedPolicy = policy
-        if let arbiter, !policy.isIndependent {
+        if let arbiter, policy.joins(arbiter) {
             if let p = participant, p.arbiter === arbiter { return }
             participant?.unregister()
             participant = ArbitrationParticipant(arbiter: arbiter, coordinator: self)
@@ -88,22 +89,38 @@ final class PanCoordinator: ObservableObject {
     }
 
     /// `isContainerMoving` for the nested arbiter: live motion, or motion this sequence caught and nobody decided yet.
-    var isMovingForNestedArbiter: Bool { caughtUndecided || environment().isMovingWithoutFinger }
+    var isMovingForNestedArbiter: Bool { caughtUndecided || peekEnvironment().isMovingWithoutFinger }
     /// Could this view take a swipe now (enabled, with an axis)? The nested arbiter answers `.participant` to its
     /// inners without deciding while this is false (see `PanEnvironment.isContainer`).
     var canTakeSwipe: Bool {
-        let e = environment()
+        let e = peekEnvironment()
         return e.isScrollEnabled && !e.axes.isEmpty
     }
+    /// The axes a swipe can move this view on now (D15: `axes` plus any axis the zoomed content exceeds the viewport
+    /// on). The nested arbiter's paging axis comes from here, not from the declared `axes`: a vertical outer zoomed
+    /// past its width takes a horizontal swipe its inner cannot follow.
+    var effectiveAxes: Axis.Set { peekEnvironment().axes }
 
-    /// The viewport-local touch point in the content space the nested arbiter's frames are expressed in.
-    private func nestedStart(_ local: CGPoint) -> CGPoint {
+    /// The viewport-local touch point in the content space the nested arbiter's frames are expressed in
+    /// (`ZoomSolver.contentPoint`: offset, zoom and alignment padding of this view). Internal for the tests.
+    func nestedStart(_ local: CGPoint) -> CGPoint {
         let s = state.peek
         return ZoomSolver.contentPoint(under: local, offset: s.presentationOffset, scale: s.presentationZoom,
                                        geometry: makeZoomGeometry())
     }
 
+    /// The cold snapshot an event is handled against. In DEBUG it also counts `pan.movingAtEvent`; the side-effect
+    /// free reads the nested arbiter and the gates use are `peekEnvironment()`.
     func environment() -> PanEnvironment {
+        let env = peekEnvironment()
+        #if DEBUG
+        if env.isMovingWithoutFinger { ZTronRenderCounters.increment("pan.movingAtEvent") }
+        #endif
+        return env
+    }
+
+    /// `environment()` without the DEBUG counter.
+    func peekEnvironment() -> PanEnvironment {
         let s = state.peek
         let m = s.metrics
         let z = s.presentationZoom
@@ -133,9 +150,6 @@ final class PanCoordinator: ObservableObject {
         // gate: a scroll-disabled outer (`.ztronScrollDisabled(true)`, R7's idiom) or one without an axis arbitrates
         // nothing and its inners behave as if alone.
         env.isContainer = nestedArbiter.hasParticipants && env.isScrollEnabled && !env.axes.isEmpty
-        #if DEBUG
-        if env.isMovingWithoutFinger { ZTronRenderCounters.increment("pan.movingAtEvent") }
-        #endif
         return env
     }
 
@@ -148,7 +162,7 @@ final class PanCoordinator: ObservableObject {
             event = .touchDown(location: location, time: state.now(), touchCount: touchCount)
             // Container role: the sequence begins at the first finger down (before the catch below stops our motion,
             // so the snapshot sees it). Without inners, or while we cannot scroll, nothing is asked and nothing begins.
-            if environment().isContainer { nestedArbiter.beginSequence() }
+            if peekEnvironment().isContainer { nestedArbiter.beginSequence() }
         }
         // A pan synthesized from the remaining finger (the DragGesture died on the second finger) has no DragGesture
         // to end it: the last finger up is its release, from the last synthesized translation.

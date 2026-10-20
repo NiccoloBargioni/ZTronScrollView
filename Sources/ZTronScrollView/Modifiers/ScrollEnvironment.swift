@@ -1,6 +1,6 @@
 import SwiftUI
 import ZTronScrollPhysics
-@_exported import ScrollArbitration
+import ScrollArbitration
 
 /// Twin of SwiftUI's `ScrollBounceBehavior` (16.4); SwiftUI's own value cannot be read back without reflection, so
 /// the library carries its own (see BounceBehavior's note).
@@ -113,17 +113,29 @@ public enum ZTronNestedScrollOwner: Sendable, Hashable {
 
 /// What a ``ZTronNestedScrollPolicy/custom(_:)`` policy sees. Built cold inside the decision, in the drag handler,
 /// never in a body: `geometry` is a non-tracked snapshot (reading it records no Observation access).
+///
+/// `fingerDirection` is ScrollArbitration's `FingerDirection` (the frozen 1.0.0 contract, S16); the library does not
+/// re-export that module, so a client that names the type (or its cases outside a switch over this value) adds
+/// `import ScrollArbitration`. The memberwise initializer is public so clients can unit-test their `.custom` closures.
 @MainActor
 public struct ZTronNestedScrollContext {
     /// The inner view's geometry at the decision: `contentOffset`, `zoomScale`, `visibleRect`, …
     public let geometry: ZTronScrollGeometry
     /// The inner view's resolved minimum zoom scale.
     public let minimumZoomScale: CGFloat
-    /// The finger's direction along the container's paging axis (screen space).
+    /// The finger's direction along the container's paging axis (screen space); `ScrollArbitration.FingerDirection`.
     public let fingerDirection: FingerDirection
     /// What ``ZTronNestedScrollPolicy/innerWhileScrollable`` would answer: the inner can move with the finger on
     /// the paging axis without rubber-banding.
     public let canFollow: Bool
+
+    public init(geometry: ZTronScrollGeometry, minimumZoomScale: CGFloat, fingerDirection: FingerDirection,
+                canFollow: Bool) {
+        self.geometry = geometry
+        self.minimumZoomScale = minimumZoomScale
+        self.fingerDirection = fingerDirection
+        self.canFollow = canFollow
+    }
 }
 
 /// How a `ZTronScrollView` yields a drag to the `ZTronScrollView` (or ScrollArbitration container) that holds it.
@@ -151,7 +163,9 @@ public struct ZTronNestedScrollPolicy: Sendable {
     public static let inner = ZTronNestedScrollPolicy(kind: .inner)
     /// This view never pans a shared on-axis drag (off-axis swipes and pinches stay here).
     public static let outer = ZTronNestedScrollPolicy(kind: .outer)
-    /// No arbitration with the container: both views follow the drag, as standalone scrollers would.
+    /// No arbitration with the nested container (the `ZTronScrollView` that holds this view): both follow the drag,
+    /// as standalone scrollers would. An external ScrollArbitration container (a ZTronPages pager) is still joined,
+    /// with ``innerWhileScrollable``'s answer.
     public static let independent = ZTronNestedScrollPolicy(kind: .independent)
     /// Decides from a non-tracked ``ZTronNestedScrollContext`` at the swipe's hysteresis.
     public static func custom(_ decide: @escaping @MainActor @Sendable (ZTronNestedScrollContext) -> ZTronNestedScrollOwner)
@@ -162,6 +176,12 @@ public struct ZTronNestedScrollPolicy: Sendable {
     var isIndependent: Bool {
         if case .independent = kind { return true }
         return false
+    }
+
+    /// Whether this view registers with `arbiter`: always with an external one; with the nested container of an
+    /// outer `ZTronScrollView` unless ``independent``.
+    func joins(_ arbiter: any ScrollArbiter) -> Bool {
+        !(isIndependent && arbiter is NestedScrollArbiter)
     }
 }
 
