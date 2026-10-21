@@ -223,6 +223,12 @@ final class ChannelStorage: StateStorage {
     let phaseChannel = PhaseChannel()
     /// Payload-free; published when target offset or target zoom changes (not presentation).
     let targetChannel = ObservableObjectPublisher()
+    /// Payload-free; published only when the target zoom changes (never on offset or presentation writes): the wake-up
+    /// of a leaf that reads `targetZoom` alone (the counter-scale leaf, M6b), so it wakes as on the Observation path,
+    /// which tracks that key path alone. Not a `StateChannel`: no reader discovers it.
+    let targetZoomChannel = ObservableObjectPublisher()
+    /// The batch-gate key of `targetZoomChannel` (outside `StateChannel`'s raw values).
+    private static let targetZoomGateKey = 1_000
     /// Non-nil only while a reader discovers its channels.
     var recorder: ChannelRecorder?
     private let gate = BatchGate()
@@ -267,7 +273,11 @@ final class ChannelStorage: StateStorage {
     }
     var targetZoom: CGFloat {
         get { read(.zoom, zoomChannel.target) }
-        set { if write(zoomChannel, \.target, .zoom, newValue) { publishTarget() } }
+        set {
+            guard write(zoomChannel, \.target, .zoom, newValue) else { return }
+            publishTarget()
+            if gate.shouldPublish(Self.targetZoomGateKey) { targetZoomChannel.send() }
+        }
     }
     var presentationZoom: CGFloat {
         get { read(.zoom, zoomChannel.presentation) }

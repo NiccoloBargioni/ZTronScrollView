@@ -26,6 +26,10 @@ extension ZTronScrollView {
     /// - It receives touches like content, above it: a `Button` in it fires on tap, a pan that starts on it scrolls, a
     ///   pinch on it zooms. Apply `.allowsHitTesting(false)` inside `content` to opt out; the host itself is transparent.
     /// - `ztronScrollID` inside it registers a content-space frame: the overlay is a scroll target.
+    /// - An `Equatable` overlay (a `Text`, an `Image`, a `Color` included) is diffed with `==`: while a re-evaluation of
+    ///   the call site gives a value `==` to the one shown, its body does not run again.
+    /// - A `ZTronScrollView` inside the overlay does not inherit the
+    ///   ``SwiftUI/View/ztronScrollContentIntegralOverlay(anchor:overlayAnchor:size:scaling:content:)`` twins.
     ///
     /// - Parameters:
     ///   - anchor: The content point the overlay is pinned on (default `.center`).
@@ -38,31 +42,10 @@ extension ZTronScrollView {
                                                       size: ZTronContentOverlaySize = .fillMaxSize,
                                                       scaling: ZTronContentOverlayScaling = .withContent,
                                                       @ViewBuilder content: () -> V) -> Self {
-        appendingOverlay(anchor: anchor, overlayAnchor: overlayAnchor, size: size, scaling: scaling,
-                         view: ContentOverlayDecl.wrap(content()))
-    }
-
-    /// ``scrollContentIntegralOverlay(anchor:overlayAnchor:size:scaling:content:)`` for an `Equatable` overlay: it is
-    /// diffed with `==` (wrapped in `EquatableView`, and the container keeps the overlay it shows while each new value is
-    /// `==` to it), so a re-evaluation of the call site with an equal value does not run its body again.
-    public func scrollContentIntegralOverlay<V: View & Equatable>(anchor: ZTronContentOverlayAnchor = .center,
-                                                                  overlayAnchor: UnitPoint = .topLeading,
-                                                                  size: ZTronContentOverlaySize = .fillMaxSize,
-                                                                  scaling: ZTronContentOverlayScaling = .withContent,
-                                                                  @ViewBuilder content: () -> V) -> Self {
-        let view = content()
-        return appendingOverlay(anchor: anchor, overlayAnchor: overlayAnchor, size: size, scaling: scaling,
-                                view: ContentOverlayDecl.wrap(EquatableView(content: view)),
-                                equality: ContentOverlayEquality(view))
-    }
-
-    private func appendingOverlay(anchor: ZTronContentOverlayAnchor, overlayAnchor: UnitPoint, size: ZTronContentOverlaySize,
-                                  scaling: ZTronContentOverlayScaling, view: AnyView,
-                                  equality: ContentOverlayEquality? = nil) -> Self {
         var copy = self
         copy.config.contentOverlays.append(ContentOverlayDecl(key: "member.\(config.contentOverlays.count)", anchor: anchor,
                                                               overlayAnchor: overlayAnchor, size: size, scaling: scaling,
-                                                              view: view, equality: equality))
+                                                              content: content()))
         return copy
     }
 }
@@ -72,48 +55,32 @@ extension ZTronScrollView {
 extension View {
     /// Environment twin of ``ZTronScrollView/scrollContentIntegralOverlay(anchor:overlayAnchor:size:scaling:content:)``:
     /// every `ZTronScrollView` below this view draws the overlay as a part of its content (in its unscaled content space,
-    /// scrolling and zooming with it; nested scroll views included, each with its own copy). Twins draw below the
-    /// members; the outermost twin is the lowest. No native counterpart: a SwiftUI `ScrollView` below ignores it.
+    /// scrolling and zooming with it; nested scroll views in the content included, each with its own copy). Twins draw
+    /// below the members; the outermost twin is the lowest. No native counterpart: a SwiftUI `ScrollView` below ignores it.
     ///
-    /// Same placement, sizing, hit-testing and scrollable-range rules as the member.
+    /// Same placement, sizing, hit-testing, `Equatable` and scrollable-range rules as the member. A `ZTronScrollView`
+    /// drawn inside a content-integral overlay does not inherit these twins (a twin holding a scroll view would
+    /// otherwise draw itself again inside it).
     public func ztronScrollContentIntegralOverlay<V: View>(anchor: ZTronContentOverlayAnchor = .center,
                                                            overlayAnchor: UnitPoint = .topLeading,
                                                            size: ZTronContentOverlaySize = .fillMaxSize,
                                                            scaling: ZTronContentOverlayScaling = .withContent,
                                                            @ViewBuilder content: () -> V) -> some View {
-        modifier(ContentOverlayTwinModifier(anchor: anchor, overlayAnchor: overlayAnchor, size: size, scaling: scaling,
-                                            view: ContentOverlayDecl.wrap(content())))
-    }
-
-    /// ``ztronScrollContentIntegralOverlay(anchor:overlayAnchor:size:scaling:content:)`` for an `Equatable` overlay: it is
-    /// diffed with `==` (wrapped in `EquatableView`, and each container keeps the overlay it shows while each new value
-    /// is `==` to it), so a re-evaluation of the call site with an equal value does not run its body again.
-    public func ztronScrollContentIntegralOverlay<V: View & Equatable>(anchor: ZTronContentOverlayAnchor = .center,
-                                                                       overlayAnchor: UnitPoint = .topLeading,
-                                                                       size: ZTronContentOverlaySize = .fillMaxSize,
-                                                                       scaling: ZTronContentOverlayScaling = .withContent,
-                                                                       @ViewBuilder content: () -> V) -> some View {
-        let view = content()
-        return modifier(ContentOverlayTwinModifier(anchor: anchor, overlayAnchor: overlayAnchor, size: size, scaling: scaling,
-                                                   view: ContentOverlayDecl.wrap(EquatableView(content: view)),
-                                                   equality: ContentOverlayEquality(view)))
+        modifier(ContentOverlayTwinModifier(decl: ContentOverlayDecl(key: 0, anchor: anchor, overlayAnchor: overlayAnchor,
+                                                                     size: size, scaling: scaling, content: content())))
     }
 }
 
 /// The twin's declaration goes down the environment (appended, so the outermost twin comes first). Its identity is the
 /// `@State` token: stable across re-evaluations of the call site.
 struct ContentOverlayTwinModifier: ViewModifier {
-    let anchor: ZTronContentOverlayAnchor
-    let overlayAnchor: UnitPoint
-    let size: ZTronContentOverlaySize
-    let scaling: ZTronContentOverlayScaling
-    let view: AnyView
-    var equality: ContentOverlayEquality? = nil
+    /// The call's declaration; its `key` is replaced by the token.
+    let decl: ContentOverlayDecl
     @State private var key = ObserverKey()
 
     func body(content: Content) -> some View {
-        let decl = ContentOverlayDecl(key: AnyHashable(key), anchor: anchor, overlayAnchor: overlayAnchor, size: size,
-                                      scaling: scaling, view: view, equality: equality)
+        var decl = self.decl
+        decl.key = AnyHashable(key)
         return content.transformEnvironment(\.ztronScrollConfig) { $0.contentOverlays.append(decl) }
     }
 }

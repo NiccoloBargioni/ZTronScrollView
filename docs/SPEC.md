@@ -113,7 +113,7 @@ Requirements:
    | view reading only zoom | zoom changes only, not pure panning |
    | `ZoomScrollReader` / geometry-change modifiers | only when the derived Equatable value changes |
    | view reading phase / flags | phase transitions only |
-   | content-integral overlay host (S11, Amendment 2026-10-21 (user)) | layout passes only, when the content's drawn size changes (every frame of an animated reflow); never a body, and nothing at all during scroll, zoom, refresh or collapse; the overlay's own body never for those |
+   | content-integral overlay host (S11, Amendment 2026-10-21 (user)) | layout passes only, when the content's drawn size changes (every frame of an animated reflow); never a body, and nothing at all during scroll, zoom, refresh or collapse; the overlay's own body never for those (iOS 15 host, M6b L1: its `GeometryReader` closure, library code, runs once per reflow frame and once per container evaluation; user bodies still never) |
 5. **Hot and cold values stay separate:** separate stored properties on 17+, separate channels on 15–16. Never put them in one struct, which would wake every reader every frame. Guard writes with `!=` and publish at most once per frame.
 6. **Never mirror hot values into a parent's state through a Binding.** That re-runs the parent body and rebuilds the content every frame. Document why.
 7. **Zero idle cost:** the frame clock is paused whenever nothing moves.
@@ -698,12 +698,12 @@ extension View { public func ztronNestedScrollPolicy(_ policy: ZTronNestedScroll
 extension View { public func ztronScrollYieldsToSheet(_ yields: Bool = true) -> some View }   // environment; propagates; true = inert to drags (gestures masked `.subviews`) so the sheet gets them
 
 // Content-integral overlay — Amendment 2026-10-21 (user; design `docs/design/M6b-content-overlay.md`, semantics §1, mechanism §2):
-public enum ZTronContentOverlayAnchor: Equatable {   // a content point, unscaled content space
+public enum ZTronContentOverlayAnchor: Equatable, Sendable {   // a content point, unscaled content space
     case topLeading, top, topTrailing, leading, center, trailing, bottomLeading, bottom, bottomTrailing   // sugar for .relative(UnitPoint.<same>)
     case relative(UnitPoint)     // fraction of the content size per axis
     case absolute(CGPoint)       // unscaled content points
 }
-public enum ZTronContentOverlaySize: Equatable {
+public enum ZTronContentOverlaySize: Equatable, Sendable {
     case fillMaxSize                                    // the whole content rect (DEFAULT; anchor / overlayAnchor ignored) = SwiftUI `.overlay`
     case fillMaxWidth(_ aspectRatio: CGFloat? = nil)    // width = content width; height = width / aspectRatio (ideal when nil)
     case fillMaxHeight(_ aspectRatio: CGFloat? = nil)   // height = content height; width = height × aspectRatio (ideal when nil)
@@ -711,7 +711,7 @@ public enum ZTronContentOverlaySize: Equatable {
     case absolute(CGSize)                               // unscaled content points
     case ideal                                          // the view's ideal size (`fixedSize()`)
 }
-public enum ZTronContentOverlayScaling: Equatable { case withContent, counterScaled }   // default .withContent; .counterScaled = S6 helper
+public enum ZTronContentOverlayScaling: Equatable, Sendable { case withContent, counterScaled }   // default .withContent; .counterScaled = S6 helper ztronScrollCounterScaled (about the content centre for .fillMaxSize)
 // origin = anchorPoint(content rect) − overlayAnchor × overlaySize, for every anchor case (.absolute(A) pins the overlayAnchor point at A);
 // `overlayAnchor` is a plain UnitPoint: SwiftUI's nine statics .topLeading … .bottomTrailing are the user's list, no new enum.
 extension ZTronScrollView {   // laid out in the unscaled content space, under the transform; the frame follows the content's drawn size

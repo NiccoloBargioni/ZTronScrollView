@@ -42,7 +42,8 @@ public enum ZTronContentOverlayAnchor: Equatable, Sendable {
 /// unspecified; a view that takes less than its frame is centred in it (SwiftUI's `frame(width:height:)`).
 public enum ZTronContentOverlaySize: Equatable, Sendable {
     /// The whole content rect (the default): the overlay covers the content exactly, `anchor` and `overlayAnchor` are
-    /// ignored, and a view that takes less is centred in it — SwiftUI's own `.overlay` applied to the content.
+    /// ignored, and a view that takes less is centred in it — SwiftUI's own `.overlay` applied to the content. A
+    /// `.counterScaled` one scales about the content's centre.
     case fillMaxSize
     /// Width = the content's width; height = width / `aspectRatio` (width over height, as SwiftUI's `aspectRatio`:
     /// `.fillMaxWidth(16 / 9)` is `W × 9W/16`). `nil`, zero, negative or non-finite: the view's own height at width `W`
@@ -65,10 +66,12 @@ public enum ZTronContentOverlaySize: Equatable, Sendable {
 public enum ZTronContentOverlayScaling: Equatable, Sendable {
     /// The overlay is part of the content: it scales with the zoom (the default).
     case withContent
-    /// The overlay keeps a constant on-screen size: its frame is still resolved in the content space and its
-    /// `overlayAnchor` point stays on the content point `anchor`, but it is drawn scaled by `1 / zoomScale` around that
-    /// point. During a rotation at the fitting scale the content's drawn scale is resolved frame by frame while the
-    /// committed zoom holds its value, so a counter-scaled overlay may differ slightly in size mid-rotation; it lands exact.
+    /// The overlay keeps a constant on-screen size (``SwiftUI/View/ztronScrollCounterScaled(anchor:)``): its frame is
+    /// still resolved in the content space and its `overlayAnchor` point stays on the content point `anchor`, but it is
+    /// drawn scaled by `1 / zoomScale` around that point. With ``ZTronContentOverlaySize/fillMaxSize`` (anchors
+    /// ignored) it scales about the content's centre. During a rotation at the fitting scale the content's drawn scale is
+    /// resolved frame by frame while the committed zoom holds its value, so a counter-scaled overlay may differ slightly
+    /// in size mid-rotation; it lands exact.
     case counterScaled
 }
 
@@ -82,25 +85,62 @@ struct ContentOverlayDecl {
     var size: ZTronContentOverlaySize
     var scaling: ZTronContentOverlayScaling
     var view: AnyView
-    /// Set by the `Equatable` overloads: the host keeps the previous erased view while the new value is `==` to it.
+    /// Set when the user's view is `Equatable`: the host keeps the previous erased view while the new value is `==` to it.
     var equality: ContentOverlayEquality? = nil
+
+    /// One call's declaration: the user's `view` wrapped once (`wrap`), with its `==` when it is `Equatable`.
+    @MainActor
+    init<V: View>(key: AnyHashable, anchor: ZTronContentOverlayAnchor, overlayAnchor: UnitPoint,
+                  size: ZTronContentOverlaySize, scaling: ZTronContentOverlayScaling, content view: V) {
+        self.key = key
+        self.anchor = anchor
+        self.overlayAnchor = overlayAnchor
+        self.size = size
+        self.scaling = scaling
+        self.view = Self.wrap(view)
+        self.equality = ContentOverlayEquality.make(view)
+    }
 
     /// What layout needs (the view excluded).
     var placement: ContentOverlayPlacement {
         ContentOverlayPlacement(anchor: anchor, overlayAnchor: overlayAnchor, size: size)
     }
 
-    /// The user's view in one unary container: several views in the builder stack like SwiftUI's `.overlay` content
-    /// (an implicit `ZStack`), so each call is exactly one overlay.
+    /// The point a `.counterScaled` overlay scales about, in its own frame: `overlayAnchor` (the point pinned on the
+    /// content), or the centre for `.fillMaxSize`, whose anchors are ignored (a view that takes less is centred).
+    var counterScalePivot: UnitPoint {
+        size == .fillMaxSize ? .center : overlayAnchor
+    }
+
+    /// The user's view in one unary leaf: several views in the builder stack like SwiftUI's `.overlay` content (an
+    /// implicit `ZStack`), so each call is exactly one overlay.
+    @MainActor
     static func wrap<V: View>(_ view: V) -> AnyView {
-        AnyView(ZStack { view })
+        AnyView(ContentOverlayLeaf(content: view))
+    }
+}
+
+/// The erased overlay's root (DEBUG counter `contentOverlay.body`). Its only input is the user's view, so SwiftUI
+/// evaluates it exactly when it would evaluate that view again (a changed input) and never otherwise: not on motion,
+/// refresh or collapse, not on a content-size change (layout re-places it), not on a container evaluation that hands
+/// it an equal view. The counter therefore reads "the user's overlay body ran".
+struct ContentOverlayLeaf<V: View>: View {
+    let content: V
+
+    var body: some View {
+        #if DEBUG
+        ZTronRenderCounters.increment("contentOverlay.body")
+        #endif
+        return ZStack { content }
     }
 }
 
 /// The `==` of an `Equatable` overlay, type-erased. `EquatableView` alone does not gate a body inside `AnyView`: measured
 /// in M6b L1, an `AnyView(EquatableView(v))` rebuilt with an equal value re-ran `v`'s body on a parent re-evaluation on
 /// iOS 17.5 and 27.0 (on 27.0 even a bare `EquatableView` did), so the host compares the values itself and hands SwiftUI
-/// the very same `AnyView` when they are equal (`ContentOverlayViewCache`), which SwiftUI does not diff at all.
+/// the very same `AnyView` when they are equal (`ContentOverlayViewCache`), which SwiftUI does not diff at all. Detected
+/// at the call (`make`), so the public API is the single SPEC S11 overload per name: a `Text`, an `Image` or a `Color`
+/// (all `Equatable`) takes this path too.
 struct ContentOverlayEquality {
     let value: Any
     let isEqual: (Any) -> Bool
@@ -109,6 +149,14 @@ struct ContentOverlayEquality {
         self.value = value
         self.isEqual = { ($0 as? V) == value }
     }
+
+    /// The `==` of `view` when its type is `Equatable`, else `nil`.
+    static func make<V>(_ view: V) -> ContentOverlayEquality? {
+        guard let equatable = view as? any Equatable else { return nil }
+        return opened(equatable)
+    }
+
+    private static func opened<E: Equatable>(_ value: E) -> ContentOverlayEquality { ContentOverlayEquality(value) }
 }
 
 /// The host's memory of the `Equatable` overlays it drew: per key, the value and the erased view shown for it.

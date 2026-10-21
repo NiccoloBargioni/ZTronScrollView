@@ -247,3 +247,28 @@ Settled by the refinements: `overlayAnchor: UnitPoint = .topLeading` (`.absolute
   overlay with no anchors given lands its top-leading on the content centre (`overlayAnchor` default `.topLeading`, the user's choice);
   `.overlay(alignment: .center)` parity for sized views is `overlayAnchor: .center` — one default to flip if the user prefers.
 - **R5 Twin.** Kept, for consistency with the rest of the API (every member has a `ztronScroll…` twin, S8-2b / S11).
+
+## L1 notes (2026-10-21, builder; after the two-reviewer pass)
+
+What L1 built where it differs from, or settles, §2–§5 (sections 1–4 and R1–R5 still bind):
+- **API = SPEC S11 exactly, plus `Sendable`.** One member and one twin. An `Equatable` overlay (a `Text`, an `Image`, a `Color`
+  included) is detected at the call (`ContentOverlayEquality.make`, `as? any Equatable`) instead of separate `V: Equatable`
+  overloads: same diffing, no second public symbol per name, unambiguous DocC links. The host keeps the previous `AnyView`
+  while the new value is `==` (`ContentOverlayViewCache`); `EquatableView` alone did not gate the body inside `AnyView`.
+- **Counters (DEBUG).** `contentOverlay.body` = `ContentOverlayLeaf<V>`, the erased root whose only input is the user's view
+  (it runs exactly when that view would); `contentOverlay.host.body` = `ContentOverlayHost.body`, container evaluations only;
+  `contentOverlay.reader` = the iOS 15 host's `GeometryReader` closure (each reflow frame and each container evaluation);
+  `contentOverlay.place` = `placeSubviews`; note `contentOverlay.badAspect`. L2 reads these from the readout.
+- **No `Cache` in `ContentOverlayLayout` (R3).** A rotation proposes a new content size every frame, so a per-proposal cache
+  never hits while it matters; measuring happens only on an open axis (`.ideal`, nil aspect); nothing can go stale.
+- **The overlay subtree drops the twin list** (`transformEnvironment` on the host): a `ZTronScrollView` inside an overlay does
+  not inherit the overlay twins (a twin holding a scroll view nested without end). Scroll views nested in the content keep them.
+- **`.counterScaled` = the S6 helper.** `Helpers/CounterScaled.swift` ships `ztronScrollCounterScaled(anchor:)` (M8-chrome §6,
+  built here per §5 since M8-4 had not started); the host applies the same `CounterScaleLeaf`. M8-4 builds sticky/parallax/LOD
+  next to it and must not re-implement counter-scaling. The leaf reads `targetZoom` alone: tracked on that key path on 17+,
+  woken by `ChannelStorage.targetZoomChannel` (target-zoom writes only) on 15–16, so presentation-only zoom writes (the
+  transaction probe, a rotation's resize tick) wake it on neither path. Pivot: `overlayAnchor`, the centre for `.fillMaxSize`.
+- **Unverified: the iOS 15 runtime.** The reader host ships on iOS 15 only; R2 (the closure must not re-run per motion frame,
+  nor on the `.disabled` flips at motion start/end) is measured on the 17.5 / 27.0 runtimes with forced fallbacks, not on 15.
+  Run `ContentOverlayTests` (motion, refresh, probe) on an iOS 15 simulator (Xcode 26.x, older macOS) before calling S4 met
+  there; the contingency stays §2's metrics-driven host on 15 only.

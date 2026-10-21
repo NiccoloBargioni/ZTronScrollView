@@ -46,9 +46,18 @@ enum ContentOverlayMath {
         return CGPoint(x: c.width * u.x, y: c.height * u.y)
     }
 
-    /// A usable aspect ratio (width / height), or `nil` (absent, zero, negative or non-finite).
+    /// A usable aspect ratio (width / height), or `nil` (absent, zero, negative or non-finite: DEBUG note
+    /// `contentOverlay.badAspect`, design M6b §1 "Degenerate inputs").
     static func aspect(_ ratio: CGFloat?) -> CGFloat? {
-        guard let r = ratio, r.isFinite, r > 0 else { return nil }
+        guard let r = ratio else { return nil }
+        guard r.isFinite, r > 0 else {
+            #if DEBUG
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { ZTronRenderCounters.notes["contentOverlay.badAspect"] = "\(r)" }
+            }
+            #endif
+            return nil
+        }
         return r
     }
 

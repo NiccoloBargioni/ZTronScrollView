@@ -15,6 +15,9 @@ struct ContentOverlayHost: View {
     /// Created once per identity (`@StateObject`'s autoclosure): no allocation per container evaluation. Never publishes.
     @StateObject private var cache = ContentOverlayViewCache()
 
+    /// Runs on a container body evaluation only (a parent re-render, a cold config change): never on motion, refresh,
+    /// collapse or a content-size change (`contentOverlay.host.body`). The user's overlay bodies do not run with it
+    /// unless their inputs changed (`contentOverlay.body`, counted by `ContentOverlayLeaf`).
     var body: some View {
         // An `Equatable` overlay equal to the one shown keeps its `AnyView`: its body does not run again.
         let decls = cache.stabilized(self.decls)
@@ -35,7 +38,7 @@ struct ContentOverlayHost: View {
                                 // specifies, this frame adopts exactly the proposal (both bounds given); on an
                                 // unspecified one it adopts the view's own size.
                                 .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
-                                .modifier(CounterScaleLeaf(state: state, anchor: d.overlayAnchor,
+                                .modifier(CounterScaleLeaf(state: state, anchor: d.counterScalePivot,
                                                            isActive: d.scaling == .counterScaled))
                                 .layoutValue(key: ContentOverlayPlacementKey.self, value: d.placement)
                         }
@@ -45,6 +48,10 @@ struct ContentOverlayHost: View {
                 }
             }
         }
+        // The overlays are not content of this scroll view's twins: a `ZTronScrollView` drawn inside an overlay must not
+        // draw the same twin overlays again (a twin holding a scroll view would nest without end). Only this subtree
+        // loses them; the content, and the scroll views nested in it, keep them.
+        .transformEnvironment(\.ztronScrollConfig) { $0.contentOverlays.removeAll() }
     }
 }
 
@@ -55,8 +62,10 @@ struct ContentOverlayPlacementKey: LayoutValueKey {
     static let defaultValue = ContentOverlayPlacement(anchor: .center, overlayAnchor: .topLeading, size: .fillMaxSize)
 }
 
-/// Takes the proposal (the content's size, from `.overlay`) and places each overlay at its resolved frame. Caches nothing:
-/// every input is the proposal and the subviews, so nothing can go stale.
+/// Takes the proposal (the content's size, from `.overlay`) and places each overlay at its resolved frame. Caches nothing
+/// (a deviation from design M6b §2 / R3, which proposed a per-proposal cache): a rotation proposes a new content size
+/// every frame, so such a cache would never hit while it matters, and measuring happens only on an axis the size leaves
+/// open (`.ideal`, a nil aspect); without a cache nothing can go stale when a subview's ideal size changes.
 @available(iOS 16, *)
 struct ContentOverlayLayout: Layout {
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
@@ -79,12 +88,17 @@ struct ContentOverlayLayout: Layout {
 
 // MARK: 15 (and forced fallbacks): GeometryReader + alignment guides
 
-/// The reader's closure runs once per layout size of the content (a reflow), never on motion: the transform above it
-/// is a render-time effect, which does not re-run a `GeometryReader` that reads only its size (measured, M6b step 0,
-/// `ContentOverlayTests.geometryReaderUnderTransformClosureRuns`, iOS 17.5 and 27.0, both paths). Each overlay sits in
-/// the overlay of a content-sized clear base, so an overlay larger than the content keeps its negative origin; its frame
-/// is `S` (`frame(width:height:)`, a smaller view centred) with `fixedSize` on the unspecified axes, and its alignment
-/// guides put `q · f` on `P` with the view's own dimensions, so no measurement pass and no state are involved.
+/// The reader's closure (`contentOverlay.reader`) runs once per layout size of the content (every frame of an animated
+/// reflow) and once per evaluation of this view (a container body evaluation hands it new `decls`, hence a new
+/// closure); the overlays' bodies do not run with it (same views, no diff). Motion does not run it: the transform above
+/// is a render-time effect, and a `GeometryReader` that reads only its size did not re-run its closure under it, nor
+/// on the `.disabled` flips at motion start and end (measured, M6b L1: `geometryReaderUnderTransformClosureRuns` and
+/// the motion / refresh tests, iOS 17.5 and 27.0 runtimes, both paths). This host ships on iOS 15 only, and the iOS 15
+/// runtime itself is NOT measured (no iOS 15 simulator on this Mac); if its reader re-ran per motion frame, the
+/// contingency is design §2's metrics-driven host on 15 only. Each overlay sits in the overlay of a content-sized
+/// clear base, so an overlay larger than the content keeps its negative origin; its frame is `S`
+/// (`frame(width:height:)`, a smaller view centred) with `fixedSize` on the unspecified axes, and its alignment guides
+/// put `q · f` on `P` with the view's own dimensions, so no measurement pass and no state are involved.
 struct ContentOverlayReaderHost: View {
     let state: ZTronScrollState
     let decls: [ContentOverlayDecl]
@@ -93,7 +107,7 @@ struct ContentOverlayReaderHost: View {
         GeometryReader { g in
             let content = g.size
             #if DEBUG
-            let _ = ZTronRenderCounters.increment("contentOverlay.host.body")
+            let _ = ZTronRenderCounters.increment("contentOverlay.reader")
             #endif
             ZStack(alignment: .topLeading) {
                 ForEach(decls, id: \.key) { d in
@@ -108,7 +122,7 @@ struct ContentOverlayReaderHost: View {
                         d.view
                             .frame(width: s.width, height: s.height)
                             .fixedSize(horizontal: s.width == nil, vertical: s.height == nil)
-                            .modifier(CounterScaleLeaf(state: state, anchor: d.overlayAnchor,
+                            .modifier(CounterScaleLeaf(state: state, anchor: d.counterScalePivot,
                                                        isActive: d.scaling == .counterScaled))
                             .alignmentGuide(.leading) { v in q.x * v.width - p.x }
                             .alignmentGuide(.top) { v in q.y * v.height - p.y }
