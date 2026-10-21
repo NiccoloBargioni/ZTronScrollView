@@ -32,9 +32,14 @@ extension ZTronScrollView {
     ///   ``SwiftUI/View/ztronScrollContentIntegralOverlay(anchor:overlayAnchor:size:scaling:content:)`` twins.
     ///
     /// - Parameters:
-    ///   - anchor: The content point the overlay is pinned on (default `.center`).
-    ///   - overlayAnchor: The overlay's own point placed on `anchor` (default `.topLeading`, UIKit's `frame.origin`).
-    ///   - size: The overlay's size against the content's size (default `.fillMaxSize`).
+    ///   - anchor: The content point the overlay is pinned on (default `.center`). A `.relative` anchor is clamped to the
+    ///     content (``ZTronUnitPoint``); `.absolute` is not, and is the way to pin a point outside the content.
+    ///   - overlayAnchor: The overlay's own point placed on `anchor` (default `.topLeading`, UIKit's `frame.origin`). Not
+    ///     clamped: a point outside the overlay's frame (a callout's tail) is legitimate.
+    ///   - size: The overlay's size against the content's size (default `.fillMaxSize`): `.fillMaxWidth(height:)` /
+    ///     `.fillMaxHeight(width:)` with the free axis `.ideal`, `.aspectRatio`, `.absolute` or `.relative` (a fraction of
+    ///     the content's length on that axis), `.relative` fractions of both axes, `.absolute`, `.ideal`
+    ///     (``ZTronContentOverlaySize``).
     ///   - scaling: `.withContent` (default) scales with the zoom; `.counterScaled` keeps a constant on-screen size.
     ///   - content: The overlay; evaluated at the call, like SwiftUI's `overlay`.
     public func scrollContentIntegralOverlay<V: View>(anchor: ZTronContentOverlayAnchor = .center,

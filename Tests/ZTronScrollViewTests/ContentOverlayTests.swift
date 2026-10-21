@@ -125,14 +125,45 @@ private struct EqTwinOverlay: View, Equatable {
 /// The overlay set of the hosted tests (content `W × H`): see `expectFrames`.
 @MainActor
 private func overlaid<C: View>(_ v: ZTronScrollView<C>) -> ZTronScrollView<C> {
-    v.scrollContentIntegralOverlay(anchor: .relative(UnitPoint(x: 0.3, y: 0.65)), overlayAnchor: .center, size: .ideal) { Marker() }
+    v.scrollContentIntegralOverlay(anchor: .relative(ZTronUnitPoint(x: 0.3, y: 0.65)), overlayAnchor: .center, size: .ideal) { Marker() }
         .scrollContentIntegralOverlay { Fill() }
         .scrollContentIntegralOverlay(anchor: .bottom, overlayAnchor: .bottom, size: .fillMaxWidth(16 / 9)) { Banner() }
         .scrollContentIntegralOverlay(anchor: .absolute(CGPoint(x: 20, y: 30)), size: .ideal) { Pin() }
-        .scrollContentIntegralOverlay(anchor: .topLeading, size: .relative(CGSize(width: 0.5, height: 0.2))) { RelativeBox() }
+        .scrollContentIntegralOverlay(anchor: .topLeading, size: .relative(ZTronUnitSize(width: 0.5, height: 0.2))) { RelativeBox() }
         .scrollContentIntegralOverlay(anchor: .center, overlayAnchor: .center, size: .ideal, scaling: .counterScaled) {
             ScaledMarker()
         }
+}
+
+/// The generalized sizes (M6b units) and a clamped relative anchor, content `200 × H`: see `expectGeneralizedFrames`.
+@MainActor
+private func generalized<C: View>(_ v: ZTronScrollView<C>) -> ZTronScrollView<C> {
+    v.scrollContentIntegralOverlay(anchor: .top, overlayAnchor: .top, size: .fillMaxWidth(height: .absolute(40))) {
+        Color.red.ztronScrollID("g.wabs")
+    }
+    .scrollContentIntegralOverlay(anchor: .center, overlayAnchor: .center, size: .fillMaxWidth(height: .relative(0.1))) {
+        Color.orange.ztronScrollID("g.wrel")
+    }
+    .scrollContentIntegralOverlay(anchor: .bottom, overlayAnchor: .bottom, size: .fillMaxWidth(height: .aspectRatio(4))) {
+        Color.yellow.ztronScrollID("g.war")
+    }
+    .scrollContentIntegralOverlay(anchor: .leading, overlayAnchor: .leading, size: .fillMaxHeight(width: .relative(0.25))) {
+        Color.green.ztronScrollID("g.hrel")
+    }
+    .scrollContentIntegralOverlay(anchor: .leading, overlayAnchor: .leading, size: .fillMaxHeight(width: .aspectRatio(0.5))) {
+        Color.blue.ztronScrollID("g.har")
+    }
+    .scrollContentIntegralOverlay(anchor: .trailing, overlayAnchor: .trailing, size: .fillMaxHeight(width: .absolute(12))) {
+        Color.purple.ztronScrollID("g.habs")
+    }
+    .scrollContentIntegralOverlay(anchor: .bottomTrailing, overlayAnchor: .bottomTrailing,
+                                  size: .relative(width: 0.5, height: 0.2)) {
+        Color.gray.ztronScrollID("g.rel")
+    }
+    // (2, −1) clamps to (1, 0): the content's top-trailing corner, not (400, −1000).
+    .scrollContentIntegralOverlay(anchor: .relative(ZTronUnitPoint(x: 2, y: -1)), overlayAnchor: .topTrailing, size: .ideal) {
+        Color.black.frame(width: 10, height: 10).ztronScrollID("g.corner")
+    }
 }
 
 /// Content `200 × 1000`, or `200 × 1500` when the sibling grows (a parent re-evaluation; the content itself is input-free).
@@ -226,7 +257,7 @@ struct ContentOverlayTests {
             (.fillMaxWidth(nil), CGSize(width: 300, height: 30)),
             (.fillMaxWidth(), CGSize(width: 300, height: 30)),
             (.fillMaxHeight(4 / 3), CGSize(width: 800, height: 600)),
-            (.relative(CGSize(width: 0.5, height: 0.2)), CGSize(width: 150, height: 120)),
+            (.relative(ZTronUnitSize(width: 0.5, height: 0.2)), CGSize(width: 150, height: 120)),
             (.absolute(CGSize(width: 120, height: 40)), CGSize(width: 120, height: 40)),
             (.ideal, CGSize(width: 50, height: 30)),
         ]
@@ -244,7 +275,7 @@ struct ContentOverlayTests {
 
     @Test func mathRelativeAbsoluteAndFillMaxSize() {
         // .relative(0.3, 0.65): P = (90, 390); an ideal 50 × 30 view centred on it.
-        #expect(same(resolve(.relative(UnitPoint(x: 0.3, y: 0.65)), .center, .ideal), CGRect(x: 65, y: 375, width: 50, height: 30)))
+        #expect(same(resolve(.relative(ZTronUnitPoint(x: 0.3, y: 0.65)), .center, .ideal), CGRect(x: 65, y: 375, width: 50, height: 30)))
         // .absolute(A) pins the overlayAnchor point at A, whatever the content size.
         for c in [content, CGSize(width: 10, height: 10), .zero] {
             #expect(same(resolve(.absolute(CGPoint(x: 20, y: 30)), .bottom, .absolute(CGSize(width: 120, height: 40)), content: c),
@@ -253,7 +284,7 @@ struct ContentOverlayTests {
                           CGRect(x: 20, y: 30, width: 50, height: 30)))
         }
         // .fillMaxSize: the content rect whatever the anchors.
-        for anchor in [ZTronContentOverlayAnchor.center, .bottomTrailing, .relative(UnitPoint(x: 2, y: -1)), .absolute(CGPoint(x: 9, y: 9))] {
+        for anchor in [ZTronContentOverlayAnchor.center, .bottomTrailing, .relative(ZTronUnitPoint(x: 2, y: -1)), .absolute(CGPoint(x: 9, y: 9))] {
             for q in [UnitPoint.topLeading, .center, .bottomTrailing] {
                 #expect(same(resolve(anchor, q, .fillMaxSize), CGRect(x: 0, y: 0, width: 300, height: 600)))
             }
@@ -272,7 +303,7 @@ struct ContentOverlayTests {
         // W = 0 / H = 0: fill and relative sizes collapse on that axis; an ideal view sits at P at its size.
         let noWidth = CGSize(width: 0, height: 600), noHeight = CGSize(width: 300, height: 0)
         #expect(same(resolve(.center, .center, .fillMaxWidth(16 / 9), content: noWidth), CGRect(x: 0, y: 300, width: 0, height: 0)))
-        #expect(same(resolve(.center, .topLeading, .relative(CGSize(width: 0.5, height: 0.5)), content: noWidth),
+        #expect(same(resolve(.center, .topLeading, .relative(ZTronUnitSize(width: 0.5, height: 0.5)), content: noWidth),
                       CGRect(x: 0, y: 300, width: 0, height: 300)))
         #expect(same(resolve(.center, .center, .ideal, content: noHeight), CGRect(x: 125, y: -15, width: 50, height: 30)))
         #expect(same(resolve(.center, .topLeading, .fillMaxHeight(2), content: noHeight), CGRect(x: 150, y: 0, width: 0, height: 0)))
@@ -286,9 +317,10 @@ struct ContentOverlayTests {
             #expect(same(resolve(.topLeading, .topLeading, .fillMaxHeight(r)), CGRect(x: 0, y: 0, width: 50, height: 600)), "h \(r)")
         }
         #expect(ContentOverlayMath.aspect(nil) == nil && ContentOverlayMath.aspect(1.5) == 1.5)
-        // Negative or non-finite k / s → 0.
-        #expect(same(resolve(.topLeading, .topLeading, .relative(CGSize(width: -0.5, height: 0.2))), CGRect(x: 0, y: 0, width: 0, height: 120)))
-        #expect(same(resolve(.topLeading, .topLeading, .relative(CGSize(width: CGFloat.nan, height: .infinity))), .zero))
+        // k clamps to 0...1 (NaN → 0, +∞ → 1: the unit types, M6b units); negative or non-finite s → 0.
+        #expect(same(resolve(.topLeading, .topLeading, .relative(ZTronUnitSize(width: -0.5, height: 0.2))), CGRect(x: 0, y: 0, width: 0, height: 120)))
+        #expect(same(resolve(.topLeading, .topLeading, .relative(ZTronUnitSize(width: CGFloat.nan, height: .infinity))),
+                     CGRect(x: 0, y: 0, width: 0, height: 600)))
         #expect(same(resolve(.topLeading, .topLeading, .absolute(CGSize(width: -10, height: 40))), CGRect(x: 0, y: 0, width: 0, height: 40)))
         #expect(same(resolve(.topLeading, .topLeading, .absolute(CGSize(width: CGFloat.infinity, height: .nan))), .zero))
         // Non-finite A → 0.
@@ -569,7 +601,7 @@ struct ContentOverlayTests {
         let w = withOSPath(path) {
             host(ZTronScrollView(.vertical, state: s) { OverlaidContent() }
                 // P = (100, 100), frame (40, 60, 120, 40): the 10 × 10 view at its centre.
-                .scrollContentIntegralOverlay(anchor: .relative(UnitPoint(x: 0.5, y: 0.1)), overlayAnchor: .bottom,
+                .scrollContentIntegralOverlay(anchor: .relative(ZTronUnitPoint(x: 0.5, y: 0.1)), overlayAnchor: .bottom,
                                               size: .absolute(CGSize(width: 120, height: 40))) {
                     Color.red.frame(width: 10, height: 10).ztronScrollID("small")
                 }
@@ -639,7 +671,7 @@ struct ContentOverlayTests {
         let s = makeState(path)
         let w = withOSPath(path) {
             host(ZTronScrollView(.vertical, state: s) { OverlaidContent() }
-                .scrollContentIntegralOverlay(anchor: .relative(UnitPoint(x: 0.3, y: 0.65)), overlayAnchor: .bottom, size: .ideal,
+                .scrollContentIntegralOverlay(anchor: .relative(ZTronUnitPoint(x: 0.3, y: 0.65)), overlayAnchor: .bottom, size: .ideal,
                                               scaling: .counterScaled) { ScaledMarker() }
                 .zoomRange(min: .absolute(1), max: .absolute(4)))
         }
@@ -755,5 +787,255 @@ struct ContentOverlayTests {
         #expect(withOverlays.peek.metrics.contentSize == plain.peek.metrics.contentSize)
         unhost(w1)
         unhost(w2)
+    }
+
+    // MARK: (i) unit types, normalization and the generalized sizes (M6b units, user request 2026-10-21)
+
+    private func rect(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) -> CGRect {
+        CGRect(x: x, y: y, width: w, height: h)
+    }
+
+    @Test func unitTypesClampToZeroOneAndNaNIsZero() {
+        let table: [(CGFloat, CGFloat)] = [(-1, 0), (0, 0), (-0.0, 0), (0.5, 0.5), (1, 1), (2, 1), (.nan, 0),
+                                           (.infinity, 1), (-.infinity, 0)]
+        for (v, want) in table {
+            #expect(ZTronUnitLength(v).value == want, "length \(v)")
+            let s = ZTronUnitSize(width: v, height: 0.25), t = ZTronUnitSize(width: 0.25, height: v)
+            #expect(s.width == want && s.height == 0.25 && t.width == 0.25 && t.height == want, "size \(v)")
+            #expect(ZTronUnitSize(CGSize(width: v, height: v)) == ZTronUnitSize(width: want, height: want), "size \(v)")
+            let p = ZTronUnitPoint(x: v, y: 0.75), q = ZTronUnitPoint(x: 0.75, y: v)
+            #expect(p.x == want && p.y == 0.75 && q.x == 0.75 && q.y == want, "point \(v)")
+            #expect(ZTronUnitPoint(UnitPoint(x: v, y: v)) == ZTronUnitPoint(x: want, y: want), "point \(v)")
+        }
+        // Literals go through the clamping initializer.
+        let a: ZTronUnitLength = 0.25, b: ZTronUnitLength = 2, c: ZTronUnitLength = -1, d: ZTronUnitLength = 1
+        let e: ZTronUnitLength = 2.5, f: ZTronUnitLength = -0.5, g: ZTronUnitLength = 0
+        #expect(a.value == 0.25 && b == .full && c == .zero && d == .full && e == .full && f == .zero && g == .zero)
+        #expect(ZTronUnitLength.zero.value == 0 && ZTronUnitLength.full.value == 1)
+        #expect(ZTronUnitSize.zero.width == 0 && ZTronUnitSize.zero.height == 0)
+        #expect(ZTronUnitSize.full.width == 1 && ZTronUnitSize.full.height == 1)
+        // Equal values hash alike (−0 and every clamped negative included).
+        #expect(Set([ZTronUnitLength(0), ZTronUnitLength(-0.0), ZTronUnitLength(-3), .zero, 0]).count == 1)
+        #expect(Set([ZTronUnitPoint(x: 1, y: 0), ZTronUnitPoint(x: 9, y: -9), .topTrailing]).count == 1)
+        // The nine named points are UnitPoint's, both ways.
+        let named: [(ZTronUnitPoint, UnitPoint)] = [
+            (.topLeading, .topLeading), (.top, .top), (.topTrailing, .topTrailing), (.leading, .leading), (.center, .center),
+            (.trailing, .trailing), (.bottomLeading, .bottomLeading), (.bottom, .bottom), (.bottomTrailing, .bottomTrailing),
+        ]
+        for (z, u) in named {
+            #expect(z.unitPoint == u, "\(z)")
+            #expect(ZTronUnitPoint(u) == z, "\(u)")
+        }
+        #expect(ZTronUnitPoint(UnitPoint(x: 2, y: -1)) == .topTrailing)
+    }
+
+    @Test func sizesNormalizeWhenBuiltSoEqualRenderingValuesCompareEqual() {
+        typealias S = ZTronContentOverlaySize
+        // An unusable aspect ratio is `.ideal` on that axis.
+        let idealW = S.fillMaxWidth(height: .ideal), idealH = S.fillMaxHeight(width: .ideal)
+        #expect(S.fillMaxWidth() == idealW && S.fillMaxWidth(nil) == idealW)
+        #expect(S.fillMaxHeight() == idealH && S.fillMaxHeight(nil) == idealH)
+        for r in [CGFloat(0), -1, .infinity, -.infinity, .nan] {
+            #expect(S.fillMaxWidth(r) == idealW && S.fillMaxWidth(height: .aspectRatio(r)) == idealW, "w \(r)")
+            #expect(S.fillMaxHeight(r) == idealH && S.fillMaxHeight(width: .aspectRatio(r)) == idealH, "h \(r)")
+        }
+        // The sugar is the general form.
+        #expect(S.fillMaxWidth(16 / 9) == S.fillMaxWidth(height: .aspectRatio(16 / 9)))
+        #expect(S.fillMaxWidth(16.0 / 9.0) == S.fillMaxWidth(16 / 9))
+        #expect(S.fillMaxHeight(0.5) == S.fillMaxHeight(width: .aspectRatio(0.5)))
+        // Absolute lengths and sizes: negative or non-finite → 0.
+        for v in [CGFloat(-5), .nan, .infinity, -.infinity] {
+            #expect(S.fillMaxWidth(height: .absolute(v)) == S.fillMaxWidth(height: .absolute(0)), "w \(v)")
+            #expect(S.fillMaxHeight(width: .absolute(v)) == S.fillMaxHeight(width: .absolute(0)), "h \(v)")
+            #expect(S.absolute(CGSize(width: v, height: 7)) == S.absolute(CGSize(width: 0, height: 7)), "s.w \(v)")
+            #expect(S.absolute(CGSize(width: 7, height: v)) == S.absolute(CGSize(width: 7, height: 0)), "s.h \(v)")
+        }
+        // Relative fractions clamp (unit types).
+        #expect(S.fillMaxWidth(height: .relative(2)) == S.fillMaxWidth(height: .relative(.full)))
+        #expect(S.fillMaxHeight(width: .relative(-1)) == S.fillMaxHeight(width: .relative(.zero)))
+        #expect(S.fillMaxWidth(height: .relative(ZTronUnitLength(.nan))) == S.fillMaxWidth(height: .relative(0)))
+        #expect(S.relative(ZTronUnitSize(width: 2, height: -1)) == S.relative(width: 1, height: 0))
+        #expect(S.relative(ZTronUnitSize(CGSize(width: 0.5, height: 0.2))) == S.relative(width: 0.5, height: 0.2))
+        #expect(S.relative(.full) == S.relative(width: 1, height: 1) && S.relative(.zero) == S.relative(width: 0, height: 0))
+        // Different shapes stay different.
+        let distinct: [S] = [.fillMaxSize, .ideal, .fillMaxWidth(), .fillMaxHeight(), .fillMaxWidth(2), .fillMaxWidth(3),
+                             .fillMaxHeight(2), .fillMaxWidth(height: .absolute(40)), .fillMaxHeight(width: .absolute(40)),
+                             .fillMaxWidth(height: .relative(0.5)), .fillMaxHeight(width: .relative(0.5)), .relative(.full),
+                             .relative(width: 0.5, height: 0.2), .absolute(CGSize(width: 40, height: 40))]
+        for i in distinct.indices {
+            for j in distinct.indices where i != j {
+                #expect(distinct[i] != distinct[j], "\(distinct[i]) vs \(distinct[j])")
+            }
+        }
+        // A relative anchor clamps to the content; `.absolute` and `overlayAnchor` do not.
+        #expect(ZTronContentOverlayAnchor.relative(ZTronUnitPoint(x: 2, y: -1)) == .relative(.topTrailing))
+        #expect(ContentOverlayMath.anchorPoint(.relative(ZTronUnitPoint(x: 2, y: -1)), content: content) == CGPoint(x: 300, y: 0))
+        #expect(ContentOverlayMath.anchorPoint(.absolute(CGPoint(x: -40, y: 900)), content: content) == CGPoint(x: -40, y: 900))
+        #expect(same(resolve(.topLeading, UnitPoint(x: 2, y: -1), .absolute(CGSize(width: 10, height: 10))), rect(-20, 10, 10, 10)))
+    }
+
+    @Test func mathEveryFreeLengthOnBothAxes() {
+        // Content 300 × 600, the view's own size 50 × 30 (`measure`).
+        let heights: [(ZTronContentOverlayLength, CGFloat)] = [   // .fillMaxWidth(height:): width 300
+            (.ideal, 30), (.aspectRatio(4), 75), (.aspectRatio(0.5), 600), (.absolute(40), 40), (.relative(0.1), 60),
+            (.relative(1), 600), (.relative(0), 0),
+        ]
+        let widths: [(ZTronContentOverlayLength, CGFloat)] = [    // .fillMaxHeight(width:): height 600
+            (.ideal, 50), (.aspectRatio(0.5), 300), (.aspectRatio(2), 1200), (.absolute(12), 12), (.relative(0.25), 75),
+            (.relative(1), 300), (.relative(0), 0),
+        ]
+        let anchors: [(ZTronContentOverlayAnchor, CGPoint)] = [
+            (.center, CGPoint(x: 150, y: 300)), (.bottomTrailing, CGPoint(x: 300, y: 600)),
+            (.relative(ZTronUnitPoint(x: 0.3, y: 0.65)), CGPoint(x: 90, y: 390)), (.absolute(CGPoint(x: -20, y: 30)), CGPoint(x: -20, y: 30)),
+        ]
+        for (anchor, p) in anchors {
+            for q in [UnitPoint.topLeading, .center, .bottomTrailing, UnitPoint(x: 0.25, y: 0.75)] {
+                for (l, h) in heights {
+                    let want = rect(p.x - q.x * 300, p.y - q.y * h, 300, h)
+                    #expect(same(resolve(anchor, q, .fillMaxWidth(height: l)), want), "w \(anchor) \(q) \(l)")
+                }
+                for (l, w) in widths {
+                    let want = rect(p.x - q.x * w, p.y - q.y * 600, w, 600)
+                    #expect(same(resolve(anchor, q, .fillMaxHeight(width: l)), want), "h \(anchor) \(q) \(l)")
+                }
+                #expect(same(resolve(anchor, q, .relative(width: 0.5, height: 0.2)), rect(p.x - q.x * 150, p.y - q.y * 120, 150, 120)))
+            }
+        }
+        // The proposal leaves the free axis open for `.ideal` only, and `measure` runs only then.
+        #expect(ContentOverlayMath.proposal(.fillMaxWidth(height: .ideal), content: content) == OverlayProposal(width: 300, height: nil))
+        #expect(ContentOverlayMath.proposal(.fillMaxHeight(width: .ideal), content: content) == OverlayProposal(width: nil, height: 600))
+        var calls = 0
+        let closed: [ZTronContentOverlaySize] = [.fillMaxWidth(height: .absolute(40)), .fillMaxWidth(height: .relative(0.1)),
+                                                 .fillMaxWidth(height: .aspectRatio(4)), .fillMaxHeight(width: .absolute(12)),
+                                                 .fillMaxHeight(width: .relative(0.25)), .fillMaxHeight(width: .aspectRatio(0.5)),
+                                                 .relative(width: 0.5, height: 0.2)]
+        for size in closed {
+            _ = ContentOverlayMath.resolve(ContentOverlayPlacement(anchor: .center, overlayAnchor: .center, size: size),
+                                           content: content) { _ in calls += 1; return .zero }
+        }
+        #expect(calls == 0)
+        _ = ContentOverlayMath.resolve(ContentOverlayPlacement(anchor: .center, overlayAnchor: .center, size: .fillMaxHeight(width: .ideal)),
+                                       content: content) { p in calls += 1; #expect(p == OverlayProposal(width: nil, height: 600)); return .zero }
+        #expect(calls == 1)
+        // Degenerate content. W = 0: the filled width is 0, an aspect height W / r is 0, an absolute or relative height
+        // keeps its value; H = 0 mirrors it.
+        let noWidth = CGSize(width: 0, height: 600), noHeight = CGSize(width: 300, height: 0)
+        let tl = ZTronContentOverlayAnchor.topLeading, q0 = UnitPoint.topLeading
+        #expect(same(resolve(tl, q0, .fillMaxWidth(height: .aspectRatio(4)), content: noWidth), rect(0, 0, 0, 0)))
+        #expect(same(resolve(tl, q0, .fillMaxWidth(height: .absolute(40)), content: noWidth), rect(0, 0, 0, 40)))
+        #expect(same(resolve(tl, q0, .fillMaxWidth(height: .relative(0.1)), content: noWidth), rect(0, 0, 0, 60)))
+        #expect(same(resolve(tl, q0, .fillMaxWidth(height: .ideal), content: noWidth), rect(0, 0, 0, 30)))
+        #expect(same(resolve(tl, q0, .fillMaxWidth(height: .relative(0.5)), content: noHeight), rect(0, 0, 300, 0)))
+        #expect(same(resolve(tl, q0, .fillMaxWidth(height: .aspectRatio(4)), content: noHeight), rect(0, 0, 300, 75)))
+        #expect(same(resolve(tl, q0, .fillMaxHeight(width: .aspectRatio(0.5)), content: noHeight), rect(0, 0, 0, 0)))
+        #expect(same(resolve(tl, q0, .fillMaxHeight(width: .absolute(12)), content: noHeight), rect(0, 0, 12, 0)))
+        #expect(same(resolve(tl, q0, .fillMaxHeight(width: .relative(0.25)), content: noHeight), rect(0, 0, 75, 0)))
+        #expect(same(resolve(tl, q0, .fillMaxHeight(width: .ideal), content: noHeight), rect(0, 0, 50, 0)))
+        #expect(same(resolve(tl, q0, .fillMaxHeight(width: .relative(0.25)), content: noWidth), rect(0, 0, 0, 600)))
+        #expect(same(resolve(tl, q0, .fillMaxHeight(width: .aspectRatio(0.5)), content: noWidth), rect(0, 0, 300, 600)))
+        #expect(same(resolve(tl, q0, .relative(width: 0.5, height: 0.2), content: .zero), .zero))
+        #expect(same(resolve(.relative(.bottomTrailing), .bottomTrailing, .relative(width: 1, height: 1), content: .zero), .zero))
+        // Negative or non-finite content counts as 0.
+        #expect(same(resolve(tl, q0, .fillMaxWidth(height: .relative(0.5)), content: CGSize(width: -10, height: CGFloat.nan)), .zero))
+        // Negative or non-finite free lengths, normalized when built: absolute → 0, aspect → `.ideal`, relative clamps.
+        for v in [CGFloat(-5), .nan, .infinity] {
+            #expect(same(resolve(tl, q0, .fillMaxWidth(height: .absolute(v))), rect(0, 0, 300, 0)), "\(v)")
+            #expect(same(resolve(tl, q0, .fillMaxHeight(width: .absolute(v))), rect(0, 0, 0, 600)), "\(v)")
+            #expect(same(resolve(tl, q0, .fillMaxWidth(height: .aspectRatio(v))), rect(0, 0, 300, 30)), "\(v)")
+            #expect(same(resolve(tl, q0, .fillMaxHeight(width: .aspectRatio(v))), rect(0, 0, 50, 600)), "\(v)")
+            let k = ZTronUnitLength(v).value
+            #expect(same(resolve(tl, q0, .fillMaxWidth(height: .relative(ZTronUnitLength(v)))), rect(0, 0, 300, 600 * k)), "\(v)")
+            #expect(same(resolve(tl, q0, .fillMaxHeight(width: .relative(ZTronUnitLength(v)))), rect(0, 0, 300 * k, 600)), "\(v)")
+        }
+        // A ratio so extreme that the length overflows counts as 0 (never an infinite frame).
+        #expect(same(resolve(tl, q0, .fillMaxWidth(height: .aspectRatio(.leastNonzeroMagnitude))), rect(0, 0, 300, 0)))
+        #expect(same(resolve(tl, q0, .fillMaxHeight(width: .aspectRatio(.greatestFiniteMagnitude))), rect(0, 0, 0, 600)))
+        // Defensive on values the constructors exclude.
+        #expect(ContentOverlayMath.freeLength(.aspectRatio(-1), sameAxis: 600) { 300 / $0 } == nil)
+        #expect(ContentOverlayMath.freeLength(.aspectRatio(.nan), sameAxis: 600) { 300 / $0 } == nil)
+        #expect(ContentOverlayMath.freeLength(.absolute(-3), sameAxis: 600) { $0 } == 0)
+    }
+
+    /// Compile-only: the agreed spellings type-check without ambiguity (a failure here is a build error, not a test
+    /// failure).
+    @Test func theAgreedSpellingsCompile() {
+        let r: CGFloat = 2
+        let sizes: [ZTronContentOverlaySize] = [
+            .fillMaxWidth(), .fillMaxWidth(16 / 9), .fillMaxWidth(16.0 / 9.0), .fillMaxWidth(r), .fillMaxWidth(nil),
+            .fillMaxWidth(height: .relative(0.2)), .fillMaxWidth(height: .absolute(40)), .fillMaxWidth(height: .aspectRatio(16 / 9)),
+            .fillMaxWidth(height: .ideal), .fillMaxHeight(), .fillMaxHeight(0.5), .fillMaxHeight(width: .relative(0.25)),
+            .fillMaxHeight(width: .absolute(12)), .relative(width: 0.5, height: 0.2), .relative(width: 1, height: 0),
+            .relative(.full), .relative(.zero), .relative(ZTronUnitSize(width: 0.5, height: 0.2)),
+            .relative(ZTronUnitSize(CGSize(width: 0.5, height: 0.2))), .absolute(CGSize(width: 120, height: 40)), .ideal,
+            .fillMaxSize,
+        ]
+        let anchors: [ZTronContentOverlayAnchor] = [
+            .center, .relative(.center), .relative(ZTronUnitPoint(x: 0.3, y: 0.65)),
+            .relative(ZTronUnitPoint(UnitPoint(x: 0.3, y: 0.65))), .absolute(CGPoint(x: -20, y: 30)),
+        ]
+        let lengths: [ZTronContentOverlayLength] = [.ideal, .aspectRatio(16 / 9), .absolute(12), .relative(0.05), .relative(1), .relative(.full)]
+        let view = ZTronScrollView(.vertical) { Color.red.frame(width: 10, height: 10) }
+            .scrollContentIntegralOverlay(size: .fillMaxWidth(16 / 9)) { Color.blue }
+            .scrollContentIntegralOverlay(anchor: .top, overlayAnchor: .top, size: .fillMaxWidth(height: .relative(0.05))) { Color.blue }
+            .scrollContentIntegralOverlay(anchor: .trailing, overlayAnchor: .trailing, size: .fillMaxHeight(width: .absolute(12))) {
+                Color.blue
+            }
+            .scrollContentIntegralOverlay(anchor: .relative(.topTrailing), size: .relative(width: 0.5, height: 0.2)) { Color.blue }
+            .ztronScrollContentIntegralOverlay(size: .relative(.full)) { Color.blue }
+        #expect(sizes.count == 22 && anchors.count == 5 && lengths.count == 6)
+        _ = view
+    }
+
+    private func expectGeneralizedFrames(_ s: ZTronScrollState, h H: CGFloat, _ label: String) {
+        let r = s.targets
+        let expected: [(String, CGRect)] = [
+            ("g.wabs", rect(0, 0, 200, 40)),                    // .top / .top, W × 40
+            ("g.wrel", rect(0, 0.45 * H, 200, 0.1 * H)),        // .center / .center, W × 0.1 H
+            ("g.war", rect(0, H - 50, 200, 50)),                // .bottom / .bottom, W × W / 4
+            ("g.hrel", rect(0, 0, 50, H)),                      // .leading / .leading, 0.25 W × H
+            ("g.har", rect(0, 0, 0.5 * H, H)),                  // .leading / .leading, 0.5 H × H
+            ("g.habs", rect(188, 0, 12, H)),                    // .trailing / .trailing, 12 × H
+            ("g.rel", rect(100, 0.8 * H, 100, 0.2 * H)),        // .bottomTrailing / .bottomTrailing, 0.5 W × 0.2 H
+            ("g.corner", rect(190, 0, 10, 10)),                 // (2, −1) → (1, 0) / .topTrailing, ideal 10 × 10
+        ]
+        for (id, frame) in expected {
+            #expect(close(r.frame(of: id), frame), "\(label) \(id): \(String(describing: r.frame(of: id))) != \(frame)")
+        }
+    }
+
+    /// The generalized sizes and a clamped relative anchor on both hosts. A content-owned reflow re-places them by
+    /// layout alone (no host, no overlay body); motion afterwards runs nothing at all.
+    @Test(arguments: OSPath.allCases) func generalizedSizesLandOnBothHostsFollowAReflowAndStayStill(path: OSPath) {
+        let s = makeState(path)
+        let w = withOSPath(path) {
+            host(generalized(ZTronScrollView(.vertical, state: s) { GrowingContent() })
+                .zoomRange(min: .absolute(1), max: .absolute(4)))
+        }
+        pump(0.2)
+        #expect(s.peek.metrics.contentSize == CGSize(width: 200, height: 1000))
+        expectGeneralizedFrames(s, h: 1000, "initial")
+        Bodies.reset()
+        ZTronRenderCounters.reset()
+        withOSPath(path) { NotificationCenter.default.post(name: .contentOverlayGrow, object: nil); pump(0.3) }
+        #expect(s.peek.metrics.contentSize == CGSize(width: 200, height: 1500))
+        expectGeneralizedFrames(s, h: 1500, "grown")
+        #expect(Bodies.content == 1, "the content's own change only")
+        #expect(ZTronRenderCounters.value("contentOverlay.body") == 0)
+        #expect(ZTronRenderCounters.value("contentOverlay.host.body") == 0, "no container evaluation")
+        #expect(ZTronRenderCounters.value(s.usesLayoutProtocol ? "contentOverlay.place" : "contentOverlay.reader") >= 1)
+        let writes = s.targets.writes
+        Bodies.reset()
+        ZTronRenderCounters.reset()
+        for i in 1...5 { s.track(offset: CGPoint(x: 0, y: 30 * CGFloat(i)), zoom: 1); pump(0.03) }
+        for i in 1...5 { s.track(offset: CGPoint(x: 0, y: 150), zoom: 1 + 0.25 * CGFloat(i)); pump(0.03) }
+        s.setContentOffset(CGPoint(x: 0, y: 400), animated: true); pump(1.0)
+        #expect(ZTronRenderCounters.value("transform.effect") > 0)   // the motion was drawn
+        #expect(Bodies.content == 0)
+        #expect(ZTronRenderCounters.value("contentOverlay.body") == 0)
+        #expect(ZTronRenderCounters.value("contentOverlay.host.body") == 0)
+        #expect(ZTronRenderCounters.value("contentOverlay.reader") == 0)
+        #expect(ZTronRenderCounters.value("contentOverlay.place") == 0)
+        #expect(s.targets.writes == writes, "the overlays' content-space frames never moved")
+        unhost(w)
     }
 }

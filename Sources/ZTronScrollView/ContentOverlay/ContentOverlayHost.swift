@@ -65,7 +65,7 @@ struct ContentOverlayPlacementKey: LayoutValueKey {
 /// Takes the proposal (the content's size, from `.overlay`) and places each overlay at its resolved frame. Caches nothing
 /// (a deviation from design M6b §2 / R3, which proposed a per-proposal cache): a rotation proposes a new content size
 /// every frame, so such a cache would never hit while it matters, and measuring happens only on an axis the size leaves
-/// open (`.ideal`, a nil aspect); without a cache nothing can go stale when a subview's ideal size changes.
+/// open (`.ideal`, an `.ideal` free axis); without a cache nothing can go stale when a subview's ideal size changes.
 @available(iOS 16, *)
 struct ContentOverlayLayout: Layout {
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {

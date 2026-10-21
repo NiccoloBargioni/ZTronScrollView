@@ -33,7 +33,7 @@ enum ContentOverlayMath {
         case .bottomLeading: return .bottomLeading
         case .bottom: return .bottom
         case .bottomTrailing: return .bottomTrailing
-        case .relative(let p): return UnitPoint(x: finite(p.x), y: finite(p.y))
+        case .relative(let p): return p.unitPoint   // clamped to 0...1 when it was built
         case .absolute: return nil
         }
     }
@@ -47,7 +47,8 @@ enum ContentOverlayMath {
     }
 
     /// A usable aspect ratio (width / height), or `nil` (absent, zero, negative or non-finite: DEBUG note
-    /// `contentOverlay.badAspect`, design M6b §1 "Degenerate inputs").
+    /// `contentOverlay.badAspect`, design M6b §1 "Degenerate inputs"). Called when a size is built
+    /// (`ZTronContentOverlayLength.normalized`), so a size never holds an unusable ratio.
     static func aspect(_ ratio: CGFloat?) -> CGFloat? {
         guard let r = ratio else { return nil }
         guard r.isFinite, r > 0 else {
@@ -64,21 +65,37 @@ enum ContentOverlayMath {
     /// `S`: the proposal `size` makes for a content of `content`.
     static func proposal(_ size: ZTronContentOverlaySize, content: CGSize) -> OverlayProposal {
         let c = sanitized(content)
-        switch size {
+        switch size.kind {
         case .fillMaxSize:
             return OverlayProposal(width: c.width, height: c.height)
-        case .fillMaxWidth(let ratio):
-            if let r = aspect(ratio) { return OverlayProposal(width: c.width, height: c.width / r) }
-            return OverlayProposal(width: c.width, height: nil)
-        case .fillMaxHeight(let ratio):
-            if let r = aspect(ratio) { return OverlayProposal(width: c.height * r, height: c.height) }
-            return OverlayProposal(width: nil, height: c.height)
+        case .fillMaxWidth(let height):
+            return OverlayProposal(width: c.width, height: freeLength(height, sameAxis: c.height) { c.width / $0 })
+        case .fillMaxHeight(let width):
+            return OverlayProposal(width: freeLength(width, sameAxis: c.width) { c.height * $0 }, height: c.height)
         case .relative(let k):
-            return OverlayProposal(width: c.width * nonNegative(k.width), height: c.height * nonNegative(k.height))
+            return OverlayProposal(width: c.width * k.width, height: c.height * k.height)
         case .absolute(let s):
             return OverlayProposal(width: nonNegative(s.width), height: nonNegative(s.height))
         case .ideal:
             return OverlayProposal(width: nil, height: nil)
+        }
+    }
+
+    /// The free axis of `.fillMaxWidth` / `.fillMaxHeight`: `nil` (unspecified) for `.ideal`; `sameAxis` = the content's
+    /// length on that axis (what `.relative` scales); `fromRatio(r)` = the length an aspect ratio gives from the filled
+    /// axis. Defensive on values the normalizing constructors already exclude; an overflowing ratio counts as 0.
+    static func freeLength(_ length: ZTronContentOverlayLength, sameAxis: CGFloat,
+                           fromRatio: (CGFloat) -> CGFloat) -> CGFloat? {
+        switch length {
+        case .ideal:
+            return nil
+        case .aspectRatio(let r):
+            guard r.isFinite, r > 0 else { return nil }
+            return nonNegative(fromRatio(r))
+        case .absolute(let v):
+            return nonNegative(v)
+        case .relative(let k):
+            return sameAxis * k.value
         }
     }
 
@@ -98,7 +115,7 @@ enum ContentOverlayMath {
     static func resolve(_ placement: ContentOverlayPlacement, content: CGSize,
                         measure: (OverlayProposal) -> CGSize) -> CGRect {
         let c = sanitized(content)
-        if case .fillMaxSize = placement.size { return CGRect(origin: .zero, size: c) }
+        if placement.size == .fillMaxSize { return CGRect(origin: .zero, size: c) }
         let f = frameSize(proposal(placement.size, content: c), measure: measure)
         let o = origin(anchorPoint: anchorPoint(placement.anchor, content: c), overlayAnchor: placement.overlayAnchor, frame: f)
         return CGRect(origin: o, size: f)

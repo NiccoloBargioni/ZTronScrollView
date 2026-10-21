@@ -8,9 +8,14 @@ import SwiftUI
 /// A point of the content, in the unscaled content space of a ``ZTronScrollView``: where a content-integral overlay's
 /// `overlayAnchor` point is pinned (see ``ZTronScrollView/scrollContentIntegralOverlay(anchor:overlayAnchor:size:scaling:content:)``).
 ///
-/// The nine named cases are sugar for ``relative(_:)`` with the `UnitPoint` of the same name: `.center` is
+/// The nine named cases are sugar for ``relative(_:)`` with the ``ZTronUnitPoint`` of the same name: `.center` is
 /// `.relative(.center)`, the point at half the content's width and half its height. The point follows the content's
 /// size whenever it changes (a reflow on rotation, a list that grows); ``absolute(_:)`` does not.
+///
+/// A relative anchor always lies on the content (its ``ZTronUnitPoint`` is clamped to `0...1`): to pin an overlay
+/// outside the content, use ``absolute(_:)`` (unclamped, possibly negative), or keep the anchor on the content's edge
+/// and move the overlay with `overlayAnchor`, which is a plain `UnitPoint` and not clamped (a callout whose tail point
+/// lies outside its own frame is legitimate).
 public enum ZTronContentOverlayAnchor: Equatable, Sendable {
     /// The content's top-leading corner, `(0, 0)`.
     case topLeading
@@ -30,36 +35,134 @@ public enum ZTronContentOverlayAnchor: Equatable, Sendable {
     case bottom
     /// The content's bottom-trailing corner, `(W, H)`.
     case bottomTrailing
-    /// A fraction of the content's size per axis: `(W · point.x, H · point.y)`. Values outside `0...1` name points
-    /// outside the content.
-    case relative(UnitPoint)
-    /// A fixed point in unscaled content points, independent of the content's size. Non-finite components count as 0.
+    /// A fraction of the content's size per axis: `(W · point.x, H · point.y)`, always a point of the content (the
+    /// ``ZTronUnitPoint`` is clamped to `0...1` when it is built: `.relative(ZTronUnitPoint(x: 2, y: -1))` is the
+    /// top-trailing corner). Before the unit types this case took a `UnitPoint`, whose values outside `0...1` named
+    /// points outside the content: wrap it as `.relative(ZTronUnitPoint(p))`, or use ``absolute(_:)`` for such a point.
+    case relative(ZTronUnitPoint)
+    /// A fixed point in unscaled content points, independent of the content's size, and not clamped: the way to anchor
+    /// an overlay outside the content. Non-finite components count as 0.
     case absolute(CGPoint)
+}
+
+/// The free axis of ``ZTronContentOverlaySize/fillMaxWidth(height:)`` (the overlay's height) or
+/// ``ZTronContentOverlaySize/fillMaxHeight(width:)`` (its width), resolved against the content's size `W × H`.
+///
+/// Normalized when it becomes part of a ``ZTronContentOverlaySize``, so equal-rendering sizes compare equal: an
+/// ``aspectRatio(_:)`` that is zero, negative or non-finite becomes ``ideal`` (DEBUG note `contentOverlay.badAspect`);
+/// an ``absolute(_:)`` length that is negative or non-finite becomes 0; ``relative(_:)`` is clamped by its
+/// ``ZTronUnitLength``.
+public enum ZTronContentOverlayLength: Equatable, Sendable {
+    /// SwiftUI decides: the view's own length on that axis, measured with that axis unspecified and the filled axis at
+    /// the content's length (wrapped text at width `W`).
+    case ideal
+    /// The overlay's width / height (SwiftUI's `aspectRatio` convention): `.fillMaxWidth(height: .aspectRatio(16 / 9))`
+    /// is `W × 9W/16`, `.fillMaxHeight(width: .aspectRatio(0.5))` is `H/2 × H`.
+    case aspectRatio(CGFloat)
+    /// A fixed length in unscaled content points (it scales with the zoom like the rest of the content).
+    case absolute(CGFloat)
+    /// A fraction of the content's length on the same axis, not of the overlay's filled one:
+    /// `.fillMaxWidth(height: .relative(0.05))` is `W × 0.05 H`, `.fillMaxHeight(width: .relative(0.25))` is `0.25 W × H`.
+    case relative(ZTronUnitLength)
+
+    /// This length with degenerate values replaced (see the type's documentation).
+    var normalized: Self {
+        switch self {
+        case .aspectRatio(let r): return ContentOverlayMath.aspect(r).map { .aspectRatio($0) } ?? .ideal
+        case .absolute(let v): return .absolute(ContentOverlayMath.nonNegative(v))
+        case .ideal, .relative: return self
+        }
+    }
 }
 
 /// The size proposed to a content-integral overlay, resolved against the content's size `W × H` (unscaled content
 /// points). The overlay's frame is this size on every axis it specifies and the view's own size on an axis it leaves
-/// unspecified; a view that takes less than its frame is centred in it (SwiftUI's `frame(width:height:)`).
-public enum ZTronContentOverlaySize: Equatable, Sendable {
-    /// The whole content rect (the default): the overlay covers the content exactly, `anchor` and `overlayAnchor` are
-    /// ignored, and a view that takes less is centred in it — SwiftUI's own `.overlay` applied to the content. A
-    /// `.counterScaled` one scales about the content's centre.
-    case fillMaxSize
+/// unspecified (``ideal``, ``ZTronContentOverlayLength/ideal``); a view that takes less than its frame is centred in it
+/// (SwiftUI's `frame(width:height:)`).
+///
+/// Values are normalized when they are built, so two sizes that always render alike compare equal:
+/// `.fillMaxWidth(0) == .fillMaxWidth() == .fillMaxWidth(height: .ideal)`,
+/// `.fillMaxWidth(16 / 9) == .fillMaxWidth(height: .aspectRatio(16 / 9))`, negative or non-finite absolute lengths are
+/// 0, and every relative fraction is a clamped unit type (``ZTronUnitLength``, ``ZTronUnitSize``).
+///
+/// Before the unit types this was an enum; its spellings `.fillMaxSize`, `.ideal`, `.fillMaxWidth()`,
+/// `.fillMaxWidth(16 / 9)`, `.fillMaxHeight(_:)` and `.absolute(CGSize)` still compile and mean the same.
+/// `.relative(CGSize)` is now `.relative(ZTronUnitSize(size))` (components clamped to `0...1`: `+infinity` is 1, no
+/// longer 0). A `switch` over the old cases no longer compiles: compare with `==` instead.
+public struct ZTronContentOverlaySize: Equatable, Sendable {
+    /// The resolved shape; built only by the normalizing constructors below.
+    enum Kind: Equatable, Sendable {
+        case fillMaxSize
+        case fillMaxWidth(height: ZTronContentOverlayLength)
+        case fillMaxHeight(width: ZTronContentOverlayLength)
+        case relative(ZTronUnitSize)
+        case absolute(CGSize)
+        case ideal
+    }
+
+    let kind: Kind
+
+    private init(_ kind: Kind) { self.kind = kind }
+
+    /// The whole content rect (the default of `size:`): the overlay covers the content exactly, `anchor` and
+    /// `overlayAnchor` are ignored, and a view that takes less is centred in it — SwiftUI's own `.overlay` applied to the
+    /// content. A `.counterScaled` one scales about the content's centre.
+    public static let fillMaxSize = ZTronContentOverlaySize(.fillMaxSize)
+
+    /// The view's ideal size on both axes (`fixedSize()`): a small marker, a label at its natural size.
+    public static let ideal = ZTronContentOverlaySize(.ideal)
+
     /// Width = the content's width; height = width / `aspectRatio` (width over height, as SwiftUI's `aspectRatio`:
     /// `.fillMaxWidth(16 / 9)` is `W × 9W/16`). `nil`, zero, negative or non-finite: the view's own height at width `W`
     /// (wrapped text).
-    case fillMaxWidth(_ aspectRatio: CGFloat? = nil)
+    ///
+    /// Sugar for ``fillMaxWidth(height:)``: `.fillMaxWidth(r)` is `.fillMaxWidth(height: .aspectRatio(r))` and
+    /// `.fillMaxWidth()` is `.fillMaxWidth(height: .ideal)`, equal values.
+    public static func fillMaxWidth(_ aspectRatio: CGFloat? = nil) -> Self {
+        fillMaxWidth(height: aspectRatio.map { .aspectRatio($0) } ?? .ideal)
+    }
+
+    /// Width = the content's width `W`; the height per `height`: ``ZTronContentOverlayLength/ideal`` the view's own
+    /// height at width `W`, ``ZTronContentOverlayLength/aspectRatio(_:)`` `W / r`, ``ZTronContentOverlayLength/absolute(_:)``
+    /// that many points, ``ZTronContentOverlayLength/relative(_:)`` that fraction of the content's height `H`.
+    public static func fillMaxWidth(height: ZTronContentOverlayLength) -> Self {
+        ZTronContentOverlaySize(.fillMaxWidth(height: height.normalized))
+    }
+
     /// Height = the content's height; width = height × `aspectRatio`. `nil`, zero, negative or non-finite: the view's
     /// own width at height `H`.
-    case fillMaxHeight(_ aspectRatio: CGFloat? = nil)
-    /// A fraction of the content's size per axis: `(W · size.width, H · size.height)`. Negative or non-finite
-    /// components count as 0.
-    case relative(CGSize)
+    ///
+    /// Sugar for ``fillMaxHeight(width:)``: `.fillMaxHeight(r)` is `.fillMaxHeight(width: .aspectRatio(r))` and
+    /// `.fillMaxHeight()` is `.fillMaxHeight(width: .ideal)`, equal values.
+    public static func fillMaxHeight(_ aspectRatio: CGFloat? = nil) -> Self {
+        fillMaxHeight(width: aspectRatio.map { .aspectRatio($0) } ?? .ideal)
+    }
+
+    /// Height = the content's height `H`; the width per `width`: ``ZTronContentOverlayLength/ideal`` the view's own
+    /// width at height `H`, ``ZTronContentOverlayLength/aspectRatio(_:)`` `H · r`, ``ZTronContentOverlayLength/absolute(_:)``
+    /// that many points, ``ZTronContentOverlayLength/relative(_:)`` that fraction of the content's width `W`.
+    public static func fillMaxHeight(width: ZTronContentOverlayLength) -> Self {
+        ZTronContentOverlaySize(.fillMaxHeight(width: width.normalized))
+    }
+
+    /// A fraction of the content's size per axis: `(W · size.width, H · size.height)`, each fraction in `0...1`
+    /// (``ZTronUnitSize`` clamps).
+    public static func relative(_ size: ZTronUnitSize) -> Self {
+        ZTronContentOverlaySize(.relative(size))
+    }
+
+    /// A fraction of the content's size per axis: `(W · width, H · height)`, each fraction in `0...1`
+    /// (``ZTronUnitLength`` clamps; literals work: `.relative(width: 0.5, height: 0.2)`).
+    public static func relative(width: ZTronUnitLength, height: ZTronUnitLength) -> Self {
+        relative(ZTronUnitSize(width: width.value, height: height.value))
+    }
+
     /// A fixed size in unscaled content points, independent of the content's size (only the origin follows it).
-    /// Negative or non-finite components count as 0.
-    case absolute(CGSize)
-    /// The view's ideal size (`fixedSize()`): a small marker, a label at its natural size.
-    case ideal
+    /// Negative or non-finite components become 0.
+    public static func absolute(_ size: CGSize) -> Self {
+        ZTronContentOverlaySize(.absolute(CGSize(width: ContentOverlayMath.nonNegative(size.width),
+                                                 height: ContentOverlayMath.nonNegative(size.height))))
+    }
 }
 
 /// How a content-integral overlay draws under zoom.
