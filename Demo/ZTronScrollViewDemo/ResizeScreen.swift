@@ -182,7 +182,7 @@ struct UserTreeScroller: View {
 /// The demo's overlays. Most are input-free (no stored properties); `OverlayLabel` has a constant input and the bare
 /// `Text` overlay is `Equatable`. A re-evaluation of the call site (the user tree's `GeometryReader` rebuilds the scroll
 /// view on every rotation) hands SwiftUI equal values, so none of their bodies runs again. Each body counts itself
-/// (DEBUG) for the readout (`mk`, `bn`, `tn`, `lb`; the bare `Text` only through the library's `ovb`).
+/// (DEBUG) for the readout (`mk`, `bn`, `tn`, `lb`, `sp`, `ba`; the bare `Text` only through the library's `ovb`).
 struct OverlayMarker: View {
     var body: some View {
         #if DEBUG
@@ -254,6 +254,34 @@ struct OverlayLabel: View {
     }
 }
 
+/// A strip across the content's top, 5 % of the content's height tall (`.fillMaxWidth(height: .relative(0.05))`: the
+/// free axis is a fraction of the content's height, not of the strip's width). Input-free, takes no touches (`sp`).
+struct OverlayStrip: View {
+    var body: some View {
+        #if DEBUG
+        ZTronRenderCounters.increment("demo.overlayStrip.body")
+        #endif
+        return Rectangle().fill(Color.green.opacity(0.25))
+            .allowsHitTesting(false)
+            .accessibilityElement(children: .ignore)
+            .accessibilityIdentifier("overlay.strip")
+    }
+}
+
+/// A 12 pt bar along the content's trailing edge, the content's height tall (`.fillMaxHeight(width: .absolute(12))`,
+/// unscaled points: 12 x zoom on screen). Input-free, takes no touches (`ba`).
+struct OverlayBar: View {
+    var body: some View {
+        #if DEBUG
+        ZTronRenderCounters.increment("demo.overlayBar.body")
+        #endif
+        return Rectangle().fill(Color.purple.opacity(0.35))
+            .allowsHitTesting(false)
+            .accessibilityElement(children: .ignore)
+            .accessibilityIdentifier("overlay.bar")
+    }
+}
+
 /// DEBUG per-frame lockstep probe (`-ZTronResizeOverlay`). The content's layout size (`ContentMarkers`' reader) and the
 /// fill overlay's (`OverlayTint`'s reader) are recorded by their readers and compared on every `ResizeProbe` tick, i.e.
 /// between drawn frames: `lag` counts the ticks where they differ (an overlay placed from measured metrics instead of
@@ -281,20 +309,27 @@ enum OverlayLockstep {
 
 extension ZTronScrollView {
     /// The demo overlays under `-ZTronResizeOverlay`, `self` unchanged otherwise (same type either way: no `AnyView`, no
-    /// `if` around the scroll view). The tint goes first (lowest) so the banner's button and the marker draw above it.
+    /// `if` around the scroll view). The tint goes first (lowest), then the strip and the bar, so the banner's button and
+    /// the marker draw above them.
     func resizeContentOverlays() -> Self {
         guard ResizeScreen.overlay else { return self }
         return scrollContentIntegralOverlay { OverlayTint() }
+            .scrollContentIntegralOverlay(anchor: .top, overlayAnchor: .top, size: .fillMaxWidth(height: .relative(0.05))) {
+                OverlayStrip()
+            }
+            .scrollContentIntegralOverlay(anchor: .trailing, overlayAnchor: .trailing, size: .fillMaxHeight(width: .absolute(12))) {
+                OverlayBar()
+            }
             .scrollContentIntegralOverlay(anchor: .bottom, overlayAnchor: .bottom, size: .fillMaxWidth(16.0 / 9.0)) {
                 OverlayBanner()
             }
             // Inside the content: a small element next to the safe area's edge (the content's top in portrait, its
             // leading or trailing edge in landscape) reports an accessibility frame stretched to the screen's edge.
-            .scrollContentIntegralOverlay(anchor: .relative(UnitPoint(x: 0.7, y: 0.3)), overlayAnchor: .center, size: .ideal) {
+            .scrollContentIntegralOverlay(anchor: .relative(ZTronUnitPoint(x: 0.7, y: 0.3)), overlayAnchor: .center, size: .ideal) {
                 OverlayLabel(title: "Label")
             }
             .scrollContentIntegralOverlay(anchor: .topLeading, overlayAnchor: .topLeading, size: .ideal) { Text("Bare text") }
-            .scrollContentIntegralOverlay(anchor: .relative(UnitPoint(x: 0.3, y: 0.65)), overlayAnchor: .center, size: .ideal,
+            .scrollContentIntegralOverlay(anchor: .relative(ZTronUnitPoint(x: 0.3, y: 0.65)), overlayAnchor: .center, size: .ideal,
                                           scaling: ResizeScreen.overlayCounterScaled ? .counterScaled : .withContent) {
                 OverlayMarker()
             }
@@ -310,7 +345,7 @@ struct ResizeScreen: View {
     static let bounceAlways = ProcessInfo.processInfo.arguments.contains("-ZTronResizeBounceAlways")
     /// `-ZTronResizeOverlayCounterScaled`: the user tree's marker overlay is `.counterScaled` (implies the overlays).
     static let overlayCounterScaled = ProcessInfo.processInfo.arguments.contains("-ZTronResizeOverlayCounterScaled")
-    /// `-ZTronResizeOverlay`: content-integral overlays on the user trees (marker, banner, tint, label, text; M6b).
+    /// `-ZTronResizeOverlay`: content-integral overlays on the user trees (marker, banner, tint, label, text, strip, bar; M6b).
     static let overlay = overlayCounterScaled || ProcessInfo.processInfo.arguments.contains("-ZTronResizeOverlay")
     /// `-ZTronResizeOverlayNoButton`: the banner holds a label instead of its button (no control in the overlays).
     static let overlayNoButton = ProcessInfo.processInfo.arguments.contains("-ZTronResizeOverlayNoButton")
@@ -440,14 +475,16 @@ struct ResizeScreen: View {
 
     /// Content-overlay counters (`-ZTronResizeOverlay` only, so the readout is unchanged without it): library bodies
     /// (`ovb` overlay roots, `ovh` host, `ovr` iOS 15 reader closure, `ovp` Layout placements, `ocs` counter-scale leaf),
-    /// the demo overlays' own bodies (`mk`, `bn`, `tn`, `lb`), the banner button's taps (`btap`), the lockstep probe
-    /// (`lag` ticks with the fill's size off the content's, `lks` content sizes seen) and the resets so far (`rst`).
+    /// the demo overlays' own bodies (`mk`, `bn`, `tn`, `lb`, `sp` strip, `ba` bar), the banner button's taps (`btap`),
+    /// the lockstep probe (`lag` ticks with the fill's size off the content's, `lks` content sizes seen) and the resets so
+    /// far (`rst`).
     private func overlayFields(_ c: [String: Int]) -> String {
-        String(format: " ovb=%d ovh=%d ovr=%d ovp=%d ocs=%d mk=%d bn=%d tn=%d lb=%d btap=%d lag=%d lks=%d rst=%d",
+        String(format: " ovb=%d ovh=%d ovr=%d ovp=%d ocs=%d mk=%d bn=%d tn=%d lb=%d sp=%d ba=%d btap=%d lag=%d lks=%d rst=%d",
                c["contentOverlay.body"] ?? 0, c["contentOverlay.host.body"] ?? 0, c["contentOverlay.reader"] ?? 0,
                c["contentOverlay.place"] ?? 0, c["contentOverlay.counterScale.body"] ?? 0,
                c["demo.overlayMarker.body"] ?? 0, c["demo.overlayBanner.body"] ?? 0, c["demo.overlayTint.body"] ?? 0,
-               c["demo.overlayLabel.body"] ?? 0, c["overlay.button"] ?? 0,
+               c["demo.overlayLabel.body"] ?? 0, c["demo.overlayStrip.body"] ?? 0, c["demo.overlayBar.body"] ?? 0,
+               c["overlay.button"] ?? 0,
                c["demo.lockstep.lag"] ?? 0, c["demo.lockstep.sizes"] ?? 0, Self.resets)
     }
 }

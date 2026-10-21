@@ -2,11 +2,13 @@ import XCTest
 
 /// M6b content-integral overlays (design docs/design/M6b-content-overlay.md §4 "UI") on the user's full-screen tree
 /// (`-ZTronResizeUserTree2 -ZTronResizeOverlay`): a 6 pt marker pinned on the content point (30 %, 65 %), a 16:9 banner
-/// at the content's bottom, a tint over the whole content, a label with a constant input centred on the content point (70 %, 30 %)
-/// and a bare (`Equatable`) `Text` at its top-leading corner. Ground truth: the `GeometryReader` markers drawn inside the content (`marker.*`,
+/// at the content's bottom, a tint over the whole content, a label with a constant input centred on the content point (70 %, 30 %),
+/// a bare (`Equatable`) `Text` at its top-leading corner, a strip across the content's top 5 % of its height tall
+/// (`.fillMaxWidth(height: .relative(0.05))`) and a 12 pt bar on its trailing edge (`.fillMaxHeight(width: .absolute(12))`).
+/// Ground truth: the `GeometryReader` markers drawn inside the content (`marker.*`,
 /// `ContentMarkers`) and the app's DEBUG counters in the readout, never XCUI state alone: `ovb` overlay roots, `ovh` host
-/// bodies, `ovr` / `ovp` the iOS 15 reader closure / Layout placements, `mk` / `bn` / `tn` / `lb` the demo overlays'
-/// bodies, `body` the content's (it depends on the reader's width: it runs on rotation, never on motion), `btap` the
+/// bodies, `ovr` / `ovp` the iOS 15 reader closure / Layout placements, `mk` / `bn` / `tn` / `lb` / `sp` / `ba` the demo
+/// overlays' bodies, `body` the content's (it depends on the reader's width: it runs on rotation, never on motion), `btap` the
 /// banner button, `lag` / `lks` the per-frame lockstep probe (fill size vs content size between drawn frames).
 final class ContentOverlayUITests: XCTestCase {
     private var forced: Bool { ProcessInfo.processInfo.environment["ZS_DEMO_FORCED"] == "1" }
@@ -127,8 +129,10 @@ final class ContentOverlayUITests: XCTestCase {
 
     private func centre(_ r: CGRect) -> CGPoint { CGPoint(x: r.midX, y: r.midY) }
 
-    private static let counterKeys = ["ovb", "ovh", "ovr", "ovp", "ocs", "mk", "bn", "tn", "lb", "body", "btap", "lag", "lks",
-                                      "jump", "effect"]
+    private static let counterKeys = ["ovb", "ovh", "ovr", "ovp", "ocs", "mk", "bn", "tn", "lb", "sp", "ba", "body", "btap",
+                                      "lag", "lks", "jump", "effect"]
+    /// The demo overlays' own body counters (marker, banner, tint, label, strip, bar).
+    private static let overlayBodyKeys = ["mk", "bn", "tn", "lb", "sp", "ba"]
 
     private func counters(_ i: Info) -> String {
         Self.counterKeys.map { "\($0)=\(Int(i[$0]))" }.joined(separator: " ")
@@ -171,27 +175,35 @@ final class ContentOverlayUITests: XCTestCase {
     /// marker-derived content rect is off by up to 1.25 x 1/3 x z pt (1.33 pt measured at z = 4).
     private func markerTolerance(_ i: Info) -> Double { max(1, 0.5 * i["z"]) }
 
-    struct Rects { var content: CGRect; var banner: CGRect; var fill: CGRect; var label: CGRect; var text: CGRect }
+    struct Rects {
+        var content: CGRect; var banner: CGRect; var fill: CGRect; var label: CGRect; var text: CGRect
+        var strip: CGRect; var bar: CGRect
+    }
 
     /// `overlay.banner` (full content width, 16:9, on the content's bottom edge), `overlay.fill` (the content rect),
-    /// `overlay.label` (centred on the content point (70 %, 30 %)) and the bare `Text` (its top-leading corner on the
-    /// content's) against the marker-derived content rect, and the banner and fill sizes against the readout's content
-    /// size times the zoom (exact; a viewport-space overlay would keep the viewport's width at any zoom).
+    /// `overlay.label` (centred on the content point (70 %, 30 %)), the bare `Text` (its top-leading corner on the
+    /// content's), `overlay.strip` (content width x 5 % of the content height, on the content's top) and `overlay.bar`
+    /// (12 unscaled points wide, the content's height tall, its trailing edge on the content's) against the
+    /// marker-derived content rect, and the banner, fill, strip and bar sizes against the readout's content size times
+    /// the zoom (exact; a viewport-space overlay would keep the viewport's width at any zoom).
     @discardableResult
     private func checkBannerAndFill(_ app: XCUIApplication, _ i: Info, _ label: String) -> Rects? {
         let m = markers(app)
         let text = app.staticTexts["Bare text"]
         guard let c = contentRect(m), let b = frame(app, "overlay.banner"), let f = frame(app, "overlay.fill"),
-              let l = frame(app, "overlay.label"), text.exists else {
+              let l = frame(app, "overlay.label"), text.exists, let st = frame(app, "overlay.strip"),
+              let bar = frame(app, "overlay.bar") else {
             XCTFail("\(label): markers=\(m) banner=\(String(describing: frame(app, "overlay.banner"))) "
                     + "fill=\(String(describing: frame(app, "overlay.fill"))) "
-                    + "label=\(String(describing: frame(app, "overlay.label"))) text=\(text.exists): \(i.raw)")
+                    + "label=\(String(describing: frame(app, "overlay.label"))) text=\(text.exists) "
+                    + "strip=\(String(describing: frame(app, "overlay.strip"))) "
+                    + "bar=\(String(describing: frame(app, "overlay.bar"))): \(i.raw)")
             return nil
         }
         let t = text.frame
         let w = i["cw"] * i["z"], h = i["ch"] * i["z"], tol = markerTolerance(i)
-        let what = "\(label): content=\(c) banner=\(b) fill=\(f) label=\(l) text=\(t) cw*z=\(w) ch*z=\(h) z=\(i["z"]) "
-            + "\(counters(i)) | \(i.raw)"
+        let what = "\(label): content=\(c) banner=\(b) fill=\(f) label=\(l) text=\(t) strip=\(st) bar=\(bar) cw*z=\(w) "
+            + "ch*z=\(h) z=\(i["z"]) \(counters(i)) | \(i.raw)"
         print("OVERLAYRECT \(path) \(what)")
         XCTAssertEqual(b.width, c.width, accuracy: tol, "banner width = content width: \(what)")
         XCTAssertEqual(b.width, w, accuracy: 1, "banner width = content width x zoom: \(what)")
@@ -208,7 +220,20 @@ final class ContentOverlayUITests: XCTestCase {
                                  "label centred on the content point (0.7, 0.3): \(what)")
         XCTAssertEqual(t.minX, c.minX, accuracy: tol, "bare text on the content's leading edge: \(what)")
         XCTAssertEqual(t.minY, c.minY, accuracy: tol, "bare text on the content's top: \(what)")
-        return Rects(content: c, banner: b, fill: f, label: l, text: t)
+        // `.fillMaxWidth(height: .relative(0.05))`: 5 % of the content's height, not of the strip's width.
+        XCTAssertEqual(st.width, c.width, accuracy: tol, "strip width = content width: \(what)")
+        XCTAssertEqual(st.width, w, accuracy: 1, "strip width = content width x zoom: \(what)")
+        XCTAssertEqual(st.height, 0.05 * h, accuracy: 1, "strip height = 5 % of the content height x zoom: \(what)")
+        XCTAssertEqual(st.height, 0.05 * c.height, accuracy: tol, "strip height = 5 % of the content height: \(what)")
+        XCTAssertEqual(st.minY, c.minY, accuracy: tol, "strip on the content's top: \(what)")
+        XCTAssertEqual(st.minX, c.minX, accuracy: tol, "strip on the content's leading edge: \(what)")
+        // `.fillMaxHeight(width: .absolute(12))`: 12 unscaled points, scaled with the content.
+        XCTAssertEqual(bar.width, 12 * i["z"], accuracy: 1, "bar width = 12 x zoom: \(what)")
+        XCTAssertEqual(bar.height, h, accuracy: 1, "bar height = content height x zoom: \(what)")
+        XCTAssertEqual(bar.height, c.height, accuracy: tol, "bar height = content height: \(what)")
+        XCTAssertEqual(bar.maxX, c.maxX, accuracy: tol, "bar's trailing edge on the content's: \(what)")
+        XCTAssertEqual(bar.minY, c.minY, accuracy: tol, "bar on the content's top: \(what)")
+        return Rects(content: c, banner: b, fill: f, label: l, text: t, strip: st, bar: bar)
     }
 
     /// Across motion (a scroll, a pinch): no overlay body (library roots, the demo's), no content body, no host body,
@@ -221,7 +246,7 @@ final class ContentOverlayUITests: XCTestCase {
     private func assertNoOverlayWork(_ a: Info, _ b: Info, _ label: String, placements bound: Int?) {
         let what = "\(label): before \(counters(a)) after \(counters(b)) | \(b.raw)"
         print("OVERLAYMOTION \(path) \(label) delta \(deltas(a, b))")
-        for k in ["ovb", "mk", "bn", "tn", "lb", "body"] { XCTAssertEqual(b[k], a[k], "\(k) unchanged: \(what)") }
+        for k in ["ovb", "body"] + Self.overlayBodyKeys { XCTAssertEqual(b[k], a[k], "\(k) unchanged: \(what)") }
         XCTAssertEqual(b["ovh"], a["ovh"], "the host's body did not run: \(what)")
         XCTAssertEqual(b["ovr"], a["ovr"], "the reader's closure did not run: \(what)")
         let placements = b["ovp"] - a["ovp"]
@@ -262,16 +287,16 @@ final class ContentOverlayUITests: XCTestCase {
 
     /// T1: zoomed 2.5x on the detail and dragged so the detail is off the visible centre (rotation keeps the centre, so
     /// an overlay at the viewport centre would pass otherwise), rotate x4, then pinch. After every step the marker
-    /// overlay sits on its content point and scales with the content, the banner, tint, label and text follow the
-    /// zoomed content rect; even rotations put every overlay back on its initial frame. Positive controls: right after
+    /// overlay sits on its content point and scales with the content, the banner, tint, label, text, strip and bar follow
+    /// the zoomed content rect; even rotations put every overlay back on its initial frame. Positive controls: right after
     /// launch every overlay body ran; the rotations ran the host and the content (it depends on the width) but no
     /// overlay body; the pinch ran nothing.
     func testMarkerOverlayStaysOnItsContentPointAcrossRotations() {
         let app = launch()
         let start = settled(app, "t1.launch")
         let what0 = "\(counters(start)) | \(start.raw)"
-        XCTAssertGreaterThanOrEqual(start["ovb"], 5, "every overlay root ran at launch (positive control): \(what0)")
-        for k in ["mk", "bn", "tn", "lb", "ovh", "body"] {
+        XCTAssertGreaterThanOrEqual(start["ovb"], 7, "every overlay root ran at launch (positive control): \(what0)")
+        for k in Self.overlayBodyKeys + ["ovh", "body"] {
             XCTAssertGreaterThanOrEqual(start[k], 1, "\(k) ran at launch (positive control): \(what0)")
         }
         XCTAssertEqual(start[layoutPath ? "ovr" : "ovp"], 0, "host path: \(what0)")
@@ -305,7 +330,8 @@ final class ContentOverlayUITests: XCTestCase {
             if n % 2 == 0 {
                 let pairs: [(String, CGRect?, CGRect?)] = [("marker", f, f0), ("banner", r?.banner, r0?.banner),
                                                           ("fill", r?.fill, r0?.fill), ("label", r?.label, r0?.label),
-                                                          ("text", r?.text, r0?.text)]
+                                                          ("text", r?.text, r0?.text), ("strip", r?.strip, r0?.strip),
+                                                          ("bar", r?.bar, r0?.bar)]
                 for (name, now, then) in pairs {
                     guard let now, let then else { continue }
                     let d = max(abs(now.minX - then.minX), abs(now.minY - then.minY), abs(now.width - then.width),
@@ -317,7 +343,7 @@ final class ContentOverlayUITests: XCTestCase {
         }
         let what = "\(counters(last)) | \(last.raw)"
         print("OVERLAYCOUNTERS \(path) t1 after 4 rotations: \(counters(last))")
-        for k in ["ovb", "mk", "bn", "tn", "lb"] {
+        for k in ["ovb"] + Self.overlayBodyKeys {
             XCTAssertEqual(last[k], 0, "no overlay body (\(k)) ran through a drag and four rotations: \(what)")
         }
         // Positive controls: the user's GeometryReader rebuilt the scroll view (host bodies) and the content (it takes
@@ -340,7 +366,7 @@ final class ContentOverlayUITests: XCTestCase {
     }
 
     /// T2: at fit, portrait -> landscape -> portrait, the banner (full width, 16:9, bottom edge), the tint (the content
-    /// rect), the label and the text follow the content rect; a drag moves them with the content and runs nothing, not
+    /// rect), the label, the text, the strip (W x 5 % H at the top) and the bar (12 x z, trailing) follow the content rect; a drag moves them with the content and runs nothing, not
     /// even a Layout placement: the banner holds a label here (`-ZTronResizeOverlayNoButton`; its button is T3's).
     func testBannerAndTintFollowTheContentRect() {
         let app = launch(extra: ["-ZTronResizeOverlayNoButton"])
@@ -357,7 +383,7 @@ final class ContentOverlayUITests: XCTestCase {
         checkBannerAndFill(app, p1, "t2.portraitBack")
         let what = "\(counters(p1)) | \(p1.raw)"
         print("OVERLAYCOUNTERS \(path) t2 end: \(counters(p1))")
-        for k in ["ovb", "mk", "bn", "tn", "lb", "lag"] { XCTAssertEqual(p1[k], 0, "\(k) == 0 after scrolls and rotations: \(what)") }
+        for k in ["ovb", "lag"] + Self.overlayBodyKeys { XCTAssertEqual(p1[k], 0, "\(k) == 0 after scrolls and rotations: \(what)") }
     }
 
     /// T3: a tap on the banner's button fires it once; a slow drag that starts on it scrolls (the content follows the
@@ -419,6 +445,9 @@ final class ContentOverlayUITests: XCTestCase {
         let i3 = settled(app, "t4.portraitBack")
         checkMarker(app, i3, "t4.portraitBack", counterScaled: true)
         XCTAssertEqual(i3["mk"], 0, "the marker's body did not run through a rotation round trip: \(counters(i3)) | \(i3.raw)")
+        for k in Self.overlayBodyKeys where k != "mk" {
+            XCTAssertEqual(i3[k], 0, "no overlay body (\(k)) ran through a rotation round trip: \(counters(i3)) | \(i3.raw)")
+        }
         XCTAssertEqual(i3["ovb"], 0, "no overlay body ran: \(counters(i3)) | \(i3.raw)")
         // A pinch: a live zoom (not zeroed afterwards) runs the counter-scale leaf, never the marker's body. Zooming in:
         // the fingers start near the centre (a pinch-in starts them far apart, one on the readout, and became a pan).
