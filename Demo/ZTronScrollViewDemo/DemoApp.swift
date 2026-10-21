@@ -36,6 +36,7 @@ struct DemoApp: App {
             case "image": ImageScreen()
             case "calibrate": CalibrateScreen()
             case "resize": ResizeScreen()
+            case "sheet": SheetScreen()
             default: ProofScreen()
             }
         }
