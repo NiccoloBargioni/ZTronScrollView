@@ -37,6 +37,7 @@ final class ResizeProbe: ZTronScrollViewDelegate {
     func scrollViewDidScroll(_ state: ZTronScrollState) { sample() }
 
     private func sample() {
+        OverlayLockstep.tick()
         guard let state else { return }
         let r = Self.centre(state)
         if let l = last, l.size != r.size, l.size.width > 0 {
@@ -112,6 +113,7 @@ struct ContentMarkers: View {
 
     var body: some View {
         GeometryReader { g in
+            let _ = OverlayLockstep.noteContent(g.size)
             ForEach(Self.points, id: \.0) { m in
                 Circle().fill(Color.red.opacity(0.6)).frame(width: 6, height: 6)
                     .position(x: g.size.width * m.1, y: g.size.height * m.2)
@@ -119,6 +121,23 @@ struct ContentMarkers: View {
                     .accessibilityIdentifier("marker.\(m.0)")
             }
         }
+    }
+}
+
+/// The user trees' content: the image as wide as the reader, with the markers. It depends on the reader's width, so its
+/// body (`content.body`, DEBUG) runs when a rotation changes that width, and never on scrolling or zooming.
+struct UserTreeContent: View {
+    let width: CGFloat
+
+    var body: some View {
+        #if DEBUG
+        ZTronRenderCounters.increment("content.body")
+        #endif
+        return Image("app.global.about.us.snapshot")
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .frame(width: width)
+            .overlay(ContentMarkers())
     }
 }
 
@@ -135,11 +154,7 @@ struct UserTreeScroller: View {
         VStack(alignment: .leading, spacing: 0) {
             GeometryReader { proxy in
                 let scroller = ZTronScrollView([.horizontal, .vertical], state: state) {
-                    Image("app.global.about.us.snapshot")
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: proxy.size.width)
-                        .overlay(ContentMarkers())
+                    UserTreeContent(width: proxy.size.width)
                 }
                 .zoomRange(min: .absolute(1), max: .absolute(4))
                 .doubleTapToZoom()
@@ -164,9 +179,10 @@ struct UserTreeScroller: View {
 
 // MARK: Content-integral overlays (M6b, `-ZTronResizeOverlay` / `-ZTronResizeOverlayCounterScaled`)
 
-/// The demo's overlays. Each is input-free (no stored properties): a re-evaluation of the call site (the user tree's
-/// `GeometryReader` rebuilds the scroll view on every rotation) hands SwiftUI an equal value, so its body never runs
-/// again. Each body counts itself (DEBUG) for the readout (`mk`, `bn`, `tn`).
+/// The demo's overlays. Most are input-free (no stored properties); `OverlayLabel` has a constant input and the bare
+/// `Text` overlay is `Equatable`. A re-evaluation of the call site (the user tree's `GeometryReader` rebuilds the scroll
+/// view on every rotation) hands SwiftUI equal values, so none of their bodies runs again. Each body counts itself
+/// (DEBUG) for the readout (`mk`, `bn`, `tn`, `lb`; the bare `Text` only through the library's `ovb`).
 struct OverlayMarker: View {
     var body: some View {
         #if DEBUG
@@ -178,7 +194,9 @@ struct OverlayMarker: View {
     }
 }
 
-/// A 16:9 banner at the content's bottom with a button (`overlay.button` counts its taps).
+/// A 16:9 banner at the content's bottom with a button (`overlay.button` counts its taps). Under
+/// `-ZTronResizeOverlayNoButton` it holds a plain label instead: a control re-renders when the scroll view's
+/// `.disabled(blocked)` flips at the start and end of a motion, a label does not.
 struct OverlayBanner: View {
     var body: some View {
         #if DEBUG
@@ -186,29 +204,78 @@ struct OverlayBanner: View {
         #endif
         return ZStack {
             Color.yellow.opacity(0.3)
-            Button("Banner") {
-                #if DEBUG
-                ZTronRenderCounters.increment("overlay.button")
-                #endif
+            if ResizeScreen.overlayNoButton {
+                Text("Banner")
+            } else {
+                Button("Banner") {
+                    #if DEBUG
+                    ZTronRenderCounters.increment("overlay.button")
+                    #endif
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("overlay.banner.button")
             }
-            .buttonStyle(.bordered)
-            .accessibilityIdentifier("overlay.banner.button")
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("overlay.banner")
     }
 }
 
-/// A faint tint over the whole content (`.fillMaxSize`); it takes no touches.
+/// A faint tint over the whole content (`.fillMaxSize`); it takes no touches. Its reader records the size the host gave
+/// it for the lockstep probe (`OverlayLockstep`); the reader's closure is not the tint's body.
 struct OverlayTint: View {
     var body: some View {
         #if DEBUG
         ZTronRenderCounters.increment("demo.overlayTint.body")
         #endif
         return Rectangle().fill(Color.blue.opacity(0.08))
+            .background(GeometryReader { g in
+                let _ = OverlayLockstep.noteFill(g.size)
+                Color.clear
+            })
             .allowsHitTesting(false)
             .accessibilityElement(children: .ignore)
             .accessibilityIdentifier("overlay.fill")
+    }
+}
+
+/// An overlay with a constant stored input (the common real-world case: a caption). Equal on every call-site
+/// evaluation, so its body (`lb`) runs once.
+struct OverlayLabel: View {
+    let title: String
+
+    var body: some View {
+        #if DEBUG
+        ZTronRenderCounters.increment("demo.overlayLabel.body")
+        #endif
+        return Text(title).font(.caption2).padding(2).background(Color.white.opacity(0.7))
+            .accessibilityElement(children: .ignore)
+            .accessibilityIdentifier("overlay.label")
+    }
+}
+
+/// DEBUG per-frame lockstep probe (`-ZTronResizeOverlay`). The content's layout size (`ContentMarkers`' reader) and the
+/// fill overlay's (`OverlayTint`'s reader) are recorded by their readers and compared on every `ResizeProbe` tick, i.e.
+/// between drawn frames: `lag` counts the ticks where they differ (an overlay placed from measured metrics instead of
+/// the layout proposal would be drawn one frame late through a reflow); `lks` counts the content sizes seen (the
+/// positive control: every rotation changes it).
+@MainActor
+enum OverlayLockstep {
+    private static var content: CGSize?
+    private static var fill: CGSize?
+    private static var seen: CGSize?
+
+    static func noteContent(_ s: CGSize) { if ResizeScreen.overlay { content = s } }
+    static func noteFill(_ s: CGSize) { fill = s }
+
+    static func tick() {
+        guard let c = content, let f = fill else { return }
+        #if DEBUG
+        if c != seen { seen = c; ZTronRenderCounters.increment("demo.lockstep.sizes") }
+        if abs(c.width - f.width) > 0.01 || abs(c.height - f.height) > 0.01 {
+            ZTronRenderCounters.increment("demo.lockstep.lag")
+        }
+        #endif
     }
 }
 
@@ -221,13 +288,18 @@ extension ZTronScrollView {
             .scrollContentIntegralOverlay(anchor: .bottom, overlayAnchor: .bottom, size: .fillMaxWidth(16.0 / 9.0)) {
                 OverlayBanner()
             }
+            // Inside the content: a small element next to the safe area's edge (the content's top in portrait, its
+            // leading or trailing edge in landscape) reports an accessibility frame stretched to the screen's edge.
+            .scrollContentIntegralOverlay(anchor: .relative(UnitPoint(x: 0.7, y: 0.3)), overlayAnchor: .center, size: .ideal) {
+                OverlayLabel(title: "Label")
+            }
+            .scrollContentIntegralOverlay(anchor: .topLeading, overlayAnchor: .topLeading, size: .ideal) { Text("Bare text") }
             .scrollContentIntegralOverlay(anchor: .relative(UnitPoint(x: 0.3, y: 0.65)), overlayAnchor: .center, size: .ideal,
                                           scaling: ResizeScreen.overlayCounterScaled ? .counterScaled : .withContent) {
                 OverlayMarker()
             }
     }
 }
-
 /// `-ZTronScreen resize`: full-screen, zoomable grid; rotate the device and compare the centre readout.
 struct ResizeScreen: View {
     private static let keys = ["content.body", "resize.jumpFrames", "transform.effect"]
@@ -238,11 +310,16 @@ struct ResizeScreen: View {
     static let bounceAlways = ProcessInfo.processInfo.arguments.contains("-ZTronResizeBounceAlways")
     /// `-ZTronResizeOverlayCounterScaled`: the user tree's marker overlay is `.counterScaled` (implies the overlays).
     static let overlayCounterScaled = ProcessInfo.processInfo.arguments.contains("-ZTronResizeOverlayCounterScaled")
-    /// `-ZTronResizeOverlay`: content-integral overlays on the user trees (marker, banner, tint; M6b).
+    /// `-ZTronResizeOverlay`: content-integral overlays on the user trees (marker, banner, tint, label, text; M6b).
     static let overlay = overlayCounterScaled || ProcessInfo.processInfo.arguments.contains("-ZTronResizeOverlay")
+    /// `-ZTronResizeOverlayNoButton`: the banner holds a label instead of its button (no control in the overlays).
+    static let overlayNoButton = ProcessInfo.processInfo.arguments.contains("-ZTronResizeOverlayNoButton")
     @State private var state = ZTronScrollState()
     @State private var probe = ResizeProbe()
-    @State private var info = ""
+    /// Held, not observed: a Snapshot re-renders `ResizeReadoutText` only, never this body (M6b review).
+    @State private var readout = ResizeReadout()
+    /// Counter resets so far (`rst` in the overlay readout): a test waits for the reset its button scheduled.
+    private static var resets = 0
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -274,9 +351,7 @@ struct ResizeScreen: View {
                     Button("Top") { nearEdge(top: true) }.accessibilityIdentifier("Top")
                     Button("Bottom") { nearEdge(top: false) }.accessibilityIdentifier("Bottom")
                 }
-                Text(info).font(.caption2).lineLimit(3)
-                    .background(Color.white.opacity(0.8))
-                    .accessibilityIdentifier("resizeInfo").accessibilityValue(info)
+                ResizeReadoutText(readout: readout)
             }
             .buttonStyle(.bordered)
         }
@@ -336,6 +411,7 @@ struct ResizeScreen: View {
             ZTronRenderCounters.reset()
             #endif
             probe.reset()
+            Self.resets += 1
         }
     }
 
@@ -351,7 +427,7 @@ struct ResizeScreen: View {
         let r = ResizeProbe.centre(state)
         let o = state.contentOffset, i = state.adjustedContentInset
         let pre = probe.beforeResize ?? CGPoint(x: -1, y: -1)
-        info = String(format: "z=%.4f ox=%.2f oy=%.2f ux=%.2f uy=%.2f cx=%.2f cy=%.2f vw=%.1f vh=%.1f it=%.1f il=%.1f ib=%.1f ir=%.1f phase=%d preux=%.2f preuy=%.2f resizes=%d jump=%d body=%d effect=%d min=%.4f cw=%.2f ch=%.2f cidle=%d vp=%d fast=%d slow=%d slowClosed=%d clamped=%d",
+        readout.text = String(format: "z=%.4f ox=%.2f oy=%.2f ux=%.2f uy=%.2f cx=%.2f cy=%.2f vw=%.1f vh=%.1f it=%.1f il=%.1f ib=%.1f ir=%.1f phase=%d preux=%.2f preuy=%.2f resizes=%d jump=%d body=%d effect=%d min=%.4f cw=%.2f ch=%.2f cidle=%d vp=%d fast=%d slow=%d slowClosed=%d clamped=%d",
                       state.zoomScale, o.x, o.y, r.u.x, r.u.y, r.c.x, r.c.y, r.size.width, r.size.height,
                       i.top, i.leading, i.bottom, i.trailing, state.phase.rawValue, pre.x, pre.y, probe.resizes,
                       counters["resize.jumpFrames"] ?? 0, counters["content.body"] ?? 0, counters["transform.effect"] ?? 0,
@@ -364,12 +440,33 @@ struct ResizeScreen: View {
 
     /// Content-overlay counters (`-ZTronResizeOverlay` only, so the readout is unchanged without it): library bodies
     /// (`ovb` overlay roots, `ovh` host, `ovr` iOS 15 reader closure, `ovp` Layout placements, `ocs` counter-scale leaf),
-    /// the demo overlays' own bodies (`mk`, `bn`, `tn`) and the banner button's taps (`btap`).
+    /// the demo overlays' own bodies (`mk`, `bn`, `tn`, `lb`), the banner button's taps (`btap`), the lockstep probe
+    /// (`lag` ticks with the fill's size off the content's, `lks` content sizes seen) and the resets so far (`rst`).
     private func overlayFields(_ c: [String: Int]) -> String {
-        String(format: " ovb=%d ovh=%d ovr=%d ovp=%d ocs=%d mk=%d bn=%d tn=%d btap=%d",
+        String(format: " ovb=%d ovh=%d ovr=%d ovp=%d ocs=%d mk=%d bn=%d tn=%d lb=%d btap=%d lag=%d lks=%d rst=%d",
                c["contentOverlay.body"] ?? 0, c["contentOverlay.host.body"] ?? 0, c["contentOverlay.reader"] ?? 0,
                c["contentOverlay.place"] ?? 0, c["contentOverlay.counterScale.body"] ?? 0,
                c["demo.overlayMarker.body"] ?? 0, c["demo.overlayBanner.body"] ?? 0, c["demo.overlayTint.body"] ?? 0,
-               c["overlay.button"] ?? 0)
+               c["demo.overlayLabel.body"] ?? 0, c["overlay.button"] ?? 0,
+               c["demo.lockstep.lag"] ?? 0, c["demo.lockstep.sizes"] ?? 0, Self.resets)
+    }
+}
+
+/// The readout's text, held by `ResizeScreen` and observed by `ResizeReadoutText` alone.
+final class ResizeReadout: ObservableObject {
+    @Published var text = ""
+}
+
+/// The readout, a leaf: a Snapshot re-renders this view only, and its fixed frame (three caption lines) keeps the
+/// screen's layout the same whatever the text, so taking a readout adds no work of its own to the counters the next
+/// readout reads. The accessibility value is the whole text (the tests parse it; the lines are truncated on screen).
+struct ResizeReadoutText: View {
+    @ObservedObject var readout: ResizeReadout
+
+    var body: some View {
+        Text(readout.text).font(.caption2).lineLimit(3)
+            .background(Color.white.opacity(0.8))
+            .accessibilityIdentifier("resizeInfo").accessibilityValue(readout.text)
+            .frame(maxWidth: .infinity, minHeight: 42, maxHeight: 42, alignment: .top)
     }
 }
