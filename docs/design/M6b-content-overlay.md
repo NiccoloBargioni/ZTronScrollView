@@ -98,22 +98,22 @@ content.overlay(alignment: .topLeading) { ContentOverlayHost(decls) }   ← the 
   `.frame(width: W, height: H)` at the origin; `.ideal`: `.fixedSize()`) — the guide closures get the view's own dimensions, so
   `origin = P − q·v` needs no measurement pass and no `@State`; the reader's closure runs once per layout size change (counter
   `contentOverlay.host.body`), the overlays' bodies do not (same values → no diff).
-- **Rotation, D16/D18.** The system transition animates the content's own size per frame (the user's `.frame(width: proxy.size.width)`,
-  the image's aspect); each frame is a layout pass with the interpolated content size, and the host places the overlay from *that* size in
-  *that* frame. The effect draws the whole subtree with the offset/scale it resolves for `ResizeMath.presented(commit, size)` — its estimate
-  of the same drawn content size. The overlay therefore cannot drift from its content point at any frame, by construction: there is no
-  second interpolation to keep in step with the commit, and it does not matter whether the reflowed size lands in the same turn (D18) or a
-  frame later (M5 §9): the overlay is always laid out against what the content is in that frame. `ResizeJumpMonitor` keeps measuring the
-  effect's estimate as before; the overlay adds no term to it. Nothing is written to the state, so it cannot fight the commit's
-  unanimated target writes (`setContentSize` while `isOpen`).
+- **Rotation, D16/D18** (corrected after L1/L2). SwiftUI lays the content out once at its new size and animates the change by
+  interpolating every view's frame with the ambient transaction's curve (no layout pass per frame). The overlay, placed by the same pass,
+  is interpolated with the same curve, so its pinned point moves exactly like the content point it marks; the effect draws the whole
+  subtree with the offset/scale it resolves for `ResizeMath.presented(commit, size)`. No second interpolation to keep in step with the
+  commit, no dependency on whether the reflowed size lands in the same turn (D18) or later (M5 §9), nothing written to the state.
+  Measured in L2: overlay centre vs the content's own `GeometryReader` marker at the same fraction ≤ 6e-14 pt after Zoom, a drag,
+  4 rotations and a pinch, on 27.0 and 17.5, both paths; a per-tick lockstep probe (fill overlay size vs content size) never lagged.
 - **Other content-size changes.** A list that grows (`cs idle`), an image swap, a `withAnimation` around a content change: the overlay
   follows the content's drawn size each frame — animated when the content's size animates, a snap when the content snaps (integral). It does
   not glide on its own while the content jumped (that is the rejected metrics-driven variant: a `ChromeLeaf` on `.metrics` only +
   animatable `.frame`/`.offset`; exact only when the overlay's curve equals the content's, wrong by one frame on the 15 preference path,
   and able to lag a late measurement — kept as the answer to Q4 if the user wants independent animation).
-- **Counters (DEBUG):** `contentOverlay.body` (the user's overlay body), `contentOverlay.host.body`, `contentOverlay.place`. Tiers (S4 row):
-  scroll, zoom, refresh, collapse → all 0; an animated reflow → `place` / `host.body` once per frame, `contentOverlay.body` 0; a
-  container body evaluation (cold config, parent re-render) → `contentOverlay.body` ≤ 1 per overlay (R1).
+- **Counters (DEBUG):** see the L1 notes. Tiers (S4 row, as measured): scroll, zoom, refresh, collapse → no body anywhere, no host
+  body, no reader closure; placements 0 with no control in the overlays, about 2 per gesture on 16+ when an overlay holds a control
+  (the content gate's `.disabled` flips re-measure it), more while a pressed control is cancelled; a content-size change → one
+  placement pass (or one reader closure on 15); a container body evaluation → host body 1, overlay bodies 0 for unchanged inputs.
 - **Type erasure.** `ContentOverlayDecl { key, anchor, overlayAnchor, size, scaling, view: AnyView }`; the member and the twin both store
   `AnyView(content())` (M8b-2's custom refresh indicator does the same). `AnyView` keeps identity while the wrapped type is constant; its
   cost is a possible body re-run per container body evaluation (R1), never on motion. If `V: Equatable` the overload wraps `EquatableView`.
@@ -272,3 +272,18 @@ What L1 built where it differs from, or settles, §2–§5 (sections 1–4 and R
   nor on the `.disabled` flips at motion start/end) is measured on the 17.5 / 27.0 runtimes with forced fallbacks, not on 15.
   Run `ContentOverlayTests` (motion, refresh, probe) on an iOS 15 simulator (Xcode 26.x, older macOS) before calling S4 met
   there; the contingency stays §2's metrics-driven host on 15 only.
+
+## L2 notes (2026-10-21, demo + UI; orchestrator summary)
+
+- Demo: `-ZTronResizeOverlay` on the resize screen's user trees (marker `.relative(0.3, 0.65)` / `.center` / `.ideal`, banner `.bottom` /
+  `.bottom` / `.fillMaxWidth(16/9)` with a Button, `.fillMaxSize` tint, a constant-input label and a bare `Text`),
+  `-ZTronResizeOverlayCounterScaled`, `-ZTronResizeOverlayNoButton`; readout fields `ovb ovh ovr ovp ocs mk bn tn lb btap lks lag rst`. Without
+  the flags the screen behaves as before (ResizeUITests 13/13 on all lanes).
+- `ContentOverlayUITests` (4 tests × 27.0 / 17.5 × preferred / forced, all green): overlay vs content marker ≤ 6e-14 pt, size = 6 × z,
+  banner / tint = content width × z exactly, even rotations restore every overlay frame ≤ 0.5 pt with the detail > 60 pt off centre;
+  after a drag, 4 rotations and a pinch every overlay body counter is 0 (positive controls ≥ 1 at launch); the banner Button fires on a
+  tap and not on a 100 pt drag that starts on it (the content moved 90 pt); `.counterScaled` keeps 6 × 6 pt at z 1, 2.23, 4.
+- Placements during motion: 0 without a control in the overlays; 2 per drag or pinch with the banner Button present (its `.disabled`
+  flips); up to ~25 in one drag that started by pressing the Button. Layout only, no bodies; documented in the S4 row instead of fixed.
+- Not provable from the app: per-frame lockstep of a `.counterScaled` overlay against the drawn zoom (needs a library DEBUG probe).
+
