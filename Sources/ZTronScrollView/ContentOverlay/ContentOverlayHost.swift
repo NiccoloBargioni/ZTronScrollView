@@ -12,7 +12,8 @@ import SwiftUI
 struct ContentOverlayHost: View {
     let state: ZTronScrollState
     let decls: [ContentOverlayDecl]
-    @State private var cache = ContentOverlayViewCache()
+    /// Created once per identity (`@StateObject`'s autoclosure): no allocation per container evaluation. Never publishes.
+    @StateObject private var cache = ContentOverlayViewCache()
 
     var body: some View {
         // An `Equatable` overlay equal to the one shown keeps its `AnyView`: its body does not run again.
@@ -102,7 +103,8 @@ struct ContentOverlayReaderHost: View {
                     let q = fill ? UnitPoint.topLeading
                                  : UnitPoint(x: ContentOverlayMath.finite(d.overlayAnchor.x),
                                              y: ContentOverlayMath.finite(d.overlayAnchor.y))
-                    Color.clear.overlay(alignment: .topLeading) {
+                    // The clear base never takes a touch (the overlay above it does).
+                    Color.clear.allowsHitTesting(false).overlay(alignment: .topLeading) {
                         d.view
                             .frame(width: s.width, height: s.height)
                             .fixedSize(horizontal: s.width == nil, vertical: s.height == nil)

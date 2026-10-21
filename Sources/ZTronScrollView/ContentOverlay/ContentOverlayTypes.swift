@@ -113,7 +113,7 @@ struct ContentOverlayEquality {
 
 /// The host's memory of the `Equatable` overlays it drew: per key, the value and the erased view shown for it.
 @MainActor
-final class ContentOverlayViewCache {
+final class ContentOverlayViewCache: ObservableObject {
     private var entries: [AnyHashable: (value: Any, view: AnyView)] = [:]
 
     /// `decls` with every `Equatable` overlay whose value is `==` to the one shown under the same key carrying the
