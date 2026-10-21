@@ -698,18 +698,41 @@ extension View { public func ztronNestedScrollPolicy(_ policy: ZTronNestedScroll
 extension View { public func ztronScrollYieldsToSheet(_ yields: Bool = true) -> some View }   // environment; propagates; true = inert to drags (gestures masked `.subviews`) so the sheet gets them
 
 // Content-integral overlay — Amendment 2026-10-21 (user; design `docs/design/M6b-content-overlay.md`, semantics §1, mechanism §2):
-public enum ZTronContentOverlayAnchor: Equatable, Sendable {   // a content point, unscaled content space
-    case topLeading, top, topTrailing, leading, center, trailing, bottomLeading, bottom, bottomTrailing   // sugar for .relative(UnitPoint.<same>)
-    case relative(UnitPoint)     // fraction of the content size per axis
-    case absolute(CGPoint)       // unscaled content points
+// Revision 2026-10-21 (user): every `.relative` takes a clamped unit type; fillMaxWidth / fillMaxHeight take a length for the free axis.
+public struct ZTronUnitLength: Hashable, Sendable, ExpressibleByFloatLiteral, ExpressibleByIntegerLiteral {
+    public let value: CGFloat                       // always in [0, 1]: init clamps, NaN -> 0, +inf -> 1
+    public init(_ value: CGFloat); public static let zero: Self, full: Self
 }
-public enum ZTronContentOverlaySize: Equatable, Sendable {
-    case fillMaxSize                                    // the whole content rect (DEFAULT; anchor / overlayAnchor ignored) = SwiftUI `.overlay`
-    case fillMaxWidth(_ aspectRatio: CGFloat? = nil)    // width = content width; height = width / aspectRatio (ideal when nil)
-    case fillMaxHeight(_ aspectRatio: CGFloat? = nil)   // height = content height; width = height × aspectRatio (ideal when nil)
-    case relative(CGSize)                               // (content width × width, content height × height)
-    case absolute(CGSize)                               // unscaled content points
-    case ideal                                          // the view's ideal size (`fixedSize()`)
+public struct ZTronUnitSize: Hashable, Sendable {   // each component always in [0, 1] (clamped at init)
+    public let width: CGFloat, height: CGFloat
+    public init(width: CGFloat, height: CGFloat); public init(_ size: CGSize); public static let zero: Self, full: Self
+}
+public struct ZTronUnitPoint: Hashable, Sendable {  // x, y always in [0, 1] (clamped at init; SwiftUI's UnitPoint does not clamp)
+    public let x: CGFloat, y: CGFloat
+    public init(x: CGFloat, y: CGFloat); public init(_ point: UnitPoint); public var unitPoint: UnitPoint { get }
+    public static let topLeading, top, topTrailing, leading, center, trailing, bottomLeading, bottom, bottomTrailing: Self
+}
+public enum ZTronContentOverlayAnchor: Equatable, Sendable {   // a content point, unscaled content space
+    case topLeading, top, topTrailing, leading, center, trailing, bottomLeading, bottom, bottomTrailing   // sugar for .relative(ZTronUnitPoint.<same>)
+    case relative(ZTronUnitPoint)   // fraction of the content size per axis, inside the content
+    case absolute(CGPoint)          // unscaled content points, unclamped (the way to anchor outside the content)
+}
+public enum ZTronContentOverlayLength: Equatable, Sendable {   // the free axis of fillMaxWidth / fillMaxHeight
+    case ideal                      // SwiftUI decides: the view's own length on that axis (unspecified proposal)
+    case aspectRatio(CGFloat)       // the overlay's width / height; <= 0 or non-finite -> .ideal; an overflowing result -> 0
+    case absolute(CGFloat)          // unscaled content points (negative / non-finite -> 0)
+    case relative(ZTronUnitLength)  // fraction of the CONTENT's length on that same axis
+}
+public struct ZTronContentOverlaySize: Equatable, Sendable {   // canonical: two sizes compare equal iff they draw the same frame
+    public static let fillMaxSize: Self             // the content rect (DEFAULT; anchor / overlayAnchor ignored) = SwiftUI `.overlay`
+    public static let ideal: Self                   // the view's ideal size on both axes (`fixedSize()`)
+    public static func fillMaxWidth(_ aspectRatio: CGFloat? = nil) -> Self   // == fillMaxWidth(height: .aspectRatio(r)), nil -> .ideal
+    public static func fillMaxWidth(height: ZTronContentOverlayLength) -> Self   // width = content width
+    public static func fillMaxHeight(_ aspectRatio: CGFloat? = nil) -> Self  // == fillMaxHeight(width: .aspectRatio(r))
+    public static func fillMaxHeight(width: ZTronContentOverlayLength) -> Self   // height = content height
+    public static func relative(_ size: ZTronUnitSize) -> Self               // (content width × width, content height × height)
+    public static func relative(width: ZTronUnitLength, height: ZTronUnitLength) -> Self
+    public static func absolute(_ size: CGSize) -> Self                      // unscaled content points
 }
 public enum ZTronContentOverlayScaling: Equatable, Sendable { case withContent, counterScaled }   // default .withContent; .counterScaled = S6 helper ztronScrollCounterScaled (about the content centre for .fillMaxSize)
 // origin = anchorPoint(content rect) − overlayAnchor × overlaySize, for every anchor case (.absolute(A) pins the overlayAnchor point at A);

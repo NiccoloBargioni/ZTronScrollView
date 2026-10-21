@@ -7,12 +7,12 @@ members / `ztronScroll…` twins, `ztronScrollID` registry), M8-1 (`ChromeLeaf`)
 
 ## 0. Interpretation (to confirm)
 
-`ZTronScrollView { map }.scrollContentIntegralOverlay(anchor: .relative(UnitPoint(x: 0.3, y: 0.65)), overlayAnchor: .bottom, size: .ideal) { Pin() }`
+`ZTronScrollView { map }.scrollContentIntegralOverlay(anchor: .relative(ZTronUnitPoint(x: 0.3, y: 0.65)), overlayAnchor: .bottom, size: .ideal) { Pin() }`
 draws `Pin` as a part of the content: laid out in the **unscaled content space** under the transform, so it scrolls and zooms with the
-content like a marker drawn on a map; positioned by an **anchor that names a content point** (nine named alignments, `.relative(UnitPoint)`,
+content like a marker drawn on a map; positioned by an **anchor that names a content point** (nine named alignments, `.relative(ZTronUnitPoint)`,
 `.absolute(CGPoint)` in content points) on which the overlay's **`overlayAnchor` point** (a `UnitPoint`, default `.topLeading`) is pinned;
 **sized against the content size** (`.fillMaxSize`, the default: the whole content rect; `.fillMaxWidth(aspect)`: width = content width,
-height = width / aspect; `.fillMaxHeight(aspect)`; `.relative(CGSize)`: a fraction of the content size per axis; `.absolute(CGSize)`: content
+height = width / aspect; `.fillMaxHeight(aspect)`; `.relative(ZTronUnitSize)`: a clamped fraction of the content size per axis; `.absolute(CGSize)`: content
 points; `.ideal`: the view's ideal size); frame re-derived whenever the content's size changes (a reflow on rotation, a growing list, an
 image swap) and **animated to the new frame exactly as the content itself animates** (in lockstep with the system rotation transition, every
 frame; D16/D18 timing is irrelevant to it, §2). Not a viewport overlay: SwiftUI's `.overlay(alignment:)` on a scroll view never moves.
@@ -34,13 +34,14 @@ compose with `ContentTransform`. Hit-testing follows the drawn geometry on both 
 
 ```
 P   anchor (a content point):  named α → (W·uα.x, H·uα.y)   uα: topLeading (0,0), top (.5,0), … center (.5,.5), … bottomTrailing (1,1)
-                               .relative(p) → (W·p.x, H·p.y)       the named cases are sugar for this
+                               .relative(p) → (W·p.x, H·p.y)       p: ZTronUnitPoint, clamped to [0, 1]; the named cases are sugar for this
                                .absolute(A) → A                     unscaled content points
 q   overlayAnchor: UnitPoint (SwiftUI's nine statics `.topLeading` … `.bottomTrailing`, or any point), default .topLeading
 S   .fillMaxSize (default)  (W, H): F = the whole content rect; P and q are IGNORED; a view that takes less is centred in F (= SwiftUI `.overlay`)
-    .fillMaxWidth(r)        (W, W / r)      r == nil → (W, nil): ideal height at width W (wrapped text)
-    .fillMaxHeight(r)       (H·r, H)        r == nil → (nil, H)
-    .relative(k)            (W·k.width, H·k.height)
+    .fillMaxWidth(height: L) (W, L_h)    L_h: .ideal → nil (SwiftUI decides), .aspectRatio(r) → W / r, .absolute(h) → h, .relative(k) → H·k
+    .fillMaxHeight(width: L) (L_w, H)    L_w: .ideal → nil, .aspectRatio(r) → H·r, .absolute(w) → w, .relative(k) → W·k
+                             .fillMaxWidth(r) / .fillMaxHeight(r) are sugar for .aspectRatio(r), nil → .ideal (revision R6)
+    .relative(k)            (W·k.width, H·k.height)      k: ZTronUnitSize, clamped to [0, 1]
     .absolute(s)            s, unscaled content points: independent of the content size (only the origin follows it)
     .ideal              unspecified proposal: the view's ideal size (`fixedSize()`: a 6 pt marker, a label at its natural size)
 v   the size the view takes for S (Layout: sizeThatFits(S); fallback: the .frame(S) box, ideal on a nil axis)
@@ -52,10 +53,12 @@ the overlay's `overlayAnchor` point at `A` (the default `.topLeading` is UIKit's
 .bottom`). `anchor` names a content point only and `overlayAnchor` the overlay's point, so the two are orthogonal: SwiftUI's
 `.overlay(alignment: .center)` on a sized view is `anchor: .center, overlayAnchor: .center`; the default `.fillMaxSize` is `.overlay` as is
 (it fills the modified view, here the content). `overlayAnchor` is a plain `UnitPoint`: the user's list is exactly SwiftUI's nine `UnitPoint`
-statics, no new enum. `.relative(CGSize)` replaces the earlier `.unitSize(CGPoint)` (same meaning, a size type, pairs with `.absolute(CGSize)`
-as the anchor cases do): keep `.relative`, drop `.unitSize`. Aspect ratio = width / height (SwiftUI `aspectRatio`): `.fillMaxWidth(16/9)` → `W × 9W/16`.
+statics, no new enum. Every `.relative` takes a clamped unit type (`ZTronUnitPoint`, `ZTronUnitSize`, `ZTronUnitLength`: SwiftUI's `UnitPoint` does not clamp,
+its initializer stores any value), so a relative anchor or size can never leave the content (R6). Aspect ratio = width / height (SwiftUI `aspectRatio`): `.fillMaxWidth(16/9)` → `W × 9W/16`.
 
-**Degenerate inputs.** `r ≤ 0` or non-finite → treated as nil (DEBUG note `contentOverlay.badAspect`); `k` and `s` clamped to `≥ 0`; `W` or
+**Degenerate inputs** (normalized when the size is built, so sizes compare equal iff they draw the same frame). `r ≤ 0` or non-finite → `.ideal`
+(DEBUG note `contentOverlay.badAspect`); an overflowing `W / r` or `H·r` → 0 (same note); unit values clamp to `[0, 1]` (NaN → 0, +∞ → 1);
+absolute lengths and sizes clamp to `≥ 0`; `W` or
 `H` = 0 (empty content) → the frame collapses on that axis for the fill / relative sizes, an `.ideal` or `.absolute` view sits at `P`
 at its size; nothing is hidden (an empty content is the app's state, not ours). "Unmeasured, first layout" does not exist here: the overlay
 is laid out in the same pass as the content, from the content's own size, never from the metrics (§2) — no first-frame flash, no stale
@@ -121,19 +124,11 @@ content.overlay(alignment: .topLeading) { ContentOverlayHost(decls) }   ← the 
 ## 3. Public API (names per CLAUDE.md; S8-2a member returning `Self` + S8-2b twin)
 
 ```swift
-public enum ZTronContentOverlayAnchor: Equatable {   // a point of the content, in unscaled content space
-    case topLeading, top, topTrailing, leading, center, trailing, bottomLeading, bottom, bottomTrailing   // sugar for .relative(UnitPoint.<same>)
-    case relative(UnitPoint)     // fraction of the content size per axis
-    case absolute(CGPoint)       // unscaled content points
-}
-public enum ZTronContentOverlaySize: Equatable {
-    case fillMaxSize                                    // the whole content rect (default); anchor / overlayAnchor ignored; = SwiftUI `.overlay`
-    case fillMaxWidth(_ aspectRatio: CGFloat? = nil)    // width = content width; height = width / aspectRatio (ideal when nil)
-    case fillMaxHeight(_ aspectRatio: CGFloat? = nil)   // height = content height; width = height × aspectRatio (ideal when nil)
-    case relative(CGSize)                               // (content width × width, content height × height)
-    case absolute(CGSize)                               // unscaled content points
-    case ideal                                          // the view's ideal size (`fixedSize()`)
-}
+// Superseded by revision R6 (see "Open questions — resolved"); the current types are SPEC S11's block:
+// ZTronUnitLength / ZTronUnitSize / ZTronUnitPoint (clamped to [0, 1]), ZTronContentOverlayAnchor.relative(ZTronUnitPoint),
+// ZTronContentOverlayLength (.ideal / .aspectRatio / .absolute / .relative) and the struct ZTronContentOverlaySize with
+// .fillMaxSize, .ideal, .fillMaxWidth(_:) / .fillMaxWidth(height:), .fillMaxHeight(_:) / .fillMaxHeight(width:), .relative(_:),
+// .relative(width:height:), .absolute(_:).
 public enum ZTronContentOverlayScaling: Equatable { case withContent, counterScaled }   // default .withContent
 
 extension ZTronScrollView {
@@ -190,7 +185,7 @@ extension View {
 - `LayoutHostTests` unchanged and green on both paths (the overlay must not change the measured content size, R4).
 
 **Demo** (`ResizeScreen`, launch flag `-ZTronResizeOverlay` on the user trees): on `UserTreeScroller` add
-`.scrollContentIntegralOverlay(anchor: .relative(UnitPoint(x: 0.3, y: 0.65)), overlayAnchor: .center, size: .ideal) { 6 pt red circle,
+`.scrollContentIntegralOverlay(anchor: .relative(ZTronUnitPoint(x: 0.3, y: 0.65)), overlayAnchor: .center, size: .ideal) { 6 pt red circle,
 id "overlay.detail" }`, `.scrollContentIntegralOverlay(anchor: .bottom, overlayAnchor: .bottom, size: .fillMaxWidth(16/9)) { translucent
 banner, id "overlay.banner", with a Button "overlay.banner.button" that bumps the `button.fired` counter }` and
 `.scrollContentIntegralOverlay(anchor: .topLeading) { a faint tint, id "overlay.fill" }` (the `.fillMaxSize` default); a
@@ -246,7 +241,15 @@ Settled by the refinements: `overlayAnchor: UnitPoint = .topLeading` (`.absolute
   `.frame(width:)` does). The ideal-size case is spelled `.ideal` (SwiftUI's word: `idealWidth`, "ideal size"). Builder note: a sized
   overlay with no anchors given lands its top-leading on the content centre (`overlayAnchor` default `.topLeading`, the user's choice);
   `.overlay(alignment: .center)` parity for sized views is `overlayAnchor: .center` — one default to flip if the user prefers.
-- **R5 Twin.** Kept, for consistency with the rest of the API (every member has a `ztronScroll…` twin, S8-2b / S11).
+- **R5 Twin.** Kept, for consistency with the rest of the API (every member has a `ztronScroll…` twin, S8-2b / S11). Confirmed again after
+  the build (2026-10-21): the twin stays environment-only (`some View`); `scrollContentIntegralOverlay` is the chainable spelling.
+- **R6 Units and free axes (2026-10-21, user, after M6b-s1).** `.fillMaxWidth` / `.fillMaxHeight` take the free axis as a length:
+  `.ideal` (SwiftUI decides), `.aspectRatio(r)`, `.absolute(points)`, `.relative(fraction of the content on that axis)`; the old
+  `.fillMaxWidth(16/9)` / `.fillMaxWidth()` spellings remain as sugar. Every `.relative` runs on a clamped unit type
+  (`ZTronUnitLength`, `ZTronUnitSize`, `ZTronUnitPoint`; the anchor's `.relative` included, so it stays inside the content; `.absolute`
+  and `overlayAnchor` stay unclamped). `ZTronContentOverlaySize` became a struct of static constructors (Swift cannot overload enum
+  cases by type) with canonical equality. Source change: `.relative(UnitPoint)` → `.relative(ZTronUnitPoint)`, `.relative(CGSize)` →
+  `.relative(ZTronUnitSize(_:))`. Built in M6b-s2 (`docs/progress/M6b-s2.md`).
 
 ## L1 notes (2026-10-21, builder; after the two-reviewer pass)
 
@@ -276,7 +279,8 @@ What L1 built where it differs from, or settles, §2–§5 (sections 1–4 and R
 ## L2 notes (2026-10-21, demo + UI; orchestrator summary)
 
 - Demo: `-ZTronResizeOverlay` on the resize screen's user trees (marker `.relative(0.3, 0.65)` / `.center` / `.ideal`, banner `.bottom` /
-  `.bottom` / `.fillMaxWidth(16/9)` with a Button, `.fillMaxSize` tint, a constant-input label and a bare `Text`),
+  `.bottom` / `.fillMaxWidth(16/9)` with a Button, `.fillMaxSize` tint, a `.fillMaxWidth(height: .relative(0.05))` top strip and a
+  `.fillMaxHeight(width: .absolute(12))` trailing bar (R6), a constant-input label and a bare `Text`),
   `-ZTronResizeOverlayCounterScaled`, `-ZTronResizeOverlayNoButton`; readout fields `ovb ovh ovr ovp ocs mk bn tn lb btap lks lag rst`. Without
   the flags the screen behaves as before (ResizeUITests 13/13 on all lanes).
 - `ContentOverlayUITests` (4 tests × 27.0 / 17.5 × preferred / forced, all green): overlay vs content marker ≤ 6e-14 pt, size = 6 × z,
