@@ -4,7 +4,7 @@ import SwiftUI
 // Counter-scaled views (SPEC S6 helper, design M8-chrome §6; built by M6b L1 for `.counterScaled` content overlays,
 // design M6b §1 "Scaling" and §5): the view keeps its layout frame and its anchor point in the content, and draws scaled
 // by 1 / zoom around that point, so its on-screen size stays constant while the content zooms. One implementation:
-// the public `ztronScrollCounterScaled(anchor:)` and the overlay host both apply `CounterScaleLeaf`.
+// the public `ztronScrollCounterScaled(anchor:fileID:line:)` and the overlay host both apply `CounterScaleLeaf`.
 
 extension View {
     /// Keeps this view at a constant on-screen size inside a ``ZTronScrollView``: it is drawn scaled by
@@ -17,9 +17,19 @@ extension View {
     /// zoom re-evaluates a small leaf only, never this view's body. During a rotation at the fitting scale the drawn
     /// scale may differ slightly mid-rotation and lands exact. Outside a `ZTronScrollView` the view draws unchanged.
     ///
-    /// - Parameter anchor: The point of this view that stays fixed (default `.center`; a pin's tip is `.bottom`).
-    public func ztronScrollCounterScaled(anchor: UnitPoint = .center) -> some View {
-        modifier(CounterScaledModifier(anchor: anchor))
+    /// A non-finite `anchor` component counts as 0; in DEBUG builds it is reported with the caller's location, once
+    /// per call site and value (at the call: a plain check, no extra evaluation).
+    ///
+    /// - Parameters:
+    ///   - anchor: The point of this view that stays fixed (default `.center`; a pin's tip is `.bottom`).
+    ///   - fileID: The caller's file, for the DEBUG report; leave the default.
+    ///   - line: The caller's line, for the DEBUG report; leave the default.
+    public func ztronScrollCounterScaled(anchor: UnitPoint = .center, fileID: StaticString = #fileID,
+                                         line: UInt = #line) -> some View {
+        #if DEBUG
+        CounterScaleEffect.reportNonFinite(anchor, .caller(fileID: fileID, line: line))
+        #endif
+        return modifier(CounterScaledModifier(anchor: anchor))
     }
 }
 
@@ -54,6 +64,23 @@ struct CounterScaleEffect: GeometryEffect {
         // translate(a) · scale(k) · translate(−a): the anchor point is fixed.
         return CGAffineTransform(a: k, b: 0, c: 0, d: k, tx: ax - k * ax, ty: ay - k * ay)
     }
+
+    #if DEBUG
+    /// Reports each non-finite component of a caller's `anchor` (the transform reads it as 0). Finite: two checks.
+    static func reportNonFinite(_ anchor: UnitPoint, _ site: ZTronDiagnostics.Site) {
+        if anchor.x.isFinite && anchor.y.isFinite { return }
+        if !anchor.x.isFinite {
+            ZTronDiagnostics.report(.counterScaleAnchorNotFinite, "ztronScrollCounterScaled anchor.x", "is not finite",
+                                    bits: anchor.x, site: site,
+                                    input: "\(anchor.x) in UnitPoint(x: \(anchor.x), y: \(anchor.y))", result: "0.0")
+        }
+        if !anchor.y.isFinite {
+            ZTronDiagnostics.report(.counterScaleAnchorNotFinite, "ztronScrollCounterScaled anchor.y", "is not finite",
+                                    bits: anchor.y, site: site,
+                                    input: "\(anchor.y) in UnitPoint(x: \(anchor.x), y: \(anchor.y))", result: "0.0")
+        }
+    }
+    #endif
 
     func effectValue(size: CGSize) -> ProjectionTransform {
         #if DEBUG

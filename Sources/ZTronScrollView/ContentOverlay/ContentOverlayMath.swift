@@ -23,7 +23,7 @@ enum ContentOverlayMath {
         let n = nonNegative(v)
         #if DEBUG
         if n != v {   // NaN included (NaN != 0)
-            ZTronDiagnostics.report(.absoluteLengthZeroed, subject, "is negative or not finite", bits: (v, 0), site: site,
+            ZTronDiagnostics.report(.absoluteLengthZeroed, subject, "is negative or not finite", bits: v, site: site,
                                     input: "\(v)", result: "\(n)")
         }
         #endif
@@ -51,44 +51,47 @@ enum ContentOverlayMath {
         }
     }
 
-    /// `P`: the anchor's point in the unscaled content rect.
-    static func anchorPoint(_ anchor: ZTronContentOverlayAnchor, content: CGSize) -> CGPoint {
+    /// `P`: the anchor's point in the unscaled content rect. `site` = the modifier call (DEBUG reports).
+    static func anchorPoint(_ anchor: ZTronContentOverlayAnchor, content: CGSize,
+                            at site: ZTronDiagnostics.CallSite = .unlocated) -> CGPoint {
         let c = sanitized(content)
-        if case .absolute(let a) = anchor { return absolutePoint(a) }
+        if case .absolute(let a) = anchor { return absolutePoint(a, at: site) }
         let u = unitPoint(anchor) ?? .topLeading
         return CGPoint(x: c.width * u.x, y: c.height * u.y)
     }
 
-    /// An `.absolute` anchor's point, non-finite components → 0: in DEBUG builds each one is reported once per point
-    /// (`at layout`; the case carries no caller location). Finite: the same two checks `finite` makes, nothing more.
-    static func absolutePoint(_ a: CGPoint) -> CGPoint {
+    /// An `.absolute` anchor's point, non-finite components → 0: in DEBUG builds each one is reported (`at layout`, with
+    /// the modifier call's location) once per call and component value; the other component, healthy and possibly
+    /// changing every frame, is in the message but not in the key. Finite: the same two checks `finite` makes.
+    static func absolutePoint(_ a: CGPoint, at site: ZTronDiagnostics.CallSite = .unlocated) -> CGPoint {
         if a.x.isFinite && a.y.isFinite { return a }
         #if DEBUG
         if !a.x.isFinite {
-            ZTronDiagnostics.report(.anchorNotFinite, "ZTronContentOverlayAnchor.absolute x", "is not finite", bits: (a.x, a.y),
-                                    site: .layout, input: "\(a.x) in .absolute(\(a))", result: "0.0")
+            ZTronDiagnostics.report(.anchorNotFinite, "ZTronContentOverlayAnchor.absolute x", "is not finite", bits: a.x,
+                                    site: site.site, input: "\(a.x) in .absolute(\(a))", result: "0.0")
         }
         if !a.y.isFinite {
-            ZTronDiagnostics.report(.anchorNotFinite, "ZTronContentOverlayAnchor.absolute y", "is not finite", bits: (a.x, a.y),
-                                    site: .layout, input: "\(a.y) in .absolute(\(a))", result: "0.0")
+            ZTronDiagnostics.report(.anchorNotFinite, "ZTronContentOverlayAnchor.absolute y", "is not finite", bits: a.y,
+                                    site: site.site, input: "\(a.y) in .absolute(\(a))", result: "0.0")
         }
         #endif
         return CGPoint(x: finite(a.x), y: finite(a.y))
     }
 
-    /// An overlay's `overlayAnchor`, non-finite components → 0: in DEBUG builds each one is reported once per point
-    /// (`at layout`; the modifier's argument is stored, then resolved here). Finite: two checks, nothing more.
-    static func finiteOverlayAnchor(_ q: UnitPoint) -> UnitPoint {
+    /// An overlay's `overlayAnchor`, non-finite components → 0: in DEBUG builds each one is reported (`at layout`, with
+    /// the modifier call's location; the argument is stored, then resolved here) once per call and component value,
+    /// keyed on that component only. Finite: two checks, nothing more.
+    static func finiteOverlayAnchor(_ q: UnitPoint, at site: ZTronDiagnostics.CallSite = .unlocated) -> UnitPoint {
         if q.x.isFinite && q.y.isFinite { return q }
         #if DEBUG
         if !q.x.isFinite {
             ZTronDiagnostics.report(.overlayAnchorNotFinite, "scrollContentIntegralOverlay overlayAnchor.x", "is not finite",
-                                    bits: (q.x, q.y), site: .layout,
+                                    bits: q.x, site: site.site,
                                     input: "\(q.x) in UnitPoint(x: \(q.x), y: \(q.y))", result: "0.0")
         }
         if !q.y.isFinite {
             ZTronDiagnostics.report(.overlayAnchorNotFinite, "scrollContentIntegralOverlay overlayAnchor.y", "is not finite",
-                                    bits: (q.x, q.y), site: .layout,
+                                    bits: q.y, site: site.site,
                                     input: "\(q.y) in UnitPoint(x: \(q.x), y: \(q.y))", result: "0.0")
         }
         #endif
@@ -103,25 +106,28 @@ enum ContentOverlayMath {
         return r
     }
 
-    /// `S`: the proposal `size` makes for a content of `content`.
-    static func proposal(_ size: ZTronContentOverlaySize, content: CGSize) -> OverlayProposal {
+    /// `S`: the proposal `size` makes for a content of `content`. `site` = the modifier call (DEBUG reports).
+    static func proposal(_ size: ZTronContentOverlaySize, content: CGSize,
+                         at site: ZTronDiagnostics.CallSite = .unlocated) -> OverlayProposal {
         let c = sanitized(content)
         switch size.kind {
         case .fillMaxSize:
             return OverlayProposal(width: c.width, height: c.height)
         case .axes(let width, let height):
             // An aspect ratio sits opposite a filled axis (the constructors): width = H · r, height = W / r.
-            return OverlayProposal(width: axisLength(width, sameAxis: c.width, axis: .horizontal) { c.height * $0 },
-                                   height: axisLength(height, sameAxis: c.height, axis: .vertical) { c.width / $0 })
+            return OverlayProposal(width: axisLength(width, sameAxis: c.width, axis: .horizontal, at: site) { c.height * $0 },
+                                   height: axisLength(height, sameAxis: c.height, axis: .vertical, at: site) { c.width / $0 })
         }
     }
 
     /// One axis of a size: `nil` (unspecified) for `.ideal`; `sameAxis` = the content's length on that axis (what
     /// `.relative` scales; a filled axis is `.relative(.full)`); `fromRatio(r)` = the length an aspect ratio gives from
-    /// the filled other axis; `axis` = this axis (DEBUG report). Defensive on values the normalizing constructors
-    /// already exclude. A ratio whose length overflows counts as 0, never an infinite frame; in DEBUG builds that is
-    /// reported once per ratio and axis (`at layout`), however many layout passes or content sizes overflow it.
+    /// the filled other axis; `axis` = this axis and `site` = the modifier call (DEBUG report). Defensive on values the
+    /// normalizing constructors already exclude. A ratio whose length overflows counts as 0, never an infinite frame; in
+    /// DEBUG builds that is reported once per call, ratio and axis (`at layout`), however many layout passes or content
+    /// sizes overflow it.
     static func axisLength(_ length: ZTronContentOverlayLength, sameAxis: CGFloat, axis: Axis = .vertical,
+                           at site: ZTronDiagnostics.CallSite = .unlocated,
                            fromRatio: (CGFloat) -> CGFloat) -> CGFloat? {
         switch length {
         case .ideal:
@@ -133,11 +139,11 @@ enum ContentOverlayMath {
                 #if DEBUG
                 if axis == .vertical {
                     ZTronDiagnostics.report(.aspectRatioOverflow, "ZTronContentOverlaySize.fillMaxWidth(height: .aspectRatio) height",
-                                            "overflows (W / r)", bits: (r, 0), site: .layout,
+                                            "overflows (W / r)", bits: r, site: site.site,
                                             input: ".fillMaxWidth(height: .aspectRatio(\(r)))", result: "0.0")
                 } else {
                     ZTronDiagnostics.report(.aspectRatioOverflow, "ZTronContentOverlaySize.fillMaxHeight(width: .aspectRatio) width",
-                                            "overflows (H · r)", bits: (r, 0), site: .layout,
+                                            "overflows (H · r)", bits: r, site: site.site,
                                             input: ".fillMaxHeight(width: .aspectRatio(\(r)))", result: "0.0")
                 }
                 #endif
@@ -159,8 +165,9 @@ enum ContentOverlayMath {
     }
 
     /// origin = `P − q · f` (a non-finite `q` component counts as 0, reported in DEBUG builds: `finiteOverlayAnchor`).
-    static func origin(anchorPoint p: CGPoint, overlayAnchor q: UnitPoint, frame f: CGSize) -> CGPoint {
-        let q = finiteOverlayAnchor(q)
+    static func origin(anchorPoint p: CGPoint, overlayAnchor q: UnitPoint, frame f: CGSize,
+                       at site: ZTronDiagnostics.CallSite = .unlocated) -> CGPoint {
+        let q = finiteOverlayAnchor(q, at: site)
         return CGPoint(x: p.x - q.x * f.width, y: p.y - q.y * f.height)
     }
 
@@ -169,8 +176,10 @@ enum ContentOverlayMath {
                         measure: (OverlayProposal) -> CGSize) -> CGRect {
         let c = sanitized(content)
         if placement.size == .fillMaxSize { return CGRect(origin: .zero, size: c) }
-        let f = frameSize(proposal(placement.size, content: c), measure: measure)
-        let o = origin(anchorPoint: anchorPoint(placement.anchor, content: c), overlayAnchor: placement.overlayAnchor, frame: f)
+        let site = placement.site
+        let f = frameSize(proposal(placement.size, content: c, at: site), measure: measure)
+        let o = origin(anchorPoint: anchorPoint(placement.anchor, content: c, at: site), overlayAnchor: placement.overlayAnchor,
+                       frame: f, at: site)
         return CGRect(origin: o, size: f)
     }
 }

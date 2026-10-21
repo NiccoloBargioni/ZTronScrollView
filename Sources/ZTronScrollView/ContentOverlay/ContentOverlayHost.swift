@@ -112,9 +112,9 @@ struct ContentOverlayReaderHost: View {
             ZStack(alignment: .topLeading) {
                 ForEach(decls, id: \.key) { d in
                     let fill = d.size == .fillMaxSize
-                    let s = ContentOverlayMath.proposal(d.size, content: content)
-                    let p = fill ? CGPoint.zero : ContentOverlayMath.anchorPoint(d.anchor, content: content)
-                    let q = fill ? UnitPoint.topLeading : ContentOverlayMath.finiteOverlayAnchor(d.overlayAnchor)
+                    let s = ContentOverlayMath.proposal(d.size, content: content, at: d.site)
+                    let p = fill ? CGPoint.zero : ContentOverlayMath.anchorPoint(d.anchor, content: content, at: d.site)
+                    let q = fill ? UnitPoint.topLeading : ContentOverlayMath.finiteOverlayAnchor(d.overlayAnchor, at: d.site)
                     // The clear base never takes a touch (the overlay above it does).
                     Color.clear.allowsHitTesting(false).overlay(alignment: .topLeading) {
                         d.view

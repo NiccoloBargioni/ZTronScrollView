@@ -6,7 +6,7 @@ import SwiftUI
 // the content's size in the same layout pass that sizes the content (never from metrics, offset or zoom).
 
 /// A point of the content, in the unscaled content space of a ``ZTronScrollView``: where a content-integral overlay's
-/// `overlayAnchor` point is pinned (see ``ZTronScrollView/scrollContentIntegralOverlay(anchor:overlayAnchor:size:scaling:content:)``).
+/// `overlayAnchor` point is pinned (see ``ZTronScrollView/scrollContentIntegralOverlay(anchor:overlayAnchor:size:scaling:fileID:line:content:)``).
 ///
 /// Each of the nine named cases draws like ``relative(_:)`` with the ``ZTronUnitPoint`` of the same name: `.center`
 /// draws like `.relative(.center)`, the point at half the content's width and half its height. The two spellings are
@@ -44,7 +44,8 @@ public enum ZTronContentOverlayAnchor: Equatable, Sendable {
     case relative(ZTronUnitPoint)
     /// A fixed point in unscaled content points, independent of the content's size, and not clamped: the way to anchor
     /// an overlay outside the content. Non-finite components count as 0; in DEBUG builds such a component is reported
-    /// when the overlay is laid out (`at layout`: a case carries no caller location), once per point.
+    /// when the overlay is laid out (`at layout`, with the location of the `scrollContentIntegralOverlay` call), once per
+    /// call and component value.
     case absolute(CGPoint)
 }
 
@@ -54,8 +55,9 @@ public enum ZTronContentOverlayAnchor: Equatable, Sendable {
 /// Normalized when it becomes part of a ``ZTronContentOverlaySize``, so equal-rendering sizes compare equal: an
 /// ``aspectRatio(_:)`` that is zero, negative or non-finite becomes ``ideal``; an ``absolute(_:)`` length that is
 /// negative or non-finite becomes 0; ``relative(_:)`` is clamped by its ``ZTronUnitLength``, and a fraction of 0 is the
-/// length it draws, `.absolute(0)` (not an error: 0 is in range). The first two are reported in DEBUG builds with the
-/// location of the ``ZTronContentOverlaySize`` constructor's caller, once per call site and value. The lengths
+/// length it draws, `.absolute(0)` (not an error: 0 is in range). The first two, and a ``relative(_:)`` fraction
+/// clamped from a literal (`.relative(5)`), are reported in DEBUG builds with the location of the
+/// ``ZTronContentOverlaySize`` constructor's caller, once per call site and value. The lengths
 /// themselves compare as written (`.relative(0) != .absolute(0)`); the sizes built from them compare by what they draw.
 public enum ZTronContentOverlayLength: Equatable, Sendable {
     /// SwiftUI decides: the view's own length on that axis, measured with that axis unspecified and the filled axis at
@@ -65,7 +67,8 @@ public enum ZTronContentOverlayLength: Equatable, Sendable {
     /// is `W × 9W/16`, `.fillMaxHeight(width: .aspectRatio(0.5))` is `H/2 × H`. A ratio so extreme that `W / r` or
     /// `H · r` overflows `CGFloat` (a positive ratio near `.leastNonzeroMagnitude` or `.greatestFiniteMagnitude`) gives
     /// a length of 0 on that axis, never an infinite frame; in DEBUG builds this is reported when it happens, in layout
-    /// (`at layout`: whether it overflows depends on the content's size), once per ratio and axis.
+    /// (`at layout`, with the location of the `scrollContentIntegralOverlay` call: whether it overflows depends on the
+    /// content's size), once per call, ratio and axis.
     case aspectRatio(CGFloat)
     /// A fixed length in unscaled content points (it scales with the zoom like the rest of the content).
     case absolute(CGFloat)
@@ -85,7 +88,7 @@ public enum ZTronContentOverlayLength: Equatable, Sendable {
             ZTronDiagnostics.report(.aspectRatioIgnored,
                                     axis == .vertical ? "ZTronContentOverlaySize.fillMaxWidth(height:) .aspectRatio"
                                                       : "ZTronContentOverlaySize.fillMaxHeight(width:) .aspectRatio",
-                                    "is not a positive finite ratio", bits: (r, 0), site: site,
+                                    "is not a positive finite ratio", bits: r, site: site,
                                     input: "\(r)", result: ".ideal")
             #endif
             return .ideal
@@ -94,7 +97,12 @@ public enum ZTronContentOverlayLength: Equatable, Sendable {
                                                                 ? "ZTronContentOverlaySize.fillMaxWidth(height:) .absolute"
                                                                 : "ZTronContentOverlaySize.fillMaxHeight(width:) .absolute",
                                                             site))
-        case .relative(let k): return k.value == 0 ? .absolute(0) : self
+        case .relative(let k):
+            // A literal clamped where it was written (`.relative(5)`, reported as `literal`) is reported again here, with
+            // the constructor's caller.
+            k.reportClampedLiteral(axis == .vertical ? "ZTronContentOverlaySize.fillMaxWidth(height:) .relative"
+                                                     : "ZTronContentOverlaySize.fillMaxHeight(width:) .relative", site)
+            return k.value == 0 ? .absolute(0) : self
         case .ideal: return self
         }
     }
@@ -110,7 +118,7 @@ public enum ZTronContentOverlayLength: Equatable, Sendable {
 /// the caller's location (defaulted `fileID:` / `line:`): in DEBUG builds an input it changes (an unusable aspect ratio,
 /// a negative or non-finite absolute length, a clamped unit value) is reported with that location, once per call site
 /// and value; a relative fraction of 0 becoming the length 0 is not reported (it draws the same). Within a spelling:
-/// `.fillMaxWidth(0) == .fillMaxWidth() == .fillMaxWidth(height: .ideal)`,
+/// `.fillMaxWidth(0) == .fillMaxWidth() == .fillMaxWidth(height: .ideal)` (the ratio 0 is reported in DEBUG builds),
 /// `.fillMaxWidth(16 / 9) == .fillMaxWidth(height: .aspectRatio(16 / 9))`, negative or non-finite absolute lengths are
 /// 0, and every relative fraction is a clamped unit type (``ZTronUnitLength``, ``ZTronUnitSize``). Across spellings: a
 /// filled axis is the fraction 1 and a fraction of 0 is the length 0, so
@@ -230,8 +238,10 @@ public struct ZTronContentOverlaySize: Equatable, Sendable {
     }
 
     /// A fraction of the content's size per axis: `(W · width, H · height)`, each fraction in `0...1`
-    /// (``ZTronUnitLength`` clamps; literals work: `.relative(width: 0.5, height: 0.2)`, and a clamped literal is
-    /// reported in DEBUG builds as `literal`, without a location).
+    /// (``ZTronUnitLength`` clamps; literals work: `.relative(width: 0.5, height: 0.2)`). A clamped fraction is reported
+    /// in DEBUG builds with the caller's location, once per call site and value: a clamped literal
+    /// (`.relative(width: 50, height: 20)`) here, besides its `literal` report; a fraction built with
+    /// ``ZTronUnitLength/init(_:fileID:line:)`` where it was built.
     ///
     /// - Parameters:
     ///   - width: The fraction of the content's width.
@@ -240,8 +250,11 @@ public struct ZTronContentOverlaySize: Equatable, Sendable {
     ///   - line: The caller's line, for the DEBUG report; leave the default.
     public static func relative(width: ZTronUnitLength, height: ZTronUnitLength, fileID: StaticString = #fileID,
                                 line: UInt = #line) -> Self {
-        relative(ZTronUnitSize(width: width.value, height: height.value, fileID: fileID, line: line),
-                 fileID: fileID, line: line)
+        let site = ZTronDiagnostics.Site.caller(fileID: fileID, line: line)
+        width.reportClampedLiteral("ZTronContentOverlaySize.relative(width:height:) width", site)
+        height.reportClampedLiteral("ZTronContentOverlaySize.relative(width:height:) height", site)
+        return relative(ZTronUnitSize(width: width.value, height: height.value, fileID: fileID, line: line),
+                        fileID: fileID, line: line)
     }
 
     /// A fixed size in unscaled content points, independent of the content's size (only the origin follows it).
@@ -264,7 +277,7 @@ public struct ZTronContentOverlaySize: Equatable, Sendable {
 public enum ZTronContentOverlayScaling: Equatable, Sendable {
     /// The overlay is part of the content: it scales with the zoom (the default).
     case withContent
-    /// The overlay keeps a constant on-screen size (``SwiftUI/View/ztronScrollCounterScaled(anchor:)``): its frame is
+    /// The overlay keeps a constant on-screen size (``SwiftUI/View/ztronScrollCounterScaled(anchor:fileID:line:)``): its frame is
     /// still resolved in the content space and its `overlayAnchor` point stays on the content point `anchor`, but it is
     /// drawn scaled by `1 / zoomScale` around that point. With ``ZTronContentOverlaySize/fillMaxSize`` (anchors
     /// ignored) it scales about the content's centre. During a rotation at the fitting scale the content's drawn scale is
@@ -285,23 +298,27 @@ struct ContentOverlayDecl {
     var view: AnyView
     /// Set when the user's view is `Equatable`: the host keeps the previous erased view while the new value is `==` to it.
     var equality: ContentOverlayEquality? = nil
+    /// The modifier call (DEBUG reports made in layout); empty in release builds.
+    var site: ZTronDiagnostics.CallSite
 
     /// One call's declaration: the user's `view` wrapped once (`wrap`), with its `==` when it is `Equatable`.
     @MainActor
     init<V: View>(key: AnyHashable, anchor: ZTronContentOverlayAnchor, overlayAnchor: UnitPoint,
-                  size: ZTronContentOverlaySize, scaling: ZTronContentOverlayScaling, content view: V) {
+                  size: ZTronContentOverlaySize, scaling: ZTronContentOverlayScaling,
+                  site: ZTronDiagnostics.CallSite = .unlocated, content view: V) {
         self.key = key
         self.anchor = anchor
         self.overlayAnchor = overlayAnchor
         self.size = size
         self.scaling = scaling
+        self.site = site
         self.view = Self.wrap(view)
         self.equality = ContentOverlayEquality.make(view)
     }
 
     /// What layout needs (the view excluded).
     var placement: ContentOverlayPlacement {
-        ContentOverlayPlacement(anchor: anchor, overlayAnchor: overlayAnchor, size: size)
+        ContentOverlayPlacement(anchor: anchor, overlayAnchor: overlayAnchor, size: size, site: site)
     }
 
     /// The point a `.counterScaled` overlay scales about, in its own frame: `overlayAnchor` (the point pinned on the
@@ -387,4 +404,11 @@ struct ContentOverlayPlacement: Equatable, Sendable {
     var anchor: ZTronContentOverlayAnchor
     var overlayAnchor: UnitPoint
     var size: ZTronContentOverlaySize
+    /// The modifier call that declared the overlay, for the DEBUG reports made in layout (empty in release builds). Not
+    /// part of `==`: where the call is written never changes what is laid out.
+    var site: ZTronDiagnostics.CallSite = .unlocated
+
+    static func == (a: ContentOverlayPlacement, b: ContentOverlayPlacement) -> Bool {
+        a.anchor == b.anchor && a.overlayAnchor == b.overlayAnchor && a.size == b.size
+    }
 }
