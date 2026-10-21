@@ -3,7 +3,7 @@ import Foundation
 /// A newer-OS API family the library gates behind `#available` (SPEC S3).
 ///
 /// One case per row of the availability matrix in `docs/design/design-note.md` (checked by hand against the Xcode 27
-/// iOS SDK swiftinterfaces). The pinch row is split into `magnifyGesture` (17) and `liveMagnifyCentroid` (shipped in 18, used from 26: D34), and
+/// iOS SDK swiftinterfaces). The pinch row is split into `magnifyGesture` (17) and `liveMagnifyCentroid` (shipped in 18, used from 28: D34, D36), and
 /// `scrollBounceBehaviorType` (16.4) covers `ScrollBounceBehavior`.
 /// Resolve a capability with ``ZTronAvailability/isAvailable(_:)``; see its header for the call-site rules (including
 /// APIs newer than the Xcode 26 SDK).
@@ -19,13 +19,15 @@ public enum ZTronCapability: String, CaseIterable, Sendable, Hashable {
     /// `visualEffect` (iOS 17). Fallback: a leaf modifier reading geometry.
     case visualEffect
     /// `SpatialEventGesture`: raw touches, catch, timestamps. The API ships in iOS 18 but the library uses it from
-    /// **iOS 26** (D34): on 18.x its recognizer begins with the first touch movement and cancels the touches of
-    /// UIKit-backed controls (a SwiftUI `Slider` inside the scroll view never moves). Fallback, also on 18.x:
-    /// `DragGesture(minimumDistance: 0)`, armed only while content moves or a touch it saw is down (`CatchArming`).
+    /// **iOS 28** (D34, D36): its recognizer cancels the touches of touch-based UIKit controls, with the first movement
+    /// on 18.x (a SwiftUI `Slider` inside the scroll view never moves) and at the touch-down itself on 26.x and 27.0 (a
+    /// `Stepper`, a segmented `Picker`, a compact `DatePicker`, a `ColorPicker` never react to a tap). Fallback, on every
+    /// OS below 28: `DragGesture(minimumDistance: 0)`, armed only while content moves or a touch it saw is down
+    /// (`CatchArming`). Run `UIKitControlsUITests` on each new OS before lowering `minimumOS`.
     case spatialEvents
     /// `MagnifyGesture` (iOS 17). Fallback: `MagnificationGesture`.
     case magnifyGesture
-    /// Live pinch centroid via `SpatialEventGesture` (used from iOS 26 like ``spatialEvents``, D34). Fallback:
+    /// Live pinch centroid via `SpatialEventGesture` (used from iOS 28 like ``spatialEvents``, D34, D36). Fallback:
     /// drag-location focal estimate.
     case liveMagnifyCentroid
     /// `GestureInputKinds`: pointer / indirect / pencil (iOS 27). No fallback: every input is treated as direct touch.
@@ -68,7 +70,8 @@ public enum ZTronCapability: String, CaseIterable, Sendable, Hashable {
     static let deploymentTarget: (major: Int, minor: Int) = (15, 0)
 
     /// The first iOS release on which the library uses the preferred API. Usually the release that ships it; later for
-    /// `spatialEvents` and `liveMagnifyCentroid` (shipped in 18, used from 26, D34).
+    /// `spatialEvents` and `liveMagnifyCentroid` (shipped in 18, used from 28, D34, D36: no OS that exists is measured
+    /// to leave touch-based UIKit controls alone).
     public var minimumOS: (major: Int, minor: Int) {
         switch self {
         case .frameClock, .uikitTouchObserver:
@@ -83,7 +86,7 @@ public enum ZTronCapability: String, CaseIterable, Sendable, Hashable {
         case .subviewContainers:
             return (18, 0)
         case .spatialEvents, .liveMagnifyCentroid:
-            return (26, 0)
+            return (28, 0)
         case .gestureInputKinds:
             return (27, 0)
         }
