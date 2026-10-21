@@ -205,3 +205,27 @@ extension View {
         environment(\.ztronNestedScrollPolicy, policy)
     }
 }
+
+private struct YieldsToSheetKey: EnvironmentKey { static let defaultValue = false }
+
+extension EnvironmentValues {
+    /// `View.ztronScrollYieldsToSheet(_:)`; read by the gesture adapters only (SPEC S12 "Inside a bottom sheet").
+    var ztronYieldsToSheet: Bool {
+        get { self[YieldsToSheetKey.self] }
+        set { self[YieldsToSheetKey.self] = newValue }
+    }
+}
+
+extension View {
+    /// Lets an enclosing bottom sheet (`.sheet` with detents) take every drag that starts on a `ZTronScrollView`
+    /// inside this view. While `true` the scroll view is inert to drags: its pan, touch observer, pinch and double tap are
+    /// attached with `GestureMask.subviews`, so the sheet sees the touch, and Buttons / controls in the content keep
+    /// working. `ztronScrollYieldsToSheet(detent != .large)` reproduces `presentationContentInteraction(.resizes)`
+    /// (an upward drag at a smaller detent expands the sheet first; the content scrolls once the sheet is large);
+    /// never calling it behaves like `.scrolls`. Environment-backed and propagating (no member twin: SwiftUI has no
+    /// counterpart). Flipping it re-evaluates the gesture attachment only, never the content; a drag or pinch in flight
+    /// ends like a cancelled touch, and a deceleration keeps settling (nothing can catch it while inert).
+    public func ztronScrollYieldsToSheet(_ yields: Bool = true) -> some View {
+        environment(\.ztronYieldsToSheet, yields)
+    }
+}

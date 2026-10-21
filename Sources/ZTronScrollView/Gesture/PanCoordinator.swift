@@ -19,6 +19,11 @@ final class PanCoordinator: ObservableObject {
     var settings = PanSettings()
     /// SwiftUI's own `isScrollEnabled` (16+), mirrored by the adapter.
     var nativeScrollEnabled = true
+    /// `View.ztronScrollYieldsToSheet(_:)`, mirrored by the adapter (SPEC S12 "Inside a bottom sheet"). While true the
+    /// adapters attach every gesture with `GestureMask.subviews`, so nothing reaches this coordinator; the guards below
+    /// are the second line for the one source no mask covers, the iOS 15-16 UIKit window observer (D31), which would
+    /// otherwise begin sequences (touch-down catches, taps) that no pan ever follows.
+    var yieldsToSheet = false
     private(set) var session = PanSession()
     private var tracker = PointVelocityTracker()
     private var pendingBegin = false
@@ -169,6 +174,9 @@ final class PanCoordinator: ObservableObject {
     }
 
     func handle(_ incoming: PanEvent) {
+        if yieldsToSheet {
+            guard case .cancelled = incoming else { return }
+        }
         var event = incoming
         // The touch-down time becomes `caughtAt` and is compared with `state.now()` at release (fling acceleration):
         // stamp it on the state clock (D14: observer/event clocks differ from the state clock on iOS 27 and on the
@@ -268,6 +276,22 @@ final class PanCoordinator: ObservableObject {
     func cancelIfActive() {
         guard isSequenceActive else { return }
         handle(.cancelled)
+    }
+
+    /// `ztronScrollYieldsToSheet` turned true: a drag or pinch in flight ends like a cancelled touch (a cancelled drag
+    /// releases without velocity: `didEndDragging(false)`, an overscroll springs back; a cancelled pinch bounces back
+    /// into range) and the catch lock is gone. A deceleration or animation in flight is left alone: it settles on its own
+    /// clock (`.ztronScrollDisabled` does the same) and nothing can catch it while the view is inert. No event is sent
+    /// after this (see `yieldsToSheet`).
+    func cancelForSheetYield() {
+        if pinch.isActive { handlePinch(.cancelled) }
+        cancelIfActive()
+        // A release held for a finger that never lifted (D29) is dropped by the cancel, but the drag it would have ended is
+        // still open on the state: close it, without motion.
+        if state.isTracking || state.catchLocksContent {
+            pendingBegin = false; pinchOwnedPan = false; caughtUndecided = false
+            state.endDragWithoutDeceleration()
+        }
     }
 
     /// The held release is being applied: `.release` must not be held again.
@@ -370,6 +394,9 @@ final class PanCoordinator: ObservableObject {
     }
 
     func handlePinch(_ event: PinchEvent) {
+        if yieldsToSheet {
+            guard case .cancelled = event else { return }
+        }
         // Two fingers are down again (D29): a release held since the hand-off was the DragGesture ending on the second
         // finger, not a lift. The pan ends without motion and the pinch takes over.
         if heldRelease != nil {
@@ -392,7 +419,7 @@ final class PanCoordinator: ObservableObject {
     /// While a zoom bounce runs it owns the offset (design M4 §4): the samples are dropped and the pan restarts from
     /// the finger's location once the bounce has settled (its travel during the bounce is not replayed).
     func synthesizePan(location: CGPoint, time: TimeInterval) {
-        guard synthesizedPanStart != nil, !state.isZoomBouncing else { return }
+        guard !yieldsToSheet, synthesizedPanStart != nil, !state.isZoomBouncing else { return }
         switch session.phase {
         case .idle, .released: restartPan(at: location, time: time); return
         default: break

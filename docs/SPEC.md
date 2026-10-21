@@ -894,8 +894,11 @@ from the sheet. This is a SwiftUI/UIKit fact, not a ZTronScrollView property (a 
   `GestureMask.subviews` (`including:`), so the enclosing sheet gets every drag that starts on it, and Buttons / controls in the content keep working. The
   app drives it from its detent selection: `yields: selection != .large` reproduces `presentationContentInteraction(.resizes)` (an upward drag at medium expands
   the sheet first, the content scrolls once the sheet is large); never setting it is `.scrolls`. The UIKit observer path (15–16) is passive and needs no mask.
-  Flipping the flag changes gesture masks only: no content body re-runs (S4), and a drag or deceleration in flight ends like a cancelled touch (no stuck
-  `isTracking`/phase, no spurious delegate call beyond `didEndDragging` of a cancelled drag).
+  Flipping the flag changes gesture masks only: no content body is re-evaluated *by the flag* (S4; an input-free content never runs; a body with non-Equatable inputs
+  re-runs on any environment change, measured on 27.0, and this key costs no more than an unrelated one), and a drag or pinch in flight ends like a cancelled touch (no stuck
+  `isTracking`/phase, no delegate call beyond what the system's cancel of that drag produces: `didEndDragging(false)`, the overscroll spring-back). A
+  deceleration in flight is not interrupted: it settles on its own clock (`.ztronScrollDisabled` does the same) and nothing can catch it while the view is inert.
+  The UIKit observer's events (15–16) are additionally dropped at the coordinator while the flag is true (the observer itself stays passive).
 - **Not possible in pure SwiftUI**: the live top-edge hand-off (the sheet decides at touch-down; once a SwiftUI drag is recognized it never gets the sequence;
   even a native `ScrollView` does not hand off mid-gesture), and telling the sheet our offset. Recipe instead (no API): `onZTronScrollDidEndDragging` /
   the delegate with `contentOffset.y < -60` at the lift → change the detent selection (large → medium) or dismiss; the sheet animates after the lift, no live
