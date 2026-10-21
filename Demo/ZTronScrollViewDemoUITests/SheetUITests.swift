@@ -24,6 +24,8 @@ final class SheetUITests: XCTestCase {
         if let plain { args += ["-ZTronSheetPlain", plain] }
         if forced { args.append("-ZTronForceAllFallbacks") }
         if uikit { args.append("-ZTronForceUIKitObserver") }
+        // Experiments (DBG-s7): `TEST_RUNNER_ZS_DEMO_PANMODE=gesture|high` attaches the pan the other way (DEBUG `PanGestureMode`).
+        if let mode = ProcessInfo.processInfo.environment["ZS_DEMO_PANMODE"], !mode.isEmpty { args += ["-ZTronPanGestureMode", mode] }
         app.launchArguments = args
         app.launch()
         app.buttons["sheet.present"].tap()
@@ -187,7 +189,15 @@ final class SheetUITests: XCTestCase {
         tapButton(app, "sheet.mid")
         resetProbe(app)
         drag(app, dy: 700)
-        evidence(app, "case=D1a variant=\(native ? "native" : "ours") large offsetMid downSlow700 (content past the top)")
+        let a = evidence(app, "case=D1a variant=\(native ? "native" : "ours") large offsetMid downSlow700 (content past the top)")
+        if a.dismissed {
+            // iOS 18.x (docs/progress/DBG-s7.md): SwiftUI shares our `.simultaneousGesture` drag with the sheet's pan, the finger takes the
+            // sheet along and dismisses it while the content stays put (on 17.5, 26.5 and 27.0 the content wins and the sheet is still up).
+            // D1b starts from a fresh sheet at the top, which is the same state the scroll would have ended in.
+            app.buttons["sheet.present"].tap()
+            XCTAssertTrue(app.buttons["sheet.snapshot"].waitForExistence(timeout: 10), "the sheet came back")
+            Thread.sleep(forTimeInterval: 1.5)
+        }
         resetProbe(app)
         drag(app, dy: 250)
         evidence(app, "case=D1b variant=\(native ? "native" : "ours") large offsetTop downSlow250 (from the top)")
@@ -325,4 +335,25 @@ final class SheetUITests: XCTestCase {
     func testP7_plainMaskedSubviews() throws { try caseP(plain: "maskedSubviews", name: "P7", dy: -250) }
     func testP8_plainMaskedAtMedium() throws { try caseP(plain: "maskedAtMedium", name: "P8", dy: -250, then: 250) }
     func testP6_plainSimultaneousIntrospect() throws { try caseP(plain: "simultaneous", name: "P6", introspect: true) }
+
+    // MARK: DBG-s7: who decides whether the sheet gets the drag
+
+    /// Whether a drag that starts on the content moves the sheet is SwiftUI's decision, not the library's: ours does what a plain pane with
+    /// one `.simultaneousGesture(DragGesture)` does. On 17.5, 26.5 and 27.0 both freeze the sheet (SHEET-s1 P1); on 18.x (18.0 to 18.6 measured)
+    /// SwiftUI shares the drag with the sheet's pan and both move it (docs/progress/DBG-s7.md). `.gesture` (exclusive) is the control that
+    /// freezes the sheet on every OS measured: printed, not asserted, since the library does not attach that way.
+    func testTheSheetTreatsOursLikeAPlainSimultaneousDrag() throws {
+        var moved: [String: Bool] = [:]
+        for (name, plain) in [("ours", nil), ("plain-simultaneous", "simultaneous"), ("plain-gesture", "gesture")] as [(String, String?)] {
+            let app = try launch(native: false, start: "medium", plain: plain)
+            resetProbe(app)
+            drag(app, dy: 250)
+            let e = evidence(app, "case=S1 variant=\(name) medium downSlow250")
+            let travel = (Int(e.info["topMax"] ?? "") ?? 0) - (Int(e.info["topMin"] ?? "") ?? 0)
+            moved[name] = e.dismissed || travel > 40
+            app.terminate()
+        }
+        print("SHEET os=\(osTag) path=\(uikit ? "uikit" : forced ? "forced" : "preferred") case=S1 sheetMoved \(moved.sorted { $0.key < $1.key })")
+        XCTAssertEqual(moved["ours"], moved["plain-simultaneous"], "the sheet treats our pan like a plain simultaneous drag")
+    }
 }

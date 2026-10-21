@@ -22,6 +22,9 @@ enum SDArgs {
     /// `-ZTronSDGrow`: the readout may grow from nothing to three lines, which shrinks the scroller's viewport (the SHEET-s1
     /// readout did, and read "offset 9" after a drag of a disabled view). Without it the readout has a fixed height.
     static var grow: Bool { args.contains("-ZTronSDGrow") }
+    /// `-ZTronSDAnchorTop`: `defaultScrollAnchor(.top, for: .sizeChanges)` on the scroller, S7's one documented override: a viewport
+    /// change (a sheet that resizes) no longer moves the offset, so what is left is what the finger did (DBG-s7).
+    static var anchorTop: Bool { args.contains("-ZTronSDAnchorTop") }
 }
 
 @MainActor
@@ -33,22 +36,35 @@ final class SDProbe: ZTronScrollViewDelegate {
     var envInside: Bool?
     var envBeside: Bool?
     var nativeOffset: CGFloat = 0
+    /// The pane's size in order of arrival and the first offsets the delegate saw, since launch (capped): a sheet that lays its
+    /// content out at one size and settles at another shows up as two sizes and an offset that moved without a touch (DBG-s7).
+    private(set) var sizeTrail: [String] = []
+    private(set) var offTrail: [Int] = []
+
+    func noteSize(_ size: CGSize) {
+        let s = "\(Int(size.width.rounded()))x\(Int(size.height.rounded()))"
+        if sizeTrail.last != s, sizeTrail.count < 12 { sizeTrail.append(s) }
+    }
 
     func scrollViewDidScroll(_ state: ZTronScrollState) {
         didScroll += 1
         off = state.contentOffset.y
         offMin = min(offMin, off); offMax = max(offMax, off)
+        let o = Int(off.rounded())
+        if offTrail.last != o, offTrail.count < 12 { offTrail.append(o) }
     }
     func scrollViewWillBeginDragging(_ state: ZTronScrollState) { dragBegan += 1 }
     func scrollViewDidEndDragging(_ state: ZTronScrollState, willDecelerate decelerate: Bool) { dragEnded += 1 }
 
     func reset() { offMin = off; offMax = off; didScroll = 0; dragBegan = 0; dragEnded = 0 }
 
-    func summary(live: CGFloat) -> String {
+    /// `viewport`: the scroller's committed viewport height (0 for the native variant, which has no state).
+    func summary(live: CGFloat, viewport: CGFloat = 0) -> String {
         func f(_ v: CGFloat) -> String { String(Int(v.rounded())) }
         func b(_ v: Bool?) -> String { v.map { $0 ? "1" : "0" } ?? "-" }
-        var s = "off=\(f(live)) offMin=\(f(offMin)) offMax=\(f(offMax)) didScroll=\(didScroll) dragBegan=\(dragBegan) dragEnded=\(dragEnded) "
-        s += "envInside=\(b(envInside)) envBeside=\(b(envBeside)) nativeOff=\(f(nativeOffset))"
+        var s = "off=\(f(live)) vp=\(f(viewport)) offMin=\(f(offMin)) offMax=\(f(offMax)) didScroll=\(didScroll) dragBegan=\(dragBegan) dragEnded=\(dragEnded) "
+        s += "envInside=\(b(envInside)) envBeside=\(b(envBeside)) nativeOff=\(f(nativeOffset)) "
+        s += "sz=\(sizeTrail.joined(separator: ">")) ot=\(offTrail.map(String.init).joined(separator: ","))"
         #if DEBUG
         let c = ZTronRenderCounters.snapshot
         for k in ["pan.ev.down", "pan.ev.drag", "pan.ev.cancel", "pan.ev.up", "pan.ev.dragEnd"] { s += " c.\(k)=\(c[k] ?? 0)" }
@@ -93,6 +109,10 @@ private struct SDScroller: View {
             }
             .coordinateSpace(name: "sd.native")
             .modifier(SDDisable(off: off))
+        } else if SDArgs.anchorTop {
+            ZTronScrollView(.vertical, state: state) { SDRows() }
+                .defaultScrollAnchor(.top, for: .sizeChanges)
+                .modifier(SDDisable(off: off))
         } else {
             ZTronScrollView(.vertical, state: state) { SDRows() }
                 .modifier(SDDisable(off: off))
@@ -128,7 +148,9 @@ private struct SDPane: View {
     var body: some View {
         VStack(spacing: 4) {
             HStack(spacing: 14) {
-                Button("Snapshot") { info = SDProbe.shared.summary(live: state.contentOffset.y) }.accessibilityIdentifier("sd.snapshot")
+                Button("Snapshot") {
+                    info = SDProbe.shared.summary(live: state.contentOffset.y, viewport: state.geometry.containerSize.height)
+                }.accessibilityIdentifier("sd.snapshot")
                 Button("Reset") { SDProbe.shared.reset() }.accessibilityIdentifier("sd.reset")
                 Button("Toggle") { off.toggle() }.accessibilityIdentifier("sd.toggle")
             }
@@ -142,6 +164,10 @@ private struct SDPane: View {
                 .accessibilityIdentifier("sd.scroller")
         }
         .padding(.top, 8)
+        .background(GeometryReader { g in
+            let _ = SDProbe.shared.noteSize(g.size)
+            Color.clear
+        })
         .onAppear { state.delegate = SDProbe.shared }
     }
 }
