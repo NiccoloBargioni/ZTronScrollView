@@ -484,7 +484,8 @@ private struct SpatialReference {
     }
 
     @Test func forcedOnWithSpatialEventsAvailableStaysOff() {
-        // `-ZTronForceUIKitObserver` alone on an 18+ simulator: spatial events still win, no observer.
+        // `-ZTronForceUIKitObserver` alone on an iOS 28+ simulator: spatial events still win, no observer (below 28 they are
+        // never used, D37, so the observer takes over there, as on 17.x).
         withOSPath(.preferred) {
             let state = withObserverForcedOn { ZTronScrollState() }
             #expect(state.usesUIKitTouchObserver == (ZTronAvailability.isForcingSupported && !state.usesSpatialEvents))
@@ -497,7 +498,8 @@ private struct SpatialReference {
             defer { ZTronAvailability.forceFallback(.spatialEvents, false) }
             let state = withObserverForcedOn { ZTronScrollState() }
             #expect(state.usesUIKitTouchObserver == ZTronAvailability.isForcingSupported)
-            #expect(!state.usesSpatialEvents == ZTronAvailability.isForcingSupported)
+            // Spatial events are off when forced (DEBUG) and, below iOS 28, everywhere (D37).
+            #expect(!state.usesSpatialEvents == (ZTronAvailability.isForcingSupported || !RunningOS.isAtLeast((28, 0))))
         }
     }
 }

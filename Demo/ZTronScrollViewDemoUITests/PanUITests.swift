@@ -148,6 +148,63 @@ final class PanUITests: XCTestCase {
         app.buttons["Info"].tap()
         let s = app.staticTexts["stateInfo"].value as? String ?? ""
         print("CTL vertical-on-slider \(s) slider=\(slider.normalizedSliderPosition)")
-        XCTAssertFalse(s.contains("y=0 "), "vertical drag from the slider scrolls: \(s)")
+        XCTAssertGreaterThan(offsetY(s) ?? 0, 0, "vertical drag from the slider scrolls: \(s)")
+    }
+
+    /// The `y=` field of the controls screen's `stateInfo` ("phase=0 y=140").
+    private func offsetY(_ info: String) -> Int? {
+        info.components(separatedBy: " ").first { $0.hasPrefix("y=") }.flatMap { Int($0.dropFirst(2)) }
+    }
+
+    private func dragSlider(_ app: XCUIApplication) -> XCUIElement {
+        let slider = app.sliders["ctl.slider"]
+        slider.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5))
+            .press(forDuration: 0.05, thenDragTo: slider.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)))
+        return slider
+    }
+
+    /// Regression (D34, iOS 18.x): a UIKit-backed `Slider` inside the scroll view follows a horizontal drag. On 18.x the
+    /// `SpatialEventGesture` observer's recognizer (cancelsTouchesInView) began with the first move and the UISlider never
+    /// got its touch (value stayed 0.2 on 18.0-18.6); the observer is now a `DragGesture` armed only while content moves.
+    /// Separate from `testControlsUsable` so this check does not depend on the later keyboard step.
+    func testSliderHorizontalDragMovesSliderNotScroller() {
+        let app = launch("controls")
+        let slider = dragSlider(app)
+        XCTAssertGreaterThan(slider.normalizedSliderPosition, 0.6, "horizontal drag moves the slider")
+        app.buttons["Info"].tap()
+        let s = app.staticTexts["stateInfo"].value as? String ?? ""
+        XCTAssertEqual(offsetY(s), 0, "slider drag did not scroll: \(s)")
+    }
+
+    /// The observer is armed while content moves and must disarm after the touch that caught it: after a fling and its
+    /// return to the top, the slider works again (the arming gate flips back; on 18.x it is `simultaneousGesture(isEnabled:)`).
+    func testSliderDragWorksAgainAfterTheContentMoved() {
+        let app = launch("controls")
+        let top = app.buttons["Info"].frame.maxY + 6          // the scroll view's top edge (VStack spacing 6)
+        let x = app.windows.firstMatch.frame.midX
+        func fling(from a: CGFloat, to b: CGFloat) {
+            let p = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: x, dy: top + a))
+            let q = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: x, dy: top + b))
+            p.press(forDuration: 0.05, thenDragTo: q, withVelocity: .fast, thenHoldForDuration: 0)
+        }
+        func infoText() -> String {
+            app.buttons["Info"].tap()
+            Thread.sleep(forTimeInterval: 0.3)
+            return app.staticTexts["stateInfo"].value as? String ?? ""
+        }
+        fling(from: 320, to: 40)
+        Thread.sleep(forTimeInterval: 3)
+        let moved = infoText()
+        XCTAssertGreaterThan(offsetY(moved) ?? 0, 100, "the fling scrolled the content: \(moved)")
+        var s = moved
+        for _ in 0..<6 where !(s.hasPrefix("phase=0 ") && offsetY(s) == 0) {
+            fling(from: 40, to: 330)
+            Thread.sleep(forTimeInterval: 3)
+            s = infoText()
+        }
+        XCTAssertTrue(s.hasPrefix("phase=0 ") && offsetY(s) == 0, "back at the top and at rest: \(s)")
+        let slider = dragSlider(app)
+        print("CTL slider-after-motion \(slider.normalizedSliderPosition)")
+        XCTAssertGreaterThan(slider.normalizedSliderPosition, 0.6, "the slider works again once the content has stopped")
     }
 }
