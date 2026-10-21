@@ -164,6 +164,30 @@ private func generalized<C: View>(_ v: ZTronScrollView<C>) -> ZTronScrollView<C>
     .scrollContentIntegralOverlay(anchor: .relative(ZTronUnitPoint(x: 2, y: -1)), overlayAnchor: .topTrailing, size: .ideal) {
         Color.black.frame(width: 10, height: 10).ztronScrollID("g.corner")
     }
+    // The `.ideal` free axes: SwiftUI measures the view with that axis open and the filled one at the content's length.
+    // Wrapped text, whose height depends on the width it is offered.
+    .scrollContentIntegralOverlay(anchor: .center, overlayAnchor: .center, size: .fillMaxWidth(height: .ideal)) {
+        wrappedCaption().ztronScrollID("g.wideal")
+    }
+    // A view whose width depends on the height it is offered: 0.1 × that height.
+    .scrollContentIntegralOverlay(anchor: .trailing, overlayAnchor: .trailing, size: .fillMaxHeight(width: .ideal)) {
+        Color.cyan.aspectRatio(0.1, contentMode: .fit).ztronScrollID("g.hideal")
+    }
+}
+
+/// Several lines of text at the content's width (200): the `.fillMaxWidth(height: .ideal)` overlay of `generalized`.
+@MainActor
+private func wrappedCaption() -> some View {
+    Text("A caption long enough to wrap over several lines at the content's width of two hundred points.")
+        .font(.system(size: 17))
+        .frame(maxWidth: .infinity)
+}
+
+/// `wrappedCaption()`'s own size at `width`, measured outside any scroll view (the reference both hosts must match).
+@MainActor
+private func wrappedCaptionSize(width: CGFloat) -> CGSize {
+    UIHostingController(rootView: wrappedCaption())
+        .sizeThatFits(in: CGSize(width: width, height: CGFloat.greatestFiniteMagnitude))
 }
 
 /// Content `200 × 1000`, or `200 × 1500` when the sibling grows (a parent re-evaluation; the content itself is input-free).
@@ -951,9 +975,9 @@ struct ContentOverlayTests {
         #expect(same(resolve(tl, q0, .fillMaxWidth(height: .aspectRatio(.leastNonzeroMagnitude))), rect(0, 0, 300, 0)))
         #expect(same(resolve(tl, q0, .fillMaxHeight(width: .aspectRatio(.greatestFiniteMagnitude))), rect(0, 0, 0, 600)))
         // Defensive on values the constructors exclude.
-        #expect(ContentOverlayMath.freeLength(.aspectRatio(-1), sameAxis: 600) { 300 / $0 } == nil)
-        #expect(ContentOverlayMath.freeLength(.aspectRatio(.nan), sameAxis: 600) { 300 / $0 } == nil)
-        #expect(ContentOverlayMath.freeLength(.absolute(-3), sameAxis: 600) { $0 } == 0)
+        #expect(ContentOverlayMath.axisLength(.aspectRatio(-1), sameAxis: 600) { 300 / $0 } == nil)
+        #expect(ContentOverlayMath.axisLength(.aspectRatio(.nan), sameAxis: 600) { 300 / $0 } == nil)
+        #expect(ContentOverlayMath.axisLength(.absolute(-3), sameAxis: 600) { $0 } == 0)
     }
 
     /// Compile-only: the agreed spellings type-check without ambiguity (a failure here is a build error, not a test
@@ -986,8 +1010,95 @@ struct ContentOverlayTests {
         _ = view
     }
 
+    /// The DocC promise of `ZTronContentOverlaySize`, checked both ways: two sizes are `==` exactly when both hosts draw
+    /// them alike, i.e. the same proposal for every content size and the same `.fillMaxSize`-ness (which drops the
+    /// anchors). The proposal is all either host reads of a size besides that.
+    @Test func sizesCompareEqualExactlyWhenTheyDrawAlike() {
+        typealias S = ZTronContentOverlaySize
+        // One size, several spellings.
+        #expect(S.fillMaxWidth(height: .relative(1)) == .relative(.full))
+        #expect(S.fillMaxHeight(width: .relative(1)) == .relative(.full))
+        #expect(S.fillMaxWidth(height: .relative(0.3)) == .relative(width: 1, height: 0.3))
+        #expect(S.fillMaxHeight(width: .relative(0.3)) == .relative(width: 0.3, height: 1))
+        #expect(S.relative(.zero) == .absolute(.zero))
+        #expect(S.fillMaxWidth(height: .relative(0)) == .fillMaxWidth(height: .absolute(0)))
+        #expect(S.relative(width: 1, height: 0) == .fillMaxWidth(height: .absolute(-3)))
+        #expect(S.relative(width: 0, height: 1) == .fillMaxHeight(width: .absolute(.nan)))
+        #expect(S.relative(width: 0, height: 0.5) == .relative(width: -2, height: 0.5))
+        #expect(S.fillMaxSize != .relative(.full), "fillMaxSize ignores the anchors")
+        // Both ways, over many sizes (equal spellings included) and contents.
+        let sizes: [S] = [
+            .fillMaxSize, .ideal, .fillMaxWidth(), .fillMaxWidth(0), .fillMaxWidth(2), .fillMaxWidth(3), .fillMaxHeight(),
+            .fillMaxHeight(2), .fillMaxHeight(0.5), .fillMaxWidth(height: .absolute(0)), .fillMaxWidth(height: .absolute(40)),
+            .fillMaxWidth(height: .relative(0)), .fillMaxWidth(height: .relative(0.3)), .fillMaxWidth(height: .relative(1)),
+            .fillMaxHeight(width: .absolute(0)), .fillMaxHeight(width: .absolute(40)), .fillMaxHeight(width: .relative(0)),
+            .fillMaxHeight(width: .relative(0.3)), .fillMaxHeight(width: .relative(1)), .relative(.full), .relative(.zero),
+            .relative(width: 1, height: 0.3), .relative(width: 0.3, height: 1), .relative(width: 1, height: 0),
+            .relative(width: 0, height: 1), .relative(width: 0.5, height: 0.2), .relative(width: 0, height: 0.5),
+            .absolute(.zero), .absolute(CGSize(width: 40, height: 40)), .absolute(CGSize(width: 0, height: 40)),
+            .absolute(CGSize(width: 40, height: 0)),
+        ]
+        let contents = [CGSize.zero, CGSize(width: 300, height: 600), CGSize(width: 1, height: 1), CGSize(width: 7, height: 3),
+                        CGSize(width: 0, height: 600), CGSize(width: 300, height: 0), CGSize(width: 123.5, height: 77.25),
+                        CGSize(width: 40, height: 40)]
+        func drawn(_ size: S) -> (Bool, [OverlayProposal]) {
+            if case .fillMaxSize = size.kind { return (true, []) }
+            return (false, contents.map { ContentOverlayMath.proposal(size, content: $0) })
+        }
+        var equalPairs = 0, unequalPairs = 0
+        for i in sizes.indices {
+            for j in sizes.indices where i != j {
+                let alike = drawn(sizes[i]) == drawn(sizes[j])
+                #expect((sizes[i] == sizes[j]) == alike, "\(sizes[i]) vs \(sizes[j]): alike \(alike)")
+                if alike { equalPairs += 1 } else { unequalPairs += 1 }
+            }
+        }
+        #expect(equalPairs >= 20 && unequalPairs > 500, "both directions exercised: \(equalPairs) / \(unequalPairs)")
+    }
+
+    /// A named anchor draws like the relative point of the same name; the values compare as written (the DocC).
+    @Test func namedAnchorsDrawLikeTheirRelativePointsAndCompareAsWritten() {
+        let pairs: [(ZTronContentOverlayAnchor, ZTronUnitPoint)] = [
+            (.topLeading, .topLeading), (.top, .top), (.topTrailing, .topTrailing), (.leading, .leading), (.center, .center),
+            (.trailing, .trailing), (.bottomLeading, .bottomLeading), (.bottom, .bottom), (.bottomTrailing, .bottomTrailing),
+        ]
+        for c in [CGSize.zero, CGSize(width: 300, height: 600), CGSize(width: 123.5, height: 77.25)] {
+            for (named, u) in pairs {
+                #expect(ContentOverlayMath.anchorPoint(named, content: c) == ContentOverlayMath.anchorPoint(.relative(u), content: c),
+                        "\(named) \(c)")
+            }
+        }
+        #expect(ZTronContentOverlayAnchor.center != .relative(.center))
+        #expect(ZTronContentOverlayAnchor.relative(.center) == .relative(ZTronUnitPoint(x: 0.5, y: 0.5)))
+    }
+
+    /// A positive ratio is kept when the size is built; if its length overflows in layout it draws 0 and writes the note.
+    @Test func anOverflowingAspectRatioDrawsZeroAndWritesTheNote() {
+        let tl = ZTronContentOverlayAnchor.topLeading, q0 = UnitPoint.topLeading, key = "contentOverlay.badAspect"
+        ZTronRenderCounters.notes[key] = nil
+        let tiny = ZTronContentOverlaySize.fillMaxWidth(CGFloat.leastNonzeroMagnitude)
+        #expect(tiny != .fillMaxWidth() && ZTronRenderCounters.notes[key] == nil, "a positive ratio is kept")
+        #expect(same(resolve(tl, q0, tiny), rect(0, 0, 300, 0)))
+        #expect(ZTronRenderCounters.notes[key] == "\(CGFloat.leastNonzeroMagnitude) overflows")
+        ZTronRenderCounters.notes[key] = nil
+        let huge = ZTronContentOverlaySize.fillMaxHeight(width: .aspectRatio(.greatestFiniteMagnitude))
+        #expect(same(resolve(tl, q0, huge), rect(0, 0, 0, 600)))
+        #expect(ZTronRenderCounters.notes[key] == "\(CGFloat.greatestFiniteMagnitude) overflows")
+        // The same ratio on a content short enough not to overflow draws its length, without the note.
+        ZTronRenderCounters.notes[key] = nil
+        #expect(same(resolve(tl, q0, huge, content: CGSize(width: 300, height: 0.5)),
+                     rect(0, 0, CGFloat.greatestFiniteMagnitude / 2, 0.5)))
+        #expect(same(resolve(tl, q0, .fillMaxWidth(4)), rect(0, 0, 300, 75)))
+        #expect(ZTronRenderCounters.notes[key] == nil)
+    }
+
     private func expectGeneralizedFrames(_ s: ZTronScrollState, h H: CGFloat, _ label: String) {
         let r = s.targets
+        // The caption's height at width 200 is several lines (a height-for-width view, not a fixed one).
+        let t = wrappedCaptionSize(width: 200)
+        let line = UIHostingController(rootView: Text("A").font(.system(size: 17)))
+            .sizeThatFits(in: CGSize(width: 200, height: CGFloat.greatestFiniteMagnitude))
+        #expect(t.width == 200 && t.height > 2 * line.height, "\(label) caption \(t), line \(line)")
         let expected: [(String, CGRect)] = [
             ("g.wabs", rect(0, 0, 200, 40)),                    // .top / .top, W × 40
             ("g.wrel", rect(0, 0.45 * H, 200, 0.1 * H)),        // .center / .center, W × 0.1 H
@@ -997,6 +1108,8 @@ struct ContentOverlayTests {
             ("g.habs", rect(188, 0, 12, H)),                    // .trailing / .trailing, 12 × H
             ("g.rel", rect(100, 0.8 * H, 100, 0.2 * H)),        // .bottomTrailing / .bottomTrailing, 0.5 W × 0.2 H
             ("g.corner", rect(190, 0, 10, 10)),                 // (2, −1) → (1, 0) / .topTrailing, ideal 10 × 10
+            ("g.wideal", rect(0, 0.5 * H - t.height / 2, 200, t.height)),   // .center / .center, W × the text's height at W
+            ("g.hideal", rect(200 - 0.1 * H, 0, 0.1 * H, H)),   // .trailing / .trailing, the view's width at H × H
         ]
         for (id, frame) in expected {
             #expect(close(r.frame(of: id), frame), "\(label) \(id): \(String(describing: r.frame(of: id))) != \(frame)")

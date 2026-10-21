@@ -52,14 +52,19 @@ enum ContentOverlayMath {
     static func aspect(_ ratio: CGFloat?) -> CGFloat? {
         guard let r = ratio else { return nil }
         guard r.isFinite, r > 0 else {
-            #if DEBUG
-            if Thread.isMainThread {
-                MainActor.assumeIsolated { ZTronRenderCounters.notes["contentOverlay.badAspect"] = "\(r)" }
-            }
-            #endif
+            noteBadAspect("\(r)")
             return nil
         }
         return r
+    }
+
+    /// DEBUG note `contentOverlay.badAspect` (a plain static: writing it schedules nothing).
+    static func noteBadAspect(_ text: String) {
+        #if DEBUG
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { ZTronRenderCounters.notes["contentOverlay.badAspect"] = text }
+        }
+        #endif
     }
 
     /// `S`: the proposal `size` makes for a content of `content`.
@@ -68,30 +73,30 @@ enum ContentOverlayMath {
         switch size.kind {
         case .fillMaxSize:
             return OverlayProposal(width: c.width, height: c.height)
-        case .fillMaxWidth(let height):
-            return OverlayProposal(width: c.width, height: freeLength(height, sameAxis: c.height) { c.width / $0 })
-        case .fillMaxHeight(let width):
-            return OverlayProposal(width: freeLength(width, sameAxis: c.width) { c.height * $0 }, height: c.height)
-        case .relative(let k):
-            return OverlayProposal(width: c.width * k.width, height: c.height * k.height)
-        case .absolute(let s):
-            return OverlayProposal(width: nonNegative(s.width), height: nonNegative(s.height))
-        case .ideal:
-            return OverlayProposal(width: nil, height: nil)
+        case .axes(let width, let height):
+            // An aspect ratio sits opposite a filled axis (the constructors): width = H · r, height = W / r.
+            return OverlayProposal(width: axisLength(width, sameAxis: c.width) { c.height * $0 },
+                                   height: axisLength(height, sameAxis: c.height) { c.width / $0 })
         }
     }
 
-    /// The free axis of `.fillMaxWidth` / `.fillMaxHeight`: `nil` (unspecified) for `.ideal`; `sameAxis` = the content's
-    /// length on that axis (what `.relative` scales); `fromRatio(r)` = the length an aspect ratio gives from the filled
-    /// axis. Defensive on values the normalizing constructors already exclude; an overflowing ratio counts as 0.
-    static func freeLength(_ length: ZTronContentOverlayLength, sameAxis: CGFloat,
+    /// One axis of a size: `nil` (unspecified) for `.ideal`; `sameAxis` = the content's length on that axis (what
+    /// `.relative` scales; a filled axis is `.relative(.full)`); `fromRatio(r)` = the length an aspect ratio gives from
+    /// the filled other axis. Defensive on values the normalizing constructors already exclude. A ratio whose length
+    /// overflows counts as 0, never an infinite frame (DEBUG note `contentOverlay.badAspect`).
+    static func axisLength(_ length: ZTronContentOverlayLength, sameAxis: CGFloat,
                            fromRatio: (CGFloat) -> CGFloat) -> CGFloat? {
         switch length {
         case .ideal:
             return nil
         case .aspectRatio(let r):
             guard r.isFinite, r > 0 else { return nil }
-            return nonNegative(fromRatio(r))
+            let v = fromRatio(r)
+            guard v.isFinite else {
+                noteBadAspect("\(r) overflows")
+                return 0
+            }
+            return nonNegative(v)
         case .absolute(let v):
             return nonNegative(v)
         case .relative(let k):
