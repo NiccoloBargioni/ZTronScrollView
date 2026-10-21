@@ -143,6 +143,7 @@ struct UserTreeScroller: View {
                 }
                 .zoomRange(min: .absolute(1), max: .absolute(4))
                 .doubleTapToZoom()
+                .resizeContentOverlays()
                 .ztronScrollBounceBehavior(ResizeScreen.bounceAlways ? .always : .basedOnSize, axes: .horizontal)
                 if fullScreen {
                     scroller
@@ -161,6 +162,72 @@ struct UserTreeScroller: View {
     }
 }
 
+// MARK: Content-integral overlays (M6b, `-ZTronResizeOverlay` / `-ZTronResizeOverlayCounterScaled`)
+
+/// The demo's overlays. Each is input-free (no stored properties): a re-evaluation of the call site (the user tree's
+/// `GeometryReader` rebuilds the scroll view on every rotation) hands SwiftUI an equal value, so its body never runs
+/// again. Each body counts itself (DEBUG) for the readout (`mk`, `bn`, `tn`).
+struct OverlayMarker: View {
+    var body: some View {
+        #if DEBUG
+        ZTronRenderCounters.increment("demo.overlayMarker.body")
+        #endif
+        return Circle().fill(Color.orange).frame(width: 6, height: 6)
+            .accessibilityElement(children: .ignore)
+            .accessibilityIdentifier("overlay.detail")
+    }
+}
+
+/// A 16:9 banner at the content's bottom with a button (`overlay.button` counts its taps).
+struct OverlayBanner: View {
+    var body: some View {
+        #if DEBUG
+        ZTronRenderCounters.increment("demo.overlayBanner.body")
+        #endif
+        return ZStack {
+            Color.yellow.opacity(0.3)
+            Button("Banner") {
+                #if DEBUG
+                ZTronRenderCounters.increment("overlay.button")
+                #endif
+            }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier("overlay.banner.button")
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("overlay.banner")
+    }
+}
+
+/// A faint tint over the whole content (`.fillMaxSize`); it takes no touches.
+struct OverlayTint: View {
+    var body: some View {
+        #if DEBUG
+        ZTronRenderCounters.increment("demo.overlayTint.body")
+        #endif
+        return Rectangle().fill(Color.blue.opacity(0.08))
+            .allowsHitTesting(false)
+            .accessibilityElement(children: .ignore)
+            .accessibilityIdentifier("overlay.fill")
+    }
+}
+
+extension ZTronScrollView {
+    /// The demo overlays under `-ZTronResizeOverlay`, `self` unchanged otherwise (same type either way: no `AnyView`, no
+    /// `if` around the scroll view). The tint goes first (lowest) so the banner's button and the marker draw above it.
+    func resizeContentOverlays() -> Self {
+        guard ResizeScreen.overlay else { return self }
+        return scrollContentIntegralOverlay { OverlayTint() }
+            .scrollContentIntegralOverlay(anchor: .bottom, overlayAnchor: .bottom, size: .fillMaxWidth(16.0 / 9.0)) {
+                OverlayBanner()
+            }
+            .scrollContentIntegralOverlay(anchor: .relative(UnitPoint(x: 0.3, y: 0.65)), overlayAnchor: .center, size: .ideal,
+                                          scaling: ResizeScreen.overlayCounterScaled ? .counterScaled : .withContent) {
+                OverlayMarker()
+            }
+    }
+}
+
 /// `-ZTronScreen resize`: full-screen, zoomable grid; rotate the device and compare the centre readout.
 struct ResizeScreen: View {
     private static let keys = ["content.body", "resize.jumpFrames", "transform.effect"]
@@ -169,6 +236,10 @@ struct ResizeScreen: View {
     static let userTree = userTree2 || ProcessInfo.processInfo.arguments.contains("-ZTronResizeUserTree")
     /// `-ZTronResizeBounceAlways`: the user tree's horizontal bounce behavior becomes `.always` (user report 2026-10-19).
     static let bounceAlways = ProcessInfo.processInfo.arguments.contains("-ZTronResizeBounceAlways")
+    /// `-ZTronResizeOverlayCounterScaled`: the user tree's marker overlay is `.counterScaled` (implies the overlays).
+    static let overlayCounterScaled = ProcessInfo.processInfo.arguments.contains("-ZTronResizeOverlayCounterScaled")
+    /// `-ZTronResizeOverlay`: content-integral overlays on the user trees (marker, banner, tint; M6b).
+    static let overlay = overlayCounterScaled || ProcessInfo.processInfo.arguments.contains("-ZTronResizeOverlay")
     @State private var state = ZTronScrollState()
     @State private var probe = ResizeProbe()
     @State private var info = ""
@@ -287,6 +358,18 @@ struct ResizeScreen: View {
                       state.minimumZoomScale, state.geometry.contentSize.width, state.geometry.contentSize.height,
                       counters["resize.contentSizeIdle"] ?? 0, counters["resize.viewport"] ?? 0,
                       counters["transform.fast"] ?? 0, counters["transform.slow"] ?? 0,
-                      counters["transform.slowClosed"] ?? 0, counters["transform.clampedAtRest"] ?? 0) + " note=" + note
+                      counters["transform.slowClosed"] ?? 0, counters["transform.clampedAtRest"] ?? 0)
+            + (Self.overlay ? overlayFields(counters) : "") + " note=" + note
+    }
+
+    /// Content-overlay counters (`-ZTronResizeOverlay` only, so the readout is unchanged without it): library bodies
+    /// (`ovb` overlay roots, `ovh` host, `ovr` iOS 15 reader closure, `ovp` Layout placements, `ocs` counter-scale leaf),
+    /// the demo overlays' own bodies (`mk`, `bn`, `tn`) and the banner button's taps (`btap`).
+    private func overlayFields(_ c: [String: Int]) -> String {
+        String(format: " ovb=%d ovh=%d ovr=%d ovp=%d ocs=%d mk=%d bn=%d tn=%d btap=%d",
+               c["contentOverlay.body"] ?? 0, c["contentOverlay.host.body"] ?? 0, c["contentOverlay.reader"] ?? 0,
+               c["contentOverlay.place"] ?? 0, c["contentOverlay.counterScale.body"] ?? 0,
+               c["demo.overlayMarker.body"] ?? 0, c["demo.overlayBanner.body"] ?? 0, c["demo.overlayTint.body"] ?? 0,
+               c["overlay.button"] ?? 0)
     }
 }
