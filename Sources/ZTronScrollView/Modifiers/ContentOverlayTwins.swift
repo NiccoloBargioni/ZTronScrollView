@@ -19,7 +19,7 @@ extension ZTronScrollView {
     /// the content, in content space. (A sized overlay with no anchors given lands its top-leading corner on the content's
     /// centre; pass `overlayAnchor: .center` for `.overlay(alignment: .center)` parity.)
     ///
-    /// - Several calls stack in order; these members draw above the ``SwiftUI/View/ztronScrollContentIntegralOverlay(anchor:overlayAnchor:size:scaling:content:)``
+    /// - Several calls stack in order; these members draw above the ``SwiftUI/View/ztronScrollContentIntegralOverlay(anchor:overlayAnchor:size:scaling:fileID:line:content:)``
     ///   twins. Re-applying a call with a new anchor or size moves the same overlay (its `@State` survives).
     /// - The overlay does not extend the scrollable range: like `.overlay` on a view inside a native `ScrollView`, a part
     ///   that hangs outside the content is reachable only as far as the content scrolls (the viewport clips it).
@@ -29,28 +29,37 @@ extension ZTronScrollView {
     /// - An `Equatable` overlay (a `Text`, an `Image`, a `Color` included) is diffed with `==`: while a re-evaluation of
     ///   the call site gives a value `==` to the one shown, its body does not run again.
     /// - A `ZTronScrollView` inside the overlay does not inherit the
-    ///   ``SwiftUI/View/ztronScrollContentIntegralOverlay(anchor:overlayAnchor:size:scaling:content:)`` twins.
+    ///   ``SwiftUI/View/ztronScrollContentIntegralOverlay(anchor:overlayAnchor:size:scaling:fileID:line:content:)`` twins.
+    ///
+    /// - In DEBUG builds, a value this call's anchors or size hold that layout normalizes (a non-finite anchor
+    ///   component, an aspect ratio whose length overflows) is reported with this call's location, marked `at layout`,
+    ///   once per call and value (``ZTronContentOverlaySize`` reports its own normalizations where it is built).
     ///
     /// - Parameters:
     ///   - anchor: The content point the overlay is pinned on (default `.center`). A `.relative` anchor is clamped to the
-    ///     content (``ZTronUnitPoint``); `.absolute` is not, and is the way to pin a point outside the content.
+    ///     content (``ZTronUnitPoint``); `.absolute` is not, and is the way to pin a point outside the content. A
+    ///     non-finite `.absolute` component counts as 0 (reported in DEBUG builds, at layout, with this call's location).
     ///   - overlayAnchor: The overlay's own point placed on `anchor` (default `.topLeading`, UIKit's `frame.origin`). Not
-    ///     clamped: a point outside the overlay's frame (a callout's tail) is legitimate.
+    ///     clamped: a point outside the overlay's frame (a callout's tail) is legitimate. A non-finite component counts
+    ///     as 0 (reported in DEBUG builds, at layout, with this call's location).
     ///   - size: The overlay's size against the content's size (default `.fillMaxSize`): `.fillMaxWidth(height:)` /
     ///     `.fillMaxHeight(width:)` with the free axis `.ideal`, `.aspectRatio`, `.absolute` or `.relative` (a fraction of
     ///     the content's length on that axis), `.relative` fractions of both axes, `.absolute`, `.ideal`
     ///     (``ZTronContentOverlaySize``).
     ///   - scaling: `.withContent` (default) scales with the zoom; `.counterScaled` keeps a constant on-screen size.
+    ///   - fileID: The caller's file, for the DEBUG reports made in layout; leave the default.
+    ///   - line: The caller's line, for the DEBUG reports made in layout; leave the default.
     ///   - content: The overlay; evaluated at the call, like SwiftUI's `overlay`.
     public func scrollContentIntegralOverlay<V: View>(anchor: ZTronContentOverlayAnchor = .center,
                                                       overlayAnchor: UnitPoint = .topLeading,
                                                       size: ZTronContentOverlaySize = .fillMaxSize,
                                                       scaling: ZTronContentOverlayScaling = .withContent,
+                                                      fileID: StaticString = #fileID, line: UInt = #line,
                                                       @ViewBuilder content: () -> V) -> Self {
         var copy = self
         copy.config.contentOverlays.append(ContentOverlayDecl(key: "member.\(config.contentOverlays.count)", anchor: anchor,
                                                               overlayAnchor: overlayAnchor, size: size, scaling: scaling,
-                                                              content: content()))
+                                                              site: .init(fileID: fileID, line: line), content: content()))
         return copy
     }
 }
@@ -58,21 +67,28 @@ extension ZTronScrollView {
 // MARK: Twin
 
 extension View {
-    /// Environment twin of ``ZTronScrollView/scrollContentIntegralOverlay(anchor:overlayAnchor:size:scaling:content:)``:
+    /// Environment twin of ``ZTronScrollView/scrollContentIntegralOverlay(anchor:overlayAnchor:size:scaling:fileID:line:content:)``:
     /// every `ZTronScrollView` below this view draws the overlay as a part of its content (in its unscaled content space,
     /// scrolling and zooming with it; nested scroll views in the content included, each with its own copy). Twins draw
     /// below the members; the outermost twin is the lowest. No native counterpart: a SwiftUI `ScrollView` below ignores it.
     ///
-    /// Same placement, sizing, hit-testing, `Equatable` and scrollable-range rules as the member. A `ZTronScrollView`
-    /// drawn inside a content-integral overlay does not inherit these twins (a twin holding a scroll view would
-    /// otherwise draw itself again inside it).
+    /// Same placement, sizing, hit-testing, `Equatable`, scrollable-range and DEBUG-report rules as the member (a
+    /// non-finite `anchor` / `overlayAnchor` component counts as 0, reported in DEBUG builds at layout with this call's
+    /// location). A `ZTronScrollView` drawn inside a content-integral overlay does not inherit these twins (a twin
+    /// holding a scroll view would otherwise draw itself again inside it).
+    ///
+    /// - Parameters: As the member's; `fileID` and `line` are the caller's, for the DEBUG reports made in layout: leave
+    ///   the defaults.
     public func ztronScrollContentIntegralOverlay<V: View>(anchor: ZTronContentOverlayAnchor = .center,
                                                            overlayAnchor: UnitPoint = .topLeading,
                                                            size: ZTronContentOverlaySize = .fillMaxSize,
                                                            scaling: ZTronContentOverlayScaling = .withContent,
+                                                           fileID: StaticString = #fileID, line: UInt = #line,
                                                            @ViewBuilder content: () -> V) -> some View {
         modifier(ContentOverlayTwinModifier(decl: ContentOverlayDecl(key: 0, anchor: anchor, overlayAnchor: overlayAnchor,
-                                                                     size: size, scaling: scaling, content: content())))
+                                                                     size: size, scaling: scaling,
+                                                                     site: .init(fileID: fileID, line: line),
+                                                                     content: content())))
     }
 }
 
