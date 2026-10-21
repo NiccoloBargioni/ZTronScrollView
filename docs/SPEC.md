@@ -59,7 +59,7 @@ Requirements:
       their documented divergences; iOS 28+ keeps `SpatialEventGesture`. **Amendments D34 / D36 (2026-10-20 / 21): 28+, not 18+** — the observer's
       SwiftUI recognizer cancels the touches of touch-based UIKit controls: on iOS 18.x it begins with the first touch movement (a `Slider` inside the scroll
       view never moved on 18.0–18.6, `docs/progress/DBG-s3.md`; D34, confirmed by the user 2026-10-21), on 26.0–27.0 it begins at the touch-down itself (a
-      `Stepper`, a segmented `Picker`, a compact `DatePicker` and a `ColorPicker` never reacted to a tap, `docs/progress/DBG-s4.md`; D36, awaiting the user).
+      `Stepper`, a segmented `Picker`, a compact `DatePicker` and a `ColorPicker` never reacted to a tap, `docs/progress/DBG-s4.md`; D36, confirmed by the user 2026-10-21).
       So 18.x to 27.x take the iOS 17 row; iOS 28 is the first release to re-measure (`UIKitControlsUITests`) before the library may use `SpatialEventGesture` there.
 - **Minimum deployment:** iOS/iPadOS 15.0, the lowest Xcode 27 accepts.
   - Every newer API sits behind `if #available` / `@available`.
