@@ -55,6 +55,7 @@ struct RefreshSectionView: View {
     let section: String
     @State private var state = ZTronScrollState()
     @State private var info = ""
+    @State private var trace = ""
     @State private var snapshot: [String: Int] = [:]
     @State private var rows = 20
     private static let keys = ["refresh.actions", "content.body", "refresh.host.body", "chromeLeaf.body"]
@@ -75,6 +76,9 @@ struct RefreshSectionView: View {
             VStack(spacing: 0) {
                 ForEach(Self.keys, id: \.self) { CounterRow(key: $0, value: snapshot[$0] ?? 0) }
                 Text(info).font(.caption2).accessibilityIdentifier("stateInfo").accessibilityValue(info)
+                // The refresher's own DEBUG trace (what it drew and when its state machine moved), read after a gesture.
+                Text(trace.isEmpty ? "-" : String(trace.suffix(40))).font(.system(size: 6)).lineLimit(1)
+                    .accessibilityIdentifier("refresh.trace").accessibilityValue(trace)
             }
             scroller
                 .border(Color.gray)
@@ -83,6 +87,11 @@ struct RefreshSectionView: View {
         }
         .font(.caption)
         .padding(6)
+        .onAppear {
+            #if DEBUG
+            ZTronRenderCounters.eventCapacity = 600
+            #endif
+        }
     }
 
     @ViewBuilder private var scroller: some View {
@@ -160,5 +169,8 @@ struct RefreshSectionView: View {
         #endif
         info = String(format: "y=%.1f x=%.1f phase=%d rows=%d", state.contentOffset.y, state.contentOffset.x,
                       state.phase.rawValue, rows)
+        #if DEBUG
+        trace = ZTronRenderCounters.events.filter { $0.contains(" rf ") }.joined(separator: "\n")
+        #endif
     }
 }

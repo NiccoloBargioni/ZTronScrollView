@@ -246,6 +246,9 @@ final class RefreshCoordinator: ObservableObject {
 
     private func send(_ edge: Edge, _ event: RefreshEngine.Event) {
         guard var e = engines[edge] else { return }
+        #if DEBUG
+        if case .sample = event {} else { RefreshTrace.event("ev \(edge) \(event) phase=\(e.phase)") }
+        #endif
         let fx = e.handle(event)
         engines[edge] = e
         apply(fx, edge: edge)
@@ -259,6 +262,12 @@ final class RefreshCoordinator: ObservableObject {
         defer { isApplying = wasApplying }
         let configuration = specs[edge]?.configuration
         for fx in effects {
+            #if DEBUG
+            switch fx {
+            case .progress: break
+            default: RefreshTrace.event("fx \(edge) \(fx) pull=\(RefreshTrace.f(input(edge).pull)) tracking=\(state.isTracking)")
+            }
+            #endif
             switch fx {
             case let .progress(p):
                 objectWillChange.send()

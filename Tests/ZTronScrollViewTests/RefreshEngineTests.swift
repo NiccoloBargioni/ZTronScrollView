@@ -112,18 +112,55 @@ struct RefreshEngineTests {
                  .announce("Refresh complete")])
     }
 
-    @Test func anActionThatReturnsBeforeTheLiftNeverHoldsAndNeverFiresAgain() {
-        var e = RefreshEngine(config: ZTronRefreshConfiguration(), edge: .top)
-        _ = e.handle(.sample(input(130)))
+    /// User report 2026-10-21 (D35): a slow pull outlives the action, which used to drop the refreshing look under the finger
+    /// and hold nothing at the lift, so the indicator's fate depended on the speed of the pull.
+    @Test func anActionThatReturnsUnderTheFingerKeepsTheRefreshingLookUntilTheLift() {
+        var e = RefreshEngine(config: ZTronRefreshConfiguration(), edge: .top)       // minimum visible time 0.5 s
+        _ = e.handle(.sample(input(130, t: 0)))                                      // the crossing, finger down
         #expect(e.phase == .triggered)
-        #expect(e.handle(.done(input(130, t: 1))) == [.mode(.notRefreshing, animated: true), .announce("Refresh complete")])
-        #expect(e.phase == .idle && e.firedThisPull && !e.holdApplied)
-        // The finger is still down past the trigger: the pull continues, the action does not.
-        #expect(e.handle(.sample(input(150, t: 1.1))) == [.mode(.pulling, animated: false)])
-        #expect(e.phase == .pulling)
-        #expect(e.handle(.lift(input(150, t: 2), cancelled: false)) == [.progress(0), .mode(.notRefreshing, animated: true)])
-        #expect(e.phase == .idle && !e.firedThisPull, "the next pull is a new pull")
-        #expect(e.handle(.sample(input(130, t: 3))).contains(.trigger))
+        #expect(e.handle(.done(input(140, t: 0.6))) == [], "the action returned under the finger: nothing changes on screen")
+        #expect(e.phase == .triggered && e.mode == .refreshing && e.progress == 1 && !e.holdApplied)
+        #expect(e.handle(.sample(input(160, t: 1.5))) == [], "still the refreshing look while the finger stays down")
+        #expect(e.handle(.sample(input(40, t: 1.8))) == [], "also when the finger comes back")
+        // Lifted after the minimum visible time since the trigger: nothing to hold, the refresh just ends.
+        #expect(e.handle(.lift(input(160, t: 2), cancelled: false)) ==
+                [.progress(0), .mode(.notRefreshing, animated: true), .announce("Refresh complete")])
+        #expect(e.phase == .idle && !e.firedThisPull && !e.holdApplied)
+        #expect(e.handle(.sample(input(130, t: 3))).contains(.trigger), "the next pull is a new pull")
+    }
+
+    @Test func aLiftBeforeTheMinimumVisibleTimeOpensTheHoldForTheTimeThatIsMissing() {
+        var e = RefreshEngine(config: ZTronRefreshConfiguration(minimumVisibleTime: 0.5), edge: .top)
+        _ = e.handle(.sample(input(130, t: 10)))
+        _ = e.handle(.done(input(140, t: 10.1)))
+        #expect(e.handle(.lift(input(150, t: 10.2), cancelled: false)) == [.hold(60, reveal: false)])
+        #expect(e.phase == .finishing(until: 10.5), "counted from the trigger, not from the lift")
+        #expect(e.handle(.sample(input(0, tracking: false, t: 10.4))) == [])
+        #expect(e.handle(.sample(input(0, tracking: false, t: 10.5))) ==
+                [.progress(0), .mode(.notRefreshing, animated: true), .clearHold(atLift: false, animated: true),
+                 .announce("Refresh complete")])
+        #expect(e.phase == .idle && !e.firedThisPull)
+    }
+
+    @Test func aTouchThatEndsWithoutAReleaseHandlesAnEarlyReturnTheSameWay() {
+        // The lift was never reported (sequence end / a sample with the finger up): same outcome as the lift.
+        var a = RefreshEngine(config: ZTronRefreshConfiguration(), edge: .top)
+        _ = a.handle(.sample(input(130, t: 0)))
+        _ = a.handle(.done(input(130, t: 0.2)))
+        #expect(a.handle(.sequenceEnd(input(0, tracking: false, t: 3))) ==
+                [.progress(0), .mode(.notRefreshing, animated: true), .announce("Refresh complete")])
+        #expect(a.phase == .idle && !a.firedThisPull)
+        var b = RefreshEngine(config: ZTronRefreshConfiguration(), edge: .top)
+        _ = b.handle(.sample(input(130, t: 0)))
+        _ = b.handle(.done(input(130, t: 0.2)))
+        #expect(b.handle(.sample(input(0, tracking: false, t: 3))) ==
+                [.progress(0), .mode(.notRefreshing, animated: true), .announce("Refresh complete")])
+        #expect(b.phase == .idle && !b.firedThisPull)
+        // An action still running at the lift behaves as before: the hold opens and waits for `done`.
+        var c = RefreshEngine(config: ZTronRefreshConfiguration(), edge: .top)
+        _ = c.handle(.sample(input(130, t: 0)))
+        #expect(c.handle(.lift(input(130, t: 1), cancelled: false)) == [.hold(60, reveal: false)])
+        #expect(c.phase == .refreshing(since: 1))
     }
 
     @Test func beginAndCancel() {

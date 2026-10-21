@@ -71,6 +71,12 @@ struct RefreshEngine: Equatable {
     private(set) var firedThisPull = false
     private(set) var holdApplied = false
     private var sequenceActive = false
+    /// When this pull fired its action: the refreshing look has been on screen since.
+    private var triggeredAt: TimeInterval = 0
+    /// The action returned while the finger was still down. The refreshing look stays until the lift, as
+    /// `UIRefreshControl` keeps a refresh that ends mid-drag on screen until the touch ends (S9: "animate back to rest
+    /// unless the user is tracking"); the speed of the pull must not decide whether the indicator is held.
+    private var returnedUnderFinger = false
 
     init(config: ZTronRefreshConfiguration, edge: Edge, overlay: Bool = false) {
         self.config = config
@@ -131,12 +137,15 @@ struct RefreshEngine: Equatable {
             if phase == .idle { phase = .pulling; setMode(.pulling, animated: false, &fx) }
             setProgress(p, &fx)
             if p >= 1, !firedThisPull {
-                if config.triggerMode == .whilePulling { fire(&fx) } else { phase = .armed }
+                if config.triggerMode == .whilePulling { fire(i, &fx) } else { phase = .armed }
             } else if phase == .armed, p < 1 {
                 phase = .pulling                                  // .onRelease disarms below the trigger
             }
         case .triggered:
-            if !i.isTracking { startHold(i, reveal: true, &fx) }  // the lift was missed: nothing springs the offset
+            if !i.isTracking {                                    // the lift was missed: nothing springs the offset
+                endTouchWhileTriggered(i, reveal: true, &fx)
+                if phase == .idle { sequenceActive = false; firedThisPull = false }
+            }
         case .refreshing:
             break
         case let .finishing(until):
@@ -151,14 +160,14 @@ struct RefreshEngine: Equatable {
             if i.enabled, !cancelled, i.pull > 0, progress(for: i.pull) >= 1, !firedThisPull {
                 sequenceActive = true
                 setProgress(1, &fx)
-                fire(&fx)
+                fire(i, &fx)
                 startHold(i, reveal: false, &fx)
             } else if phase != .idle {
                 phase = .idle
                 reset(&fx)
             }
         case .triggered:
-            startHold(i, reveal: false, &fx)
+            endTouchWhileTriggered(i, reveal: false, &fx)
         case .refreshing:
             break
         case let .finishing(until):
@@ -175,7 +184,7 @@ struct RefreshEngine: Equatable {
             phase = .idle
             reset(&fx)
         case .triggered:
-            startHold(i, reveal: true, &fx)
+            endTouchWhileTriggered(i, reveal: true, &fx)
         case let .finishing(until):
             if i.time >= until, i.isSettled { finish(atLift: false, &fx) }
         case .idle, .refreshing:
@@ -201,10 +210,7 @@ struct RefreshEngine: Equatable {
             phase = .finishing(until: until)
             if i.time >= until, !i.isTracking, i.isSettled { finish(atLift: false, &fx) }
         case .triggered:
-            // The action returned while the finger was still down: nothing was held yet, so there is nothing to wait for.
-            phase = .idle
-            setMode(.notRefreshing, animated: true, &fx)
-            fx.append(.announce("Refresh complete"))
+            returnedUnderFinger = true                            // the refreshing look stays until the lift
         default:
             break                                                 // idempotent: a second `done`, or one after a cancel
         }
@@ -214,6 +220,7 @@ struct RefreshEngine: Equatable {
         phase = .idle
         firedThisPull = false
         sequenceActive = false
+        returnedUnderFinger = false
         if holdApplied {
             holdApplied = false
             fx.append(.clearHold(atLift: false, animated: false))
@@ -224,13 +231,37 @@ struct RefreshEngine: Equatable {
 
     // MARK: Helpers
 
-    private mutating func fire(_ fx: inout [Effect]) {
+    private mutating func fire(_ i: Input, _ fx: inout [Effect]) {
         firedThisPull = true
+        triggeredAt = i.time
+        returnedUnderFinger = false
         phase = .triggered
         setProgress(1, &fx)                                       // stays 1 while refreshing
         setMode(.refreshing, animated: true, &fx)
         fx.append(.trigger)
         fx.append(.announce("Refreshing"))
+    }
+
+    /// The touch of a triggered pull is over. While the action runs, the hold opens (the release springs the content to it).
+    /// When it already returned under the finger, the indicator has been refreshing since the trigger: if that was long
+    /// enough nothing opens and the refresh just ends (the content springs back to rest); otherwise the hold opens for the
+    /// time that is missing, counted from the trigger.
+    private mutating func endTouchWhileTriggered(_ i: Input, reveal: Bool, _ fx: inout [Effect]) {
+        guard returnedUnderFinger else {
+            startHold(i, reveal: reveal, &fx)
+            return
+        }
+        returnedUnderFinger = false
+        let until = max(i.time, triggeredAt + config.minimumVisibleTime)
+        if i.time >= until {
+            phase = .idle
+            setProgress(0, &fx)
+            setMode(.notRefreshing, animated: true, &fx)
+            fx.append(.announce("Refresh complete"))
+        } else {
+            startHold(i, reveal: reveal, &fx)
+            phase = .finishing(until: until)
+        }
     }
 
     private mutating func startHold(_ i: Input, reveal: Bool, _ fx: inout [Effect]) {

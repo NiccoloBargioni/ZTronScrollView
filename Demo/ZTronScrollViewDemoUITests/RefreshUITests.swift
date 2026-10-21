@@ -160,6 +160,97 @@ final class RefreshUITests: XCTestCase {
         XCTAssertEqual(i.double("x"), 0, accuracy: 2)
     }
 
+    // MARK: the speed of the pull (user report 2026-10-21: "I pull down slowly, the refresh triggers but only the final part of the view shows")
+
+    /// What the refresher drew and when its state machine moved, from the app's own DEBUG trace (the UI cannot be read while
+    /// a finger is down): `leaf` lines are renders of the indicator (pull, progress, mode, visible thickness), `fx` the
+    /// engine's effects, `ev` the events it handled.
+    private struct Trace {
+        let lines: [String]
+        func index(_ needle: String, after: Int = -1) -> Int? {
+            lines.indices.first { $0 > after && lines[$0].contains(needle) }
+        }
+        func leaves(_ range: Range<Int>) -> [(pull: Double, vis: Double, mode: String)] {
+            lines[range].filter { $0.contains("rf leaf") }.map { Trace.leaf($0) }
+        }
+        static func number(_ key: String, in line: String) -> Double {
+            line.components(separatedBy: " ").first { $0.hasPrefix(key + "=") }.flatMap { Double($0.dropFirst(key.count + 1)) } ?? -9999
+        }
+        static func leaf(_ line: String) -> (pull: Double, vis: Double, mode: String) {
+            let mode = line.components(separatedBy: " ").first { $0.hasPrefix("mode=") }.map { String($0.dropFirst(5)) } ?? "?"
+            return (number("pull", in: line), number("vis", in: line), mode)
+        }
+    }
+
+    private func pull(_ app: XCUIApplication, _ velocity: XCUIGestureVelocity, hold: TimeInterval) {
+        let list = element(app, "refresh.list")
+        let a = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08))
+        let b = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.92))
+        a.press(forDuration: 0.05, thenDragTo: b, withVelocity: velocity, thenHoldForDuration: hold)
+    }
+
+    private func readTrace(_ app: XCUIApplication, _ tag: String) -> Trace {
+        app.buttons["Info"].tap()
+        Thread.sleep(forTimeInterval: 0.5)
+        let raw = element(app, "refresh.trace").value as? String ?? ""
+        let t = Trace(lines: raw.components(separatedBy: "\n").filter { !$0.isEmpty })
+        print("REFRESH \(path) trace \(tag) (\(t.lines.count) lines)\n" + t.lines.joined(separator: "\n"))
+        return t
+    }
+
+    /// One pull at `velocity` on `section`, finger held `hold` seconds at the end (the 0.6 s action returns before the lift of
+    /// a slow pull, after the lift of a fast one), then the trace once the refresher rests.
+    private func tracedPull(_ section: String, _ velocity: XCUIGestureVelocity, hold: TimeInterval, tag: String) -> (Trace, XCUIApplication) {
+        let app = launch(section)
+        XCTAssertTrue(a11y(app).waitForExistence(timeout: 3))
+        pull(app, velocity, hold: hold)
+        XCTAssertTrue(waitFor(8, "Idle again") { mode(app) == "Idle" }, "\(tag): the refresher rests")
+        Thread.sleep(forTimeInterval: 1.0)
+        return (readTrace(app, tag), app)
+    }
+
+    /// The display must not depend on the speed of the pull: revealed in proportion to the pull, whole when the trigger fires,
+    /// and still the refreshing look until the finger lifts (a slow pull outlives the 0.6 s action).
+    private func assertTheWholeIndicatorShows(_ t: Trace, _ tag: String, indicator: Double = 60) {
+        guard let trigger = t.index("fx top trigger") else { return XCTFail("\(tag): the pull never triggered") }
+        guard let lift = t.index("ev top lift", after: trigger) else { return XCTFail("\(tag): no lift after the trigger") }
+        // 1. Before the trigger the indicator is revealed in proportion to the pull: visible = min(pull, its thickness).
+        for l in t.leaves(0..<trigger) where l.mode == "pulling" {
+            XCTAssertEqual(l.vis, min(l.pull, indicator), accuracy: 1.0, "\(tag): revealed with the pull (pull \(l.pull))")
+        }
+        // 2. When the trigger fires it is whole and spinning.
+        guard let spin = t.lines.indices.first(where: { $0 >= trigger && t.lines[$0].contains("rf leaf") && t.lines[$0].contains("mode=refreshing") }) else {
+            return XCTFail("\(tag): the refreshing look never drew")
+        }
+        let atTrigger = Trace.leaf(t.lines[spin])
+        XCTAssertEqual(atTrigger.vis, min(atTrigger.pull, indicator), accuracy: 1.0, "\(tag): whole when the trigger fires (pull \(atTrigger.pull))")
+        XCTAssertGreaterThanOrEqual(atTrigger.vis, indicator - 1, "\(tag): the whole indicator, \(indicator) pt")
+        // 3. Until the finger lifts it keeps the refreshing look (no fall back to the pull look under the finger).
+        for l in t.leaves(trigger..<lift) {
+            XCTAssertEqual(l.mode, "refreshing", "\(tag): still refreshing under the finger (pull \(l.pull))")
+            XCTAssertGreaterThanOrEqual(l.vis, min(l.pull, indicator) - 1, "\(tag): still whole under the finger")
+        }
+    }
+
+    func testASlowPullShowsTheWholeIndicatorUntilTheLift() {
+        continueAfterFailure = true                              // every section reports, not only the first to fail
+        for section in ["default", "custom", "system"] {
+            let (t, app) = tracedPull(section, .slow, hold: 1.5, tag: "slow \(section)")
+            assertTheWholeIndicatorShows(t, "slow \(section)")
+            let i = info(app, "slow \(section)")
+            XCTAssertEqual(i.counters["refresh.actions"], 1, "slow \(section): one action per pull")
+            XCTAssertEqual(i.counters["content.body"], 0)
+            XCTAssertEqual(i.double("y"), 0, accuracy: 2, "slow \(section): back at rest")
+            app.terminate()
+        }
+    }
+
+    func testAFastPullShowsTheSameIndicator() {
+        let (t, app) = tracedPull("default", .fast, hold: 0.3, tag: "fast default")
+        assertTheWholeIndicatorShows(t, "fast default")
+        XCTAssertEqual(info(app, "fast").counters["refresh.actions"], 1)
+    }
+
     // MARK: programmatic and accessibility
 
     func testBeginAndEndRefreshingRunNoActionAndHoldTheIndicator() {

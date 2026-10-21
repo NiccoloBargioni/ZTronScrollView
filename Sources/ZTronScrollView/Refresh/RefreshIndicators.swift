@@ -14,6 +14,12 @@ struct RefreshPlacement: Equatable {
     /// The part of the viewport the indicator may draw in (the gap the pull opened, or everything for an overlay).
     var clip: CGRect
     var opacity: Double
+
+    /// How much of the indicator is inside its clip along the pull axis (`frame ∩ clip`): its visible thickness.
+    func visibleLength(vertical: Bool) -> CGFloat {
+        vertical ? max(0, min(frame.maxY, clip.maxY) - max(frame.minY, clip.minY))
+                 : max(0, min(frame.maxX, clip.maxX) - max(frame.minX, clip.minX))
+    }
 }
 
 /// The formulas of M8b §1.3 in viewport points, y down. `d` is the distance from the edge's base (the adjusted inset
@@ -238,6 +244,9 @@ struct RefreshEdgeIndicator: View {
                 edge: edge, style: spec.style, overlay: spec.overlay, refreshing: refresh.mode == .refreshing,
                 dragPosition: refresh.dragPosition, pull: pull, length: spec.configuration.indicatorHeight,
                 viewport: m.viewportSize, base: base)
+            #if DEBUG
+            let _ = RefreshTrace.leaf(edge: edge, pull: pull, refresh: refresh, placement: placement)
+            #endif
             ZStack(alignment: .topLeading) {
                 if let placement {
                     indicator
@@ -278,6 +287,32 @@ struct RefreshEdgeIndicator: View {
             })
     }
 }
+
+#if DEBUG
+/// DEBUG-only trace of what the refresher DRAWS and when its state machine moves (the slow-pull probe, D35): one compact
+/// line per change in the shared `ZTronRenderCounters` event log, so a UI test can read the display it cannot see while a
+/// finger is down. A leaf render is logged only when the indicator's visible thickness (to 0.5 pt), its mode or its
+/// progress (to 0.01) changed.
+@MainActor
+enum RefreshTrace {
+    private static var lastLeaf = ""
+
+    static func leaf(edge: Edge, pull: CGFloat, refresh: ZTronRefreshState, placement: RefreshPlacement?) {
+        let vertical = edge == .top || edge == .bottom
+        let visible = placement?.visibleLength(vertical: vertical) ?? 0
+        let key = "\(Int((visible * 2).rounded())) \(refresh.mode) \(Int((refresh.dragPosition * 100).rounded()))"
+        guard key != lastLeaf else { return }
+        lastLeaf = key
+        event("leaf \(edge) pull=\(f(pull)) p=\(f(refresh.dragPosition)) mode=\(refresh.mode) vis=\(f(visible))")
+    }
+
+    static func event(_ text: String) {
+        ZTronRenderCounters.event("rf " + text)
+    }
+
+    static func f(_ v: CGFloat) -> String { String(format: "%.1f", v) }
+}
+#endif
 
 struct RefreshClip: Shape {
     var rect: CGRect

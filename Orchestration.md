@@ -309,6 +309,17 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
   `GestureAttach.observer` is nil (SwiftUI has no public `EmptyGesture`). (4) The scope gate ignores comments (plain grep hits prose at HEAD). (5) The coverage gate runs
   `llvm-cov` over the derived-data dirs (the demo scheme instruments the package) and takes the union of unit + UI runs on both OSes (`--also-dest`); run it with
   `scripts/coverage-uikit.sh --run --dest <27.0> --also-dest <17.5>` before any commit touching `Gesture/UIKit/` (≈ 25 min).
+- D35 (2026-10-21, user report "Refresher … if I pull down slowly, the refresh triggers but only the final part of the view shows"; `docs/progress/USER-s5.md`;
+  D34 is DBG-s3's, on its branch) The display of a refresh must not depend on the speed of the pull. Measured with the DEBUG refresh trace on 27.0 and
+  17.5 (`RefreshUITests.testASlowPullShowsTheWholeIndicatorUntilTheLift`, default / custom / system): the reveal (visible thickness = min(pull, indicator
+  height)) and the whole indicator at the trigger were right at every speed; the speed-dependent part was the action returning under the finger. A slow pull
+  outlives the action (0.6 s), and the engine dropped the refreshing look at once (spinner → ring, mode `.notRefreshing`, announce "Refresh complete") and
+  opened no hold at the lift, so the indicator was gone at release; a fast pull lifts first, holds, and shows the spinner. `UIRefreshControl` keeps a refresh
+  that ends mid-drag on screen until the touch ends (S9: "unless the user is tracking"). Rule now: an action that returns while the finger is down changes
+  nothing on screen (`mode` stays `.refreshing`, `dragPosition` 1); at the lift, if the indicator has been refreshing for `minimumVisibleTime` counted from the
+  TRIGGER the refresh just ends (no hold, the content springs back to rest), otherwise the hold opens for the time that is missing (`finishing(until: trigger +
+  minimumVisibleTime)`); an action still running at the lift behaves as before. Unchanged and shared by both speeds: at the end of a refresh, and at a
+  release below the trigger, the indicator still disappears at once instead of retracting with the content (proposed follow-up, `USER-s5.md` Open 1).
 - D16 (user, 2026-10-18) Physics and the post-rotation re-centering are generated and tested by **Fable 5.1**
   (builder agents with model fable). Re-centering ports ZTronMapKit's normalized-centre discipline
   (ContentGeometry: capture before resize, restore = centre × newContentSize − newViewport/2, clamp, centre smaller
@@ -360,3 +371,4 @@ Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (≤ 2 simulators at 
 | 2026-10-20 | Sonnet 5.5 side session M8b-2 (Builder) | refresher API + resolver + indicators + accessibility + demo `refresh`; `RefreshUITests` found a double action at the lift (M8b-1 coordinator, fixed); verified in clean worktrees (HEAD 615d43f + this change) because other sessions had in-flight edits; 582 unit tests ×2 OS | not measured |
 | 2026-10-20 | Sonnet 5.5 side session UIKIT-s2 (Builder, session (b)) | D31 shell: `UIKitTouchObserver.swift`, wiring, demo probes, `UIKitObserverUITests`, both gate scripts (coverage 100 % lines, scope clean); `touchesCancelled` produced by backgrounding the app mid-press (sheet / window toggles do not); dedicated simulators, clean worktree at 76823c4; unit 587/587 ×2; one flaky default-path test noted (`testControlsUsable` forced 27.0 under load) | not measured |
 | 2026-10-21 | Sonnet 5.5 side session SHEET-s1 (measurement spike) | ZTronScrollView in a bottom sheet: `SheetScreen` + `SheetUITests` (54 characterization tests), results ours vs native on 27.0 + 17.5 × 5 paths, mechanism (sheet's flex pan begins but declines; any SwiftUI drag freezes the sheet), pure-SwiftUI yield by gesture mask measured, recommendation in `docs/design/SHEET-spike.md`; no library change; clean worktree + private simulator clones | not measured |
+| 2026-10-21 | Sonnet 5.5 side session USER-s5 (Builder, user report) | slow-pull refresher bug: DEBUG `RefreshTrace` + `refresh.trace` readout, slow/fast probe UI tests (27.0 + 17.5), root cause = action returning under the finger (D35), engine fix + 6 unit tests, `RefreshSlowPullTests` | all 40% → 66% (all sessions together, not separable) · Fable 100% (not this session) |
