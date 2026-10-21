@@ -304,9 +304,9 @@ public enum ZTronCapability: String, CaseIterable, Sendable, Hashable {  // one 
     case layoutProtocol           // Layout                           iOS 16
     case geometryChange           // onGeometryChange (back-deployed) iOS 16 — (newValue) overload only; (old, new) is iOS 18
     case visualEffect             // visualEffect                     iOS 17
-    case spatialEvents            // SpatialEventGesture              iOS 18 API, used from 26 (D34)
+    case spatialEvents            // SpatialEventGesture              iOS 18 API, used from 28 (D34, D36)
     case magnifyGesture           // MagnifyGesture                   iOS 17
-    case liveMagnifyCentroid      // centroid via SpatialEventGesture (API iOS 18, used from 26: D34)
+    case liveMagnifyCentroid      // centroid via SpatialEventGesture (API iOS 18, used from 28: D34, D36)
     case gestureInputKinds        // GestureInputKinds (pointer/pencil) iOS 27 — iOS 27 SDK only: `#if compiler(>=6.4)`
     case nativeCurves             // Spring / UnitCurve               iOS 17
     case animationCompletion      // Transaction.addAnimationCompletion iOS 17

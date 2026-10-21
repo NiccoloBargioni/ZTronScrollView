@@ -126,8 +126,8 @@ public final class ZTronScrollState {   // additions
 
 | OS | Gesture | Centroid | Expected focal error |
 |---|---|---|---|
-| 26+ (D34) | MagnifyGesture + SpatialEventGesture observer | mean of `.active` event locations (local), updated every event; `fingerCountChanged` on count change | ≤ 0.5 pt (pixel snap only) |
-| 17, 18.x (D34) | MagnifyGesture | c₀ = `value.startLocation` (local); c_t = c₀ + (panTranslation_t − panTranslation at began) | exact for two-finger pan; ≤ \|Δspread\|/2 during a spread (DragGesture follows one finger) |
+| 28+ (D34, D36) | MagnifyGesture + SpatialEventGesture observer | mean of `.active` event locations (local), updated every event; `fingerCountChanged` on count change | ≤ 0.5 pt (pixel snap only) |
+| 17 to 27 (D34, D36) | MagnifyGesture | c₀ = `value.startLocation` (local); c_t = c₀ + (panTranslation_t − panTranslation at began) | exact for two-finger pan; ≤ \|Δspread\|/2 during a spread (DragGesture follows one finger) |
 | 15–16 | MagnificationGesture (no location) | c₀ = pan `startLocation` if a drag is live, else viewport center; c_t as 17 | ≤ ½ initial finger separation + the 17 term |
 
 `centroidSource` is injected by the coordinator from `ZTronAvailability` (forced fallbacks exercise all three on 27). The 17 estimate must be

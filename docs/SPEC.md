@@ -56,9 +56,11 @@ Requirements:
       everything) and the zero-size `UIViewRepresentable` that installs it on the window. Still forbidden everywhere: `UIScrollView`,
       `UIHostingController`, introspection, superview/class walks that identify SwiftUI internals, private API.
     - That directory has a **100 % line-coverage gate** and a **scope gate** (S14 §5). iOS 17 stays pure SwiftUI with the S3 fallbacks and
-      their documented divergences; iOS 26+ keeps `SpatialEventGesture`. **Amendment D34 (2026-10-20, confirmed by the user 2026-10-21): 26+, not 18+** — on iOS 18.x the observer's
-      SwiftUI recognizer begins with the first touch movement and cancels the touches of UIKit-backed controls (a `Slider` inside the scroll view never
-      moved on 18.0–18.6), so 18.x takes the iOS 17 row; measured in `docs/progress/DBG-s3.md`.
+      their documented divergences; iOS 28+ keeps `SpatialEventGesture`. **Amendments D34 / D36 (2026-10-20 / 21): 28+, not 18+** — the observer's
+      SwiftUI recognizer cancels the touches of touch-based UIKit controls: on iOS 18.x it begins with the first touch movement (a `Slider` inside the scroll
+      view never moved on 18.0–18.6, `docs/progress/DBG-s3.md`; D34, confirmed by the user 2026-10-21), on 26.0–27.0 it begins at the touch-down itself (a
+      `Stepper`, a segmented `Picker`, a compact `DatePicker` and a `ColorPicker` never reacted to a tap, `docs/progress/DBG-s4.md`; D36, awaiting the user).
+      So 18.x to 27.x take the iOS 17 row; iOS 28 is the first release to re-measure (`UIKitControlsUITests`) before the library may use `SpatialEventGesture` there.
 - **Minimum deployment:** iOS/iPadOS 15.0, the lowest Xcode 27 accepts.
   - Every newer API sits behind `if #available` / `@available`.
   - Each gated API has a fallback that keeps the same public API and behavior.
@@ -75,11 +77,11 @@ Requirements:
 | Layout without proposal changes | `Layout` (16) | `fixedSize` on scrollable axes + top-leading viewport frame |
 | Geometry callbacks | `onGeometryChange` (16) | GeometryReader + PreferenceKey |
 | Render-time child effects | `visualEffect` (17) | leaf modifier reading geometry |
-| Raw touches: catch, centroid, count, timestamps — 26+ | `SpatialEventGesture` (API iOS 18, used from 26: D34) | see the 17 and 15–16 rows (Amendment 2026-10-20 (user)) |
-| Raw touches — 17 and 18.x (D34) | — | `DragGesture(minimumDistance: 0)`, armed only while content moves or a touch is down (`CatchArming`): touch-down a few ms late, count = 1, no centroid |
+| Raw touches: catch, centroid, count, timestamps — 28+ | `SpatialEventGesture` (API iOS 18, used from 28: D34, D36) | see the 17 and 15–16 rows (Amendment 2026-10-20 (user)) |
+| Raw touches — 17 to 27 (D34, D36) | — | `DragGesture(minimumDistance: 0)`, armed only while content moves or a touch is down (`CatchArming`): touch-down a few ms late, count = 1, no centroid |
 | Raw touches — 15–16 | UIKit touch observer (S2 amendment): touch-down at rest, live centroid, count, lift, cancel | `DragGesture(minimumDistance: 0)` as on 17 (`forceFallback(.uikitTouchObserver)`) |
-| Pinch — 26+ | `MagnifyGesture` (17) + live centroid from the observer | — |
-| Pinch — 17 and 18.x (D34) | `MagnifyGesture` | centroid = `startLocation` + pan-drag follow (focal estimate); one-finger lift ends the pinch |
+| Pinch — 28+ | `MagnifyGesture` (17) + live centroid from the observer | — |
+| Pinch — 17 to 27 (D34, D36) | `MagnifyGesture` | centroid = `startLocation` + pan-drag follow (focal estimate); one-finger lift ends the pinch |
 | Pinch — 15–16 | `MagnificationGesture` for recognition only; magnification = distance ratio of the two observed touches, centroid = their mean (Amendment 2026-10-20 (user)) | `MagnificationGesture` + drag-location focal estimate (`.dragOnly`) |
 | Pointer / indirect / pencil input | gesture input kinds (27) | — |
 | Curves | `Spring` / `UnitCurve` (17) | own closed forms |
@@ -767,7 +769,7 @@ Coexistence with a delegate object:
 ## S12 · Gestures & content interaction
 
 - **Recognizers:** pan with DragGesture, and pinch with MagnifyGesture (17+) or MagnificationGesture, composed simultaneously.
-- **On 26+ (D34; the API is 18, but its recognizer cancels UIKit controls' touches on 18.x), also attach a simultaneous `SpatialEventGesture`** as a raw-touch observer. Use it for:
+- **On 28+ (D34, D36; the API is 18, but its recognizer cancels UIKit controls' touches on 18.x to 27.x), also attach a simultaneous `SpatialEventGesture`** as a raw-touch observer. Use it for:
   - the touch-down "catch"
   - the exact multi-touch centroid
   - timestamped samples for the velocity tracker
@@ -780,6 +782,9 @@ Coexistence with a delegate object:
 - **Choose between `.gesture`, `.simultaneousGesture` and `.highPriorityGesture` empirically** against the tests below. Arbitration changes between releases, so run them on 15/16 (Xcode 26.x), 17, 18 and 27.
   - A tap on a Button in the content fires. A pan that starts on a Button scrolls and doesn't fire it.
   - These keep working inside the content: Toggle, Slider (horizontal drag vs. vertical scroll), TextField, a nested horizontal native ScrollView, and (27+) swipe-action and reorderable rows.
+    `UIKitControlsUITests` (DBG-s4) adds Stepper (tap, hold), `Picker(.segmented)` (tap), `DatePicker` (compact, wheel turns), Menu (tap, press-drag-release) and ColorPicker. Known
+    limitations of a pure-SwiftUI pan, expected failures in that suite: a drag across a segmented control is cancelled (the pan's recognizer begins after 10 pt and
+    cancels the touch of the touch-based `UISegmentedControl`; taps work), and a vertical drag on a wheel picker also scrolls the content (50 pt on 18+, 1 pt on 17.5).
   - Buttons in a scaling header work, and drags that start on the header scroll the content.
   - Lifting one finger mid-pinch continues as a pan.
   - Content scrolled outside the viewport receives no touches.
