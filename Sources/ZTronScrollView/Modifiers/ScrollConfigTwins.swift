@@ -16,6 +16,9 @@ struct ScrollViewConfig {
     var anchors: [ZTronScrollAnchorRole: UnitPoint] = [:]
     /// The member `refresher(…)` calls in order (M8b-2); the twins' travel in `EnvironmentValues.ztronRefreshSpecs`.
     var refreshers: [RefresherDecl] = []
+    /// Content-integral overlays (M6b): the member's calls in order, or on the environment the twins' (appended,
+    /// outermost first). The container draws `environment + member` (twins below members).
+    var contentOverlays: [ContentOverlayDecl] = []
 }
 
 private struct ScrollConfigKey: EnvironmentKey {

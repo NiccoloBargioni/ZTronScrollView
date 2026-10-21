@@ -124,6 +124,11 @@ struct ScrollContainer<Content: View>: View {
         let nested = coordinator.nestedArbiter
         let observerBoxes = observerStore.boxes(for: envConfig.observers + config.observers)
         return content
+            // Content-integral overlays (M6b): laid out from the content's own size, inside both content spaces and under
+            // the transform; twins below members. Always applied (an empty list draws nothing).
+            .overlay(alignment: .topLeading) {
+                ContentOverlayHost(state: state, decls: envConfig.contentOverlays + config.contentOverlays)
+            }
             .environment(\.ztronTargetRegistry, state.targets)
             .environment(\.scrollArbiter, nested)
             .modifier(ContentSizeMeasure(state: state))
