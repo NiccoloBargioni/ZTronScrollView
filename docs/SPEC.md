@@ -330,6 +330,9 @@ SwiftUI's own implementations are private and tied to its UIKit-backed ScrollVie
   - `scrollDisabled`
   - `scrollBounceBehavior(_:axes:)` + `ScrollBounceBehavior`
   - `scrollDismissesKeyboard(_:)` + `ScrollDismissesKeyboardMode`
+  - Sheet cooperation (`presentationContentInteraction(_:)`, detents, `interactiveDismissDisabled`: sheet APIs, not ScrollView modifiers) — Amendment 2026-10-21 (SHEET-s1):
+    approximate. Default ≙ `.scrolls` with no hand-off; `ztronScrollYieldsToSheet(_:)` (S11) gives `.resizes` per detent; live top-edge hand-off impossible without
+    UIKit (S12 "Inside a bottom sheet").
   - `scrollInputBehavior(_:for:)` + `ScrollInputKind` / `ScrollInputBehavior`
   - `refreshable` (via S9)
 - **Edge effects (26+)**
@@ -691,6 +694,9 @@ public struct ZTronNestedScrollPolicy: Sendable {
 extension ZTronScrollView { public func nestedScrollPolicy(_ policy: ZTronNestedScrollPolicy) -> Self }   // on the inner
 extension View { public func ztronNestedScrollPolicy(_ policy: ZTronNestedScrollPolicy) -> some View }   // environment twin; propagates; the member wins
 
+// Sheet cooperation — Amendment 2026-10-21 (SHEET-s1; design `docs/design/SHEET-spike.md` §5, semantics in S12 "Inside a bottom sheet"):
+extension View { public func ztronScrollYieldsToSheet(_ yields: Bool = true) -> some View }   // environment; propagates; true = inert to drags (gestures masked `.subviews`) so the sheet gets them
+
 // Content-integral overlay — Amendment 2026-10-21 (user; design `docs/design/M6b-content-overlay.md`, semantics §1, mechanism §2):
 public enum ZTronContentOverlayAnchor: Equatable {   // a content point, unscaled content space
     case topLeading, top, topTrailing, leading, center, trailing, bottomLeading, bottom, bottomTrailing   // sugar for .relative(UnitPoint.<same>)
@@ -872,6 +878,28 @@ starvation of the pager case does not apply, and no gesture names are needed.
   (`MeasurementIsolation`, D30), otherwise an outer scroll view measures its inner's size and never scrolls.
 - **Three levels (ZTronPages → outer → inner) are phase 2.** Each view talks only to its nearest container. When the pager wins a swipe, the middle view's `canFollow`
   does not yet OR in "an inner under the touch can follow", so that inner may still pan under the pager's swipe. Not needed for the scenario; known limitation.
+
+### Inside a bottom sheet — Amendment 2026-10-21 (SHEET-s1, user decision; design `docs/design/SHEET-spike.md`, measured on 27.0 + 17.5, every gesture path)
+
+`UISheetPresentationController` cooperates only with `UIScrollView`s: it inspects their offset to decide who gets a drag. A `ZTronScrollView` is not one, and
+a recognized SwiftUI drag gesture under the finger (pan, `SpatialEventGesture`, any `DragGesture`; pinch and double tap are harmless) takes the touch away
+from the sheet. This is a SwiftUI/UIKit fact, not a ZTronScrollView property (a plain pane with one `DragGesture` does the same).
+
+- **Default (documented limitation).** Inside a `.sheet` the view behaves like `presentationContentInteraction(.scrolls)` at every detent, but without any
+  hand-off: a drag that starts on it scrolls or rubber-bands it and **never moves, expands, collapses or dismisses the sheet**, at the top edge too, in both
+  directions. Drags that start outside it (grabber, header, other content) move the sheet as usual. The sheet's own detents, `selection` binding and
+  `interactiveDismissDisabled` are unaffected (a content drag cannot dismiss, so the latter needs nothing). There is no double movement.
+- **`ztronScrollYieldsToSheet(_ yields: Bool = true)`** (S11; environment-backed, propagates, no member twin: there is no SwiftUI counterpart). While `true` the
+  view is inert to drags: it attaches its pan, raw-touch observer (`SpatialEventGesture` / `DragGesture(minimumDistance: 0)`), pinch and double tap with
+  `GestureMask.subviews` (`including:`), so the enclosing sheet gets every drag that starts on it, and Buttons / controls in the content keep working. The
+  app drives it from its detent selection: `yields: selection != .large` reproduces `presentationContentInteraction(.resizes)` (an upward drag at medium expands
+  the sheet first, the content scrolls once the sheet is large); never setting it is `.scrolls`. The UIKit observer path (15–16) is passive and needs no mask.
+  Flipping the flag changes gesture masks only: no content body re-runs (S4), and a drag or deceleration in flight ends like a cancelled touch (no stuck
+  `isTracking`/phase, no spurious delegate call beyond `didEndDragging` of a cancelled drag).
+- **Not possible in pure SwiftUI**: the live top-edge hand-off (the sheet decides at touch-down; once a SwiftUI drag is recognized it never gets the sequence;
+  even a native `ScrollView` does not hand off mid-gesture), and telling the sheet our offset. Recipe instead (no API): `onZTronScrollDidEndDragging` /
+  the delegate with `contentOffset.y < -60` at the lift → change the detent selection (large → medium) or dismiss; the sheet animates after the lift, no live
+  tracking, no flick velocity (SHEET-spike §4, V3–V5).
 
 ## S13 · Pitfalls
 
