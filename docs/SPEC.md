@@ -320,7 +320,7 @@ SwiftUI's own implementations are private and tied to its UIKit-backed ScrollVie
   - `contentMargins(_:_:for:)` (scroll content vs. indicators), `safeAreaPadding`
   - `scrollClipDisabled(_:)`, `scrollContentBackground(_:)`, `ScrollContentOffsetAdjustmentBehavior`
   - Every `containerRelativeFrame` overload, resolved against this viewport.
-  - Amendment 2026-10-21 (user): `scrollContentIntegralOverlay(anchor:overlayAnchor:size:scaling:content:)` + twin
+  - Amendment 2026-10-21 (user): `scrollContentIntegralOverlay(anchor:overlayAnchor:size:scaling:fileID:line:content:)` + twin
     `ztronScrollContentIntegralOverlay` — an overlay laid out in the unscaled content space (it scrolls and zooms with the content): the
     overlay's `overlayAnchor` point (a `UnitPoint`, default `.topLeading`) is pinned on the content point `anchor`, the size is resolved
     against the content size (`.fillMaxSize` default, as SwiftUI's `.overlay` fills the modified view), both re-laid out from the content's
@@ -741,14 +741,24 @@ extension ZTronScrollView {   // laid out in the unscaled content space, under t
     public func scrollContentIntegralOverlay<V: View>(anchor: ZTronContentOverlayAnchor = .center, overlayAnchor: UnitPoint = .topLeading,
                                                       size: ZTronContentOverlaySize = .fillMaxSize,
                                                       scaling: ZTronContentOverlayScaling = .withContent,
+                                                      fileID: StaticString = #fileID, line: UInt = #line,   // diagnostics only
                                                       @ViewBuilder content: () -> V) -> Self
 }
 extension View {              // environment twin: every ZTronScrollView below (members draw above it); no native counterpart
     public func ztronScrollContentIntegralOverlay<V: View>(anchor: ZTronContentOverlayAnchor = .center, overlayAnchor: UnitPoint = .topLeading,
                                                            size: ZTronContentOverlaySize = .fillMaxSize,
                                                            scaling: ZTronContentOverlayScaling = .withContent,
+                                                           fileID: StaticString = #fileID, line: UInt = #line,
                                                            @ViewBuilder content: () -> V) -> some View
 }
+// Diagnostics — revision R7 (user, 2026-10-21: "Clamping should at least produce a log"): every silent normalization of caller input
+// (a unit value outside [0, 1] or NaN, an aspect ratio <= 0 / non-finite, a negative / non-finite absolute length, an overflowing aspect
+// result, a non-finite anchor or overlayAnchor component, a non-finite ztronScrollCounterScaled anchor) is reported in DEBUG builds through
+// NSLog: "[ZTronScrollView] <Type>.<component> <reason>: <input> -> <result> (<fileID>:<line>[, at layout])". The clamping initializers, the
+// size constructors, both modifiers and ztronScrollCounterScaled(anchor:fileID:line:) take defaulted `fileID: StaticString = #fileID,
+// line: UInt = #line` for that location; a literal argument (SE-0213 literal coercion) is re-reported with the enclosing call's location.
+// At most 8 distinct values per call site and kind, 512 keys per process; a symbolic breakpoint on ZTronDiagnostics.report stops at
+// every normalization. Release builds compile the report path out (call sites still pass the location arguments).
 
 @MainActor public final class ZoomScrollState {   // Observation-backed on 17+, channels on 15–16
     public private(set) var contentOffset: CGPoint        // presentation, hot

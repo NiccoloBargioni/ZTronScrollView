@@ -145,7 +145,7 @@ coordinate space, `frameLayoutGuide` → `.ztronViewport`; pan/pinch recognizers
 
 ```swift
 extension View {
-    public func ztronScrollCounterScaled(anchor: UnitPoint = .center) -> some View          // GeometryEffect scale 1/zoom, hot leaf, content body 0 runs
+    public func ztronScrollCounterScaled(anchor: UnitPoint = .center) -> some View  /* shipped by M6b as (anchor:fileID:line:) */          // GeometryEffect scale 1/zoom, hot leaf, content body 0 runs
     public func ztronScrollSticky(edge: Edge = .top, inset: CGFloat = 0) -> some View         // t = max(0, visibleRect.min − frame.min + inset) along edge axis
     public func ztronScrollParallax(_ rate: CGFloat, axis: Axis = .vertical) -> some View      // t = (visibleRect.min − frame.min)·(1 − rate); rate 1 = normal, 0 = fixed
 }

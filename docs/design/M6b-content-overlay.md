@@ -57,7 +57,7 @@ statics, no new enum. Every `.relative` takes a clamped unit type (`ZTronUnitPoi
 its initializer stores any value), so a relative anchor or size can never leave the content (R6). Aspect ratio = width / height (SwiftUI `aspectRatio`): `.fillMaxWidth(16/9)` → `W × 9W/16`.
 
 **Degenerate inputs** (normalized when the size is built, so sizes compare equal iff they draw the same frame). `r ≤ 0` or non-finite → `.ideal`
-(DEBUG note `contentOverlay.badAspect`); an overflowing `W / r` or `H·r` → 0 (same note); unit values clamp to `[0, 1]` (NaN → 0, +∞ → 1);
+(reported in DEBUG by `ZTronDiagnostics`, R7); an overflowing `W / r` or `H·r` → 0 (reported at layout); unit values clamp to `[0, 1]` (NaN → 0, +∞ → 1);
 absolute lengths and sizes clamp to `≥ 0`; `W` or
 `H` = 0 (empty content) → the frame collapses on that axis for the fill / relative sizes, an `.ideal` or `.absolute` view sits at `P`
 at its size; nothing is hidden (an empty content is the app's state, not ours). "Unmeasured, first layout" does not exist here: the overlay
@@ -250,6 +250,14 @@ Settled by the refinements: `overlayAnchor: UnitPoint = .topLeading` (`.absolute
   and `overlayAnchor` stay unclamped). `ZTronContentOverlaySize` became a struct of static constructors (Swift cannot overload enum
   cases by type) with canonical equality. Source change: `.relative(UnitPoint)` → `.relative(ZTronUnitPoint)`, `.relative(CGSize)` →
   `.relative(ZTronUnitSize(_:))`. Built in M6b-s2 (`docs/progress/M6b-s2.md`).
+- **R7 Clamps are reported (2026-10-21, user: "Clamping should at least produce a log, otherwise it becomes hard to track an error
+  originating from an unexpected clamp").** Every silent normalization of caller input is reported in DEBUG builds by an internal
+  `ZTronDiagnostics` (Foundation `NSLog`; `os` is outside the allowed imports) with the caller's `#fileID:#line`: the clamping
+  initializers, the size constructors, both modifiers and `ztronScrollCounterScaled` gained defaulted `fileID:line:` parameters (source
+  compatible for calls; unapplied references such as `.map(ZTronUnitLength.init)` no longer type-check). Literal arguments go through the
+  literal initializers (SE-0213) and are re-reported with the enclosing call's location; layout-time reports carry the modifier call's
+  location. Once per call site and value, at most 8 values per site, 512 keys per process; a symbolic breakpoint on
+  `ZTronDiagnostics.report` stops at every normalization. Release builds compile the report path out. Built in M6b-s3.
 
 ## L1 notes (2026-10-21, builder; after the two-reviewer pass)
 
@@ -261,7 +269,7 @@ What L1 built where it differs from, or settles, §2–§5 (sections 1–4 and R
 - **Counters (DEBUG).** `contentOverlay.body` = `ContentOverlayLeaf<V>`, the erased root whose only input is the user's view
   (it runs exactly when that view would); `contentOverlay.host.body` = `ContentOverlayHost.body`, container evaluations only;
   `contentOverlay.reader` = the iOS 15 host's `GeometryReader` closure (each reflow frame and each container evaluation);
-  `contentOverlay.place` = `placeSubviews`; note `contentOverlay.badAspect`. L2 reads these from the readout.
+  `contentOverlay.place` = `placeSubviews`; the `contentOverlay.badAspect` note was replaced by `ZTronDiagnostics` (R7). L2 reads these from the readout.
 - **No `Cache` in `ContentOverlayLayout` (R3).** A rotation proposes a new content size every frame, so a per-proposal cache
   never hits while it matters; measuring happens only on an open axis (`.ideal`, nil aspect); nothing can go stale.
 - **The overlay subtree drops the twin list** (`transformEnvironment` on the host): a `ZTronScrollView` inside an overlay does
