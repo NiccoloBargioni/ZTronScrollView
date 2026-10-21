@@ -37,6 +37,7 @@ struct DemoApp: App {
             case "calibrate": CalibrateScreen()
             case "resize": ResizeScreen()
             case "sheet": SheetScreen()
+            case "scrollDisabled": ScrollDisabledScreen()
             default: ProofScreen()
             }
         }

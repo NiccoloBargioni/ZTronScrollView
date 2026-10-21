@@ -161,7 +161,7 @@ struct NativeEnabledBridge: ViewModifier {
     @ViewBuilder
     func body(content: Content) -> some View {
         if #available(iOS 16, *) {
-            content.modifier(NativeScrollEnabledReader { enabled in
+            content.background(NativeScrollEnabledReader { enabled in
                 coordinator.nativeScrollEnabled = enabled
             })
         } else {

@@ -71,7 +71,7 @@ reduce to one: **a drag that starts on a ZTronScrollView never reaches the sheet
 
 | Experiment (ours unless "plain") | 27.0 | 17.5 | Reading |
 |---|---|---|---|
-| V1/V7 SwiftUI `.scrollDisabled(true)` on our view | content still scrolls 0→250, sheet fixed | same | **`scrollDisabled` does not disable ZTronScrollView here** (see §6); and effect gating would not free the sheet anyway |
+| V1/V7 SwiftUI `.scrollDisabled(true)` on our view | content still scrolls 0→250, sheet fixed | same | **`scrollDisabled` did not disable ZTronScrollView** (a library bug, not the sheet: fixed in DBG-s6 / D38, V1/V7 now read like V6/V8; §6); and effect gating would not free the sheet anyway |
 | V6/V8 `.ztronScrollDisabled(true)` | content does not scroll, **sheet still fixed** | same | the gesture stays attached and recognized: switching the *effect* off does not yield |
 | V2 `.allowsHitTesting(false)` at medium, on at large | up 250 at medium: **sheet expands** (415→62); at large content scrolls 0→240 and back | same | works, but taps and buttons in the content die at medium |
 | P7 plain pane, `simultaneousGesture(drag, including: .subviews)` | up 250: sheet expands 415→62 | 399→69 | **masking the gesture frees the sheet**; subview gestures stay |
@@ -104,7 +104,10 @@ the gesture starts, so "yield only for a downward drag at offset 0" cannot be ex
 ## 6. Findings outside the question
 
 - `.scrollDisabled(_:)` (SwiftUI) had no effect on a `ZTronScrollView` in the sheet (V1, V7: content scrolled 250 pt on 27.0 and 17.5 with it `true`);
-  `.ztronScrollDisabled(_:)` works (V6, V8). Not isolated outside a sheet; PanCoordinator reads `nativeScrollEnabled` from `\.isScrollEnabled` on 16+, so
-  this looks like a bridge that does not deliver. Follow-up for a debugger session.
-- After a drag with `.ztronScrollDisabled(true)` the offset reads 9 (V6b/V8b; 0 before): unexplained, probably the 10 pt slack of the pan.
+  `.ztronScrollDisabled(_:)` works (V6, V8). **Resolved by DBG-s6 (`docs/progress/DBG-s6.md`, D38)**: not sheet-specific (the same outside a sheet, every
+  OS path); the bridge's reader was a `ViewModifier` returning its content, whose body never ran, so `PanCoordinator.nativeScrollEnabled` stayed `true`.
+  Fixed (a leaf `View` in a background); `ScrollDisabledUITests` covers it inside and outside a sheet.
+- After a drag with `.ztronScrollDisabled(true)` the offset reads 9 (V6b/V8b; 0 before): **not the pan's slack and not a library fault.** The readout `Text`
+  above the scroller grew from nothing to three lines at the first snapshot, the viewport shrank by 18 pt and the offset followed by half of it (the
+  visible centre is kept, SPEC S7). With a fixed-height readout the offset stays 0; DBG-s6 pins both (`testDisabledViewFollowsItsViewportNotTheFinger`).
 - Under load (up to 634) every run was green; no flake seen in these tests.

@@ -90,14 +90,18 @@ extension View {
     }
 }
 
-/// Reads SwiftUI's `isScrollEnabled` (16+) without making the adapter's availability conditional.
+/// Reads SwiftUI's `isScrollEnabled` (16+, what `scrollDisabled(_:)` writes) and hands it to `sink`, without making the
+/// adapter's availability conditional. A leaf `View` in a background, never a `ViewModifier` whose body returns its
+/// content: that body was never evaluated (measured on iOS 27.0 and 17.5, DBG-s3; presumably nothing reads the output of
+/// a bare `_ViewModifier_Content`), so `scrollDisabled(_:)` never reached the pan. Only this leaf re-evaluates when the
+/// value changes; content bodies are not touched.
 @available(iOS 16, *)
-struct NativeScrollEnabledReader: ViewModifier {
+struct NativeScrollEnabledReader: View {
     let sink: (Bool) -> Void
     @Environment(\.isScrollEnabled) private var enabled
-    func body(content: Content) -> some View {
+    var body: some View {
         sink(enabled)
-        return content
+        return Color.clear.frame(width: 0, height: 0).allowsHitTesting(false)
     }
 }
 
