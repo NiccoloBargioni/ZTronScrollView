@@ -10,7 +10,8 @@ public struct ZTronRefreshState: Equatable, Sendable {
     public var mode: Mode
     /// The same value as `mode`, written inside an animation transaction (`resetAnimation`, else `.default`).
     public var modeAnimated: Mode
-    /// Pull ÷ trigger distance, clamped to 0…1; stays 1 while `.refreshing`.
+    /// Pull ÷ trigger distance, clamped to 0…1; stays 1 while `.refreshing`. After a release (or when a refresh ends) the
+    /// indicator goes back with the content: `mode` is `.notRefreshing` and `dragPosition` follows the pull down to 0.
     public var dragPosition: CGFloat
     public var style: ZTronRefreshStyle
     public var edge: Edge

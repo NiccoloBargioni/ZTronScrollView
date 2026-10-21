@@ -55,6 +55,9 @@ final class RefreshCoordinator: ObservableObject {
     /// What the indicators read, per edge (cold, but `dragPosition` changes per frame during a pull: the indicator leaf
     /// is the only observer). `objectWillChange` fires before each change.
     private(set) var states: [Edge: ZTronRefreshState] = [:]
+    /// The edges whose indicator is going back with the content, and how the built-in one draws itself meanwhile (display
+    /// only: the public `ZTronRefreshState` keeps `mode .notRefreshing` and a falling `dragPosition`).
+    private(set) var retractions: [Edge: RefreshEngine.RetractLook] = [:]
     /// Bumps once per started action: the `sensoryFeedback` trigger of the indicator leaf (iOS 17+).
     private(set) var triggerSerial = 0
     /// Accessibility announcements ("Refreshing", "Refresh complete"); wired by the accessibility layer.
@@ -79,6 +82,9 @@ final class RefreshCoordinator: ObservableObject {
     private var isApplying = false
     /// The deadline the pending one-shot timer covers (one timer per deadline, however many frames sample meanwhile).
     private var wakeDeadline: TimeInterval?
+    private var heartbeatPending = false
+    /// How often a retracting edge samples while the frame clock is idle.
+    private static let heartbeat: TimeInterval = 1.0 / 30
 
     /// Fixed order, so two edges crossing in one frame resolve the same way on every run.
     private static let order: [Edge] = [.top, .leading, .bottom, .trailing]
@@ -126,6 +132,7 @@ final class RefreshCoordinator: ObservableObject {
         send(edge, .cancel)
         specs[edge] = nil
         engines[edge] = nil
+        retractions[edge] = nil
         if states[edge] != nil {
             objectWillChange.send()
             states[edge] = nil
@@ -237,6 +244,12 @@ final class RefreshCoordinator: ObservableObject {
         i.isSettled = !(s.phase == .decelerating || s.phase == .animating || s.isZoomBouncing)
         i.pull = RefreshMath.pull(edge: edge, offset: s.presentationOffset, zoom: s.presentationZoom, metrics: s.metrics,
                                   alignment: state.contentAlignment)
+        // A reset that SwiftUI animates moves the drawing, not the state: the offset has already jumped to rest while the
+        // content is still on its way (no clock, no flush). A retracting indicator follows what was last drawn.
+        if case .retracting? = engines[edge]?.phase, let drawn = state.probe.pending {
+            i.pull = max(i.pull, RefreshMath.pull(edge: edge, offset: drawn.offset, zoom: drawn.zoom, metrics: s.metrics,
+                                                  alignment: state.contentAlignment))
+        }
         let zoomed = (specs[edge]?.configuration.disablesWhenZoomed ?? true)
             && s.presentationZoom > state.minimumZoomScale + 1e-4
         let otherBusy = engines.contains { $0.key != edge && $0.value.isRefreshing }
@@ -261,6 +274,18 @@ final class RefreshCoordinator: ObservableObject {
         isApplying = true
         defer { isApplying = wasApplying }
         let configuration = specs[edge]?.configuration
+        // The hold clears inside the reset animation and the indicator retracts with the content: both changes ride in ONE
+        // transaction, so the indicator's drawing is animated by the same curve as the content's.
+        if case let .swiftUI(animation)? = configuration?.resetAnimation, effects.contains(.clearHold(atLift: false, animated: true)),
+           effects.contains(where: { if case .retract(.some) = $0 { return true } else { return false } }) {
+            withAnimation(animation) { perform(effects, edge: edge, configuration: configuration) }
+        } else {
+            perform(effects, edge: edge, configuration: configuration)
+        }
+    }
+
+    /// Applies the effects in order, in whatever transaction the caller opened.
+    private func perform(_ effects: [RefreshEngine.Effect], edge: Edge, configuration: ZTronRefreshConfiguration?) {
         for fx in effects {
             #if DEBUG
             switch fx {
@@ -291,6 +316,9 @@ final class RefreshCoordinator: ObservableObject {
                 closeHold(edge, atLift: atLift, animated: animated, animation: configuration?.resetAnimation)
             case let .announce(text):
                 announce?(text)
+            case let .retract(look):
+                objectWillChange.send()
+                retractions[edge] = look
             }
         }
     }
@@ -393,20 +421,37 @@ final class RefreshCoordinator: ObservableObject {
 
     /// A finishing edge waits for its deadline: one timer wake-up samples again when it passes (the frame clock is idle
     /// at rest, and a refresh must not keep it running). A deadline already passed but blocked (a finger down, a motion
-    /// running) needs no timer: the lift or the settling motion samples.
+    /// running) needs no timer: the lift or the settling motion samples. A retracting edge follows the content: the clock
+    /// samples it while a motion runs, and a beat does while none does (SwiftUI animates the reset with the clock idle).
     private func scheduleWake() {
         var next: TimeInterval?
+        var retracting = false
         for e in engines.values {
-            if case let .finishing(until) = e.phase { next = min(next ?? until, until) }
+            switch e.phase {
+            case let .finishing(until): next = min(next ?? until, until)
+            case .retracting: retracting = true
+            default: break
+            }
         }
-        guard let until = next, until != wakeDeadline else { return }
-        let delay = until - state.now()
-        guard delay > 0 else { return }
-        wakeDeadline = until
-        schedule(delay) { [weak self] in
-            guard let self else { return }
-            self.wakeDeadline = nil
-            self.sample(isScrollEnabled: self.scrollEnabled)
+        if let until = next, until != wakeDeadline {
+            let delay = until - state.now()
+            if delay > 0 {
+                wakeDeadline = until
+                schedule(delay) { [weak self] in
+                    guard let self else { return }
+                    self.wakeDeadline = nil
+                    self.sample(isScrollEnabled: self.scrollEnabled)
+                }
+            }
+        }
+        // The beat also ends a retraction nothing moves (its deadline) and one that is not drawn.
+        if retracting, !heartbeatPending, !state.isClockRunning {
+            heartbeatPending = true
+            schedule(Self.heartbeat) { [weak self] in
+                guard let self else { return }
+                self.heartbeatPending = false
+                self.sample(isScrollEnabled: self.scrollEnabled)
+            }
         }
     }
 }

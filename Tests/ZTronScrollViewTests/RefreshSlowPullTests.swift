@@ -15,15 +15,7 @@ struct RefreshSlowPullTests {
 
     /// How much of the indicator is inside its clip, from the same inputs `RefreshEdgeIndicator` feeds the placement.
     func visible(_ r: RefreshRig, style: ZTronRefreshStyle = .default) -> CGFloat {
-        let s = r.state.peek, st = r.refreshState()
-        let pull = RefreshMath.signedPull(edge: .top, offset: s.presentationOffset, zoom: s.presentationZoom, metrics: s.metrics,
-                                          alignment: r.state.contentAlignment)
-        let aci = s.metrics.adjustedContentInset, hold = s.metrics.refreshHold
-        let base = EdgeInsets(top: aci.top - hold.top, leading: 0, bottom: aci.bottom - hold.bottom, trailing: 0)
-        guard let p = RefreshIndicatorMath.placement(
-            edge: .top, style: style, overlay: false, refreshing: st.mode == .refreshing, dragPosition: st.dragPosition,
-            pull: pull, length: 60, viewport: s.metrics.viewportSize, base: base) else { return 0 }
-        return p.visibleLength(vertical: true)
+        r.visibleIndicator(style: style)
     }
 
     /// A pull of `frames` frames to 150 pt; returns the pull and the visible thickness at the frame the trigger fired.
@@ -68,10 +60,18 @@ struct RefreshSlowPullTests {
         r.wait(0.4)
         #expect(r.refreshState().mode == .refreshing && visible(r) == 60)
         r.lift()
-        #expect(r.refreshState().mode == .notRefreshing && r.engine().phase == .idle, "shown long enough: the refresh ends at the lift")
+        #expect(r.refreshState().mode == .notRefreshing && r.engine().retractLook == .spinner, "shown long enough: the refresh ends at the lift")
         #expect(r.hold == EdgeInsets(), "nothing to hold")
+        // The content springs back to rest and the spinner goes with it: thinner every frame, never gone on the first.
+        var frames: [CGFloat] = []
+        while r.engine().isActive, frames.count < 600 {
+            frames.append(visible(r))
+            r.tick()
+        }
+        #expect(frames.first == 60 && frames.count > 8 && zip(frames, frames.dropFirst()).allSatisfy { $1 <= $0 + 0.001 },
+                "retracting: \(frames.map { Int($0) })")
         r.settle()
-        #expect(abs(r.offset.y) < 0.5 && r.state.phase == .idle)
+        #expect(abs(r.offset.y) < 0.5 && r.state.phase == .idle && r.engine().phase == .idle)
         await r.pumpTasks()
         #expect(r.gate.started == 1, "one action per pull")
     }

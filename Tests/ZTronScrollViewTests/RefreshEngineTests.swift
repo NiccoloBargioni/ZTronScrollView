@@ -59,17 +59,17 @@ struct RefreshEngineTests {
         #expect(e.phase == .armed, "crossed, waiting for the lift: no action yet")
         #expect(e.handle(.sample(input(60))) == [.progress(0.6)])
         #expect(e.phase == .pulling, "back below the trigger: disarmed")
-        #expect(e.handle(.lift(input(60, t: 1), cancelled: false)) == [.progress(0), .mode(.notRefreshing, animated: true)])
-        #expect(e.phase == .idle && !e.firedThisPull)
-        // Past the trigger at the lift: fires then.
-        #expect(e.handle(.sample(input(120))) == [.mode(.pulling, animated: false), .progress(1)])
+        #expect(e.handle(.lift(input(60, t: 1), cancelled: false)) == [.mode(.notRefreshing, animated: true), .retract(.pull)])
+        #expect(e.phase == .retracting(.pull, until: 4) && !e.firedThisPull, "the release springs it back and the indicator goes with it")
+        // Past the trigger at the lift: fires then (a new pull takes over from the retraction).
+        #expect(e.handle(.sample(input(120))) == [.retract(nil), .mode(.pulling, animated: false), .progress(1)])
         #expect(e.handle(.lift(input(120, t: 2), cancelled: false)) ==
                 [.mode(.refreshing, animated: true), .trigger, .announce("Refreshing"), .hold(60, reveal: false)])
         // A cancelled touch never fires.
         var c = RefreshEngine(config: ZTronRefreshConfiguration(triggerMode: .onRelease), edge: .top)
         _ = c.handle(.sample(input(150)))
-        #expect(c.handle(.lift(input(150, t: 1), cancelled: true)) == [.progress(0), .mode(.notRefreshing, animated: true)])
-        #expect(c.phase == .idle)
+        #expect(c.handle(.lift(input(150, t: 1), cancelled: true)) == [.mode(.notRefreshing, animated: true), .retract(.pull)])
+        #expect(c.phase == .retracting(.pull, until: 4), "no action, the indicator retracts")
     }
 
     @Test func minimumVisibleTimeHoldsTheIndicator() {
@@ -99,9 +99,10 @@ struct RefreshEngineTests {
         #expect(e.phase == .finishing(until: 8))
         #expect(e.handle(.sample(input(90, t: 9))) == [])
         #expect(e.handle(.lift(input(90, t: 10), cancelled: false)) ==
-                [.progress(0), .mode(.notRefreshing, animated: true), .clearHold(atLift: true, animated: true),
-                 .announce("Refresh complete")], "the release pipeline springs the offset: bounds only")
-        #expect(e.phase == .idle)
+                [.progress(0.9), .mode(.notRefreshing, animated: true), .retract(.spinner),
+                 .clearHold(atLift: true, animated: true), .announce("Refresh complete")],
+                "the release pipeline springs the offset: bounds only, and the spinner goes with the content")
+        #expect(e.phase == .retracting(.spinner, until: 13))
         // A reset that is not due at the lift completes at the first frame past its deadline, finger up.
         var f = RefreshEngine(config: ZTronRefreshConfiguration(minimumVisibleTime: 2), edge: .top)
         _ = f.handle(.lift(input(130, t: 5), cancelled: false))
@@ -124,8 +125,8 @@ struct RefreshEngineTests {
         #expect(e.handle(.sample(input(40, t: 1.8))) == [], "also when the finger comes back")
         // Lifted after the minimum visible time since the trigger: nothing to hold, the refresh just ends.
         #expect(e.handle(.lift(input(160, t: 2), cancelled: false)) ==
-                [.progress(0), .mode(.notRefreshing, animated: true), .announce("Refresh complete")])
-        #expect(e.phase == .idle && !e.firedThisPull && !e.holdApplied)
+                [.mode(.notRefreshing, animated: true), .retract(.spinner), .announce("Refresh complete")])
+        #expect(e.phase == .retracting(.spinner, until: 5) && !e.firedThisPull && !e.holdApplied)
         #expect(e.handle(.sample(input(130, t: 3))).contains(.trigger), "the next pull is a new pull")
     }
 
@@ -266,6 +267,7 @@ struct RefreshEngineTests {
         b.finger(toPull: 70)
         b.lift()
         await b.pumpTasks()
+        b.settle()                                              // the indicator retracts with the content
         #expect(b.refresh.triggerSerial == 0 && b.gate.started == 0 && b.hold == EdgeInsets())
         #expect(b.refreshState().mode == .notRefreshing && b.refreshState().dragPosition == 0)
         // Lifted below the trigger.
@@ -310,7 +312,9 @@ struct RefreshEngineTests {
         r.clock.t = until + 0.01
         r.fireWakes()
         #expect(r.hold == EdgeInsets() && r.aci.top == 0)
-        #expect(r.refreshState().mode == .notRefreshing && r.refreshState().dragPosition == 0)
+        #expect(r.refreshState().mode == .notRefreshing && r.engine().retractLook == .spinner, "the spinner goes with the content")
+        r.fireWakes()                                           // the content is already at rest: the next beat ends it
+        #expect(r.refreshState().dragPosition == 0)
         #expect(r.engine().phase == .idle && abs(r.offset.y) < 0.5, "back at rest")
         #expect(r.announcements == ["Refreshing", "Refresh complete"])
         // An action slower than the minimum ends at once.
@@ -320,7 +324,9 @@ struct RefreshEngineTests {
         s.settle()
         s.clock.t += 5
         await s.completeAction()
-        #expect(s.hold == EdgeInsets() && s.engine().phase == .idle && s.wakes.isEmpty)
+        #expect(s.hold == EdgeInsets() && s.engine().retractLook == .spinner)
+        s.fireWakes()                                           // the content is already at rest: the next beat ends it
+        #expect(s.engine().phase == .idle && s.wakes.isEmpty)
     }
 
     @Test(arguments: OSPath.allCases) func theResetWaitsForTheLiftWhileTracking(path: OSPath) async {
@@ -370,6 +376,7 @@ struct RefreshEngineTests {
         #expect(r.hold.top == 60, "one done: still inside the minimum visible time")
         r.clock.t += 5
         r.fireWakes()
+        r.fireWakes()                                           // the retraction ends on the next beat
         #expect(r.hold == EdgeInsets() && r.engine().phase == .idle)
         #expect(r.announcements.filter { $0 == "Refresh complete" }.count == 1)
     }

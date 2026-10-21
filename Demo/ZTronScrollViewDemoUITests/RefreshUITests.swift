@@ -180,6 +180,13 @@ final class RefreshUITests: XCTestCase {
             let mode = line.components(separatedBy: " ").first { $0.hasPrefix("mode=") }.map { String($0.dropFirst(5)) } ?? "?"
             return (number("pull", in: line), number("vis", in: line), mode)
         }
+        /// A leaf line with everything it carries: `p` is the progress the edge reported (printed to 0.1), `look` the retraction look.
+        static func detail(_ line: String) -> (pull: Double, vis: Double, mode: String, look: String, p: Double) {
+            func text(_ key: String) -> String {
+                line.components(separatedBy: " ").first { $0.hasPrefix(key + "=") }.map { String($0.dropFirst(key.count + 1)) } ?? "?"
+            }
+            return (number("pull", in: line), number("vis", in: line), text("mode"), text("look"), number("p", in: line))
+        }
     }
 
     private func pull(_ app: XCUIApplication, _ velocity: XCUIGestureVelocity, hold: TimeInterval) {
@@ -232,11 +239,38 @@ final class RefreshUITests: XCTestCase {
         }
     }
 
+    /// The indicator goes back with the content (USER-s6, D39): from the effect that starts the retraction to the one that ends
+    /// it, the leaf draws a visible thickness that only shrinks, over several frames, down to (almost) nothing, with the look
+    /// that was asked for, while the edge reads `notRefreshing` and `dragPosition` only falls. Before this the leaf was removed on
+    /// the frame the progress reset, while the content was still sliding back.
+    private func assertTheIndicatorRetracts(_ t: Trace, look: String, _ tag: String) {
+        guard let begin = t.lines.indices.first(where: { t.lines[$0].contains("fx top retract(") && !t.lines[$0].contains("retract(nil)") })
+        else { return XCTFail("\(tag): the indicator never started to retract") }
+        guard let end = t.index("fx top retract(nil)", after: begin) else { return XCTFail("\(tag): the retraction never ended") }
+        // The leaf's last frame can land just after the engine saw the content at rest.
+        let frames = t.lines[begin..<min(t.lines.count, end + 4)].filter { $0.contains("rf leaf") }.map(Trace.detail)
+        let thickness = frames.map { Int($0.vis) }
+        XCTAssertGreaterThanOrEqual(frames.count, 4, "\(tag): it thins out over several frames, not at once (\(thickness))")
+        for f in frames {
+            XCTAssertEqual(f.mode, "notRefreshing", "\(tag): custom views read an idle edge (pull \(f.pull))")
+            XCTAssertEqual(f.look, look, "\(tag): the look it keeps (pull \(f.pull))")
+        }
+        for (a, c) in zip(frames, frames.dropFirst()) {
+            XCTAssertLessThanOrEqual(c.vis, a.vis + 0.6, "\(tag): never grows back (\(thickness))")
+            XCTAssertLessThanOrEqual(c.p, a.p + 0.11, "\(tag): dragPosition only falls (\(a.p) → \(c.p))")
+        }
+        XCTAssertLessThanOrEqual(frames.last?.vis ?? 99, 4, "\(tag): down to (almost) nothing before it goes (\(thickness))")
+        let whole = frames.first?.vis ?? 0
+        XCTAssertGreaterThanOrEqual(frames.filter { $0.vis > 1 && $0.vis < whole - 1 }.count, 3,
+                                    "\(tag): seen thinner than whole on the way (\(thickness))")
+    }
+
     func testASlowPullShowsTheWholeIndicatorUntilTheLift() {
         continueAfterFailure = true                              // every section reports, not only the first to fail
         for section in ["default", "custom", "system"] {
             let (t, app) = tracedPull(section, .slow, hold: 1.5, tag: "slow \(section)")
             assertTheWholeIndicatorShows(t, "slow \(section)")
+            assertTheIndicatorRetracts(t, look: "spinner", "slow \(section)")
             let i = info(app, "slow \(section)")
             XCTAssertEqual(i.counters["refresh.actions"], 1, "slow \(section): one action per pull")
             XCTAssertEqual(i.counters["content.body"], 0)
@@ -248,7 +282,27 @@ final class RefreshUITests: XCTestCase {
     func testAFastPullShowsTheSameIndicator() {
         let (t, app) = tracedPull("default", .fast, hold: 0.3, tag: "fast default")
         assertTheWholeIndicatorShows(t, "fast default")
+        assertTheIndicatorRetracts(t, look: "spinner", "fast default")
         XCTAssertEqual(info(app, "fast").counters["refresh.actions"], 1)
+    }
+
+    /// A release below the trigger: the ring / arrow goes back with the content instead of disappearing at the lift, and no
+    /// action runs.
+    func testAPullLetGoBelowTheTriggerRetractsWithTheContent() {
+        continueAfterFailure = true
+        for section in ["default", "system", "custom"] {
+            let app = launch(section)
+            XCTAssertTrue(a11y(app).waitForExistence(timeout: 3))
+            drag(app, from: (0.5, 0.08), to: (0.5, 0.36), hold: 0.2)          // about 45 pt of pull, under the 100 pt trigger
+            Thread.sleep(forTimeInterval: 1.5)
+            let t = readTrace(app, "short \(section)")
+            assertTheIndicatorRetracts(t, look: "pull", "short \(section)")
+            let i = info(app, "short \(section)")
+            XCTAssertEqual(i.counters["refresh.actions"], 0, "short \(section): below the trigger nothing runs")
+            XCTAssertEqual(i.counters["content.body"], 0)
+            XCTAssertEqual(i.double("y"), 0, accuracy: 2, "short \(section): back at rest")
+            app.terminate()
+        }
     }
 
     // MARK: programmatic and accessibility

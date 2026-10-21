@@ -89,7 +89,7 @@ struct RefreshSectionView: View {
         .padding(6)
         .onAppear {
             #if DEBUG
-            ZTronRenderCounters.eventCapacity = 600
+            ZTronRenderCounters.eventCapacity = 1000
             #endif
         }
     }

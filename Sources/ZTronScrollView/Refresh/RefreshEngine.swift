@@ -19,6 +19,18 @@ struct RefreshEngine: Equatable {
         case refreshing(since: TimeInterval)
         /// The action returned; the hold stays until `until` (minimum visible time), then clears.
         case finishing(until: TimeInterval)
+        /// The pull or the refresh is over and the content is still on its way back to rest: the indicator goes with it and
+        /// `progress` follows the live pull down to 0. Ends when the pull is gone, when a new pull takes over, or at `until`
+        /// (a safeguard for a content nothing moves back, or one that is not drawn).
+        case retracting(RetractLook, until: TimeInterval)
+    }
+
+    /// How the built-in indicator draws itself while its edge retracts. Display only: `ZTronRefreshState` does not change.
+    enum RetractLook: Equatable {
+        /// A pull let go below the trigger: the ring / arrow follows the decreasing `dragPosition`.
+        case pull
+        /// A refresh that ended: the spinner stays until the gap is closed, as `UIRefreshControl` does.
+        case spinner
     }
 
     /// What the coordinator knows when it talks to the engine.
@@ -59,7 +71,14 @@ struct RefreshEngine: Equatable {
         /// returns the content to rest (animated per `resetAnimation` iff `animated`).
         case clearHold(atLift: Bool, animated: Bool)
         case announce(String)
+        /// The indicator starts retracting with `look`, or (`nil`) is done: it stays on screen while the content comes back.
+        case retract(RetractLook?)
     }
+
+    /// Pull (points) under which the content counts as back at rest: the retraction is over.
+    static let retractedPull: CGFloat = 0.5
+    /// The longest a retraction waits for the pull to go.
+    static let retractTimeout: TimeInterval = 3
 
     let config: ZTronRefreshConfiguration
     let edge: Edge
@@ -101,6 +120,13 @@ struct RefreshEngine: Equatable {
 
     /// Any phase but `.idle`: the coordinator keeps sampling.
     var isActive: Bool { phase != .idle }
+    /// Nothing pulls or refreshes: idle, or the indicator is only going back with the content.
+    private var isFree: Bool {
+        switch phase {
+        case .idle, .retracting: return true
+        default: return false
+        }
+    }
     /// Triggered, refreshing or finishing: this edge owns the (global) refresh.
     var isRefreshing: Bool {
         switch phase {
@@ -126,12 +152,26 @@ struct RefreshEngine: Equatable {
 
     private mutating func sample(_ i: Input, _ fx: inout [Effect]) {
         switch phase {
-        case .idle, .pulling, .armed:
+        case .idle, .pulling, .armed, .retracting:
             guard i.enabled, i.isTracking, i.pull > 0 else {
-                // Not (or no longer) pulling: back to rest without a trigger.
-                if phase != .idle { phase = .idle; reset(&fx) }
+                switch phase {
+                case let .retracting(_, until):
+                    // Nobody pulls: the indicator follows the content back, until the gap is gone.
+                    if !i.enabled || i.pull <= Self.retractedPull || i.time >= until {
+                        endRetraction(&fx)
+                    } else {
+                        setProgress(progress(for: i.pull), &fx)
+                    }
+                case .idle:
+                    break
+                default:
+                    // Not (or no longer) pulling: back to rest without a trigger.
+                    phase = .idle
+                    reset(&fx)
+                }
                 return
             }
+            if case .retracting = phase { phase = .idle; fx.append(.retract(nil)) }      // a new pull takes over
             sequenceActive = true
             let p = progress(for: i.pull)
             if phase == .idle { phase = .pulling; setMode(.pulling, animated: false, &fx) }
@@ -144,27 +184,27 @@ struct RefreshEngine: Equatable {
         case .triggered:
             if !i.isTracking {                                    // the lift was missed: nothing springs the offset
                 endTouchWhileTriggered(i, reveal: true, &fx)
-                if phase == .idle { sequenceActive = false; firedThisPull = false }
+                if isFree { sequenceActive = false; firedThisPull = false }
             }
         case .refreshing:
             break
         case let .finishing(until):
-            if i.time >= until, !i.isTracking, i.isSettled { finish(atLift: false, &fx) }
+            if i.time >= until, !i.isTracking, i.isSettled { finish(atLift: false, i, &fx) }
         }
     }
 
     private mutating func lift(_ i: Input, cancelled: Bool, _ fx: inout [Effect]) {
         switch phase {
-        case .idle, .pulling, .armed:
+        case .idle, .pulling, .armed, .retracting:
             // The lift is a position too: a crossing between two samples still counts, a pull below the trigger disarms.
             if i.enabled, !cancelled, i.pull > 0, progress(for: i.pull) >= 1, !firedThisPull {
+                if case .retracting = phase { phase = .idle; fx.append(.retract(nil)) }
                 sequenceActive = true
                 setProgress(1, &fx)
                 fire(i, &fx)
                 startHold(i, reveal: false, &fx)
-            } else if phase != .idle {
-                phase = .idle
-                reset(&fx)
+            } else if phase == .pulling || phase == .armed {
+                retractAfterPull(i, &fx)
             }
         case .triggered:
             endTouchWhileTriggered(i, reveal: false, &fx)
@@ -172,10 +212,10 @@ struct RefreshEngine: Equatable {
             break
         case let .finishing(until):
             // The reset waited for the lift; the release pipeline springs the offset to the cleared bounds.
-            if i.time >= until, i.isSettled { finish(atLift: true, &fx) }
+            if i.time >= until, i.isSettled { finish(atLift: true, i, &fx) }
         }
         sequenceActive = false
-        if phase == .idle { firedThisPull = false }
+        if isFree { firedThisPull = false }
     }
 
     private mutating func sequenceEnd(_ i: Input, _ fx: inout [Effect]) {
@@ -186,15 +226,16 @@ struct RefreshEngine: Equatable {
         case .triggered:
             endTouchWhileTriggered(i, reveal: true, &fx)
         case let .finishing(until):
-            if i.time >= until, i.isSettled { finish(atLift: false, &fx) }
-        case .idle, .refreshing:
+            if i.time >= until, i.isSettled { finish(atLift: false, i, &fx) }
+        case .idle, .refreshing, .retracting:
             break
         }
         sequenceActive = false
-        if phase == .idle { firedThisPull = false }
+        if isFree { firedThisPull = false }
     }
 
     private mutating func begin(_ i: Input, runAction: Bool, _ fx: inout [Effect]) {
+        if case .retracting = phase { phase = .idle; fx.append(.retract(nil)) }      // the indicator comes back as a refresh
         guard phase == .idle else { return }                      // a refresh is already running: no-op
         setProgress(1, &fx)
         setMode(.refreshing, animated: true, &fx)
@@ -208,7 +249,7 @@ struct RefreshEngine: Equatable {
         case let .refreshing(since):
             let until = max(i.time, since + config.minimumVisibleTime)
             phase = .finishing(until: until)
-            if i.time >= until, !i.isTracking, i.isSettled { finish(atLift: false, &fx) }
+            if i.time >= until, !i.isTracking, i.isSettled { finish(atLift: false, i, &fx) }
         case .triggered:
             returnedUnderFinger = true                            // the refreshing look stays until the lift
         default:
@@ -217,6 +258,7 @@ struct RefreshEngine: Equatable {
     }
 
     private mutating func cancel(_ fx: inout [Effect]) {
+        if case .retracting = phase { fx.append(.retract(nil)) }
         phase = .idle
         firedThisPull = false
         sequenceActive = false
@@ -254,9 +296,13 @@ struct RefreshEngine: Equatable {
         returnedUnderFinger = false
         let until = max(i.time, triggeredAt + config.minimumVisibleTime)
         if i.time >= until {
-            phase = .idle
-            setProgress(0, &fx)
-            setMode(.notRefreshing, animated: true, &fx)
+            if !reveal, i.pull > Self.retractedPull {
+                retract(.spinner, i, &fx)                             // the release springs the content back, the spinner goes with it
+            } else {
+                phase = .idle
+                setProgress(0, &fx)
+                setMode(.notRefreshing, animated: true, &fx)
+            }
             fx.append(.announce("Refresh complete"))
         } else {
             startHold(i, reveal: reveal, &fx)
@@ -270,10 +316,16 @@ struct RefreshEngine: Equatable {
         fx.append(.hold(holdSize, reveal: reveal))
     }
 
-    private mutating func finish(atLift: Bool, _ fx: inout [Effect]) {
-        phase = .idle
-        setProgress(0, &fx)
-        setMode(.notRefreshing, animated: true, &fx)
+    /// The refresh is over and the hold clears. The content is still on its way back to rest (the release springs it at the
+    /// lift, `resetAnimation` otherwise), so the indicator goes with it; a reset nobody animates leaves nothing to follow.
+    private mutating func finish(atLift: Bool, _ i: Input, _ fx: inout [Effect]) {
+        if i.pull > Self.retractedPull, atLift || config.resetAnimation != nil {
+            retract(.spinner, i, &fx)
+        } else {
+            phase = .idle
+            setProgress(0, &fx)
+            setMode(.notRefreshing, animated: true, &fx)
+        }
         if holdApplied {
             holdApplied = false
             fx.append(.clearHold(atLift: atLift, animated: true))
@@ -285,6 +337,31 @@ struct RefreshEngine: Equatable {
     private mutating func reset(_ fx: inout [Effect]) {
         setProgress(0, &fx)
         setMode(.notRefreshing, animated: true, &fx)
+    }
+
+    /// The finger lifted below the trigger: the release pipeline springs the content back and the indicator goes with it.
+    private mutating func retractAfterPull(_ i: Input, _ fx: inout [Effect]) {
+        guard i.enabled, i.pull > Self.retractedPull else {
+            phase = .idle
+            reset(&fx)
+            return
+        }
+        retract(.pull, i, &fx)
+    }
+
+    /// The indicator stays while the content comes back: not refreshing any more, `progress` following the pull.
+    private mutating func retract(_ look: RetractLook, _ i: Input, _ fx: inout [Effect]) {
+        phase = .retracting(look, until: i.time + Self.retractTimeout)
+        setProgress(progress(for: i.pull), &fx)
+        setMode(.notRefreshing, animated: true, &fx)
+        fx.append(.retract(look))
+    }
+
+    /// The content is back at rest, or nothing is left to follow: the indicator goes.
+    private mutating func endRetraction(_ fx: inout [Effect]) {
+        phase = .idle
+        setProgress(0, &fx)
+        fx.append(.retract(nil))
     }
 
     private mutating func setMode(_ m: ZTronRefreshState.Mode, animated: Bool, _ fx: inout [Effect]) {

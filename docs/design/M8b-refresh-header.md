@@ -57,10 +57,11 @@ public struct ZTronRefreshConfiguration: Equatable {                     // defa
 // Refresh/RefreshEngine.swift (internal, pure, Equatable, no clock/SwiftUI)
 struct RefreshEngine: Equatable {
     enum Phase: Equatable { case idle, pulling, armed /* .onRelease: crossed, waiting for lift */, triggered /* action running, hold deferred to lift */,
-                            refreshing(since: TimeInterval), finishing(until: TimeInterval) }
+                            refreshing(since: TimeInterval), finishing(until: TimeInterval),
+                            retracting(RetractLook, until: TimeInterval) /* USER-s6: the indicator goes back with the content */ }
     struct Input: Equatable { var pull: CGFloat /* §1.3, ≥ 0 */; var isTracking: Bool; var enabled: Bool /* !zoomed && isScrollEnabled && otherEdgeIdle */; var time: TimeInterval }
     enum Event: Equatable { case sample(Input), lift(Input), sequenceEnd, begin(programmatic: Bool), done(TimeInterval), tick(TimeInterval), cancel }
-    enum Effect: Equatable { case progress(CGFloat), mode(ZTronRefreshState.Mode, animated: Bool), trigger, hold(CGFloat), clearHold(animated: Bool), announce(String) }
+    enum Effect: Equatable { case progress(CGFloat), mode(ZTronRefreshState.Mode, animated: Bool), trigger, hold(CGFloat), clearHold(animated: Bool), announce(String), retract(RetractLook?) }
     var phase: Phase = .idle; var firedThisPull = false; let config: ZTronRefreshConfiguration; let edge: Edge
     mutating func handle(_ e: Event) -> [Effect]
 }
@@ -112,6 +113,20 @@ Precedence per edge: `refresher(…)` member ?? `ztronRefresher` twin ?? `\.refr
 - `done`/action return → `finishing(until: max(now, since + minimumVisibleTime))`; `tick ≥ until && !isTracking` → `clearHold(animated: true)` + `mode .notRefreshing`
   (animated). The M5 inset rule (`o′ ≤ min_old + 0.5` → stay at the start edge) moves the content back to rest inside the transaction; if the user scrolled away,
   nothing moves. If tracking at that moment, the clear waits for `lift` and is then unanimated-if-overpulled / animated otherwise ("unless the user is tracking").
+- **Retraction (USER-s6, D39).** `UIRefreshControl` keeps the spinner glued to the content edge until the gap closes; the engine used to go idle (progress 0,
+  leaf removed) on the frame the content was still sliding back. Phase `.retracting(RetractLook, until:)` + effect `.retract(look?)` are entered where the
+  engine would go idle with the content still pulled (> 0.5 pt): a lift below the trigger or a cancelled one (look `.pull`: ring / arrow with the falling
+  progress), the end of a refresh at the lift or by `resetAnimation` (look `.spinner`: the built-in indicator keeps the spinner, a display-only override,
+  `ZTronRefreshState` unchanged) and the early-return release of D35 (`.spinner`). Not entered when nothing follows the finger (`sequenceEnd`, a missed lift),
+  when the edge is disabled, when the pull is already gone, for `resetAnimation: nil`, or for an overlay edge whose content never moved. In it `mode` is
+  `.notRefreshing` (a custom view reads an idle edge) and `progress` follows the live pull (`pull ÷ trigger`) down to 0; it ends when the pull is ≤ 0.5 pt, at
+  `until` (3 s, a safeguard) or when a new pull takes over (a normal pull; a lift on it may fire; `begin` is not swallowed). The end condition is NOT "settled
+  and not tracking": the first flush after the lift runs before the release motion has started. The pull is the state's, except that a reset SwiftUI
+  animates (`.swiftUI`, the default) JUMPS the state's offset to rest in the call while the content is drawn back over ~0.3 s with the clock idle (measured
+  on 27.0: `presentation 0` at +0 ms, the content effect's probe 60 → 0 from +60…100 ms): so the retraction's effects are applied inside one
+  `withAnimation(resetAnimation)`, the leaf draws through an animatable placement (`pull` = `animatableData`) that SwiftUI interpolates in that transaction,
+  and while an edge retracts the coordinator feeds the engine `max(state pull, last drawn pull)` and samples it on a 30 Hz beat when the clock is idle.
+  The overlay style keeps its formula (`center = −L/2 + min(pull, L)`): it slides out with the pull.
 - Bounce: a spec on a vertical edge sets `PanEnvironment.bouncesY = true` (and `bouncesX` for horizontal edges) regardless of `BounceConfiguration.resolve` —
   axis-wide, as UIKit's refresh control turns on `alwaysBounceVertical` (documented; short content then bounces at both ends, like UIKit).
 - Indicator placement (leaf, viewport points; `top0 = aci.top − hold + header_current(o′)` §2.4 — the live header height counts; under `.stretch` the indicator is centred over the stretched band, under `.preserve` it sits in the gap below the header): gap `g = max(0, −o′_withHold)`;

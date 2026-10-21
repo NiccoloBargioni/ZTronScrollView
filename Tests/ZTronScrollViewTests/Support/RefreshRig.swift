@@ -191,3 +191,49 @@ final class RefreshRig {
         await pumpTasks()
     }
 }
+
+extension RefreshEngine {
+    /// The look of a retracting edge, nil in every other phase.
+    var retractLook: RetractLook? {
+        if case let .retracting(look, _) = phase { return look }
+        return nil
+    }
+}
+
+extension RefreshRig {
+    /// How much of the indicator of `edge` the leaf draws now, from the same inputs `RefreshEdgeIndicator` feeds the placement:
+    /// the live pull, the state's progress and mode, and the retraction look (the spinner stays after a refresh; an overlay
+    /// indicator keeps sliding out with the pull).
+    func visibleIndicator(_ edge: Edge = .top, style: ZTronRefreshStyle = .default, overlay: Bool = false,
+                          length: CGFloat = 60) -> CGFloat {
+        let s = state.peek, st = refreshState(edge)
+        let pull = RefreshMath.signedPull(edge: edge, offset: s.presentationOffset, zoom: s.presentationZoom, metrics: s.metrics,
+                                          alignment: state.contentAlignment)
+        let aci = s.metrics.adjustedContentInset, hold = s.metrics.refreshHold
+        let base = EdgeInsets(top: aci.top - hold.top, leading: aci.leading - hold.leading,
+                              bottom: aci.bottom - hold.bottom, trailing: aci.trailing - hold.trailing)
+        guard let p = RefreshIndicatorMath.placement(
+            edge: edge, style: style, overlay: overlay, refreshing: st.mode == .refreshing || (refresh.retractions[edge] == .spinner && !overlay),
+            dragPosition: st.dragPosition, pull: pull, length: length, viewport: s.metrics.viewportSize, base: base)
+        else { return 0 }
+        return p.visibleLength(vertical: edge == .top || edge == .bottom)
+    }
+
+    /// One frame of a retraction: what the leaf draws and what the engine tells the indicator.
+    struct RetractFrame {
+        var pull: CGFloat, visible: CGFloat, progress: CGFloat, look: RefreshEngine.RetractLook?, mode: ZTronRefreshState.Mode
+    }
+
+    /// Runs frames from now until the edge stops retracting (or `maxFrames`), recording each one before it is ticked.
+    func retractFrames(_ edge: Edge = .top, style: ZTronRefreshStyle = .default, overlay: Bool = false,
+                       maxFrames: Int = 600) -> [RetractFrame] {
+        var frames: [RetractFrame] = []
+        while engine(edge).isActive, frames.count < maxFrames {
+            frames.append(RetractFrame(pull: pull(edge), visible: visibleIndicator(edge, style: style, overlay: overlay),
+                                       progress: refreshState(edge).dragPosition, look: refresh.retractions[edge],
+                                       mode: refreshState(edge).mode))
+            tick()
+        }
+        return frames
+    }
+}
