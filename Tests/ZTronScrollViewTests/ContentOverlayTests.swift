@@ -332,11 +332,13 @@ struct ContentOverlayTests {
         #expect(same(resolve(.center, .center, .ideal, content: noHeight), CGRect(x: 125, y: -15, width: 50, height: 30)))
         #expect(same(resolve(.center, .topLeading, .fillMaxHeight(2), content: noHeight), CGRect(x: 150, y: 0, width: 0, height: 0)))
         #expect(same(resolve(.top, .topLeading, .fillMaxSize, content: .zero), .zero))
-        // Aspect 0, −1, ∞, NaN: as nil (the view's own size on the open axis), with the DEBUG note.
+        // Aspect 0, −1, ∞, NaN: as nil (the view's own size on the open axis), reported (DEBUG) when the size is built.
         for r in [CGFloat(0), -1, .infinity, .nan] {
-            ZTronRenderCounters.notes["contentOverlay.badAspect"] = nil
             #expect(ContentOverlayMath.aspect(r) == nil)
-            #expect(ZTronRenderCounters.notes["contentOverlay.badAspect"] != nil, "note for \(r)")
+            _ = ZTronContentOverlaySize.fillMaxWidth(r)
+            #expect(ZTronDiagnostics.recorded.contains {
+                $0.kind == .aspectRatioIgnored && $0.fileID == #fileID && $0.message.contains(": \(r) -> .ideal")
+            }, "report for \(r)")
             #expect(same(resolve(.topLeading, .topLeading, .fillMaxWidth(r)), CGRect(x: 0, y: 0, width: 300, height: 30)), "w \(r)")
             #expect(same(resolve(.topLeading, .topLeading, .fillMaxHeight(r)), CGRect(x: 0, y: 0, width: 50, height: 600)), "h \(r)")
         }
@@ -1072,24 +1074,27 @@ struct ContentOverlayTests {
         #expect(ZTronContentOverlayAnchor.relative(.center) == .relative(ZTronUnitPoint(x: 0.5, y: 0.5)))
     }
 
-    /// A positive ratio is kept when the size is built; if its length overflows in layout it draws 0 and writes the note.
-    @Test func anOverflowingAspectRatioDrawsZeroAndWritesTheNote() {
-        let tl = ZTronContentOverlayAnchor.topLeading, q0 = UnitPoint.topLeading, key = "contentOverlay.badAspect"
-        ZTronRenderCounters.notes[key] = nil
+    /// A positive ratio is kept when the size is built; if its length overflows in layout it draws 0 and is reported
+    /// (DEBUG, `ZTronDiagnostics`: at layout, once per ratio and axis; `ContentOverlayDiagnosticsTests` has the rest).
+    @Test func anOverflowingAspectRatioDrawsZeroAndReportsIt() {
+        let tl = ZTronContentOverlayAnchor.topLeading, q0 = UnitPoint.topLeading
+        func overflows(_ r: CGFloat) -> Int {
+            ZTronDiagnostics.recorded.filter { $0.kind == .aspectRatioOverflow && $0.message.contains(".aspectRatio(\(r)))") }.count
+        }
         let tiny = ZTronContentOverlaySize.fillMaxWidth(CGFloat.leastNonzeroMagnitude)
-        #expect(tiny != .fillMaxWidth() && ZTronRenderCounters.notes[key] == nil, "a positive ratio is kept")
+        #expect(tiny != .fillMaxWidth(), "a positive ratio is kept")
+        #expect(!ZTronDiagnostics.recorded.contains { $0.kind == .aspectRatioIgnored && $0.message.contains("\(CGFloat.leastNonzeroMagnitude)") })
         #expect(same(resolve(tl, q0, tiny), rect(0, 0, 300, 0)))
-        #expect(ZTronRenderCounters.notes[key] == "\(CGFloat.leastNonzeroMagnitude) overflows")
-        ZTronRenderCounters.notes[key] = nil
+        #expect(overflows(.leastNonzeroMagnitude) == 1)
         let huge = ZTronContentOverlaySize.fillMaxHeight(width: .aspectRatio(.greatestFiniteMagnitude))
         #expect(same(resolve(tl, q0, huge), rect(0, 0, 0, 600)))
-        #expect(ZTronRenderCounters.notes[key] == "\(CGFloat.greatestFiniteMagnitude) overflows")
-        // The same ratio on a content short enough not to overflow draws its length, without the note.
-        ZTronRenderCounters.notes[key] = nil
+        #expect(overflows(.greatestFiniteMagnitude) == 1)
+        // The same ratio on a content short enough not to overflow draws its length, without a report.
+        let before = ZTronDiagnostics.recorded.count
         #expect(same(resolve(tl, q0, huge, content: CGSize(width: 300, height: 0.5)),
                      rect(0, 0, CGFloat.greatestFiniteMagnitude / 2, 0.5)))
         #expect(same(resolve(tl, q0, .fillMaxWidth(4)), rect(0, 0, 300, 75)))
-        #expect(ZTronRenderCounters.notes[key] == nil)
+        #expect(ZTronDiagnostics.recorded.count == before)
     }
 
     private func expectGeneralizedFrames(_ s: ZTronScrollState, h H: CGFloat, _ label: String) {

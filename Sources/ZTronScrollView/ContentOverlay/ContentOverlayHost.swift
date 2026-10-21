@@ -114,9 +114,7 @@ struct ContentOverlayReaderHost: View {
                     let fill = d.size == .fillMaxSize
                     let s = ContentOverlayMath.proposal(d.size, content: content)
                     let p = fill ? CGPoint.zero : ContentOverlayMath.anchorPoint(d.anchor, content: content)
-                    let q = fill ? UnitPoint.topLeading
-                                 : UnitPoint(x: ContentOverlayMath.finite(d.overlayAnchor.x),
-                                             y: ContentOverlayMath.finite(d.overlayAnchor.y))
+                    let q = fill ? UnitPoint.topLeading : ContentOverlayMath.finiteOverlayAnchor(d.overlayAnchor)
                     // The clear base never takes a touch (the overlay above it does).
                     Color.clear.allowsHitTesting(false).overlay(alignment: .topLeading) {
                         d.view

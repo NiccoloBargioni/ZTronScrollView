@@ -43,18 +43,20 @@ public enum ZTronContentOverlayAnchor: Equatable, Sendable {
     /// points outside the content: wrap it as `.relative(ZTronUnitPoint(p))`, or use ``absolute(_:)`` for such a point.
     case relative(ZTronUnitPoint)
     /// A fixed point in unscaled content points, independent of the content's size, and not clamped: the way to anchor
-    /// an overlay outside the content. Non-finite components count as 0.
+    /// an overlay outside the content. Non-finite components count as 0; in DEBUG builds such a component is reported
+    /// when the overlay is laid out (`at layout`: a case carries no caller location), once per point.
     case absolute(CGPoint)
 }
 
-/// The free axis of ``ZTronContentOverlaySize/fillMaxWidth(height:)`` (the overlay's height) or
-/// ``ZTronContentOverlaySize/fillMaxHeight(width:)`` (its width), resolved against the content's size `W × H`.
+/// The free axis of ``ZTronContentOverlaySize/fillMaxWidth(height:fileID:line:)`` (the overlay's height) or
+/// ``ZTronContentOverlaySize/fillMaxHeight(width:fileID:line:)`` (its width), resolved against the content's size `W × H`.
 ///
 /// Normalized when it becomes part of a ``ZTronContentOverlaySize``, so equal-rendering sizes compare equal: an
-/// ``aspectRatio(_:)`` that is zero, negative or non-finite becomes ``ideal`` (DEBUG note `contentOverlay.badAspect`);
-/// an ``absolute(_:)`` length that is negative or non-finite becomes 0; ``relative(_:)`` is clamped by its
-/// ``ZTronUnitLength``, and a fraction of 0 is the length it draws, `.absolute(0)`. The lengths themselves compare as
-/// written (`.relative(0) != .absolute(0)`); the sizes built from them compare by what they draw.
+/// ``aspectRatio(_:)`` that is zero, negative or non-finite becomes ``ideal``; an ``absolute(_:)`` length that is
+/// negative or non-finite becomes 0; ``relative(_:)`` is clamped by its ``ZTronUnitLength``, and a fraction of 0 is the
+/// length it draws, `.absolute(0)` (not an error: 0 is in range). The first two are reported in DEBUG builds with the
+/// location of the ``ZTronContentOverlaySize`` constructor's caller, once per call site and value. The lengths
+/// themselves compare as written (`.relative(0) != .absolute(0)`); the sizes built from them compare by what they draw.
 public enum ZTronContentOverlayLength: Equatable, Sendable {
     /// SwiftUI decides: the view's own length on that axis, measured with that axis unspecified and the filled axis at
     /// the content's length (wrapped text at width `W`).
@@ -62,8 +64,8 @@ public enum ZTronContentOverlayLength: Equatable, Sendable {
     /// The overlay's width / height (SwiftUI's `aspectRatio` convention): `.fillMaxWidth(height: .aspectRatio(16 / 9))`
     /// is `W × 9W/16`, `.fillMaxHeight(width: .aspectRatio(0.5))` is `H/2 × H`. A ratio so extreme that `W / r` or
     /// `H · r` overflows `CGFloat` (a positive ratio near `.leastNonzeroMagnitude` or `.greatestFiniteMagnitude`) gives
-    /// a length of 0 on that axis, never an infinite frame (DEBUG note `contentOverlay.badAspect`, written when the
-    /// overflow happens in layout: whether it overflows depends on the content's size).
+    /// a length of 0 on that axis, never an infinite frame; in DEBUG builds this is reported when it happens, in layout
+    /// (`at layout`: whether it overflows depends on the content's size), once per ratio and axis.
     case aspectRatio(CGFloat)
     /// A fixed length in unscaled content points (it scales with the zoom like the rest of the content).
     case absolute(CGFloat)
@@ -73,11 +75,25 @@ public enum ZTronContentOverlayLength: Equatable, Sendable {
 
     /// This length in canonical form, one axis of a ``ZTronContentOverlaySize`` (see the type's documentation): an
     /// unusable ratio is `.ideal`, an absolute length is finite and `≥ 0`, a relative fraction is `> 0` (0 is
-    /// `.absolute(0)`, which draws the same).
-    var normalized: Self {
+    /// `.absolute(0)`, which draws the same, unreported). `axis` = the free axis this length sizes (the height of
+    /// `fillMaxWidth(height:)`, the width of `fillMaxHeight(width:)`); `site` = the constructor's caller (DEBUG reports).
+    func normalized(_ axis: Axis, _ site: ZTronDiagnostics.Site) -> Self {
         switch self {
-        case .aspectRatio(let r): return ContentOverlayMath.aspect(r).map { .aspectRatio($0) } ?? .ideal
-        case .absolute(let v): return .absolute(ContentOverlayMath.nonNegative(v))
+        case .aspectRatio(let r):
+            if let usable = ContentOverlayMath.aspect(r) { return .aspectRatio(usable) }
+            #if DEBUG
+            ZTronDiagnostics.report(.aspectRatioIgnored,
+                                    axis == .vertical ? "ZTronContentOverlaySize.fillMaxWidth(height:) .aspectRatio"
+                                                      : "ZTronContentOverlaySize.fillMaxHeight(width:) .aspectRatio",
+                                    "is not a positive finite ratio", bits: (r, 0), site: site,
+                                    input: "\(r)", result: ".ideal")
+            #endif
+            return .ideal
+        case .absolute(let v):
+            return .absolute(ContentOverlayMath.nonNegative(v, axis == .vertical
+                                                                ? "ZTronContentOverlaySize.fillMaxWidth(height:) .absolute"
+                                                                : "ZTronContentOverlaySize.fillMaxHeight(width:) .absolute",
+                                                            site))
         case .relative(let k): return k.value == 0 ? .absolute(0) : self
         case .ideal: return self
         }
@@ -90,7 +106,10 @@ public enum ZTronContentOverlayLength: Equatable, Sendable {
 /// (SwiftUI's `frame(width:height:)`).
 ///
 /// Values are normalized when they are built, whatever the spelling, so two sizes that draw the same frame for every
-/// content size compare equal and two that do not compare unequal. Within a spelling:
+/// content size compare equal and two that do not compare unequal. Every constructor that normalizes its input takes
+/// the caller's location (defaulted `fileID:` / `line:`): in DEBUG builds an input it changes (an unusable aspect ratio,
+/// a negative or non-finite absolute length, a clamped unit value) is reported with that location, once per call site
+/// and value; a relative fraction of 0 becoming the length 0 is not reported (it draws the same). Within a spelling:
 /// `.fillMaxWidth(0) == .fillMaxWidth() == .fillMaxWidth(height: .ideal)`,
 /// `.fillMaxWidth(16 / 9) == .fillMaxWidth(height: .aspectRatio(16 / 9))`, negative or non-finite absolute lengths are
 /// 0, and every relative fraction is a clamped unit type (``ZTronUnitLength``, ``ZTronUnitSize``). Across spellings: a
@@ -129,57 +148,115 @@ public struct ZTronContentOverlaySize: Equatable, Sendable {
 
     /// Width = the content's width; height = width / `aspectRatio` (width over height, as SwiftUI's `aspectRatio`:
     /// `.fillMaxWidth(16 / 9)` is `W × 9W/16`; 0 if that overflows). `nil`, zero, negative or non-finite: the view's
-    /// own height at width `W` (wrapped text).
+    /// own height at width `W` (wrapped text); zero, negative or non-finite is reported in DEBUG builds with the caller's
+    /// location, once per call site and value.
     ///
-    /// Sugar for ``fillMaxWidth(height:)``: `.fillMaxWidth(r)` is `.fillMaxWidth(height: .aspectRatio(r))` and
-    /// `.fillMaxWidth()` is `.fillMaxWidth(height: .ideal)`, equal values.
-    public static func fillMaxWidth(_ aspectRatio: CGFloat? = nil) -> Self {
-        fillMaxWidth(height: aspectRatio.map { .aspectRatio($0) } ?? .ideal)
+    /// Sugar for ``fillMaxWidth(height:fileID:line:)``: `.fillMaxWidth(r)` is `.fillMaxWidth(height: .aspectRatio(r))`
+    /// and `.fillMaxWidth()` is `.fillMaxWidth(height: .ideal)`, equal values.
+    ///
+    /// - Parameters:
+    ///   - aspectRatio: Width over height, or `nil` for the view's own height.
+    ///   - fileID: The caller's file, for the DEBUG report; leave the default.
+    ///   - line: The caller's line, for the DEBUG report; leave the default.
+    public static func fillMaxWidth(_ aspectRatio: CGFloat? = nil, fileID: StaticString = #fileID, line: UInt = #line) -> Self {
+        fillMaxWidth(height: aspectRatio.map { .aspectRatio($0) } ?? .ideal, fileID: fileID, line: line)
     }
 
     /// Width = the content's width `W`; the height per `height`: ``ZTronContentOverlayLength/ideal`` the view's own
     /// height at width `W`, ``ZTronContentOverlayLength/aspectRatio(_:)`` `W / r` (0 if that overflows),
     /// ``ZTronContentOverlayLength/absolute(_:)`` that many points, ``ZTronContentOverlayLength/relative(_:)`` that
     /// fraction of the content's height `H` (so `.fillMaxWidth(height: .relative(k))` is `.relative(width: 1, height: k)`).
-    public static func fillMaxWidth(height: ZTronContentOverlayLength) -> Self {
-        ZTronContentOverlaySize(.axes(width: .relative(.full), height: height.normalized))
+    /// An unusable ratio (`.ideal`) or a negative or non-finite absolute length (0) is reported in DEBUG builds with the
+    /// caller's location, once per call site and value.
+    ///
+    /// - Parameters:
+    ///   - height: The overlay's height.
+    ///   - fileID: The caller's file, for the DEBUG report; leave the default.
+    ///   - line: The caller's line, for the DEBUG report; leave the default.
+    public static func fillMaxWidth(height: ZTronContentOverlayLength, fileID: StaticString = #fileID,
+                                    line: UInt = #line) -> Self {
+        ZTronContentOverlaySize(.axes(width: .relative(.full),
+                                      height: height.normalized(.vertical, .caller(fileID: fileID, line: line))))
     }
 
     /// Height = the content's height; width = height × `aspectRatio` (0 if that overflows). `nil`, zero, negative or
-    /// non-finite: the view's own width at height `H`.
+    /// non-finite: the view's own width at height `H`; zero, negative or non-finite is reported in DEBUG builds with the
+    /// caller's location, once per call site and value.
     ///
-    /// Sugar for ``fillMaxHeight(width:)``: `.fillMaxHeight(r)` is `.fillMaxHeight(width: .aspectRatio(r))` and
-    /// `.fillMaxHeight()` is `.fillMaxHeight(width: .ideal)`, equal values.
-    public static func fillMaxHeight(_ aspectRatio: CGFloat? = nil) -> Self {
-        fillMaxHeight(width: aspectRatio.map { .aspectRatio($0) } ?? .ideal)
+    /// Sugar for ``fillMaxHeight(width:fileID:line:)``: `.fillMaxHeight(r)` is `.fillMaxHeight(width: .aspectRatio(r))`
+    /// and `.fillMaxHeight()` is `.fillMaxHeight(width: .ideal)`, equal values.
+    ///
+    /// - Parameters:
+    ///   - aspectRatio: Width over height, or `nil` for the view's own width.
+    ///   - fileID: The caller's file, for the DEBUG report; leave the default.
+    ///   - line: The caller's line, for the DEBUG report; leave the default.
+    public static func fillMaxHeight(_ aspectRatio: CGFloat? = nil, fileID: StaticString = #fileID, line: UInt = #line) -> Self {
+        fillMaxHeight(width: aspectRatio.map { .aspectRatio($0) } ?? .ideal, fileID: fileID, line: line)
     }
 
     /// Height = the content's height `H`; the width per `width`: ``ZTronContentOverlayLength/ideal`` the view's own
     /// width at height `H`, ``ZTronContentOverlayLength/aspectRatio(_:)`` `H · r` (0 if that overflows),
     /// ``ZTronContentOverlayLength/absolute(_:)`` that many points, ``ZTronContentOverlayLength/relative(_:)`` that
     /// fraction of the content's width `W` (so `.fillMaxHeight(width: .relative(k))` is `.relative(width: k, height: 1)`).
-    public static func fillMaxHeight(width: ZTronContentOverlayLength) -> Self {
-        ZTronContentOverlaySize(.axes(width: width.normalized, height: .relative(.full)))
+    /// An unusable ratio (`.ideal`) or a negative or non-finite absolute length (0) is reported in DEBUG builds with the
+    /// caller's location, once per call site and value.
+    ///
+    /// - Parameters:
+    ///   - width: The overlay's width.
+    ///   - fileID: The caller's file, for the DEBUG report; leave the default.
+    ///   - line: The caller's line, for the DEBUG report; leave the default.
+    public static func fillMaxHeight(width: ZTronContentOverlayLength, fileID: StaticString = #fileID,
+                                     line: UInt = #line) -> Self {
+        ZTronContentOverlaySize(.axes(width: width.normalized(.horizontal, .caller(fileID: fileID, line: line)),
+                                      height: .relative(.full)))
     }
 
     /// A fraction of the content's size per axis: `(W · size.width, H · size.height)`, each fraction in `0...1`
-    /// (``ZTronUnitSize`` clamps).
-    public static func relative(_ size: ZTronUnitSize) -> Self {
-        ZTronContentOverlaySize(.axes(width: ZTronContentOverlayLength.relative(ZTronUnitLength(size.width)).normalized,
-                                      height: ZTronContentOverlayLength.relative(ZTronUnitLength(size.height)).normalized))
+    /// (``ZTronUnitSize`` clamps, and reports in DEBUG builds with the location of its own initializer's caller).
+    ///
+    /// - Parameters:
+    ///   - size: The fractions.
+    ///   - fileID: The caller's file, for the DEBUG report; leave the default.
+    ///   - line: The caller's line, for the DEBUG report; leave the default.
+    public static func relative(_ size: ZTronUnitSize, fileID: StaticString = #fileID, line: UInt = #line) -> Self {
+        // `size` is in range (a `ZTronUnitSize` is): nothing here reports; a fraction of 0 becoming `.absolute(0)` is not
+        // an error.
+        let site = ZTronDiagnostics.Site.caller(fileID: fileID, line: line)
+        return ZTronContentOverlaySize(.axes(
+            width: ZTronContentOverlayLength.relative(ZTronUnitLength(size.width, fileID: fileID, line: line))
+                .normalized(.horizontal, site),
+            height: ZTronContentOverlayLength.relative(ZTronUnitLength(size.height, fileID: fileID, line: line))
+                .normalized(.vertical, site)))
     }
 
     /// A fraction of the content's size per axis: `(W · width, H · height)`, each fraction in `0...1`
-    /// (``ZTronUnitLength`` clamps; literals work: `.relative(width: 0.5, height: 0.2)`).
-    public static func relative(width: ZTronUnitLength, height: ZTronUnitLength) -> Self {
-        relative(ZTronUnitSize(width: width.value, height: height.value))
+    /// (``ZTronUnitLength`` clamps; literals work: `.relative(width: 0.5, height: 0.2)`, and a clamped literal is
+    /// reported in DEBUG builds as `literal`, without a location).
+    ///
+    /// - Parameters:
+    ///   - width: The fraction of the content's width.
+    ///   - height: The fraction of the content's height.
+    ///   - fileID: The caller's file, for the DEBUG report; leave the default.
+    ///   - line: The caller's line, for the DEBUG report; leave the default.
+    public static func relative(width: ZTronUnitLength, height: ZTronUnitLength, fileID: StaticString = #fileID,
+                                line: UInt = #line) -> Self {
+        relative(ZTronUnitSize(width: width.value, height: height.value, fileID: fileID, line: line),
+                 fileID: fileID, line: line)
     }
 
     /// A fixed size in unscaled content points, independent of the content's size (only the origin follows it).
-    /// Negative or non-finite components become 0.
-    public static func absolute(_ size: CGSize) -> Self {
-        ZTronContentOverlaySize(.axes(width: ZTronContentOverlayLength.absolute(size.width).normalized,
-                                      height: ZTronContentOverlayLength.absolute(size.height).normalized))
+    /// Negative or non-finite components become 0, reported in DEBUG builds with the caller's location, once per call
+    /// site and value.
+    ///
+    /// - Parameters:
+    ///   - size: The size.
+    ///   - fileID: The caller's file, for the DEBUG report; leave the default.
+    ///   - line: The caller's line, for the DEBUG report; leave the default.
+    public static func absolute(_ size: CGSize, fileID: StaticString = #fileID, line: UInt = #line) -> Self {
+        let site = ZTronDiagnostics.Site.caller(fileID: fileID, line: line)
+        return ZTronContentOverlaySize(.axes(
+            width: .absolute(ContentOverlayMath.nonNegative(size.width, "ZTronContentOverlaySize.absolute(_:) width", site)),
+            height: .absolute(ContentOverlayMath.nonNegative(size.height, "ZTronContentOverlaySize.absolute(_:) height", site))))
     }
 }
 
