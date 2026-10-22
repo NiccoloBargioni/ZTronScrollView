@@ -885,6 +885,14 @@ Coexistence with a delegate object:
     `UIKitControlsUITests` (DBG-s4) adds Stepper (tap, hold), `Picker(.segmented)` (tap), `DatePicker` (compact, wheel turns), Menu (tap, press-drag-release) and ColorPicker. Known
     limitations of a pure-SwiftUI pan, expected failures in that suite: a drag across a segmented control is cancelled (the pan's recognizer begins after 10 pt and
     cancels the touch of the touch-based `UISegmentedControl`; taps work), and a vertical drag on a wheel picker also scrolls the content (50 pt on 18+, 1 pt on 17.5).
+  - **Inside SwiftUI's own `ScrollView`** (DBG-s8, D47; `design/NESTED-arbitration.md` §6.1). **Below iOS 26** both pans follow the finger: the page scrolls under a drag that starts on a ZTron view (60 pt: 50 pt on 17.5 and 18.5) and the
+    view's pan sees almost nothing (its gesture space moves with the page: a vertical list in a vertical page does not scroll, a horizontal carousel works). **From iOS 26, in an app linked against the 26 SDK**, UIKit gives the touch to
+    the first recognizer that begins and a tie (both begin in the same touch sample) to the SwiftUI one, whose win drops the page's pan for the rest of the touch: **the ZTron view takes every drag that starts on it, also a vertical one
+    over a horizontal carousel that cannot follow it, and the page does not scroll** (26.0.1, 26.1, 26.2, 26.5, 27.0; preferred and forced; either attach; a disabled view too, 26.5). It is SwiftUI, not the library: any recognized
+    `DragGesture` / `SpatialEventGesture` on a view in a native page does it (`Button`, `TapGesture`, `LongPressGesture`, `MagnifyGesture` do not), and an 18.5-SDK binary on a 26.5 runtime behaves like 18. **No pure-SwiftUI remedy**:
+    `name:`, `including:`, `highPriorityGesture`, cancelling after the gesture began and a per-axis attach change nothing; a larger `minimumDistance` N (16–24 pt) lets the page win only while the first touch sample past its 10 pt hysteresis is shorter than N (slow and medium drags, not flicks) and costs
+    hysteresis (not shipped). A UIKit recognizer with a simultaneous-recognition delegate would work (Apple's workaround for FB18199844), outside S2. **Supported:** a `ZTronScrollView` page (the arbiter decides, the same on every OS),
+    a native `ScrollView(.horizontal)` for the inner carousel, or drags that start outside the ZTron view. `MixedTopologyUITests` keeps the numbers; the 26+ page scroll is a strict expected failure.
   - Buttons in a scaling header work, and drags that start on the header scroll the content.
   - Lifting one finger mid-pinch continues as a pan.
   - Content scrolled outside the viewport receives no touches.
