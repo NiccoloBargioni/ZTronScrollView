@@ -85,17 +85,20 @@ struct DefaultScrollAnchorTests {
 
     func contentSize(_ s: ZTronScrollState, _ height: CGFloat) { s.setContentSize(CGSize(width: 300, height: height)) }
 
-    @Test(arguments: OSPath.allCases) func theInitialAnchorHoldsUntilTheViewIsFirstMoved(path: OSPath) {
+    /// iOS 27 re-applies the initial anchor until the first move (native 27.0: 4250 → 4382 after three rows); 18.6 and 26.5
+    /// keep the offset.
+    @Test(arguments: OSPath.allCases) func theInitialAnchorHoldsUntilTheViewIsFirstMovedOnIOS27(path: OSPath) {
+        let holds = ZTronScrollState.reappliesInitialAnchor
         let s = makeState(path)
         s.now = { 100 }
         s.initialOffsetAnchor = .bottom
         s.setMetrics(Self.metrics)
         #expect(s.peek.presentationOffset.y == 700)
-        contentSize(s, 1032)                                                          // native: 4250 → 4382 after three rows
-        #expect(s.peek.presentationOffset.y == 832)
+        contentSize(s, 1032)
+        #expect(s.peek.presentationOffset.y == (holds ? 832 : 700))
         contentSize(s, 900)
         #expect(s.peek.presentationOffset.y == 700)
-        s.setContentOffset(CGPoint(x: 0, y: 700), animated: false)                  // any command, even to where it is
+        s.scroll(to: CGPoint(x: 0, y: 700))                                          // a command to where it is ends it too
         contentSize(s, 1032)
         #expect(s.peek.presentationOffset.y == 700)                                  // kept from now on
     }

@@ -7,7 +7,8 @@ import ZTronScrollPhysics
 
 @MainActor
 final class BindingBox {
-    var position = ZTronScrollPosition()
+    /// Int ids are reported (SwiftUI reports only views of the position's id type).
+    var position = ZTronScrollPosition(idType: Int.self)
     var sets: [ZTronScrollPosition] = []
     var binding: Binding<ZTronScrollPosition> {
         Binding(get: { self.position }, set: { self.position = $0; self.sets.append($0) })
@@ -60,20 +61,40 @@ struct PositionTests {
         }
     }
 
-    // MARK: write-back
+    // MARK: write-back (SwiftUI's, PARITY-s1: one write per view passed while the user moves the view)
 
-    @Test(arguments: OSPath.allCases) func aFlingWritesTheLandedViewAtTheReleaseAndSettleWritesNothingNew(path: OSPath) {
+    /// A finger drag to `y` from where the view is: tracking, then the drag frames, each delivered like a frame.
+    func drag(_ s: ZTronScrollState, to ys: [CGFloat]) {
+        s.beginTracking(); s.beginDragging()
+        for y in ys { s.writeDragOffset(CGPoint(x: 0, y: y)); s.deliverPending() }
+    }
+
+    func release(_ s: ZTronScrollState, at y: CGFloat) {
+        s.endDrag(ReleaseRequest(origin: CGPoint(x: 0, y: y), dragStart: CGPoint(x: 0, y: y), liftTime: 100, fallbackVelocity: nil),
+                  tracker: tracker(vy: 0), env: PanSessionTests.env(), settings: ReleaseSettings())
+    }
+
+    @Test(arguments: OSPath.allCases) func aUserScrollWritesEachViewItPassesEndingOnTheLandedOne(path: OSPath) {
         let (s, box) = make(path, offset: CGPoint(x: 0, y: 300))
-        s.writeDragOffset(CGPoint(x: 0, y: 310)); s.writeDragOffset(CGPoint(x: 0, y: 330))
-        #expect(s.positionDriver.writes == 0)                       // nothing per drag frame
+        drag(s, to: [310, 330])
+        #expect(box.sets.map { $0.viewID(type: Int.self) } == [3])                // the view it is at, once, on the first move
         flingToTheNextCell(s, from: 330)
-        #expect(s.positionDriver.writes == 1)                       // the release target decided
-        let landed = box.position.viewID(type: Int.self)
-        #expect(landed != nil && box.position.isPositionedByUser)
         run(s)
-        #expect(abs(s.peek.presentationOffset.y - CGFloat((landed ?? 0) * 100)) < 0.5)
-        #expect(s.positionDriver.writes <= 2 && s.positionDriver.writes == box.sets.count)
-        #expect(box.position.viewID(type: Int.self) == landed)
+        let ids = box.sets.compactMap { $0.viewID(type: Int.self) }
+        let landed = Int((s.peek.presentationOffset.y / 100).rounded())
+        #expect(ids.last == landed && ids.count >= 2, "ids \(ids)")
+        #expect(ids == Array(ids.first!...ids.last!), "one write per view passed: \(ids)")
+        #expect(box.sets.allSatisfy(\.isPositionedByUser) && s.positionDriver.writes == box.sets.count)
+    }
+
+    /// The reported view is the one whose anchor point is nearest the visible area's (SwiftUI 26.5 / 27.0 sweep: at offset
+    /// 34 over 44 pt rows SwiftUI reports row 1, not row 0 under the top edge): here 100 pt cells, top anchor.
+    @Test(arguments: OSPath.allCases) func theReportedViewIsTheNearestAnchorNotTheOneUnderIt(path: OSPath) {
+        let (s, box) = make(path, offset: CGPoint(x: 0, y: 300))
+        drag(s, to: [334])
+        #expect(box.position.viewID(type: Int.self) == 3)                          // tops 300 (34 away) and 400 (66)
+        drag(s, to: [360])
+        #expect(box.position.viewID(type: Int.self) == 4)                          // 300 is 60 away, 400 only 40
     }
 
     @Test(arguments: OSPath.allCases) func writeBackIsNeverAppliedAgain(path: OSPath) {
@@ -92,6 +113,8 @@ struct PositionTests {
         run(s)
         s.positionDriver.receive(ZTronScrollPosition(edge: .bottom))
         run(s)
+        s.setContentOffset(CGPoint(x: 0, y: 250), animated: true)  // an animated command passes views too
+        run(s)
         #expect(s.positionDriver.writes == 0 && box.sets.isEmpty)
     }
 
@@ -103,13 +126,13 @@ struct PositionTests {
         run(s)
         let landed = box.position.viewID(type: Int.self) ?? -1
         let writes = s.positionDriver.writes
-        box.position = ZTronScrollPosition(edge: .top)                              // the app moves the binding
+        box.position = ZTronScrollPosition(idType: Int.self, edge: .top)            // the app moves the binding
         s.positionDriver.receive(box.position)
         #expect(s.peek.presentationOffset.y == 0)
         s.track(offset: CGPoint(x: 0, y: 300), zoom: 1)
         flingToTheNextCell(s)
         run(s)
-        #expect(s.positionDriver.writes == writes + 1 || s.positionDriver.writes == writes + 2)
+        #expect(s.positionDriver.writes > writes)
         #expect(box.position.viewID(type: Int.self) == landed && box.position.isPositionedByUser)
         // And the request the app made before the user scrolled is a new request when made again.
         let applied = s.positionDriver.applied
@@ -118,26 +141,26 @@ struct PositionTests {
         #expect(s.positionDriver.applied == applied + 1)
     }
 
-    @Test(arguments: OSPath.allCases) func theValueUnderTheAnchorIsWritten(path: OSPath) {
-        for (anchor, expected) in [(UnitPoint.topLeading, 3), (UnitPoint.center, 4), (UnitPoint.bottom, 4)]   // the bottom edge (500) belongs to the cell above it
- {
-            let (s, box) = make(path, anchor: anchor, offset: CGPoint(x: 0, y: 300))
-            s.targetBehavior = AnyZTronScrollTargetBehavior(ZTronViewAlignedScrollTargetBehavior(limitBehavior: .never))
-            // A release that stays at 300 (zero velocity): the viewport shows cells 3 and 4.
-            s.beginTracking(); s.beginDragging()
-            s.endDrag(ReleaseRequest(origin: CGPoint(x: 0, y: 300), dragStart: CGPoint(x: 0, y: 300), liftTime: 100, fallbackVelocity: nil),
-                      tracker: tracker(vy: 0), env: PanSessionTests.env(), settings: ReleaseSettings())
+    @Test(arguments: OSPath.allCases) func theModifiersAnchorPicksTheReportedView(path: OSPath) {
+        // At 300 the viewport shows cells 3 and 4; a tie (the center, 400, is 50 from both centers) goes to the later view.
+        for (anchor, expected) in [(UnitPoint.topLeading, 3), (UnitPoint.center, 4), (UnitPoint.bottom, 4)] {
+            let (s, box) = make(path, anchor: anchor, offset: CGPoint(x: 0, y: 290))
+            drag(s, to: [300])
+            release(s, at: 300)
             #expect(box.position.viewID(type: Int.self) == expected, "anchor \(anchor)")
         }
     }
 
-    @Test(arguments: OSPath.allCases) func withoutAViewUnderTheAnchorThePointIsWritten(path: OSPath) {
-        let (s, box) = make(path, offset: CGPoint(x: 0, y: 300))
-        s.targets.unregister(3); s.targets.unregister(4)
-        s.beginTracking(); s.beginDragging()
-        s.endDrag(ReleaseRequest(origin: CGPoint(x: 0, y: 300), dragStart: CGPoint(x: 0, y: 300), liftTime: 100, fallbackVelocity: nil),
-                  tracker: tracker(vy: 0), env: PanSessionTests.env(), settings: ReleaseSettings())
-        #expect(box.position.point == CGPoint(x: 0, y: 300) && box.position.viewID == nil && box.position.isPositionedByUser)
+    /// SwiftUI writes no view for a position whose id type no view has (`ScrollPosition()` is `idType: Never`) and never a
+    /// point: once per gesture, only that the user moved it.
+    @Test(arguments: OSPath.allCases) func withoutViewsOfItsIDTypeAUserScrollWritesOnlyThatTheUserMovedIt(path: OSPath) {
+        for position in [ZTronScrollPosition(), ZTronScrollPosition(idType: String.self)] {
+            let (s, box) = make(path, offset: CGPoint(x: 0, y: 300))
+            box.position = position
+            drag(s, to: [320, 360, 420])
+            #expect(box.sets.count == 1)
+            #expect(box.position.viewID == nil && box.position.point == nil && box.position.isPositionedByUser)
+        }
     }
 
     // MARK: requests
@@ -186,7 +209,7 @@ struct PositionTests {
         #expect(ZTronScrollPosition(x: 4).x == 4 && ZTronScrollPosition(x: 4).y == nil && ZTronScrollPosition(x: 4).point == nil)
         #expect(ZTronScrollPosition(y: 5).y == 5 && ZTronScrollPosition(y: 5).x == nil)
         let xy = ZTronScrollPosition(x: 4, y: 5)
-        #expect(xy.x == 4 && xy.y == 5 && xy.point == CGPoint(x: 4, y: 5))         // SwiftUI 18.6: scrollTo(x:y:) reads back a point
+        #expect(xy.x == nil && xy.y == nil && xy.point == CGPoint(x: 4, y: 5))     // SwiftUI 18.6 / 26.5 / 27.0: a point, no x / y
         #expect(ZTronScrollPosition(point: CGPoint(x: 1, y: 2)).x == nil)
     }
 
@@ -254,7 +277,8 @@ struct PositionTests {
         #expect(s.peek.presentationOffset.y == 100)                                 // cell 2's bottom (300) meets the viewport bottom
         flingToTheNextCell(s, from: 100)
         run(s)
-        #expect(m.id != nil && m.id != 2 && m.sets <= 2)
+        let landed = Int((s.peek.presentationOffset.y / 100).rounded())
+        #expect(m.id == landed && m.id != 2 && m.sets >= 1 && m.sets <= landed)  // one write per id change, none unchanged
         let before = m.sets
         s.positionDriver.receive(PositionBinding(id: b, anchor: nil).read())        // its own write read back: not applied again
         #expect(m.sets == before && s.positionDriver.applied == 1)
@@ -366,7 +390,9 @@ struct PositionTests {
         unhost(w)
     }
 
-    @Test(arguments: OSPath.allCases) func aSwipeWritesThePageOnceOrTwiceAndRunsNoContentBody(path: OSPath) {
+    /// The page is written when the motion passes the middle between pages (SwiftUI: the binding follows the view it is
+    /// positioned at), once for one page, and no content body runs.
+    @Test(arguments: OSPath.allCases) func aSwipeWritesThePageItReachesOnceAndRunsNoContentBody(path: OSPath) {
         let (s, model, counts, w) = hostedCarousel(path, id: 0)
         pump(0.3)
         let bodies = counts.bodies
@@ -385,11 +411,10 @@ struct PositionTests {
         s.beginTracking(); s.beginDragging()
         s.endDrag(ReleaseRequest(origin: CGPoint(x: 80, y: 0), dragStart: .zero, liftTime: lift, fallbackVelocity: nil),
                   tracker: t, env: env, settings: ReleaseSettings())
-        let written = model.id
-        #expect(written == 1)
+        #expect(model.id == 0)                                                      // released at 80: page 0 is still the nearest
         pump(1.6)
         #expect(abs(s.contentOffset.x - 200) < 0.5 && model.id == 1)
-        #expect(s.positionDriver.writes <= 2 && s.positionDriver.writes >= 1)
+        #expect(s.positionDriver.writes == 1)
         #expect(counts.bodies == bodies)
         unhost(w)
     }

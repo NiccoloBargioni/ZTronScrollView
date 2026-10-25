@@ -128,7 +128,8 @@ struct TargetsReaderSection: View {
 
 struct TargetsPositionSection: View {
     @State private var state = ZTronScrollState()
-    @State private var position = ZTronScrollPosition()
+    /// Int ids are reported back (like SwiftUI's `ScrollPosition(idType:)`: a position of id type `Never` reports no view).
+    @State private var position = ZTronScrollPosition(idType: Int.self)
     @State private var info = ""
     @State private var snapshot: [String: Int] = [:]
 
@@ -159,7 +160,7 @@ struct TargetsPositionSection: View {
     private func reset() {
         state.stopScrollingAndZooming()
         state.setContentOffset(.zero, animated: false)
-        position = ZTronScrollPosition()
+        position = ZTronScrollPosition(idType: Int.self)
         TargetsReadout.resetCountersSoon()
     }
 

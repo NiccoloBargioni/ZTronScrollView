@@ -85,7 +85,8 @@ public final class ZTronScrollState {
     var effectiveTargetBehavior: AnyZTronScrollTargetBehavior? {
         targetBehavior ?? (isPagingEnabled ? AnyZTronScrollTargetBehavior.pagingKnob : nil)
     }
-    /// Called once per release with the offset its motion lands at (the position driver's write-back hook, M6).
+    /// Called once per release with the offset its motion lands at (tests read landings; the position driver no longer writes
+    /// at the release but while the motion passes views, PARITY-s1).
     var onReleaseTargetDecided: ((CGPoint) -> Void)?
     /// The environment of the container, captured cold by its leaf: what `ZTronScrollTargetBehaviorContext` reads. The
     /// environment carries this state (and the scope that lists it), so the leaf owns the box and the state only
@@ -190,7 +191,6 @@ public final class ZTronScrollState {
         targetRegistry = targets
         observers.requestDelivery = { [weak self] in self?.deliverObservers() }
         positionDriver.state = self
-        onReleaseTargetDecided = { [positionDriver] landing in positionDriver.releaseDecided(landing) }
     }
 
     /// State used by readers created outside any scroll view.
@@ -267,6 +267,7 @@ public final class ZTronScrollState {
             ZTronRenderCounters.increment("didScroll")
             #endif
             notifyDidScroll()
+            positionDriver.didScroll()
         }
         if pendingEndDecelerating {
             pendingEndDecelerating = false
@@ -506,18 +507,24 @@ public final class ZTronScrollState {
 
     /// SwiftUI's rule for an idle content-size change (PARITY-s1, measured against a native `ScrollView` on 17.5, 18.6, 26.5
     /// and 27.0), per scrollable axis:
-    /// 1. until the view is first moved (a touch or any scroll command), the `.initialOffset` anchor is applied again, so a
-    ///    list that starts at the bottom stays there while its content loads;
+    /// 1. iOS 27+ only, like SwiftUI (18.6 and 26.5 do not): until the view is first moved (a touch or any scroll command,
+    ///    even to where it is), the `.initialOffset` anchor is applied again, so a list that starts at the bottom stays there
+    ///    while its content loads;
     /// 2. an axis sitting at the anchored position of `.sizeChanges` (or, when the content fitted, of `.alignment`) stays at
     ///    that anchored position in the new geometry: a view scrolled to the bottom with a bottom anchor stays at the bottom;
     /// 3. anything else keeps its offset (clamped): content inserted above the visible area pushes the visible content down.
+    static var reappliesInitialAnchor: Bool {
+        if #available(iOS 27, *) { return true }
+        return false
+    }
+
     func offsetAfterContentSizeChange(_ offset: CGPoint, from gOld: ZoomGeometry, to gNew: ZoomGeometry, zoom z: CGFloat) -> CGPoint {
         func axis(_ v: CGFloat, _ old: AxisGeometry, _ new: AxisGeometry, _ initial: CGFloat?, _ size: CGFloat?, _ align: CGFloat?,
                   scrolls: Bool) -> CGFloat {
             let bOld = old.bounds(at: z), bNew = new.bounds(at: z)
             func anchored(_ a: CGFloat, _ b: AxisBounds) -> CGFloat { b.min + a * (b.max - b.min) }
             guard scrolls else { return bNew.clamped(v) }
-            if positionDriver.initialAnchorHeld, let a = initial { return anchored(a, bNew) }
+            if Self.reappliesInitialAnchor, positionDriver.initialAnchorHeld, let a = initial { return anchored(a, bNew) }
             let fitted = bOld.max - bOld.min < 0.5
             if let a = size ?? (fitted ? align : nil), abs(v - anchored(a, bOld)) <= 0.5 { return anchored(a, bNew) }
             return bNew.clamped(v)
@@ -1165,7 +1172,11 @@ public final class ZTronScrollState {
     /// Transaction-driven: writes only the target; animated iff called inside `withAnimation`. The transform effect
     /// interpolates and the probe feeds presentation (parts b/c wire the clock and effect).
     public func scroll(to offset: CGPoint) {
-        guard offset.x.isFinite, offset.y.isFinite, offset != storage.snapshot().targetOffset else { return }
+        guard offset.x.isFinite, offset.y.isFinite else { return }
+        guard offset != storage.snapshot().targetOffset else {
+            positionDriver.interventionBegan()                 // a command to where it is still ends a held initial anchor
+            return
+        }
         beginIntervention()
         batch {
             cancelMotion()

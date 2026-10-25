@@ -126,8 +126,9 @@ extension ZTronScrollPosition {
         }
     }
 
-    /// SwiftUI's position for this request (`x` / `y` requests become one-axis `scrollTo`s).
+    /// SwiftUI's position for this request (`x` / `y` requests become one-axis `scrollTo`s), of the same id type.
     public var native: ScrollPosition {
+        if case .id? = request {} else if let make = idType?.native as? (Request?) -> ScrollPosition { return make(request) }
         switch request {
         case let .id(id, anchor)?:
             if let typed = sendableID { return ScrollPosition(id: typed, anchor: anchor) }
@@ -138,6 +139,23 @@ extension ZTronScrollPosition {
         case let .y(y)?: return ScrollPosition(y: y)
         case let .xy(p)?: return ScrollPosition(x: p.x, y: p.y)
         case nil: return ScrollPosition()
+        }
+    }
+}
+
+@available(iOS 18, *)
+extension ZTronScrollPosition.IDType {
+    /// SwiftUI's position of id type `T` for a request that names no view.
+    static func nativeMaker<T: Hashable & Sendable>(_ type: T.Type) -> (ZTronScrollPosition.Request?) -> ScrollPosition {
+        { request in
+            switch request {
+            case let .edge(edge)?: return ScrollPosition(idType: type, edge: edge)
+            case let .point(point)?: return ScrollPosition(idType: type, point: point)
+            case let .x(x)?: return ScrollPosition(idType: type, x: x)
+            case let .y(y)?: return ScrollPosition(idType: type, y: y)
+            case let .xy(p)?: return ScrollPosition(idType: type, x: p.x, y: p.y)
+            case .id?, nil: return ScrollPosition(idType: type)
+            }
         }
     }
 }

@@ -6,12 +6,15 @@ import ZTronScrollPhysics
 struct PositionBinding {
     var read: () -> ZTronScrollPosition
     var write: (ZTronScrollPosition) -> Bool
+    /// Whether a user scroll may report this view id (the binding's id type, like SwiftUI's).
+    var accepts: (AnyHashable) -> Bool
     var anchor: UnitPoint?
 
     /// `scrollPosition(_:anchor:)`.
     init(_ binding: Binding<ZTronScrollPosition>, anchor: UnitPoint?) {
         read = { binding.wrappedValue }
         write = { binding.wrappedValue = $0; return true }
+        accepts = { binding.wrappedValue.idType?.matches($0) ?? false }
         self.anchor = anchor
     }
 
@@ -21,6 +24,7 @@ struct PositionBinding {
             guard let id = binding.wrappedValue else { return ZTronScrollPosition() }
             return ZTronScrollPosition(request: .id(AnyHashable(id), nil), serial: 0, isPositionedByUser: false)
         }
+        accepts = { $0.base is ID }
         write = { position in
             let new = position.viewID(type: ID.self)
             if let new, let old = binding.wrappedValue, old == new { return false }
@@ -32,13 +36,15 @@ struct PositionBinding {
     }
 }
 
-/// Keeps a client's position binding and the scroll view in step (design M6 §4). Cold: it is only called from the
-/// container's body-time reads, the release hook, the clock's settle and layout changes, never per frame.
+/// Keeps a client's position binding and the scroll view in step (design M6 §4). Called from the container's body-time
+/// reads, layout changes, every delivered scroll (`didScroll`, a few comparisons unless the user is moving the view) and the
+/// clock's settle.
 ///
 /// - A changed value is applied once: `lastApplied` / `lastWritten` hold `(request, serial)` of the last request taken and
 ///   the last value written back, so a write-back is never applied again and a new `scrollTo` (new serial) always is.
-/// - Write-back happens at the release target decided and when the user's motion settles (≤ 2 per gesture, the second
-///   only when it differs), and never after a programmatic scroll (`interventionBegan` clears the user-motion flag).
+/// - Write-back (SwiftUI's, PARITY-s1): while the user moves the view (finger down, then the motion its release started)
+///   the binding follows the reported view, written each time it changes (one write per view passed), and once more when
+///   the motion settles if that changed it; a programmatic scroll writes nothing.
 /// - A request that cannot be applied yet (no layout, id not registered, lazy content) is held as `pending` and retried
 ///   on every layout change; a touch or any other scroll command drops it.
 @MainActor
@@ -205,26 +211,31 @@ final class PositionDriver {
 
     // MARK: Scroll view → client
 
-    /// A release decided where its motion lands (`landing`): write that position now.
-    func releaseDecided(_ landing: CGPoint) {
+    /// A scroll was delivered: while the user is moving the view, the binding follows the view it is positioned at.
+    func didScroll() {
         guard binding != nil, let state else { return }
-        userMotion = state.isClockRunning
-        report(at: landing)
+        switch state.phase {
+        case .tracking, .interacting, .decelerating:
+            userMotion = true
+            report()
+        case .idle, .animating:
+            break
+        }
     }
 
     /// The clock stopped with nothing running: the user's motion settled where it is.
     func settled() {
-        guard userMotion, let state else { return }
+        guard userMotion else { return }
         userMotion = false
-        report(at: state.peek.presentationOffset)
+        report()
     }
 
-    private func report(at offset: CGPoint) {
+    private func report() {
         guard let binding, let state else { return }
-        let request = describe(offset: offset, in: state)
+        let request = reportedView(in: state, accepts: binding.accepts).map { ZTronScrollPosition.Request.id($0, nil) }
         let key = Key(request: request, serial: seenSerial)
         guard key != lastWritten else { return }
-        let value = ZTronScrollPosition(request: request, serial: seenSerial, isPositionedByUser: true)
+        let value = binding.read().positioned(by: request, serial: seenSerial)
         lastWritten = key
         lastApplied = nil                                    // asking for the earlier request again is a new request
         if binding.write(value) {
@@ -235,35 +246,31 @@ final class PositionDriver {
         }
     }
 
-    /// The `ztronScrollID` view whose frame holds the point of the viewport named by the anchor, else the offset.
-    private func describe(offset: CGPoint, in state: ZTronScrollState) -> ZTronScrollPosition.Request {
+    /// The view the position reports (SwiftUI's rule, measured on 26.5 and 27.0): among the registered views the binding
+    /// accepts that show in the unobscured area, the one whose anchor point is nearest the area's anchor point on the scrolling
+    /// axes (top anchor: the row whose top is nearest the top edge, so a row less than half visible gives way to the next;
+    /// center: the row holding the center). A tie goes to the later view.
+    private func reportedView(in state: ZTronScrollState, accepts: (AnyHashable) -> Bool) -> AnyHashable? {
         let m = state.peek.metrics
-        let g = state.makeZoomGeometry(m), z = state.peek.presentationZoom
+        let g = state.makeZoomGeometry(m), z = state.peek.presentationZoom, o = state.peek.presentationOffset
         let a = binding?.anchor ?? .topLeading
-        let viewportPoint = CGPoint(x: g.x.insets.start + g.x.adjustedViewportLength * a.x,
-                                    y: g.y.insets.start + g.y.adjustedViewportLength * a.y)
-        var u = ZoomSolver.contentPoint(under: viewportPoint, offset: offset, scale: z, geometry: g)
-        // A point on the boundary of two frames belongs to the one the anchor looks into.
-        let nudge: CGFloat = 0.25
-        u.x += (0.5 - a.x) * 2 * nudge
-        u.y += (0.5 - a.y) * 2 * nudge
-        if let id = state.targets.target(containing: u) { return .id(id, nil) }
-        return .point(offset)
-    }
-}
-
-extension TargetRegistry {
-    /// The smallest registered frame that contains `point` (half-open, like `CGRect.contains`); `nil` when none does.
-    func target(containing point: CGPoint) -> AnyHashable? {
-        var best: (id: AnyHashable, area: CGFloat, origin: CGPoint)?
-        for (id, frame) in frames where frame.contains(point) {
-            let area = frame.width * frame.height
+        let p0 = ZoomSolver.contentPoint(under: CGPoint(x: g.x.insets.start, y: g.y.insets.start), offset: o, scale: z, geometry: g)
+        let p1 = ZoomSolver.contentPoint(under: CGPoint(x: g.x.insets.start + g.x.adjustedViewportLength,
+                                                        y: g.y.insets.start + g.y.adjustedViewportLength),
+                                         offset: o, scale: z, geometry: g)
+        let visible = CGRect(x: p0.x, y: p0.y, width: p1.x - p0.x, height: p1.y - p0.y)
+        let target = CGPoint(x: visible.minX + a.x * visible.width, y: visible.minY + a.y * visible.height)
+        let horizontal = state.scrollAxes.contains(.horizontal), vertical = state.scrollAxes.contains(.vertical)
+        var best: (id: AnyHashable, distance: CGFloat, origin: CGPoint)?
+        for (id, frame) in state.targets.frames where frame.intersects(visible) && accepts(id) {
+            let dx = horizontal ? frame.minX + a.x * frame.width - target.x : 0
+            let dy = vertical ? frame.minY + a.y * frame.height - target.y : 0
+            let d = dx * dx + dy * dy
             if let b = best {
-                let smaller = area < b.area
-                let tie = area == b.area && (frame.minY < b.origin.y || (frame.minY == b.origin.y && frame.minX < b.origin.x))
-                if !(smaller || tie) { continue }
+                let later = frame.minY > b.origin.y || (frame.minY == b.origin.y && frame.minX > b.origin.x)
+                if d > b.distance + 1e-6 || (abs(d - b.distance) <= 1e-6 && !later) { continue }
             }
-            best = (id, area, frame.origin)
+            best = (id, d, frame.origin)
         }
         return best?.id
     }

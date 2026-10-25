@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 
 /// M6 session 3: the reader jump menu, `scrollPosition` (edge / id jumps, user write-back), the paging carousel bound by
 /// `scrollPosition(id:)`, view-aligned limits next to SwiftUI's, the proxy's first match next to a native
@@ -10,9 +11,9 @@ final class TargetsUITests: XCTestCase {
 
     override func setUp() { continueAfterFailure = false }
 
-    private func launch(_ section: String) -> XCUIApplication {
+    private func launch(_ section: String, _ extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-ZTronScreen", "targets", "-ZTronTargetsSection", section] + (forced ? ["-ZTronForceAllFallbacks"] : [])
+        app.launchArguments = ["-ZTronScreen", "targets", "-ZTronTargetsSection", section] + extra + (forced ? ["-ZTronForceAllFallbacks"] : [])
         app.launch()
         reset(app)
         return app
@@ -143,9 +144,9 @@ final class TargetsUITests: XCTestCase {
         XCTAssertGreaterThan(i.double("y"), 200)
         XCTAssertEqual(i.string("user"), "1")
         XCTAssertNotEqual(i.string("id"), "nil")
-        XCTAssertEqual(i.double("y") / 44, Double(i.string("id")) ?? -100, accuracy: 1.0, "the id is the row under the top edge")
-        XCTAssertGreaterThanOrEqual(i.counters["position.writes"] ?? 0, 1)
-        XCTAssertLessThanOrEqual(i.counters["position.writes"] ?? 9, 2, "≤ 2 writes per gesture")
+        // SwiftUI's rule (PARITY-s1): the row whose top is nearest the top edge, written once per row passed.
+        XCTAssertEqual(Double(i.string("id")) ?? -100, (i.double("y") / 44).rounded(.toNearestOrAwayFromZero), "the reported row")
+        XCTAssertGreaterThanOrEqual(i.counters["position.writes"] ?? 0, 2, "a write per row passed")
         XCTAssertEqual(i.counters["content.body"], 0)
     }
 
@@ -178,23 +179,36 @@ final class TargetsUITests: XCTestCase {
 
     // MARK: view aligned next to SwiftUI's (R5)
 
+    /// R5: the same fling lands on the same cell as SwiftUI's, compared by offset (`nx`, a probe in SwiftUI's content) and by
+    /// the id binding. SwiftUI 17.5 never writes the id binding of a non-lazy stack after a user scroll (PARITY-s1, native
+    /// defect: that was the "always 0" of M6-s3), so on 17 the ids are compared on a `LazyHStack` too.
     func testViewAlignedLimitsAgainstSwiftUI() {
-        let app = launch("aligned")
-        var results: [String] = []
-        for limit in ["never", "byOne", "byFew", "automatic"] {
-            app.buttons["limit.\(limit)"].tap()
-            reset(app)
-            swipe(app.otherElements["aligned.ours"], from: (0.9, 0.5), to: (0.1, 0.5), velocity: .fast, settle: 2.5)
-            swipe(element(app, "aligned.native"), from: (0.9, 0.5), to: (0.1, 0.5), velocity: .fast, settle: 2.5)
-            let i = info(app, "limit \(limit)")
-            let ours = i.string("ours"), native = i.string("native")
-            results.append("\(limit): ours=\(ours) native=\(native)")
-            XCTAssertNotEqual(ours, "nil")
-            let ox = i.double("ox")
-            XCTAssertEqual(ox.truncatingRemainder(dividingBy: 120), 0, accuracy: 1.0, "\(limit): lands on a cell edge (ox \(ox))")
-            XCTAssertLessThanOrEqual(i.counters["position.writes"] ?? 9, 2)
+        let major = Int(UIDevice.current.systemVersion.split(separator: ".").first ?? "0") ?? 0
+        for lazy in major >= 18 ? [false] : [false, true] {
+            let app = launch("aligned", lazy ? ["-ZTronTargetsLazy"] : [])
+            var results: [String] = []
+            for limit in ["never", "byOne", "byFew", "automatic"] {
+                app.buttons["limit.\(limit)"].tap()
+                reset(app)
+                swipe(app.otherElements["aligned.ours"], from: (0.9, 0.5), to: (0.1, 0.5), velocity: .fast, settle: 2.5)
+                swipe(element(app, "aligned.native"), from: (0.9, 0.5), to: (0.1, 0.5), velocity: .fast, settle: 2.5)
+                let i = info(app, "limit \(limit) lazy=\(lazy)")
+                let ours = i.string("ours"), native = i.string("native")
+                results.append("\(limit): ours=\(ours) native=\(native) ox=\(i.double("ox")) nx=\(i.double("nx"))")
+                XCTAssertNotEqual(ours, "nil")
+                let ox = i.double("ox")
+                XCTAssertEqual(ox.truncatingRemainder(dividingBy: 120), 0, accuracy: 1.0, "\(limit): lands on a cell edge (ox \(ox))")
+                // The probe sits in SwiftUI's first cell, which a lazy stack drops once it scrolls out: offsets on the eager one.
+                if !lazy { XCTAssertEqual(ox, i.double("nx"), accuracy: 1.0, "\(limit): the same cell as SwiftUI's") }
+                if major >= 18 || lazy {
+                    XCTAssertEqual(ours, native, "\(limit): the same id as SwiftUI's binding")
+                } else {
+                    XCTAssertEqual(native, "0", "17.5: SwiftUI's id binding of a non-lazy stack is not written")
+                }
+            }
+            print("TARGETS R5 \(path) lazy=\(lazy) \(results)")
+            app.terminate()
         }
-        print("TARGETS R5 \(path) \(results)")
     }
 
     // MARK: proxy first match against SwiftUI's reader over two scroll views (Open 4)

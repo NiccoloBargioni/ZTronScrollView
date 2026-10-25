@@ -72,6 +72,8 @@ final class ParityBox: @unchecked Sendable {
     var sequence: [String: [String]] = [:]
     var changes: [String: Int] = [:]
     var ztron: [String: ZTronScrollState] = [:]
+    /// `onScrollTargetVisibilityChange(idType: Int.self, threshold: 0.5)` per pane (SwiftUI's on 18+, ours everywhere).
+    var visible: [String: [Int]] = [:]
 
     func note(_ tag: String, token: String, fields: String) {
         position[tag] = fields
@@ -99,6 +101,7 @@ final class ParityBox: @unchecked Sendable {
                 parts.append(String(format: "%@.oy=%.1f %@.ox=%.1f %@.it=%.1f", tag, g.offset.y, tag, g.offset.x, tag, g.insetTop))
             }
             if let p = position[tag] { parts.append(p) }
+            if let v = visible[tag] { parts.append("\(tag).vis=\(v.map(String.init).joined(separator: ","))") }
             parts.append("\(tag).w=\(changes[tag] ?? 0) \(tag).seq=\((sequence[tag] ?? []).joined(separator: ","))")
         }
         return parts.joined(separator: " ")
@@ -359,10 +362,12 @@ struct ParityNativePositionPane: View {
         ScrollViewReader { proxy in
             ScrollView { ParityNativeColumn(rows: rows, lazy: config.lazy, tag: "n", box: box) }
                 .scrollPosition($position, anchor: config.anchor)
+                .onScrollTargetVisibilityChange(idType: Int.self, threshold: 0.5) { [box] in box.visible["n"] = $0 }
                 .modifier(ParityNativeGeometry(tag: "n", box: box))
                 .parityPane("n", config)
                 .onChange(of: ticket) { _, t in
                     if case let .reader(id, anchor) = t.command { proxy.scrollTo(id, anchor: anchor) } else { apply(t.command) }
+                    if t.command == .reset { proxy.scrollTo(rows.lowerBound, anchor: .top) }   // a binding set to its value is a no-op
                 }
                 .onChange(of: position) { _, p in let d = describe(p, "n"); box.note("n", token: d.token, fields: d.fields) }
         }
@@ -389,7 +394,7 @@ struct ParityBridgePositionPane: View {
     let rows: Range<Int>
     let ticket: ParityTicket
     let box: ParityBox
-    @State private var position = ZTronScrollPosition()
+    @State private var position = ZTronScrollPosition(idType: Int.self)
 
     var body: some View {
         if #available(iOS 17, *) {
@@ -400,6 +405,7 @@ struct ParityBridgePositionPane: View {
                     .parityPane("b", config)
                     .onChange(of: ticket) { t in
                         if case let .reader(id, anchor) = t.command { proxy.scrollTo(id, anchor: anchor) } else { apply(t.command, to: &position) }
+                        if t.command == .reset { proxy.scrollTo(rows.lowerBound, anchor: .top) }
                     }
                     .onChange(of: position) { p in let d = describe(p, "b"); box.note("b", token: d.token, fields: d.fields) }
             }
@@ -422,7 +428,7 @@ struct ParityGeometryIfAvailable: ViewModifier {
 @MainActor private func apply(_ c: ParityTicket.Command, to position: inout ZTronScrollPosition) {
     switch c {
     case .none, .clearID, .reader: break
-    case .reset: position = ZTronScrollPosition(edge: .top)
+    case .reset: position = ZTronScrollPosition(idType: Int.self, edge: .top)
     case let .edge(e): position.scrollTo(edge: e)
     case let .point(p): position.scrollTo(point: p)
     case let .x(v): position.scrollTo(x: v)
@@ -443,17 +449,19 @@ struct ParityZTronPositionPane: View {
     let ticket: ParityTicket
     let box: ParityBox
     @State private var state = ZTronScrollState()
-    @State private var position = ZTronScrollPosition()
+    @State private var position = ZTronScrollPosition(idType: Int.self)
 
     var body: some View {
         ZTronScrollViewReader { proxy in
             ZTronScrollView(.vertical, state: state) { ParityZTronColumn(rows: rows, tag: "z", box: box) }
                 .scrollPosition($position, anchor: config.anchor)
+                .onScrollTargetVisibilityChange(idType: Int.self, threshold: 0.5) { [box] in box.visible["z"] = $0 }
                 .parityPane("z", config)
                 .onAppear { box.ztron["z"] = state }
                 .onChange(of: ticket) { t in
                     if t.command == .reset { state.stopScrollingAndZooming() }
                     if case let .reader(id, anchor) = t.command { proxy.scrollTo(id, anchor: anchor) } else { apply(t.command, to: &position) }
+                    if t.command == .reset { proxy.scrollTo(rows.lowerBound, anchor: .top) }
                 }
                 .onChange(of: position) { p in let d = describe(p, "z"); box.note("z", token: d.token, fields: d.fields) }
         }
@@ -550,6 +558,7 @@ struct ParityNativeIDPane: View {
             .parityPane(tag, config)
             .onChange(of: ticket) { _, t in
                 if case let .reader(i, anchor) = t.command { proxy.scrollTo(i, anchor: anchor) } else { apply(t.command, to: &id) }
+                if t.command == .reset { proxy.scrollTo(rows.lowerBound, anchor: .top) }
             }
             .onChange(of: id) { _, new in noteID(new, tag, box) }
         }
@@ -573,6 +582,7 @@ struct ParityZTronIDPane: View {
                 .onChange(of: ticket) { t in
                     if t.command == .reset { state.stopScrollingAndZooming() }
                     if case let .reader(i, anchor) = t.command { proxy.scrollTo(i, anchor: anchor) } else { apply(t.command, to: &id) }
+                    if t.command == .reset { proxy.scrollTo(rows.lowerBound, anchor: .top) }
                 }
                 .onChange(of: id) { new in noteID(new, "z", box) }
         }
