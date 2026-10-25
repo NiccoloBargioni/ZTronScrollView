@@ -31,6 +31,14 @@ public struct ZTronScrollGeometry: Equatable {
         return CGRect(x: o.x / s, y: o.y / s, width: c.width / s, height: c.height / s)
     }
 
+    /// `visibleRect` without the adjusted insets (unscaled content coordinates): the area SwiftUI's
+    /// `onScrollTargetVisibilityChange` measures against (PARITY-s1: under a 50 pt top inset it leaves out the rows behind it).
+    var unobscuredRect: CGRect {
+        let o = contentOffset, s = max(zoomScale, .leastNonzeroMagnitude), c = containerSize, i = contentInsets
+        return CGRect(x: (o.x + i.leading) / s, y: (o.y + i.top) / s,
+                      width: max(0, c.width - i.leading - i.trailing) / s, height: max(0, c.height - i.top - i.bottom) / s)
+    }
+
     private var metrics: ScrollMetrics { isTracked ? storage.metrics : storage.snapshot().metrics }
 
     public nonisolated static func == (l: Self, r: Self) -> Bool {

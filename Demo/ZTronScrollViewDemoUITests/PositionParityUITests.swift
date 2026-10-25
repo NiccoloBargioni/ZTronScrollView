@@ -14,6 +14,7 @@ final class PositionParityUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-ZTronScreen", "positionParity", "-ZTronParity", section] + extra + (forced ? ["-ZTronForceAllFallbacks"] : [])
         app.launch()
+        _ = app.buttons["Info"].waitForExistence(timeout: 15)   // a loaded host can show an empty tree for a moment
         Thread.sleep(forTimeInterval: 1.0)
         return app
     }
