@@ -26,7 +26,9 @@ struct HeaderMeasure: ViewModifier {
     }
 }
 
-/// Dedupes and defers the reports out of layout (a state write during a layout pass is not allowed). Never publishes.
+/// Dedupes and defers the reports out of layout (a state write during a layout pass is not allowed) to the next main
+/// run-loop iteration (a run-loop block, not a main-queue hop: a nested run loop, a synchronous test's `pump`, drains it
+/// too). Never publishes.
 @MainActor
 final class HeaderNaturalReporter: ObservableObject {
     private weak var state: ZTronScrollState?
@@ -41,7 +43,7 @@ final class HeaderNaturalReporter: ObservableObject {
         last = height
         guard !scheduled else { return }
         scheduled = true
-        DispatchQueue.main.async { [weak self] in
+        RunLoop.main.perform(inModes: [.common]) { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.scheduled = false
