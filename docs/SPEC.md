@@ -194,9 +194,10 @@ The transform is driven by *target* values. The public `contentOffset`/`zoomScal
   - ~~It is ≈ 0 if the finger rested for ~50–80 ms before lifting (tune this).~~ **Amendment 2026-10-25 (BTN-s3, D49) — UIKit's
     rule, measured (BTN-s2):** only touch moves enter. The fit is evaluated at the lift, but at most one frame (1/60 s) after the
     newest sample, so an event-free pause before the lift never changes the release. Gate: the release velocity is 0 unless the
-    finger's velocity over the last 50 ms of samples before the newest (position interpolated at newest − 50 ms) reaches 250 pt/s
-    on that axis (`UIScrollView` does not decelerate below it; a finger that rests while still reporting small moves falls under
-    it). The gate applies to natural releases only: a scroll-target behavior (or paging) sees the ungated velocity and keeps
+    finger's velocity over the last 50 ms of samples before the newest (position interpolated at newest − 50 ms), taken as a
+    vector over the axes the view scrolls, reaches 250 pt/s; past it every scrolling axis decelerates from its own component,
+    however small (`UIScrollView` does not decelerate below it; a finger that rests while still reporting small moves falls under
+    it; measured BTN-s3: a two-axis view gates on the vector, 84 of 84 diagonal drags, a one-axis view on its own axis, 35 of 35). The gate applies to natural releases only: a scroll-target behavior (or paging) sees the ungated velocity and keeps
     "v₀ ≈ 0" = 20 pt/s, and the rubber-band spring-back is seeded with the finger's last movement velocity, ungated.
   - `DragGesture.Value.velocity` (17+) is only a fallback (gated the same way on a natural release).
 - **Release in bounds:**
