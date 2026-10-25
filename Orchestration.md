@@ -26,7 +26,7 @@ M8-8 build from the amended SPEC S9/S10/S11 + `docs/design/M8b-refresh-header.md
 | M0 setup | done | Part III files: CLAUDE.md, scripts/, .claude/, docs/progress/ |
 | MC package | done | `scripts/test-arbitration.sh` → 39 tests, iOS build clean |
 | MC spike | done | `Packages/ScrollArbitration/Spike`, run on 27.0/26.5/18.6/17.5; results in `docs/design/MC-contract.md` §6 |
-| MC freeze (tag 1.0.0) | **blocked** | Open item 1 (user decision), then iOS 15/16 + Xcode 26.6 runs (user) |
+| MC freeze (tag 1.0.0) | waiting (user) | Open item 1 decided 2026-10-25 (D50: option (a), no contract change); tag after the user actions of item 5 (own repo, iOS 15/16 + Xcode 26.6 runs) |
 | M1 physics + availability | done | `scripts/test-physics.sh` → 99 tests; design note `docs/design/design-note.md` |
 | M2 render path + proof | done | 0 `content.body` during animated + `withAnimation` scrolls, clock idle at rest, on 27.0 + 17.5, preferred + forced (`docs/progress/M2-s3.md`) |
 | M3 (a) pan state + release | done | `Gesture/{PanSession,ReleasePipeline}.swift`, delegate, `ZTronScrollPhaseReader` (`M3-s1.md`) |
@@ -147,29 +147,29 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
    iOS 18+ works via gesture names (Q1/Q2/Q4/Q5 yes on 18.6/26.5/27.0; start-point Δ = 0.00 pt).
    Options: (a) ZTronPages fallback on 15–17: drive the pager with a SwiftUI pan (or a recognizer outside the
    hosting view) while the participant drops the drag on `.container` — no API change; (b) revise the contract
-   before 1.0.0 (e.g. an additive hand-off callback). The spike suggests (a). Don't tag until decided.
+   before 1.0.0 (e.g. an additive hand-off callback). The spike suggests (a). Don't tag until decided. **DECIDED (user, 2026-10-25, D50): option (a)** — ZTronPages drives its pager with a SwiftUI pan on iOS 15–17 while the participant drops the drag on `.container`; no contract change. The tag now waits only for the user actions of item 5.
 2. Spike notes for ZTronPages: hosting views swallow `touchesBegan` (use a never-recognizing observer recognizer);
    the container's first ask can carry < 10 pt so rule 1 near 30° is noisy; on 18.6 an unnamed
    `UIKitResponderGestureRecognizer` reaches `.began` on taps, so key rule 5 on the arbiter's answer. Does ZTronPages
    host its pager through a Representable? One arbiter per page or one in pager space? (`ZTronPages.swift`:
-   `/Users/admin/Documents/ZombieTron/ZombieTron/ZombieTron/Utils/Pages/`).
+   `/Users/admin/Documents/ZombieTron/ZombieTron/ZombieTron/Utils/Pages/`). **User 2026-10-25:** ZTronPages is not implemented yet; write a ZTronPages integration design that overcomes this limitation (D50 fallback on 15–17, names on 18+) and folds in these notes. Design session proposed.
 3. Not measured yet: fps / `clock.lagFrames`, 120 Hz on device; confirm 27.0 *preferred* really uses Observation
-   storage (its counters equal the forced path's); `phaseReaderOnTransitionsOnly` UI test still to add.
+   storage (its counters equal the forced path's); `phaseReaderOnTransitionsOnly` UI test still to add. **User 2026-10-25:** left undecided for now.
 4. Minor: `AvailabilityTests.minimumOSTableMatchesSDK` only cross-checks two hand-kept tables; the
-   `ZTronScrollPhysics` enum shares its module's name and top-level names (`Velocity`, `Decay`) are generic.
+   `ZTronScrollPhysics` enum shares its module's name and top-level names (`Velocity`, `Decay`) are generic. **CLOSED (user, 2026-10-25): OK as is.**
 5. User actions: push ScrollArbitration to its own repo + tag 1.0.0, then switch both projects to
-   `.upToNextMinor(from: "1.0.0")`; iOS 15/16 + Xcode 26.6 runs; device checks (ProMotion, gesture feel).
+   `.upToNextMinor(from: "1.0.0")`; iOS 15/16 + Xcode 26.6 runs; device checks (ProMotion, gesture feel). **User 2026-10-25:** later.
 6. ~~27.0 + all fallbacks forced: a second copy of the content on a parent re-evaluation~~ RESOLVED 2026-10-20
    (`docs/progress/DBG-s1.md`): gesture/completion paths were chosen in bodies from the process-wide switch
    (`CatchObserver.usesSpatial` → `CatchArmingProbe`'s `if let` around the content), so a re-evaluation outside the
    test's `withOSPath` scope flipped the branch on 18+. Now `let` flags on `ZTronScrollState` (R6). App/real 15–16
    never flipped (the set is fixed at launch). New open: `ProofUITests.testNoClockTicksAtRest` red on a fresh 27.0
-   simulator at fd3d17a with and without the patch (DBG-s1 Open).
+   simulator at fd3d17a with and without the patch (DBG-s1 Open). **CLOSED (user, 2026-10-25): OK.**
 7. ~45 UIKit "Observation tracking feedback loop detected" warnings in the full 27.0 unit run since M6 s1 (none on 17.5, none per suite alone): re-check
-   after M7 session 1 (hub; not re-checked in s1, the hub reads no tracked values); suspect the hosted test windows, not the library.
-8. N-a/N-b handoffs: `docs/progress/NESTED-s1.md`, `NESTED-s2.md` (N-b done 2026-10-20; SPEC S11/S12 amendment + parity row written). Still open: user device check of the pager + zoomer on `.innerWhenZoomed` incl. a second finger landing during an outer-owned drag (not scriptable in XCUITest), ZTronPages adoption (R6), three-level phase 2.
-9. M6 s3 leftovers (`docs/progress/M6-s3.md`): R5 on 17.5 (SwiftUI's `scrollPosition(id:)` reported 0 in the aligned comparison, only ours is asserted there); `scrollTo(point:)` is an offset, not SwiftUI's content-space point (untested against native); native `ScrollPosition` bridge exercised on 18+ only through a hosted `ScrollView` (edge); lazy content (R2) is M9's; the full demo UI suite was not re-run (TargetsUITests only).
-10. **Sheets (SHEET-s1, 2026-10-21, `docs/design/SHEET-spike.md`, `docs/progress/SHEET-s1.md`)**: inside a `.sheet` a drag that starts on a `ZTronScrollView` never moves or dismisses the sheet (content always wins at every detent; not ZTron-specific: any recognized SwiftUI `DragGesture` / `SpatialEventGesture` does the same; header / grabber drags still work). Pure-SwiftUI fix measured: mask the gestures with `including: .subviews` per detent (`ztronScrollYieldsToSheet(_:)`, ~1–1.5 %); live top-edge hand-off needs UIKit. DECIDED (user, 2026-10-21): both: the limitation text + parity rows are written (SPEC S8/S11/S12 amendment 2026-10-21, D36) and `ztronScrollYieldsToSheet(_:)` goes to a builder session. **BUILT (SHEET-s2, 2026-10-21, `docs/progress/SHEET-s2.md`)**: the flag masks pan / observer / pinch / double tap with `.subviews` (iOS 18+ `isEnabled:`), a drag / pinch in flight ends like a cancelled touch, a deceleration settles on its own; `SheetUITests` Y1–Y6 + `SheetYieldTests` green on 27.0 + 17.5 (preferred, forced, `--uikit`); open: the user's real 15/16 run. Found on the way: SwiftUI `.scrollDisabled` did not stop a `ZTronScrollView` (`.ztronScrollDisabled` did) — FIXED by DBG-s6 (D38; the reader never ran), and the "9 pt residual offset" was the harness readout resizing the viewport, not the library.
+   after M7 session 1 (hub; not re-checked in s1, the hub reads no tracked values); suspect the hosted test windows, not the library. **User 2026-10-25: must be FIXED, not only re-checked** — warning-free runs are a requirement for test reliability. Debugger session proposed.
+8. N-a/N-b handoffs: `docs/progress/NESTED-s1.md`, `NESTED-s2.md` (N-b done 2026-10-20; SPEC S11/S12 amendment + parity row written). Still open: user device check of the pager + zoomer on `.innerWhenZoomed` incl. a second finger landing during an outer-owned drag (not scriptable in XCUITest), ZTronPages adoption (R6), three-level phase 2. **User 2026-10-25:** stays open until ZTronPages exists.
+9. M6 s3 leftovers (`docs/progress/M6-s3.md`): R5 on 17.5 (SwiftUI's `scrollPosition(id:)` reported 0 in the aligned comparison, only ours is asserted there); `scrollTo(point:)` is an offset, not SwiftUI's content-space point (untested against native); native `ScrollPosition` bridge exercised on 18+ only through a hosted `ScrollView` (edge); lazy content (R2) is M9's; the full demo UI suite was not re-run (TargetsUITests only). **User 2026-10-25: compare against native** — behavioural parity is mission-critical wherever the native version shows no defect (R5 on 17.5, `scrollTo(point:)` vs SwiftUI's content-space point, the `ScrollPosition` bridge). Comparison session proposed.
+10. **Sheets (SHEET-s1, 2026-10-21, `docs/design/SHEET-spike.md`, `docs/progress/SHEET-s1.md`)**: inside a `.sheet` a drag that starts on a `ZTronScrollView` never moves or dismisses the sheet (content always wins at every detent; not ZTron-specific: any recognized SwiftUI `DragGesture` / `SpatialEventGesture` does the same; header / grabber drags still work). Pure-SwiftUI fix measured: mask the gestures with `including: .subviews` per detent (`ztronScrollYieldsToSheet(_:)`, ~1–1.5 %); live top-edge hand-off needs UIKit. DECIDED (user, 2026-10-21): both: the limitation text + parity rows are written (SPEC S8/S11/S12 amendment 2026-10-21, D36) and `ztronScrollYieldsToSheet(_:)` goes to a builder session. **BUILT (SHEET-s2, 2026-10-21, `docs/progress/SHEET-s2.md`)**: the flag masks pan / observer / pinch / double tap with `.subviews` (iOS 18+ `isEnabled:`), a drag / pinch in flight ends like a cancelled touch, a deceleration settles on its own; `SheetUITests` Y1–Y6 + `SheetYieldTests` green on 27.0 + 17.5 (preferred, forced, `--uikit`); open: the user's real 15/16 run. Found on the way: SwiftUI `.scrollDisabled` did not stop a `ZTronScrollView` (`.ztronScrollDisabled` did) — FIXED by DBG-s6 (D38; the reader never ran), and the "9 pt residual offset" was the harness readout resizing the viewport, not the library. **CLOSED (user, 2026-10-25): OK** — `ztronScrollYieldsToSheet(_:)` merged into main (cdca45e, unit 673/673 on 27.0 + 17.5).
 
 ## Decisions (keep)
 - D1 Naming map in CLAUDE.md (ZoomScroll → ZTronScroll, `ztronScroll…` modifiers; matches ZTronPages' `ztronPage()`).
@@ -362,6 +362,10 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
   reported in DEBUG builds by `ZTronDiagnostics` (NSLog, caller `#fileID:#line` through defaulted `fileID:line:` parameters on the clamping
   inits, size constructors, both modifiers and `ztronScrollCounterScaled`; literals re-reported with the enclosing call's location; once
   per site and value, ≤ 8 values per site, 512 keys); compiled out in release.
+- D50 (2026-10-25, user, Open item 1) ScrollArbitration stays as frozen: on iOS 15–17 ZTronPages drives its pager with a
+  SwiftUI pan (or a recognizer outside the hosting view) while a participant answering `.container` drops its drag (spike
+  option (a), MC-contract §6 note E); 18+ keeps the gesture-name route. No contract change, so 1.0.0 can be tagged once the
+  package has its own repo (user, item 5). A ZTronPages integration design that realises this comes first (item 2).
 - D16 (user, 2026-10-18) Physics and the post-rotation re-centering are generated and tested by **Fable 5.1**
   (builder agents with model fable). Re-centering ports ZTronMapKit's normalized-centre discipline
   (ContentGeometry: capture before resize, restore = centre × newContentSize − newViewport/2, clamp, centre smaller

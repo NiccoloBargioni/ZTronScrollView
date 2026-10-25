@@ -5,7 +5,7 @@ Current: integrated HEAD f985f95 verified 2026-10-20 (unit 349/349 on 27.0 + 17.
 | Milestone | Status | Budget % | Used % (my readings) | Notes |
 |---|---|---|---|---|
 | M0 | done | 0–1 | | repo, scripts, hook, agents, CLAUDE.md, skeleton packages; host + iOS 27 sim tests green |
-| MC | partial | 3–5 | | package + spike done; tag blocked on Q3 (iOS 17.5) decision, see Orchestration.md Open items #1 |
+| MC | partial | 3–5 | | package + spike done; tag waits for the user (Q3 decided 2026-10-25, D50: option (a)); see Orchestration.md Open items #1, #5 |
 | M1 | done | 6–9 | | physics 99 tests, availability 16 tests, design note; weekly limit hit in fix round (recovered 2026-10-18) |
 | M2 | done | 7–10 | | render proof green on 27.0 + 17.5, both paths (docs/progress/M2-s3.md) |
 | M3 | done | 8–10 | | pan/release/catch/delegate/arbitration; 123 unit tests; demo UI 14/14 on 27.0 both paths; PanUITests 7/7 on 17.5 both paths |
