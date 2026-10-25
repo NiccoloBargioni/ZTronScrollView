@@ -178,4 +178,32 @@ import Testing
         #expect(keep(500) == 560, "collapsed: the content stays where it was (o kept), still collapsed")
         #expect(HeaderMath.keepProgress(offsetY: 0, old: Self.metrics(nil), new: new) == nil, "install: the plain inset rule")
     }
+
+    /// D52 (user, 2026-10-25): the overflow policy. A full-width 16:9 banner in landscape (874 pt wide, a 381 pt tall
+    /// container below the 21 pt bottom safe area) is 491.625 pt uncapped.
+    @Test func theOverflowPolicyLimitsTheRestingHeightAndMin() {
+        func r(_ size: ZTronHeaderSize, _ policy: ZTronHeaderOverflow, natural: CGFloat? = nil) -> HeaderMetrics? {
+            HeaderMath.resolve(size: size, width: 874, natural: natural, containerHeight: 381, overflow: policy).metrics
+        }
+        let banner = ZTronHeaderSize.aspectRatio(16.0 / 9.0, min: 64)
+        #expect(r(banner, .uncapped)?.resting == 491.625, "the default keeps W / r")
+        #expect(r(banner, .capped(fraction: 0.5))?.resting == 190.5)
+        #expect(r(banner, .refit)?.resting == 381, "the aspect fit of 16:9 inside 874 x 381 is 381 tall")
+        #expect(r(.aspectRatio(16.0 / 9.0), .refit)?.resting == 381)
+        #expect(HeaderMath.resolve(size: banner, width: 402, natural: nil, containerHeight: 778, overflow: .refit).metrics?.resting
+                == 226.125, "a header that fits is untouched")
+        #expect(r(.fixed(min: 64, max: 500), .refit)?.resting == 381)
+        #expect(r(.fixed(min: 64, max: 500), .capped(fraction: 0.6))?.resting == 228.6)
+        #expect(r(.fit(), .refit, natural: 600)?.resting == 381)
+        let tight = r(.fixed(min: 300, max: 400), .capped(fraction: 0.5))
+        #expect(tight?.resting == 190.5 && tight?.min == 190.5 && tight?.band == 0, "min is limited the same way")
+        #expect(HeaderMath.resolve(size: banner, width: 874, natural: nil, containerHeight: 0, overflow: .refit).metrics?.resting
+                == 491.625, "an unknown container limits nothing")
+        let odd = HeaderMath.resolve(size: banner, width: 874, natural: nil, containerHeight: 381, overflow: .capped(fraction: 3))
+        #expect(odd.metrics?.resting == 381 && odd.warning != nil, "a fraction outside 0…1 is clamped, with a DEBUG warning")
+        #expect(HeaderMath.containerHeight(viewport: CGSize(width: 874, height: 402),
+                                           safe: EdgeInsets(top: 0, leading: 62, bottom: 21, trailing: 62), adjusted: .vertical) == 381)
+        #expect(HeaderMath.containerHeight(viewport: CGSize(width: 874, height: 402),
+                                           safe: EdgeInsets(top: 0, leading: 62, bottom: 21, trailing: 62), adjusted: []) == 402)
+    }
 }

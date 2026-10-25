@@ -4,7 +4,8 @@ import ZTronScrollView
 // M8b-3: the scaling-header screens (docs/design/M8b-refresh-header.md §3, SPEC S14 "Refresh and header").
 // `-ZTronScreen profile`: `.fixed(min: 64, max: 240)`, `.preserve`, `-ZTronHeaderSnap immediately|after|disabled` (default
 // immediately), a `.system` refresher in the gap, the avatar scale and the title fade through the reader.
-// `-ZTronScreen banner`: `-ZTronHeaderSize aspect|fixed|fit` (default aspect = `.aspectRatio(16/9)`), `.stretch`, a fade,
+// `-ZTronScreen banner`: `-ZTronHeaderSize aspect|fixed|fit` (default aspect = `.aspectRatio(16/9)`),
+// `-ZTronHeaderOverflow uncapped|capped|refit` (capped = `.capped(fraction: 0.6)`), `.stretch`, a fade,
 // the title font from the live height, an overlay refresher over the stretched band, a horizontal-axis toggle.
 // Both show `content.body`, `header.builder`, `header.frame`, `refresh.actions`, `header.measure` and a `stateInfo` line
 // (`y`, `p` progress, `h` height, `R` resting, `smax` largest stretch, `taps` header button taps) after `Info`.
@@ -193,6 +194,14 @@ struct BannerScreen: View {
     @State private var snapshot: [String: Int] = [:]
     @State private var horizontal = HeaderDemo.argument("-ZTronBannerAxis", "vertical") == "horizontal"
 
+    private var overflow: ZTronHeaderOverflow {
+        switch HeaderDemo.argument("-ZTronHeaderOverflow", "uncapped") {
+        case "capped": return .capped(fraction: 0.6)
+        case "refit": return .refit
+        default: return .uncapped
+        }
+    }
+
     private var size: ZTronHeaderSize {
         switch HeaderDemo.argument("-ZTronHeaderSize", "aspect") {
         case "fixed": return .fixed(min: 0, max: 200)
@@ -222,7 +231,7 @@ struct BannerScreen: View {
                 VStack(spacing: 0) { ForEach(0..<40, id: \.self) { HeaderRow(index: $0) } }
             }
         }
-        .withScalingHeader(size: size, scalingBehavior: .stretch, fade: .linear(to: .black, from: 0.4)) { header in
+        .withScalingHeader(size: size, scalingBehavior: .stretch, fade: .linear(to: .black, from: 0.4), overflow: overflow) { header in
             BannerHeader(header: header)
         }
         .refresher(overlay: true) { await HeaderDemo.load() }

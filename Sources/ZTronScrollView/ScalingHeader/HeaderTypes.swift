@@ -27,6 +27,20 @@ public enum ZTronHeaderSize: Equatable, Sendable {
     var isFit: Bool { if case .fit = self { return true } else { return false } }
 }
 
+/// What the resting height does when it does not fit the scroll view's container: the viewport below the safe area the
+/// content adjusts for, `W × H` (e.g. a full-width 16:9 banner in landscape: 874 / (16/9) = 491 pt on a 381 pt tall
+/// container, so the content starts below the screen). User decision 2026-10-25 (D52).
+public enum ZTronHeaderOverflow: Equatable, Sendable {
+    /// The size's own resting height, even when it is taller than the container (the content then starts below it).
+    /// The default.
+    case uncapped
+    /// At most `fraction` (0…1) of the container's height; `min` is limited the same way.
+    case capped(fraction: CGFloat)
+    /// Refit into the container: `.aspectRatio(r)` becomes the aspect fit of `r` inside `W × H` (height `min(W / r, H)`),
+    /// `.fixed` and `.fit` are limited to `H`; `min` is limited the same way.
+    case refit
+}
+
 /// The reaction to a pull past the top: `.preserve` leaves the header at its resting height (the content pulls away and
 /// a gap opens below the header), `.stretch` grows the header from its bottom edge with the (rubber-banded) pull.
 public enum ZTronHeaderScalingBehavior: Sendable {

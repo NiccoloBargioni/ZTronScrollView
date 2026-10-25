@@ -12,11 +12,12 @@ struct HeaderResizeTests {
     static let portrait = ViewportMetrics(size: CGSize(width: 402, height: 874), safeArea: EdgeInsets(top: 62, leading: 0, bottom: 34, trailing: 0))
     static let landscape = ViewportMetrics(size: CGSize(width: 874, height: 402), safeArea: EdgeInsets(top: 0, leading: 62, bottom: 21, trailing: 62))
 
-    func make(_ path: OSPath, size: ZTronHeaderSize, behavior: ZTronHeaderScalingBehavior = .preserve) -> (ZTronScrollState, Clock) {
+    func make(_ path: OSPath, size: ZTronHeaderSize, behavior: ZTronHeaderScalingBehavior = .preserve,
+              overflow: ZTronHeaderOverflow = .uncapped) -> (ZTronScrollState, Clock) {
         let clock = Clock()
         let s = makeState(path)
         s.now = { clock.t }
-        s.headerSpec = HeaderSizing(size: size, behavior: behavior, snap: .disabled)
+        s.headerSpec = HeaderSizing(size: size, behavior: behavior, snap: .disabled, overflow: overflow)
         s.setViewport(Self.portrait)
         s.setContentSize(CGSize(width: 402, height: 3000))
         s.track(offset: CGPoint(x: 0, y: -s.adjustedContentInset.top), zoom: 1)
@@ -102,5 +103,20 @@ struct HeaderResizeTests {
         #expect(s.headerGeometry?.stretch == 0 && s.headerGeometry?.height == 226.125, "\(String(describing: s.headerGeometry))")
         rotate(s, clock, to: Self.portrait)
         #expect(s.headerGeometry?.stretch == 0 && s.headerGeometry?.progress == 0)
+    }
+
+    /// D52: the overflow policy is resolved against the container of each orientation, inside the same commit, and the
+    /// progress is kept.
+    @Test(arguments: OSPath.allCases) func theOverflowPolicyFollowsTheContainerAcrossARotation(path: OSPath) {
+        let (s, clock) = make(path, size: .aspectRatio(16.0 / 9.0, min: 64), overflow: .capped(fraction: 0.6))
+        #expect(s.peek.metrics.header?.resting == 226.125, "portrait: 226.125 fits in 0.6 x 778")
+        scroll(s, oPrime: (226.125 - 64) * 0.5)
+        rotate(s, clock, to: Self.landscape)
+        let landscape = try! #require(s.peek.metrics.header)
+        #expect(abs(landscape.resting - 228.6) < 1e-9, "landscape: 0.6 x (402 - 21)")
+        #expect(abs((s.headerGeometry?.progress ?? -1) - 0.5) < 1e-9)
+        let (r, rclock) = make(path, size: .aspectRatio(16.0 / 9.0), overflow: .refit)
+        rotate(r, rclock, to: Self.landscape)
+        #expect(r.peek.metrics.header?.resting == 381 && r.headerGeometry?.progress == 0, "refit: the container's height")
     }
 }

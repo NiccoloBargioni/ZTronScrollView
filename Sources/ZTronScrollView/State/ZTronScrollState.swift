@@ -656,12 +656,15 @@ public final class ZTronScrollState {
         if header == nil { pendingHeaderSnap = nil } else { applyPendingHeaderSnap() }
     }
 
-    /// The header metrics of the next layout: an explicit `setHeaderMetrics`, else the container's spec at `width`, else
-    /// unchanged.
-    private func resolvedHeader(width: CGFloat, current: HeaderMetrics?) -> HeaderMetrics? {
+    /// The header metrics of the next layout: an explicit `setHeaderMetrics`, else the container's spec at the viewport
+    /// (width, overflow container), else unchanged.
+    private func resolvedHeader(viewport: CGSize, safe: EdgeInsets, current: HeaderMetrics?) -> HeaderMetrics? {
         if let override = headerOverride { return override }
         guard let spec = headerSpec else { return current }
-        return spec.resolve(width: width, natural: headerNatural, vertical: scrollAxes.contains(.vertical)) ?? current
+        let container = HeaderMath.containerHeight(viewport: viewport, safe: safe,
+                                                   adjusted: contentInsetAdjustmentBehavior.edges(for: scrollAxes))
+        return spec.resolve(width: viewport.width, natural: headerNatural, vertical: scrollAxes.contains(.vertical),
+                            containerHeight: container) ?? current
     }
 
     /// Registry callback (M6). Since D17 the resize preserves the normalized centre of the whole content (ZTronMapKit
@@ -738,7 +741,7 @@ public final class ZTronScrollState {
         m.viewportSize = size
         m.safeAreaInsets = safe
         if let hold = holdOverride { m.refreshHold = hold }
-        m.header = resolvedHeader(width: size.width, current: old.header)
+        m.header = resolvedHeader(viewport: size, safe: safe, current: old.header)
         m.adjustedContentInset = Self.adjusted(contentInset: contentInset, safe: safe,
                                                behavior: contentInsetAdjustmentBehavior, axes: scrollAxes,
                                                hold: m.refreshHold, header: m.header)

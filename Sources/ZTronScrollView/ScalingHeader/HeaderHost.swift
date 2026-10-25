@@ -54,8 +54,11 @@ extension ZTronScrollState {
     func headerSpecChanged() {
         if headerSpec == nil { headerNatural = nil }
         let m = peek.metrics
+        let container = HeaderMath.containerHeight(viewport: m.viewportSize, safe: m.safeAreaInsets,
+                                                   adjusted: contentInsetAdjustmentBehavior.edges(for: scrollAxes))
         let next = headerSpec.flatMap {
-            $0.resolve(width: m.viewportSize.width, natural: headerNatural, vertical: scrollAxes.contains(.vertical))
+            $0.resolve(width: m.viewportSize.width, natural: headerNatural, vertical: scrollAxes.contains(.vertical),
+                       containerHeight: container)
         }
         guard next != m.header else { return }
         setHeaderMetrics(next)

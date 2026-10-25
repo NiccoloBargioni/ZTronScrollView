@@ -28,11 +28,13 @@ enum HeaderResizeAnchor: Equatable, Sendable {
 /// `c = clamp(o′, 0, band)` the collapse travel and `g = max(0, −o′)` the overflow.
 enum HeaderMath {
     /// The metrics `size` resolves to at `width` (the viewport width) and a DEBUG warning when the size is degenerate. `nil`
-    /// while the width is unknown or `.fit` is unmeasured.
+    /// while the width is unknown or `.fit` is unmeasured. `containerHeight` (the viewport below the adjusted safe area,
+    /// `HeaderMath.containerHeight`) limits the resting height and `min` per `overflow`; unknown (≤ 0) limits nothing.
     static func resolve(size: ZTronHeaderSize, width: CGFloat, natural: CGFloat?,
-                        behavior: ZTronHeaderScalingBehavior = .preserve, vertical: Bool = true)
+                        behavior: ZTronHeaderScalingBehavior = .preserve, vertical: Bool = true,
+                        containerHeight: CGFloat = 0, overflow: ZTronHeaderOverflow = .uncapped)
         -> (metrics: HeaderMetrics?, warning: String?) {
-        let minimum = max(0, size.minimum.isFinite ? size.minimum : 0)
+        var minimum = max(0, size.minimum.isFinite ? size.minimum : 0)
         var warning: String?
         var resting: CGFloat
         switch size {
@@ -53,6 +55,20 @@ enum HeaderMath {
             if resting < 1 {
                 warning = "withScalingHeader: .fit measured a resting height of \(resting): the header has no ideal height (only flexible views). Use .fixed, .aspectRatio or .frame(idealHeight:)"
             }
+        }
+        // The overflow policy (D52): the size's resting height and `min`, limited by the container.
+        if containerHeight > 0, containerHeight.isFinite {
+            let limit: CGFloat
+            switch overflow {
+            case .uncapped: limit = .infinity
+            case let .capped(fraction):
+                let f = fraction.isFinite ? min(max(fraction, 0), 1) : 1
+                if f != fraction { warning = warning ?? "withScalingHeader: overflow .capped(fraction: \(fraction)) is outside 0…1, read as \(f)" }
+                limit = containerHeight * f
+            case .refit: limit = containerHeight     // .aspectRatio: W / r capped at H is the aspect fit of r inside W × H
+            }
+            resting = min(resting, limit)
+            minimum = min(minimum, limit)
         }
         // `min ≥ R`: a fixed-height header of height `min` (band 0, progress 0, no snapping; `.stretch` still grows).
         if minimum >= resting { resting = minimum }
@@ -106,6 +122,12 @@ enum HeaderMath {
     }
 
     // MARK: Metrics-level helpers (offset in the library convention, `ScrollMetrics`)
+
+    /// The height of the overflow policy's container: the viewport below the safe area on the adjusted edges (what a
+    /// `GeometryReader` around the scroll view, inside the safe area, would report), never negative.
+    static func containerHeight(viewport: CGSize, safe: EdgeInsets, adjusted edges: Edge.Set) -> CGFloat {
+        max(0, viewport.height - (edges.contains(.top) ? safe.top : 0) - (edges.contains(.bottom) ? safe.bottom : 0))
+    }
 
     /// `A = adjustedContentInset.top − refreshHold.top`: `o′ = o.y + A`.
     static func base(_ metrics: ScrollMetrics) -> CGFloat {

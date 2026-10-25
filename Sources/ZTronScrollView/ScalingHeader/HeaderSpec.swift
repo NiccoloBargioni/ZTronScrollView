@@ -8,9 +8,10 @@ struct HeaderSpec {
     var behavior: ZTronHeaderScalingBehavior
     var snap: ZTronHeaderSnap
     var fade: ZTronHeaderFade?
+    var overflow: ZTronHeaderOverflow = .uncapped
     var builder: (ZTronHeaderProxy) -> AnyView
 
-    var sizing: HeaderSizing { HeaderSizing(size: size, behavior: behavior, snap: snap) }
+    var sizing: HeaderSizing { HeaderSizing(size: size, behavior: behavior, snap: snap, overflow: overflow) }
 }
 
 /// The cold values the state needs to resolve and snap the header (`ZTronScrollState.headerSpec`).
@@ -18,10 +19,12 @@ struct HeaderSizing: Equatable {
     var size: ZTronHeaderSize
     var behavior: ZTronHeaderScalingBehavior
     var snap: ZTronHeaderSnap
+    var overflow: ZTronHeaderOverflow = .uncapped
 
     /// `HeaderMath.resolve` plus its DEBUG warnings; `nil` while the width is unknown or `.fit` unmeasured.
-    @MainActor func resolve(width: CGFloat, natural: CGFloat?, vertical: Bool) -> HeaderMetrics? {
-        let r = HeaderMath.resolve(size: size, width: width, natural: natural, behavior: behavior, vertical: vertical)
+    @MainActor func resolve(width: CGFloat, natural: CGFloat?, vertical: Bool, containerHeight: CGFloat) -> HeaderMetrics? {
+        let r = HeaderMath.resolve(size: size, width: width, natural: natural, behavior: behavior, vertical: vertical,
+                                   containerHeight: containerHeight, overflow: overflow)
         #if DEBUG
         if let warning = r.warning { HeaderDiagnostics.note(warning) }
         if r.metrics != nil, behavior == .stretch, !vertical {

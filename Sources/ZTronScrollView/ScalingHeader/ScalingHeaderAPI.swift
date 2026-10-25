@@ -20,11 +20,15 @@ extension ZTronScrollView {
     ///   - scalingBehavior: the reaction to a pull past the top.
     ///   - snap: snapping inside the collapse band (positions are collapse progress, 0 expanded … 1 collapsed).
     ///   - fade: an optional gradient over the header toward its bottom edge.
+    ///   - overflow: what the resting height does when it does not fit the scroll view's container (the viewport below
+    ///     the safe area): `.uncapped` (the default) keeps it, `.capped(fraction:)` limits it to a fraction of the
+    ///     container's height, `.refit` fits it into the container (an aspect fit for `.aspectRatio`).
     public func withScalingHeader<Header: View>(size: ZTronHeaderSize, scalingBehavior: ZTronHeaderScalingBehavior = .preserve,
                                                 snap: ZTronHeaderSnap = .disabled, fade: ZTronHeaderFade? = nil,
+                                                overflow: ZTronHeaderOverflow = .uncapped,
                                                 @ViewBuilder header: @escaping (ZTronHeaderProxy) -> Header) -> Self {
         var copy = self
-        copy.config.header = HeaderSpec(size: size, behavior: scalingBehavior, snap: snap, fade: fade,
+        copy.config.header = HeaderSpec(size: size, behavior: scalingBehavior, snap: snap, fade: fade, overflow: overflow,
                                         builder: { AnyView(header($0)) })
         return copy
     }
