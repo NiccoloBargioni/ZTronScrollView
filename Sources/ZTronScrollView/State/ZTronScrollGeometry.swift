@@ -33,6 +33,14 @@ public struct ZTronScrollGeometry: Equatable {
 
     private var metrics: ScrollMetrics { isTracked ? storage.metrics : storage.snapshot().metrics }
 
+    /// The scaling header's live geometry (SPEC S10), `nil` without a header. Reads the presentation offset and the metrics
+    /// (and the zoom on a view without the vertical axis), so a reader of it wakes on those only.
+    public var header: ZTronHeaderGeometry? {
+        let m = metrics
+        guard m.header != nil else { return nil }
+        return HeaderMath.geometry(offset: contentOffset, zoom: m.header?.vertical == true ? 1 : zoomScale, metrics: m)
+    }
+
     public nonisolated static func == (l: Self, r: Self) -> Bool {
         MainActor.assumeIsolated { l.isEqual(to: r) }
     }

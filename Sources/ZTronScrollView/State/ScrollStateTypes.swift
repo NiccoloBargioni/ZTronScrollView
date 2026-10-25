@@ -70,10 +70,14 @@ struct ScrollMetrics: Equatable, Sendable {
     /// `ZTronScrollState.scrollIndicatorInsets` (M8-1): the extra inset of the scroll indicators' track. Cold; not part of
     /// the content geometry, so nothing but the indicators reads it.
     var indicatorInsets: EdgeInsets = EdgeInsets()
-    /// `contentInset` + the safe area on the adjusted edges + `refreshHold` (SPEC S6); derived by the state.
+    /// `contentInset` + the safe area on the adjusted edges + `refreshHold` + the header's resting height on top (SPEC S6,
+    /// S10); derived by the state.
     var adjustedContentInset: EdgeInsets = EdgeInsets()
     /// Scaling-header height (M8b hook): shifts the unobscured center only, never the bounds.
     var headerObscured: CGFloat = 0
+    /// The installed scaling header (M8b-3), cold: its resting height is part of `adjustedContentInset.top`; collapse and
+    /// stretch are derived from the offset and never written here.
+    var header: HeaderMetrics?
     var displayScale: CGFloat = 1
     /// Bumps per resize commit; the pan coordinator rebases its baseline when it changes.
     var resizeGeneration: UInt64 = 0
