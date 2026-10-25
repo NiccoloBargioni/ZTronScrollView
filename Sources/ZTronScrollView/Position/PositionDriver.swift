@@ -25,6 +25,8 @@ struct PositionBinding {
             return ZTronScrollPosition(request: .id(AnyHashable(id), nil), serial: 0, isPositionedByUser: false)
         }
         accepts = { $0.base is ID }
+        // SwiftUI 17 puts the named view's top-leading corner at the top-leading corner when the binding has no anchor; 18+
+        // scrolls the least (PARITY-s1, 17.5 vs 18.6 / 26.5 / 27.0, D55). iOS 15–16 have no SwiftUI version: they follow 17.
         write = { position in
             let new = position.viewID(type: ID.self)
             if let new, let old = binding.wrappedValue, old == new { return false }
@@ -32,7 +34,12 @@ struct PositionBinding {
             binding.wrappedValue = new
             return true
         }
-        self.anchor = anchor
+        self.anchor = anchor ?? Self.idBindingDefaultAnchor
+    }
+
+    static var idBindingDefaultAnchor: UnitPoint? {
+        if #available(iOS 18, *) { return nil }
+        return .topLeading
     }
 }
 

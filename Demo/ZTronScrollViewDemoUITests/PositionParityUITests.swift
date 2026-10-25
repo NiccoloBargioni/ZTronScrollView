@@ -154,6 +154,13 @@ final class PositionParityUITests: XCTestCase {
         "center": [1267, 2587, 4250, 0, 1927, 1927, 1267],
         "lazy": [1214, 2534, 4250, 0, 1874, 1874, 1320],
     ]
+    /// SwiftUI 17.5 puts the named row at the top when the id binding has no anchor (18+ scrolls the least, D55).
+    static let idOffsets17: [String: [Double]] = [
+        "inset0": [1320, 2640, 4250, 0, 1980, 1980, 1320],
+        "inset50": [1270, 2590, 4250, -50, 1930, 1930, 1270],
+        "center": [1267, 2587, 4250, 0, 1927, 1927, 1267],
+        "lazy": [1320, 2640, 4250, 0, 1980, 1980, 1320],
+    ]
 
     func testIDBindingMatchesSwiftUI() {
         let native = major >= 17
@@ -165,7 +172,7 @@ final class PositionParityUITests: XCTestCase {
             for (k, c) in Self.idCommands.enumerated() {
                 app.buttons["cmd.\(c)"].tap(); Thread.sleep(forTimeInterval: 0.9)
                 let i = info(app, "id \(name) \(c)")
-                XCTAssertEqual(i.double("z.oy"), Self.idOffsets[name]![k], accuracy: 1, "\(name) \(c): ours")
+                XCTAssertEqual(i.double("z.oy"), (major < 18 ? Self.idOffsets17 : Self.idOffsets)[name]![k], accuracy: 1, "\(name) \(c): ours")
                 if native {
                     // SwiftUI's offset: its own geometry on 18+, else the probe in its first row (stale in a lazy stack once
                     // that row is dropped, so not read there).

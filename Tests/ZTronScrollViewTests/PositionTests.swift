@@ -274,7 +274,9 @@ struct PositionTests {
         let b = Binding<Int?>(get: { m.id }, set: { m.id = $0; m.sets += 1 })
         s.positionDriver.bind(PositionBinding(id: b, anchor: nil))
         s.positionDriver.receive(PositionBinding(id: b, anchor: nil).read())
-        #expect(s.peek.presentationOffset.y == 100)                                 // cell 2's bottom (300) meets the viewport bottom
+        // 18+: cell 2's bottom (300) meets the viewport bottom (the least scroll); before 18 its top meets the top, like SwiftUI 17.
+        #expect(s.peek.presentationOffset.y == (PositionBinding.idBindingDefaultAnchor == nil ? 100 : 200))
+        s.track(offset: CGPoint(x: 0, y: 100), zoom: 1)
         flingToTheNextCell(s, from: 100)
         run(s)
         let landed = Int((s.peek.presentationOffset.y / 100).rounded())
