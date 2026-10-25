@@ -78,24 +78,29 @@ enum PinchGestureAdapter {
 }
 
 /// Attaches the pinch (and the optional double tap) next to the pan; always simultaneous so pan and pinch compose.
+/// `yields` (`ztronScrollYieldsToSheet`) masks them with `.subviews` like the pan (same chain, only the mask changes).
 struct PinchGestureAttach: ViewModifier {
     let pinch: AnyGesture<Void>
     let doubleTap: AnyGesture<Void>?
+    var yields = false
 
     @ViewBuilder
     func body(content: Content) -> some View {
         if #available(iOS 18, *) {
             let n = scrollArbitrationGestureName
+            let on = !yields
             if let doubleTap {
-                content.simultaneousGesture(pinch, name: n).simultaneousGesture(doubleTap, name: n)
+                content.simultaneousGesture(pinch, name: n, isEnabled: on)
+                    .simultaneousGesture(doubleTap, name: n, isEnabled: on)
             } else {
-                content.simultaneousGesture(pinch, name: n)
+                content.simultaneousGesture(pinch, name: n, isEnabled: on)
             }
         } else {
+            let mask: GestureMask = yields ? .subviews : .all
             if let doubleTap {
-                content.simultaneousGesture(pinch).simultaneousGesture(doubleTap)
+                content.simultaneousGesture(pinch, including: mask).simultaneousGesture(doubleTap, including: mask)
             } else {
-                content.simultaneousGesture(pinch)
+                content.simultaneousGesture(pinch, including: mask)
             }
         }
     }

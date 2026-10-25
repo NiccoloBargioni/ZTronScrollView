@@ -9,6 +9,15 @@ final class CatchObserverState: @unchecked Sendable {   // touched on the main t
     var centroid: CGPoint?
     /// Start location of the live pan (15-17 centroid base, double-tap fallback).
     var panStart: CGPoint?
+
+    /// The gestures that fed this state were masked away mid-touch (`ztronScrollYieldsToSheet`): SwiftUI cancels them
+    /// without `onEnded`, so a touch that was down must not stay down for the next sequence.
+    func reset() {
+        activeCount = 0
+        down = false
+        centroid = nil
+        panStart = nil
+    }
 }
 
 enum DragCatchGesture {
