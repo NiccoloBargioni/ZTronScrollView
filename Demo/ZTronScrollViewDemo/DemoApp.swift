@@ -40,6 +40,7 @@ struct DemoApp: App {
             case "resize": ResizeScreen()
             case "sheet": SheetScreen()
             case "scrollDisabled": ScrollDisabledScreen()
+            case "seamlab": SeamLabScreen()
             default: ProofScreen()
             }
         }
