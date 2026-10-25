@@ -30,7 +30,6 @@ struct HeaderFitTests {
     @Test(arguments: OSPath.allCases) func fitMeasuresTheIdealHeightAtTheViewportWidth(path: OSPath) async {
         let s = makeState(path)
         let counts = BodyCount()
-        ZTronRenderCounters.reset()
         let w = withOSPath(path) {
             window(ZTronScrollView(.vertical, state: s) { StatefulContent(counts: counts) }
                 .withScalingHeader(size: .fit()) { _ in Picture() }, size: CGSize(width: 402, height: 874))
@@ -44,14 +43,13 @@ struct HeaderFitTests {
         }
         let width = s.peek.metrics.viewportSize.width
         #expect(abs(m.resting - width / (16.0 / 9.0)) < 0.5, ".fit of a 16:9 picture == .aspectRatio(16/9): \(m.resting) at \(width)")
-        #expect(ZTronRenderCounters.value("header.measure") == 1, "one measurement at install")
+        #expect(s.headerMeasurements == 1, "one measurement at install")
         #expect(s.adjustedContentInset.top == HeaderMath.top0(s.peek.metrics) + m.resting)
-        // Scrolling never measures.
-        ZTronRenderCounters.reset()
+        // Scrolling never measures. (The state's own count: this test is async, other suites reset the global counters.)
         let base = HeaderMath.base(s.peek.metrics)
         for i in 1...60 { s.track(offset: CGPoint(x: 0, y: CGFloat(i) * 3 - base), zoom: 1); await wait(0.02) }
         await wait(0.2)
-        #expect(ZTronRenderCounters.value("header.measure") == 0, "0 per frame")
+        #expect(s.headerMeasurements == 1, "0 per frame")
         #expect(s.peek.metrics.header?.resting == m.resting)
         // A width change re-measures once; the inset changes discretely.
         s.setContentOffset(CGPoint(x: 0, y: -base), animated: false)
@@ -61,7 +59,7 @@ struct HeaderFitTests {
         guard let wide = s.peek.metrics.header else { Issue.record("lost the header"); unhost(w); return }
         let w2 = s.peek.metrics.viewportSize.width
         #expect(abs(wide.resting - w2 / (16.0 / 9.0)) < 0.5, "re-measured at the new width: \(wide.resting) at \(w2)")
-        #expect(ZTronRenderCounters.value("header.measure") == 1, "one measurement per width change")
+        #expect(s.headerMeasurements == 2, "one measurement per width change")
         #expect(s.headerGeometry?.progress == 0, "at rest stays at rest")
         unhost(w)
     }

@@ -66,6 +66,7 @@ extension ZTronScrollState {
     func setHeaderNatural(_ height: CGFloat) {
         guard height.isFinite, abs(height - (headerNatural ?? -1)) > 0.5 else { return }
         headerNatural = height
+        headerMeasurements += 1
         #if DEBUG
         ZTronRenderCounters.increment("header.measure")
         #endif

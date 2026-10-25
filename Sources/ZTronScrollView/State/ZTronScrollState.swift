@@ -174,6 +174,8 @@ public final class ZTronScrollState {
     /// against the viewport width in `applyViewport`, so a rotation's new resting height is part of the same commit.
     var headerSpec: HeaderSizing?
     var headerNatural: CGFloat?
+    /// How many `.fit` measurements changed the natural height (per state; the tests' counter).
+    var headerMeasurements = 0
     /// A `snapHeader(to:)` made before the header metrics exist, applied unanimated by the first `setHeaderMetrics`.
     var pendingHeaderSnap: ZTronHeaderSnapTarget?
     private var headerOverride: HeaderMetrics??

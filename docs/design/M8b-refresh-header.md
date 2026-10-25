@@ -392,3 +392,16 @@ overlay host vs content with `accessibilitySortPriority` on 17.5 and 27.0 (Voice
 - **User confirmation (2026-10-19, in session M8b-s0): A1–A10 stand.** Two constraints added: (1) `.refresher { action }` with the default loader and
   `.refresher(refreshView:action:)` are preserved as spelled (§1.2 "Mandatory shapes", test 2); (2) no introspection anywhere (S2): the only mention in
   S10 is the reference's technique; nothing in §2 needs UIKit, reflection or private API — the header is a leaf modifier over our own offset state.
+
+## Implementation notes (2026-10-25, M8b-s3 builder; `docs/progress/M8b-s3.md`)
+- Rotation / `size` / `.fit` change (D51): `o′ ≤ 0` kept, progress kept inside the band, collapsed → centre below the minimum-height
+  header preserved and kept collapsed; carried by the M5 intent (`ResizeIntent.header`, `Snapshot.header`). The M5 header term is
+  `h − R` (negative while collapsed) because `R` is in `aci.top`; `ScrollMetrics.headerObscured` is left for M9.
+- §2.2: the D11 gate is its own leaf on `.phase`; the frame leaf wakes on `.target` + `.metrics` only (1 body per transaction). The
+  fade is drawn inside the frame leaf (same layout result). The host does not read the width: 0 builder runs per rotation.
+- §2.4 refresh: `.stretch` base = `top0 + R`, overlay forced; `.preserve` base = `aci.top − hold`. `top0` = the adjusted safe-area top.
+- `.immediately` is composed in offset space at the release pipeline's compose hook (after `decideTarget`, before
+  `willEndDragging`), not inside `effectiveTargetBehavior`; it retargets only when the landing moves.
+- Horizontal view: `HeaderContentReserve` proposes `V − R` to the content (R only, so header-less views are unchanged).
+- The reader delivers an all-zero geometry until the header resolves (an empty first render would never host the probe).
+- Open: R5 under a rotation with `.aspectRatio` / `.fit` (the frame jumps to the new height at the commit; see M8b-s3 Open 1).
