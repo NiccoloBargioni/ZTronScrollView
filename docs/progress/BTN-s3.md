@@ -1,7 +1,8 @@
 # BTN-s3 handoff · 2026-10-25 · Opus 5.5 (coordination, docs, UI lanes) + Fable 5.1 builder (physics, D16) · default effort
 Status: done. BTN-s2's proposal P1 + P2 is in the physics package and the release pipeline: the release velocity comes
 from the touch moves only (an event-free pause never changes it) and a natural release does not decelerate below 250 pt/s.
-SPEC S6 amended, D49 revision 2 (landed).
+SPEC S6 amended, D49 revision 2 (landed). Follow-up the same day: the two-axis gate was measured (UIKit gates the vector over
+the scrolling axes) and P3 landed (Fable builder): the gate is decided once on that vector.
 
 ## Changed
 - Physics (Fable builder, D16), `Packages/ZTronScrollPhysics/Sources/ZTronScrollPhysics/VelocityTracker.swift`:
@@ -84,12 +85,22 @@ the travel after the lift per axis, scored against three rules.
 - Side finding: on 27.0 the horizontal-only `ScrollView` never begins its pan for a 75° drag (no pan callbacks, offset 0); on
   17.5 it follows the x component (42 pt); ours follows on both (49 pt).
 
-**Proposal P3 (for Fable, D16; not landed):** natural releases gate the vector of the gate velocities over the enabled axes:
+**P3, landed (Fable builder, D16; eb5c8de physics, 3f1a26f pipeline):** natural releases gate the vector of the gate velocities over the enabled axes:
 `hypot(enabledX ? x.gateVelocity : 0, enabledY ? y.gateVelocity : 0) ≥ minimumDecelerationVelocity`. When it passes, every enabled
 axis uses its `ungatedVelocity(at:)`; the gesture fallback is gated the same way over its components. Also consider a 2-D stop rule:
 native stops when the vector speed drops under ≈ 10 pt/s, so a slow axis travels its full `0.4995 v`, while ours stops each axis on
 its own and loses ≈ 5 pt there. Tests: a 45° drag at 200 + 200 pt/s flings both axes, a 15° drag moves its slow axis, a
-horizontal-only view ignores y.
+horizontal-only view ignores y. As landed:
+- `PointVelocityTracker.velocity(at:x:y:)` gates `hypot` of the included `gateVelocity` components (inclusive), then returns each
+  included axis's `ungatedVelocity(at:)`. It also has `gateVelocity: CGVector` and a shared `minimumDecelerationVelocity`.
+- `ReleasePipeline.velocity(tracker:liftTime:fallback:enabledX:enabledY:gated:)` decides the gate once over `enabledX` / `enabledY`
+  (the view's axes, scroll enabled, directional lock), and the fallback is gated on its enabled components.
+- The 2-D stop rule is not changed.
+
+Re-measured (ZTron lane with P3 against the native lanes above, same commanded drags): two-axis per-axis decisions differ on
+0 / 42 (17.5) and 1 / 42 (27.0), down from 16–17. Mean travel error where both move is 7 / 8 pt (was 15). Horizontal-only differs
+0 / 20 and 1 / 15. Both 27.0 outliers are drags within 10 pt/s of the gate on native (0° 400: native 244 rests, ours 299; h-only
+45° 700: native vx 260 flings, while 17.5 native read 248 on the same commanded drag): drag-to-drag variance, not the rule.
 
 ## Open
 1. G3, the estimator. UIKit starts at the mean of its last three 50 ms velocities; ours is the 100 ms fit. A lift more than one frame
@@ -97,13 +108,18 @@ horizontal-only view ignores y.
    native ≈ 2350, and the `ButtonDragUITests` centre fast drag held 0.05 s gives 339–351 vs 445 (27.0 single runs at load 200+).
    17.5 is hold-invariant (2132 at every hold).
 2. Edge-clamped drags near the gate rest where native flings (17.5 edge 275 / 300; 27.0 also 225 at hold 0.25).
-3. Two-axis gate: measured (section above). UIKit gates the vector over the scrolling axes and ours gates per axis; P3 is
-   proposed, not landed. 27.0's steep-drag pan refusal on a one-axis view is not mirrored.
+3. Two-axis gate: measured and matched (P3, section above). Not mirrored: the 2-D stop rule (a slow axis stops ≈ 5 pt early)
+   and 27.0's refusal to begin the pan of a one-axis view for a steep (75°) drag.
 4. Device check: ProMotion (120 Hz halves the samples in the 50 ms gate span) and a resting finger that reports small moves.
 5. Native `willEndDragging` / `ScrollTargetBehaviorContext.velocity` for a gated release (BTN-s2 open 5).
 6. Pre-existing, unrelated:
    - `ProofUITests.testNoClockTicksAtRest` fails 3 of 5 on a fresh 27.0 device at both base and head.
    - `UIKitObserverUITests.testTouchStopsDeceleration` bound 440 failed once at 469 under load, then passed alone (415).
+
+7. `ContentOverlayUITests.testCounterScaledMarkerKeepsItsScreenSize` (27.0) failed 2 of about 14 runs after the change and 0 of 10 at
+   base: an extra overlay-host body during the t4 pinch, after which every frame re-places. Release-unrelated as far as the
+   readouts show, but watch it. If it recurs, count `ovh` / `ovp` per frame at base vs head (a timing path in the overlay host
+   under load).
 
 ## Next
 1. G3 re-calibration on ZTron's own sample stream (CalibrateUITests + `NativeCalibrationTests` fixtures), Fable (D16).
@@ -111,15 +127,27 @@ horizontal-only view ignores y.
 3. Merge this branch (`claude/vigilant-tharp-9659fb`; it carries the BTN-s1 + s2 merge e32dec2).
 
 ## Tests
-- `scripts/test-physics.sh` → 117 tests, 18 suites, 0 failures (was 112).
+- `scripts/test-physics.sh` → 117 tests, 18 suites, 0 failures (was 112); with P3 119.
 - `ZTronScrollViewTests` (`scripts/test.sh -only-testing:ZTronScrollViewTests`, private devices) → 674 tests, 57 suites, green on 27.0
-  (builder) and 17.5.
+  (builder) and 17.5; with P3 677 tests, 57 suites, green on 27.0 (builder) and 17.5.
 - Demo UI full suite, preferred path, private `simctl create` devices, staggered lanes, host load 130–950. Each OS: 173 executed,
   11 skipped (opt-in), 160 passed.
   - 27.0 failures: `ProofUITests.testNoClockTicksAtRest` (fresh-device flake, see open 6) and
     `UIKitObserverUITests.testTouchStopsDeceleration` (green alone).
   - 17.5 failures: `PagerUITests.testPagerArbitration` (the known Q3, iOS ≤ 17) and `PanUITests.testControlsUsable` (text-field focus;
     the DBG-s2 fix e8c5674 is not on main). Both fail identically at base b3bfbfd on the same device.
+- With P3, demo UI full suite on fresh private devices again, host load 400–990. Each OS: 175 executed, 13 skipped (opt-in),
+  159 passed.
+  - 17.5 failures: the same two known ones, plus `UIKitObserverUITests.testTouchStopsDeceleration`. That is catch timing: XCUI's tap
+    waits for idle. A/B on the same device: pre-change b3bfbfd passed 1 of 4 (y 452 / 458 / 459), head 4 of 4.
+  - 27.0 failures: `ProofUITests.testNoClockTicksAtRest`, `testTouchStopsDeceleration` (446 vs 440) and
+    `ContentOverlayUITests.testCounterScaledMarkerKeepsItsScreenSize` (16 overlay placements during the t4 pinch vs ≤ 2; the pinch
+    always ends at the 4.0 zoom limit). Same-device A/B, interleaved: pre-change b3bfbfd passed 10 of 10; pre-P3 ab47961 failed
+    1 of 4 (placements 10 → 77); head passed 9 of 9 (plus one XCUI "Snapshot not found" infrastructure loss). So the changed
+    commits failed 2 of about 14 runs, counting this full-suite run, and the base 0 of 10. That gap is not significant. The failing runs end in the identical
+    state (z 4.0000, ox 281.40, oy 2628.78, not at an edge), so no release flung. They ran more frames during the pinch (`fast`
+    160 vs 138) and one more overlay-host body (`ovh` 6 vs 5), after which every frame re-placed. No release happens mid-pinch.
+    Open item 7.
 - `ButtonDragUITests` 3/3 on 27.0 after the test update (full-suite lanes on both OSes).
 - `CalibrateUITests` 4/4 on 27.0 (`TEST_RUNNER_ZS_CALIBRATE=1`), plus the A/B above.
 - `ButtonDragSweepUITests` ZTron lane on 17.5 + 27.0 (`TEST_RUNNER_ZS_BD_SWEEP=1`), 86 drags each. Diagonal mode, both lanes, both
