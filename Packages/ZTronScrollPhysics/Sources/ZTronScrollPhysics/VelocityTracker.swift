@@ -172,10 +172,19 @@ public struct VelocityTracker: Sendable, Equatable {
     }
 }
 
-/// Two independent ``VelocityTracker`` axes fed with shared timestamps; each axis applies its own gate.
+/// Two ``VelocityTracker`` axes fed with shared timestamps. The release gate is two-dimensional (BTN-s3, P3): UIKit
+/// gates the VECTOR of the pan velocity over the axes the view scrolls, `|(vx, vy)| >= minimumDecelerationVelocity`,
+/// and past the gate every scrolling axis decelerates from its own component, however small. A one-axis view counts
+/// only its own axis (the vector over one axis), which is the 1-D ``VelocityTracker/velocity(at:)`` gate.
 public struct PointVelocityTracker: Sendable, Equatable {
     public var x: VelocityTracker
     public var y: VelocityTracker
+
+    /// `pt/s`: the vector gate threshold (UIKit: 250 pt/s). Reads `x`'s value; writes both axes.
+    public var minimumDecelerationVelocity: CGFloat {
+        get { x.minimumDecelerationVelocity }
+        set { x.minimumDecelerationVelocity = newValue; y.minimumDecelerationVelocity = newValue }
+    }
 
     public init(window: TimeInterval = 0.100, minimumDecelerationVelocity: CGFloat = 250) {
         x = VelocityTracker(window: window, minimumDecelerationVelocity: minimumDecelerationVelocity)
@@ -194,9 +203,20 @@ public struct PointVelocityTracker: Sendable, Equatable {
         y.add(position: p.y, at: time)
     }
 
-    /// Gated release velocity in `pt/s` per axis (``VelocityTracker/velocity(at:)``).
-    public func velocity(at liftTime: TimeInterval) -> CGVector {
-        CGVector(dx: x.velocity(at: liftTime), dy: y.velocity(at: liftTime))
+    /// UIKit's pan velocity per axis (``VelocityTracker/gateVelocity``), the gating quantity.
+    public var gateVelocity: CGVector {
+        CGVector(dx: x.gateVelocity, dy: y.gateVelocity)
+    }
+
+    /// The natural release velocity in `pt/s` at `liftTime` over the axes the view scrolls (`x` / `y`; an excluded
+    /// axis counts nothing and returns `0`). The gate passes iff `hypot` of the included ``gateVelocity`` components
+    /// reaches ``minimumDecelerationVelocity`` (inclusive); then each included axis returns its
+    /// ``VelocityTracker/ungatedVelocity(at:)``, else both are `0` (the finger rests where it is).
+    public func velocity(at liftTime: TimeInterval, x includeX: Bool = true, y includeY: Bool = true) -> CGVector {
+        let gate = CGVector(dx: includeX ? x.gateVelocity : 0, dy: includeY ? y.gateVelocity : 0)
+        guard hypot(gate.dx, gate.dy) >= minimumDecelerationVelocity else { return CGVector(dx: 0, dy: 0) }
+        return CGVector(dx: includeX ? x.ungatedVelocity(at: liftTime) : 0,
+                        dy: includeY ? y.ungatedVelocity(at: liftTime) : 0)
     }
 
     /// The fits alone, no gate (``VelocityTracker/ungatedVelocity(at:)``).

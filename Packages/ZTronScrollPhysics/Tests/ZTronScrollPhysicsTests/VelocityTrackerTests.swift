@@ -188,18 +188,69 @@ import Testing
         #expect(t.velocity(at: 1) == CGVector(dx: 0, dy: 0))
     }
 
-    @Test func pointTrackerGatesEachAxis() {
+    /// A 2-D tracker moving at `(vx, vy)` pt/s for 200 ms; the lift is 100 ms after the newest sample.
+    private func point(_ vx: CGFloat, _ vy: CGFloat) -> PointVelocityTracker {
         var t = PointVelocityTracker()
         for k in 0...24 {
             let time = TimeInterval(k) / 120
-            t.add(CGPoint(x: 300 * CGFloat(time), y: 200 * CGFloat(time)), at: time)
+            t.add(CGPoint(x: vx * CGFloat(time), y: vy * CGFloat(time)), at: time)
         }
-        let v = t.velocity(at: 0.2 + 0.1)
+        return t
+    }
+
+    /// BTN-s3 P3: the gate is the VECTOR of the pan velocity over the scrolling axes; past it every axis decelerates
+    /// from its own component, however small.
+    @Test func pointTrackerGatesTheVector() {
+        let lift = 0.2 + 0.1
+        var v = point(300, 200).velocity(at: lift)
         expectClose(v.dx, 300, 1e-6)
-        #expect(v.dy == 0)
-        let u = t.ungatedVelocity(at: 0.2 + 0.1)
-        expectClose(u.dx, 300, 1e-6)
-        expectClose(u.dy, 200, 1e-6)
+        expectClose(v.dy, 200, 1e-6)
+        v = point(200, 200).velocity(at: lift)                                   // 45°, |v| = 283: both fling
+        expectClose(v.dx, 200, 1e-6)
+        expectClose(v.dy, 200, 1e-6)
+        #expect(point(170, 170).velocity(at: lift) == CGVector(dx: 0, dy: 0))    // |v| = 240: rest
+        let u = point(170, 170).ungatedVelocity(at: lift)
+        expectClose(u.dx, 170, 1e-6)
+        expectClose(u.dy, 170, 1e-6)
+        v = point(300, 80).velocity(at: lift)                                    // 15°: the slow axis still moves
+        expectClose(v.dx, 300, 1e-6)
+        expectClose(v.dy, 80, 1e-6)
+        expectClose(point(300, 80).gateVelocity.dy, 80, 1e-6)
+    }
+
+    @Test func pointTrackerGateBoundaryIsInclusiveOnTheVector() {
+        let lift = 0.2 + 0.1
+        var on = point(150, 200)                                                 // |v| = 250 (up to rounding)
+        let speed = hypot(on.gateVelocity.dx, on.gateVelocity.dy)
+        expectClose(speed, 250, 1e-6)
+        on.minimumDecelerationVelocity = speed                                   // pinned: inclusive at the threshold
+        #expect(on.x.minimumDecelerationVelocity == speed && on.y.minimumDecelerationVelocity == speed)
+        let v = on.velocity(at: lift)
+        expectClose(v.dx, 150, 1e-6)
+        expectClose(v.dy, 200, 1e-6)
+        on.minimumDecelerationVelocity = speed.nextUp                            // just under: rest
+        #expect(on.velocity(at: lift) == CGVector(dx: 0, dy: 0))
+        #expect(point(150, 199).velocity(at: lift) == CGVector(dx: 0, dy: 0))    // |v| = 249.2
+        #expect(point(176, 176).velocity(at: lift) == CGVector(dx: 0, dy: 0))    // |v| = 248.9
+    }
+
+    /// A one-axis view counts only its own axis: a 45° drag at (248, 244) rests on a horizontal-only view.
+    @Test func pointTrackerAxisExclusion() {
+        let lift = 0.2 + 0.1
+        #expect(point(248, 244).velocity(at: lift, x: true, y: false) == CGVector(dx: 0, dy: 0))
+        let both = point(248, 244).velocity(at: lift)                            // |v| = 348 on a two-axis view
+        expectClose(both.dx, 248, 1e-6)
+        expectClose(both.dy, 244, 1e-6)
+        let yOnly = point(100, 300).velocity(at: lift, x: false, y: true)
+        #expect(yOnly.dx == 0)
+        expectClose(yOnly.dy, 300, 1e-6)
+        let xOnly = point(300, 100).velocity(at: lift, x: true, y: false)
+        expectClose(xOnly.dx, 300, 1e-6)
+        #expect(xOnly.dy == 0)
+        #expect(point(300, 300).velocity(at: lift, x: false, y: false) == CGVector(dx: 0, dy: 0))
+        // The 1-D tracker keeps its own-axis gate.
+        #expect(point(248, 244).x.velocity(at: lift) == 0)
+        expectClose(point(260, 0).x.velocity(at: lift), 260, 1e-6)
     }
 
     @Test func invalidConfigurationFallsBack() {
