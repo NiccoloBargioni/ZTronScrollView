@@ -9,7 +9,7 @@ import UIKit.UIGestureRecognizerSubclass
 /// Q3-s2 spike page without the pager: a two-axis scroller, 900 x 1600 content (a gradient), a Button near the content's
 /// top-left. `-ZTronBDNative` swaps in SwiftUI's own `ScrollView` (baseline lane); `-ZTronBDStyle
 /// bordered|borderless|plain|default` picks the Button style (default `bordered`); `-ZTronBDLeading <pt>` moves the Button;
-/// `-ZTronBDWidth <pt>` widens the content (BTN-s2's sweep: flings that do not reach the trailing edge).
+/// `-ZTronBDWidth <pt>` / `-ZTronBDHeight <pt>` enlarge the content (BTN-s2's sweep: flings that do not reach the far edge).
 /// "Snapshot" writes the readout `bd.info`: offset, its maximum, Button taps, delegate drag callbacks, the release
 /// velocity ZTron reported (`vel`, pt/s), (DEBUG) the pan counters and the time-stamped offset samples `xs`; on the native
 /// lane also `bd.native` (BTN-s2, `BDNativeProbe`: UIKit's touches, pan velocities and offsets). "Reset" puts the offset
@@ -26,6 +26,16 @@ enum BDArgs {
     static var leading: CGFloat { value("-ZTronBDLeading").flatMap(Double.init).map { CGFloat($0) } ?? 40 }
     /// `-ZTronBDWidth <pt>`: the content's width (default 900, the spike page's).
     static var width: CGFloat { value("-ZTronBDWidth").flatMap(Double.init).map { CGFloat($0) } ?? 900 }
+    /// `-ZTronBDHeight <pt>`: the content's height (default 1600).
+    static var height: CGFloat { value("-ZTronBDHeight").flatMap(Double.init).map { CGFloat($0) } ?? 1600 }
+    /// `-ZTronBDAxes h|v|hv`: the scroll axes of both lanes (default `hv`; BTN-s3, a diagonal drag on a one-axis scroller).
+    static var axes: Axis.Set {
+        switch value("-ZTronBDAxes") {
+        case "h": return .horizontal
+        case "v": return .vertical
+        default: return [.horizontal, .vertical]
+        }
+    }
 }
 
 @MainActor
@@ -48,11 +58,14 @@ final class BDProbe: ZTronScrollViewDelegate {
     }
     func scrollViewDidScroll(_ state: ZTronScrollState) { record(state.contentOffset) }
     func scrollViewWillBeginDragging(_ state: ZTronScrollState) { order.append("willBeginDragging") }
-    /// pt/s (the delegate's pt/ms × 1000): the release velocity after the tracker's rest rule.
-    var releaseVelocity: CGFloat?
+    /// pt/s (the delegate's pt/ms × 1000): the release velocity after the tracker's gate, per axis.
+    var releaseVelocity: CGPoint?
+    /// The offset at the lift (willEndDragging): the rest minus this is the deceleration's travel per axis.
+    var liftOffset: CGPoint?
     func scrollViewWillEndDragging(_ state: ZTronScrollState, withVelocity velocity: CGPoint,
                                    targetContentOffset: inout CGPoint) {
-        releaseVelocity = velocity.x * 1000
+        releaseVelocity = CGPoint(x: velocity.x * 1000, y: velocity.y * 1000)
+        liftOffset = state.contentOffset
     }
     func scrollViewDidEndDragging(_ state: ZTronScrollState, willDecelerate decelerate: Bool) {
         order.append("didEndDragging(\(decelerate ? 1 : 0))")
@@ -61,13 +74,14 @@ final class BDProbe: ZTronScrollViewDelegate {
 
     func reset() {
         x = 0; y = 0; maxX = 0; maxY = 0; taps = 0
-        order = []; samples = []; releaseVelocity = nil
+        order = []; samples = []; releaseVelocity = nil; liftOffset = nil
     }
 
     func summary() -> String {
         func f(_ v: CGFloat) -> String { String(Int(v.rounded())) }
         var s = "x=\(f(x)) y=\(f(y)) maxX=\(f(maxX)) maxY=\(f(maxY)) taps=\(taps) order=\(order.joined(separator: ","))"
-        s += " vel=" + (releaseVelocity.map(f) ?? "-")
+        s += " vel=" + (releaseVelocity.map { f($0.x) } ?? "-") + " vely=" + (releaseVelocity.map { f($0.y) } ?? "-")
+        s += " liftx=" + (liftOffset.map { f($0.x) } ?? "-") + " lifty=" + (liftOffset.map { f($0.y) } ?? "-")
         #if DEBUG
         let c = ZTronRenderCounters.snapshot
         for k in ["pan.ev.down", "pan.ev.drag", "pan.ev.dragEnd", "pan.ev.cancel", "pan.ev.up", "pan.catch"] {
@@ -87,7 +101,9 @@ final class BDProbe: ZTronScrollViewDelegate {
 /// - `P`: every pan callback (`<state>@<t of the newest touch>:<velocity(in:).x>/<translation.x>`, states
 ///   `b c e x f` = began, changed, ended, cancelled, failed), and at `.ended` `dec=` (`isDecelerating` right after
 ///   UIKit's own handler), `off=`;
-/// - `O`: contentOffset.x by KVO (`<t>:<x>`, uptime at the change): every change until the lift, then the first 12.
+/// - `O`: contentOffset.x by KVO (`<t>:<x>`, uptime at the change): every change until the lift, then the first 12;
+/// - BTN-s3 (two-axis gate), appended after `O`: `ry` = contentOffset.y now, `lock` = `isDirectionalLockEnabled`, `PY` = the
+///   y half of every `P` entry (`<state>:<velocity(in:).y>/<translation.y>`, at `.ended` also `offy=`).
 @MainActor
 final class BDNativeProbe: NSObject, UIGestureRecognizerDelegate {
     static let shared = BDNativeProbe()
@@ -97,7 +113,7 @@ final class BDNativeProbe: NSObject, UIGestureRecognizerDelegate {
     private var newestTouch: TimeInterval = 0
     private var lifted = false
     private var afterLift = 0
-    private var touches: [String] = [], pans: [String] = [], offsets: [String] = []
+    private var touches: [String] = [], pans: [String] = [], pansY: [String] = [], offsets: [String] = []
 
     func attach(_ sv: UIScrollView) {
         guard scrollView !== sv else { return }
@@ -146,6 +162,9 @@ final class BDNativeProbe: NSObject, UIGestureRecognizerDelegate {
             s += " dec=\(sv.isDecelerating ? 1 : 0) off=\(Int(sv.contentOffset.x.rounded())) now=\(ms(ProcessInfo.processInfo.systemUptime))"
         }
         if pans.count < 200 { pans.append(s) }
+        var y = "\(state):\(Int(g.velocity(in: sv).y.rounded()))/\(Int(g.translation(in: sv).y.rounded()))"
+        if g.state == .ended || g.state == .cancelled { y += " offy=\(Int(sv.contentOffset.y.rounded()))" }
+        if pansY.count < 200 { pansY.append(y) }
     }
 
     private func offsetChanged(_ x: CGFloat) {
@@ -161,7 +180,7 @@ final class BDNativeProbe: NSObject, UIGestureRecognizerDelegate {
 
     func clear() {
         t0 = nil; lifted = false; afterLift = 0
-        touches = []; pans = []; offsets = []
+        touches = []; pans = []; pansY = []; offsets = []
     }
 
     /// Back to the origin (stops a deceleration in flight) and forgets the last drag.
@@ -172,7 +191,10 @@ final class BDNativeProbe: NSObject, UIGestureRecognizerDelegate {
 
     func summary() -> String {
         let rest = scrollView.map { Int($0.contentOffset.x.rounded()) }.map(String.init) ?? "-"
+        let restY = scrollView.map { Int($0.contentOffset.y.rounded()) }.map(String.init) ?? "-"
+        let lock = scrollView.map { $0.isDirectionalLockEnabled ? "1" : "0" } ?? "-"
         return "rest=\(rest) T=\(touches.joined(separator: ",")) P=\(pans.joined(separator: ",")) O=\(offsets.joined(separator: ","))"
+            + " ry=\(restY) lock=\(lock) PY=\(pansY.joined(separator: ","))"
     }
 }
 
@@ -233,7 +255,7 @@ private struct BDContent: View {
             .padding(.top, 60)
             .padding(.leading, BDArgs.leading)
         }
-        .frame(width: BDArgs.width, height: 1600)
+        .frame(width: BDArgs.width, height: BDArgs.height)
     }
 }
 
@@ -298,7 +320,7 @@ struct ButtonDragScreen: View {
 
     @ViewBuilder private var scroller: some View {
         if BDArgs.native {
-            ScrollView([.horizontal, .vertical]) {
+            ScrollView(BDArgs.axes) {
                 BDContent().background(GeometryReader { g in
                     let f = g.frame(in: .named("bd.native"))
                     let _ = BDProbe.shared.record(CGPoint(x: -f.minX, y: -f.minY))
@@ -310,7 +332,7 @@ struct ButtonDragScreen: View {
             }
             .coordinateSpace(name: "bd.native")
         } else {
-            ZTronScrollView([.horizontal, .vertical], state: state) { BDContent() }
+            ZTronScrollView(BDArgs.axes, state: state) { BDContent() }
         }
     }
 }
