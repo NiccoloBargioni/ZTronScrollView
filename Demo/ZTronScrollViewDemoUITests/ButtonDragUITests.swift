@@ -6,7 +6,8 @@ import XCTest
 /// A drag that starts on a Button moves like one from the background as long as the finger stays on the screen. The spike's
 /// "short scroll from a Button" was the Button's position: it sat 66 pt from the screen's left edge, so the -120 pt drag ran
 /// off the screen, no touch moved after the edge (native's offset freezes there too), and the lift came ~117 ms later. UIKit
-/// flings with the velocity from before that event-free pause; our tracker rests (SPEC S6 rest rule, parity matrix).
+/// flings with the velocity from before that event-free pause; since BTN-s3 so do we (SPEC S6 amendment, D49: the pause
+/// never enters the release, a 250 pt/s gate decides whether it decelerates).
 final class ButtonDragUITests: XCTestCase {
     private var forced: Bool { ProcessInfo.processInfo.environment["ZS_DEMO_FORCED"] == "1" }
     private var uikit: Bool { ProcessInfo.processInfo.environment["ZS_DEMO_UIKIT"] == "1" }
@@ -79,18 +80,19 @@ final class ButtonDragUITests: XCTestCase {
     /// Baseline lane: SwiftUI's own `ScrollView`, same screen and drag.
     func testNativeDragFromAButtonMovesLikeFromTheBackground() { compareButtonWithBackground(native: true) }
 
-    /// Documented gap (parity matrix, BTN-s1): the spike's drag from the Button 40 pt in runs off the screen's left edge.
-    /// The content follows the finger to the edge (64 pt = 74 pt of travel − the 10 pt hysteresis) on both; then the
-    /// event-free pause until the lift zeroes our release velocity (newest sample older than the 64 ms rest timeout) while
-    /// UIKit flings with the velocity from before it. Red here means the rest rule changed: update the parity row.
-    func testDragRunningOffTheScreenEdgeRestsWhereNativeFlings() {
+    /// The spike's drag from the Button 40 pt in runs off the screen's left edge (BTN-s1): the content follows the finger
+    /// to the edge (64 pt = 74 pt of travel − the 10 pt hysteresis) on both, then no touch moves until the lift. UIKit
+    /// flings with the velocity from before that event-free pause, and since BTN-s3 so do we (SPEC S6 amendment, D49; before
+    /// it our 64 ms rest timeout zeroed the release and the content rested at 64 pt). 27.0: ours 450, native 475.
+    func testDragRunningOffTheScreenEdgeFlingsLikeNative() {
         let ztron = drag(native: false, from: .button, leading: 40)
         let native = drag(native: true, from: .button, leading: 40)
         print("BD summary edge ztron x=\(ztron.x) native x=\(native.x)")
         XCTAssertEqual(ztron.taps, 0)
         XCTAssertEqual(native.taps, 0)
-        XCTAssertGreaterThan(ztron.x, 50, "the content followed the finger to the screen edge")
-        XCTAssertLessThan(ztron.x, 80, "no fling after the event-free pause (SPEC S6 rest rule)")
         XCTAssertGreaterThan(native.x, 300, "native flings with the velocity from before the pause")
+        XCTAssertGreaterThan(ztron.x, 300, "the event-free pause does not zero the release (SPEC S6 amendment)")
+        XCTAssertGreaterThan(Double(ztron.x), 0.7 * Double(native.x), "flings about as far as native")
+        XCTAssertLessThan(Double(ztron.x), 1.3 * Double(native.x), "flings about as far as native")
     }
 }
