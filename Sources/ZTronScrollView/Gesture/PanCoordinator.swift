@@ -252,7 +252,7 @@ final class PanCoordinator: ObservableObject {
             _ = session.handle(.touchesEnded(time: time), env: env)
         }
         // All fingers are gone: a release held since the hand-off runs now, timed from now (a finger that stayed down
-        // and paused releases at rest: the tracker's rest rule sees the old samples).
+        // and paused releases from its last moves: the pause itself never matters to the tracker, BTN-s2).
         if case .touchesEnded = incoming, let held = heldRelease {
             heldRelease = nil
             var r = held.request

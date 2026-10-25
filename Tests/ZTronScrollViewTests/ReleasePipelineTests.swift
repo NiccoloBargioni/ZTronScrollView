@@ -61,13 +61,45 @@ struct ReleasePipelineTests {
 
     @Test func velocityTrackerVsFallback() {
         var tr = VelocityTracker()
-        #expect(ReleasePipeline.velocity(tracker: tr, liftTime: 1, fallback: 250) == 250)
-        #expect(ReleasePipeline.velocity(tracker: tr, liftTime: 1, fallback: nil) == 0)
+        // < 2 samples: the gesture's own velocity, gated on its own magnitude (BTN-s2: 250 pt/s, inclusive).
+        #expect(ReleasePipeline.velocity(tracker: tr, liftTime: 1, fallback: 250, gated: true) == 250)
+        #expect(ReleasePipeline.velocity(tracker: tr, liftTime: 1, fallback: 249, gated: true) == 0)
+        #expect(ReleasePipeline.velocity(tracker: tr, liftTime: 1, fallback: -249, gated: false) == -249)
+        #expect(ReleasePipeline.velocity(tracker: tr, liftTime: 1, fallback: nil, gated: true) == 0)
+        #expect(ReleasePipeline.velocity(tracker: tr, liftTime: 1, fallback: nil, gated: false) == 0)
         for i in 0...6 { tr.add(position: CGFloat(i) * 10, at: 0.9 + Double(i) * 0.015) }
-        let v = ReleasePipeline.velocity(tracker: tr, liftTime: 0.99, fallback: 250)
+        let v = ReleasePipeline.velocity(tracker: tr, liftTime: 0.99, fallback: 250, gated: true)
         #expect(abs(v - 666) < 40)
-        // rested 80 ms before the lift -> ~0
-        #expect(ReleasePipeline.velocity(tracker: tr, liftTime: 1.2, fallback: 250) == 0)
+        // An event-free pause before the lift no longer zeroes the release (P1): same value after 210 ms of rest.
+        #expect(ReleasePipeline.velocity(tracker: tr, liftTime: 1.2, fallback: 250, gated: true) == v)
+        // A slow finger (200 pt/s) rests when gated; the ungated path (target behaviors) keeps the fit.
+        var slow = VelocityTracker()
+        for i in 0...8 { slow.add(position: CGFloat(i) * 3, at: 0.9 + Double(i) * 0.015) }
+        #expect(ReleasePipeline.velocity(tracker: slow, liftTime: 1.02, fallback: nil, gated: true) == 0)
+        #expect(abs(ReleasePipeline.velocity(tracker: slow, liftTime: 1.02, fallback: nil, gated: false) - 200) < 1e-6)
+    }
+
+    /// BTN-s2: a natural release at 200 pt/s rests (no deceleration, willEndDragging sees 0); the same drag under a
+    /// scroll-target behavior (the paging knob) still gets its ungated velocity.
+    @Test(arguments: OSPath.allCases) func slowNaturalReleaseRestsButATargetBehaviorSeesTheVelocity(path: OSPath) {
+        var (s, d) = make(path)
+        var (_, my) = s.endDrag(request(CGPoint(x: 0, y: 300)), tracker: tracker(vy: 200), env: Self.env, settings: ReleaseSettings())
+        #expect(!my.willDecelerate && s.phase == .idle && !s.isClockRunning)
+        #expect(d.seenVelocity == CGPoint(x: 0, y: 0))
+        #expect(d.log == ["willEndDragging", "didEndDragging(false)"])
+        #expect(s.peek.presentationOffset.y == 300)
+        // The paging knob: the ungated 200 pt/s (0.2 pt/ms) reaches the delegate; below the knob's 300 pt/s flick
+        // threshold the page snaps back (a spring, not a rest).
+        var knob = ReleaseSettings(); knob.isPagingEnabled = true
+        (s, d) = make(path, at: CGPoint(x: 0, y: 210))
+        (_, my) = s.endDrag(request(CGPoint(x: 0, y: 210)) { $0.dragStart = CGPoint(x: 0, y: 200) }, tracker: tracker(vy: 200), env: Self.env, settings: knob)
+        #expect(abs((d.seenVelocity?.y ?? 0) - 0.2) < 0.02)
+        #expect(my.willDecelerate && my.endPosition == 200)
+        // A custom behavior likewise.
+        (s, d) = make(path)
+        s.targetBehavior = AnyZTronScrollTargetBehavior(ZTronViewAlignedScrollTargetBehavior(limitBehavior: .never))
+        s.endDrag(request(CGPoint(x: 0, y: 300)), tracker: tracker(vy: 200), env: Self.env, settings: ReleaseSettings())
+        #expect(abs((d.seenVelocity?.y ?? 0) - 0.2) < 0.02)
     }
 
     @Test func flingAccelerationCapsAndNeedsQuickCatch() {

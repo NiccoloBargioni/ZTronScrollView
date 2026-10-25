@@ -14,14 +14,20 @@ struct ReleaseInput {
     var bounces: Bool
     var rate: DecelerationRate
     var thresholds: RestThresholds
-    /// pt/s, content direction: the finger's last movement velocity (not zeroed by a pause); spring-back seed.
+    /// pt/s, content direction: the finger's last movement velocity (not gated, not zeroed by a pause); spring-back seed.
     var rubberBandVelocity: CGFloat = 0
 }
 
 enum ReleasePipeline {
-    /// Tracker velocity (pt/s) when it has >= 2 samples, else the gesture's own velocity, else 0.
-    static func velocity(tracker: VelocityTracker, liftTime: TimeInterval, fallback: CGFloat?) -> CGFloat {
-        tracker.count >= 2 ? tracker.velocity(at: liftTime) : (fallback ?? 0)
+    /// Tracker velocity (pt/s) when it has >= 2 samples, else the gesture's own velocity, else 0. `gated` applies
+    /// UIKit's release rule (BTN-s2): no deceleration unless the pan velocity reaches
+    /// `tracker.minimumDecelerationVelocity` (the fallback is gated on its own magnitude); ungated is the fit alone.
+    static func velocity(tracker: VelocityTracker, liftTime: TimeInterval, fallback: CGFloat?, gated: Bool) -> CGFloat {
+        if tracker.count >= 2 {
+            return gated ? tracker.velocity(at: liftTime) : tracker.ungatedVelocity(at: liftTime)
+        }
+        let v = fallback ?? 0
+        return gated && abs(v) < tracker.minimumDecelerationVelocity ? 0 : v
     }
 
     /// Carries the momentum of a motion stopped by a quick catch (same direction), capped.
@@ -67,17 +73,22 @@ extension ZTronScrollState {
                  settings: ReleaseSettings) -> (x: AxisMotion, y: AxisMotion) {
         flushPendingScroll()
         let lift = r.liftTime.isFinite ? r.liftTime : now()
+        // UIKit's 250 pt/s gate (BTN-s2) applies to natural releases only: a scroll-target behavior (or the paging knob)
+        // gets the ungated fit and keeps `RestThresholds.negligibleReleaseVelocity` in ReleaseSolver. A delegate
+        // retarget in willEndDragging does not count: it sees the gated velocity.
+        let gated = targetBehavior == nil && !settings.isPagingEnabled
         func axisVelocity(_ t: VelocityTracker, fallback: CGFloat?, caught: CGFloat, enabled: Bool) -> CGFloat {
             guard enabled, !r.zeroVelocity else { return 0 }
-            // The tracker and DragGesture speak finger motion; content offset moves the opposite way.
-            let v = -ReleasePipeline.velocity(tracker: t, liftTime: lift, fallback: fallback)
+            // The tracker and DragGesture speak finger motion; content offset moves the opposite way. The catch's fling
+            // acceleration runs after the gate.
+            let v = -ReleasePipeline.velocity(tracker: t, liftTime: lift, fallback: fallback, gated: gated)
             return ReleasePipeline.accelerated(v, caughtVelocity: caught, caughtAt: r.caughtAt, liftTime: now(), settings.fling)  // state clock (D14)
         }
         let enabledX = env.isScrollEnabled && env.axes.contains(.horizontal) && (r.lock == nil || r.lock == .horizontal)
         let enabledY = env.isScrollEnabled && env.axes.contains(.vertical) && (r.lock == nil || r.lock == .vertical)
         let vx = axisVelocity(tracker.x, fallback: r.fallbackVelocity?.dx, caught: r.caughtVelocity.dx, enabled: enabledX)
         let vy = axisVelocity(tracker.y, fallback: r.fallbackVelocity?.dy, caught: r.caughtVelocity.dy, enabled: enabledY)
-        // UIKit seeds the rubber-band spring-back with the pan's last velocity, which a pause does not zero.
+        // UIKit seeds the rubber-band spring-back with the pan's last velocity, ungated and not zeroed by a pause.
         let rawX = enabledX && !r.zeroVelocity ? -tracker.x.lastMotionVelocity : 0
         let rawY = enabledY && !r.zeroVelocity ? -tracker.y.lastMotionVelocity : 0
         let rate = settings.rate
