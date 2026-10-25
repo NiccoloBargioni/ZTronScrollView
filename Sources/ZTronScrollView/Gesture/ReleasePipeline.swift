@@ -19,15 +19,22 @@ struct ReleaseInput {
 }
 
 enum ReleasePipeline {
-    /// Tracker velocity (pt/s) when it has >= 2 samples, else the gesture's own velocity, else 0. `gated` applies
-    /// UIKit's release rule (BTN-s2): no deceleration unless the pan velocity reaches
-    /// `tracker.minimumDecelerationVelocity` (the fallback is gated on its own magnitude); ungated is the fit alone.
-    static func velocity(tracker: VelocityTracker, liftTime: TimeInterval, fallback: CGFloat?, gated: Bool) -> CGFloat {
-        if tracker.count >= 2 {
-            return gated ? tracker.velocity(at: liftTime) : tracker.ungatedVelocity(at: liftTime)
+    /// Finger velocity (pt/s) over the enabled axes (a disabled axis is 0): the tracker's when it has >= 2 samples on
+    /// an enabled axis, else the gesture's own velocity, else 0. `gated` applies UIKit's release rule (BTN-s2/s3):
+    /// the gate is decided ONCE on the VECTOR of the pan velocity over the enabled axes,
+    /// `|(vx, vy)| >= tracker.minimumDecelerationVelocity`; past it each enabled axis takes its own ungated fit,
+    /// however small, under it both rest. The fallback is gated on the vector of its enabled components the same
+    /// way. Ungated is the fits alone.
+    static func velocity(tracker: PointVelocityTracker, liftTime: TimeInterval, fallback: CGVector?,
+                         enabledX: Bool, enabledY: Bool, gated: Bool) -> CGVector {
+        let tracked = (enabledX && tracker.x.count >= 2) || (enabledY && tracker.y.count >= 2)
+        if tracked {
+            if gated { return tracker.velocity(at: liftTime, x: enabledX, y: enabledY) }
+            let u = tracker.ungatedVelocity(at: liftTime)
+            return CGVector(dx: enabledX ? u.dx : 0, dy: enabledY ? u.dy : 0)
         }
-        let v = fallback ?? 0
-        return gated && abs(v) < tracker.minimumDecelerationVelocity ? 0 : v
+        let v = CGVector(dx: enabledX ? fallback?.dx ?? 0 : 0, dy: enabledY ? fallback?.dy ?? 0 : 0)
+        return gated && hypot(v.dx, v.dy) < tracker.minimumDecelerationVelocity ? CGVector(dx: 0, dy: 0) : v
     }
 
     /// Carries the momentum of a motion stopped by a quick catch (same direction), capped.
@@ -77,17 +84,20 @@ extension ZTronScrollState {
         // gets the ungated fit and keeps `RestThresholds.negligibleReleaseVelocity` in ReleaseSolver. A delegate
         // retarget in willEndDragging does not count: it sees the gated velocity.
         let gated = targetBehavior == nil && !settings.isPagingEnabled
-        func axisVelocity(_ t: VelocityTracker, fallback: CGFloat?, caught: CGFloat, enabled: Bool) -> CGFloat {
-            guard enabled, !r.zeroVelocity else { return 0 }
-            // The tracker and DragGesture speak finger motion; content offset moves the opposite way. The catch's fling
-            // acceleration runs after the gate.
-            let v = -ReleasePipeline.velocity(tracker: t, liftTime: lift, fallback: fallback, gated: gated)
-            return ReleasePipeline.accelerated(v, caughtVelocity: caught, caughtAt: r.caughtAt, liftTime: now(), settings.fling)  // state clock (D14)
-        }
         let enabledX = env.isScrollEnabled && env.axes.contains(.horizontal) && (r.lock == nil || r.lock == .horizontal)
         let enabledY = env.isScrollEnabled && env.axes.contains(.vertical) && (r.lock == nil || r.lock == .vertical)
-        let vx = axisVelocity(tracker.x, fallback: r.fallbackVelocity?.dx, caught: r.caughtVelocity.dx, enabled: enabledX)
-        let vy = axisVelocity(tracker.y, fallback: r.fallbackVelocity?.dy, caught: r.caughtVelocity.dy, enabled: enabledY)
+        // The gate is decided once over the enabled axes (BTN-s3: UIKit gates the vector of the pan velocity over the
+        // axes the view scrolls; a one-axis view counts only its own). The tracker and DragGesture speak finger motion;
+        // content offset moves the opposite way. The catch's fling acceleration runs per axis after the gate.
+        let finger = r.zeroVelocity ? CGVector(dx: 0, dy: 0)
+            : ReleasePipeline.velocity(tracker: tracker, liftTime: lift, fallback: r.fallbackVelocity,
+                                       enabledX: enabledX, enabledY: enabledY, gated: gated)
+        func axisVelocity(_ v: CGFloat, caught: CGFloat, enabled: Bool) -> CGFloat {
+            guard enabled, !r.zeroVelocity else { return 0 }
+            return ReleasePipeline.accelerated(-v, caughtVelocity: caught, caughtAt: r.caughtAt, liftTime: now(), settings.fling)  // state clock (D14)
+        }
+        let vx = axisVelocity(finger.dx, caught: r.caughtVelocity.dx, enabled: enabledX)
+        let vy = axisVelocity(finger.dy, caught: r.caughtVelocity.dy, enabled: enabledY)
         // UIKit seeds the rubber-band spring-back with the pan's last velocity, ungated and not zeroed by a pause.
         let rawX = enabledX && !r.zeroVelocity ? -tracker.x.lastMotionVelocity : 0
         let rawY = enabledY && !r.zeroVelocity ? -tracker.y.lastMotionVelocity : 0

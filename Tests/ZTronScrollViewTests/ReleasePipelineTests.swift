@@ -37,12 +37,13 @@ struct ReleasePipelineTests {
         d.log.removeAll()
         return (s, d)
     }
-    /// Finger moving up at `v` pt/s (content offset increases) for 120 ms ending at `lift`.
-    func tracker(vy: CGFloat, lift: TimeInterval = 100) -> PointVelocityTracker {
+    /// Finger moving up/left at `(vx, vy)` pt/s (content offset increases) for 120 ms ending at `lift`.
+    func tracker(vx: CGFloat = 0, vy: CGFloat, lift: TimeInterval = 100) -> PointVelocityTracker {
         var t = PointVelocityTracker()
         for i in 0...8 {
             let time = lift - 0.12 + Double(i) * 0.015
-            t.add(CGPoint(x: 0, y: -vy * CGFloat(time - (lift - 0.12))), at: time)
+            let dt = CGFloat(time - (lift - 0.12))
+            t.add(CGPoint(x: -vx * dt, y: -vy * dt), at: time)
         }
         return t
     }
@@ -60,23 +61,86 @@ struct ReleasePipelineTests {
     }
 
     @Test func velocityTrackerVsFallback() {
-        var tr = VelocityTracker()
-        // < 2 samples: the gesture's own velocity, gated on its own magnitude (BTN-s2: 250 pt/s, inclusive).
-        #expect(ReleasePipeline.velocity(tracker: tr, liftTime: 1, fallback: 250, gated: true) == 250)
-        #expect(ReleasePipeline.velocity(tracker: tr, liftTime: 1, fallback: 249, gated: true) == 0)
-        #expect(ReleasePipeline.velocity(tracker: tr, liftTime: 1, fallback: -249, gated: false) == -249)
-        #expect(ReleasePipeline.velocity(tracker: tr, liftTime: 1, fallback: nil, gated: true) == 0)
-        #expect(ReleasePipeline.velocity(tracker: tr, liftTime: 1, fallback: nil, gated: false) == 0)
-        for i in 0...6 { tr.add(position: CGFloat(i) * 10, at: 0.9 + Double(i) * 0.015) }
-        let v = ReleasePipeline.velocity(tracker: tr, liftTime: 0.99, fallback: 250, gated: true)
-        #expect(abs(v - 666) < 40)
+        var tr = PointVelocityTracker()
+        let zero = CGVector(dx: 0, dy: 0)
+        func v(_ fallback: CGVector?, x: Bool = true, y: Bool = true, gated: Bool = true, tracker: PointVelocityTracker? = nil,
+               lift: TimeInterval = 1) -> CGVector {
+            ReleasePipeline.velocity(tracker: tracker ?? tr, liftTime: lift, fallback: fallback, enabledX: x, enabledY: y, gated: gated)
+        }
+        // < 2 samples: the gesture's own velocity, gated on the vector of its enabled components (BTN-s2/s3: 250 pt/s, inclusive).
+        #expect(v(CGVector(dx: 0, dy: 250)) == CGVector(dx: 0, dy: 250))
+        #expect(v(CGVector(dx: 0, dy: 249)) == zero)
+        #expect(v(CGVector(dx: 0, dy: -249), gated: false) == CGVector(dx: 0, dy: -249))
+        #expect(v(CGVector(dx: 200, dy: 200)) == CGVector(dx: 200, dy: 200))                 // |v| = 283
+        #expect(v(CGVector(dx: 200, dy: 200), y: false) == zero)                              // one axis: 200 < 250
+        #expect(v(CGVector(dx: 300, dy: 200), x: false) == CGVector(dx: 0, dy: 0))            // y alone: 200 rests
+        #expect(v(CGVector(dx: 300, dy: 200), y: false) == CGVector(dx: 300, dy: 0))
+        #expect(v(nil) == zero)
+        #expect(v(nil, gated: false) == zero)
+        for i in 0...6 { tr.add(CGPoint(x: 0, y: CGFloat(i) * 10), at: 0.9 + Double(i) * 0.015) }
+        let fit = v(CGVector(dx: 0, dy: 250), lift: 0.99)
+        #expect(fit.dx == 0 && abs(fit.dy - 666) < 40)
         // An event-free pause before the lift no longer zeroes the release (P1): same value after 210 ms of rest.
-        #expect(ReleasePipeline.velocity(tracker: tr, liftTime: 1.2, fallback: 250, gated: true) == v)
+        #expect(v(CGVector(dx: 0, dy: 250), lift: 1.2) == fit)
+        // A disabled axis is 0 even with samples; the fallback never leaks into a tracked release.
+        #expect(v(CGVector(dx: 500, dy: 500), y: false, lift: 0.99) == zero)
         // A slow finger (200 pt/s) rests when gated; the ungated path (target behaviors) keeps the fit.
-        var slow = VelocityTracker()
-        for i in 0...8 { slow.add(position: CGFloat(i) * 3, at: 0.9 + Double(i) * 0.015) }
-        #expect(ReleasePipeline.velocity(tracker: slow, liftTime: 1.02, fallback: nil, gated: true) == 0)
-        #expect(abs(ReleasePipeline.velocity(tracker: slow, liftTime: 1.02, fallback: nil, gated: false) - 200) < 1e-6)
+        var slow = PointVelocityTracker()
+        for i in 0...8 { slow.add(CGPoint(x: 0, y: CGFloat(i) * 3), at: 0.9 + Double(i) * 0.015) }
+        #expect(v(nil, tracker: slow, lift: 1.02) == zero)
+        #expect(abs(v(nil, gated: false, tracker: slow, lift: 1.02).dy - 200) < 1e-6)
+        // A 45° finger at (200, 200) flings on two axes (|v| = 283) and rests on one (BTN-s3).
+        var diagonal = PointVelocityTracker()
+        for i in 0...8 { diagonal.add(CGPoint(x: CGFloat(i) * 3, y: CGFloat(i) * 3), at: 0.9 + Double(i) * 0.015) }
+        let d = v(nil, tracker: diagonal, lift: 1.02)
+        #expect(abs(d.dx - 200) < 1e-6 && abs(d.dy - 200) < 1e-6)
+        #expect(v(nil, x: false, tracker: diagonal, lift: 1.02) == zero)
+        #expect(v(nil, y: false, tracker: diagonal, lift: 1.02) == zero)
+    }
+
+    /// BTN-s3 P3: the natural-release gate is decided once on the vector over the enabled axes. A 45° release at
+    /// (200, 200) pt/s (|v| = 283) decelerates both axes on a two-axis view; the same finger rests on a horizontal-only
+    /// view and under a lock on x (one axis counts only itself: 200 < 250).
+    @Test(arguments: OSPath.allCases) func diagonalNaturalReleaseGatesTheVector(path: OSPath) {
+        var (s, d) = make(path, at: CGPoint(x: 50, y: 300))
+        var (mx, my) = s.endDrag(request(CGPoint(x: 50, y: 300)), tracker: tracker(vx: 200, vy: 200), env: Self.env, settings: ReleaseSettings())
+        #expect(mx.willDecelerate && my.willDecelerate && s.phase == .decelerating)
+        #expect(abs((d.seenVelocity?.x ?? 0) - 0.2) < 0.02 && abs((d.seenVelocity?.y ?? 0) - 0.2) < 0.02)
+        #expect(mx.endPosition > 50 && my.endPosition > 300)
+        // Horizontal-only view: 200 pt/s on its own axis rests; y is not driven.
+        let horizontal = PanSessionTests.env { $0.axes = .horizontal }
+        (s, d) = make(path, at: CGPoint(x: 50, y: 300))
+        (mx, my) = s.endDrag(request(CGPoint(x: 50, y: 300)), tracker: tracker(vx: 200, vy: 200), env: horizontal, settings: ReleaseSettings())
+        #expect(!mx.willDecelerate && !my.willDecelerate && s.phase == .idle)
+        #expect(d.seenVelocity == CGPoint(x: 0, y: 0))
+        #expect(s.peek.presentationOffset == CGPoint(x: 50, y: 300))
+        // Directional lock on x: same rule.
+        (s, d) = make(path, at: CGPoint(x: 50, y: 300))
+        (mx, my) = s.endDrag(request(CGPoint(x: 50, y: 300)) { $0.lock = .horizontal }, tracker: tracker(vx: 200, vy: 200), env: Self.env, settings: ReleaseSettings())
+        #expect(!mx.willDecelerate && !my.willDecelerate && d.seenVelocity == CGPoint(x: 0, y: 0))
+    }
+
+    /// BTN-s3: past the gate every enabled axis decelerates from its own component, however small: a 15° release
+    /// at (300, 80) pt/s moves y too (native: vy 48-112 pt/s still moves y 38-64 pt).
+    @Test(arguments: OSPath.allCases) func shallowReleaseMovesTheSlowAxis(path: OSPath) {
+        let (s, d) = make(path, at: CGPoint(x: 0, y: 300))
+        let (mx, my) = s.endDrag(request(CGPoint(x: 0, y: 300)), tracker: tracker(vx: 300, vy: 80), env: Self.env, settings: ReleaseSettings())
+        #expect(mx.willDecelerate && my.willDecelerate)
+        #expect(abs((d.seenVelocity?.y ?? 0) - 0.08) < 0.01)
+        #expect(my.endPosition > 300 && my.endPosition < 400)
+        run(s)
+        #expect(s.peek.presentationOffset.y > 300)
+    }
+
+    /// A target-behavior release stays ungated: (170, 170) pt/s (|v| = 240) rests naturally but reaches the behavior.
+    @Test(arguments: OSPath.allCases) func targetBehaviorReleaseStaysUngatedOnTwoAxes(path: OSPath) {
+        var (s, d) = make(path, at: CGPoint(x: 50, y: 300))
+        s.endDrag(request(CGPoint(x: 50, y: 300)), tracker: tracker(vx: 170, vy: 170), env: Self.env, settings: ReleaseSettings())
+        #expect(d.seenVelocity == CGPoint(x: 0, y: 0) && s.phase == .idle)
+        (s, d) = make(path, at: CGPoint(x: 50, y: 300))
+        s.targetBehavior = AnyZTronScrollTargetBehavior(ZTronViewAlignedScrollTargetBehavior(limitBehavior: .never))
+        s.endDrag(request(CGPoint(x: 50, y: 300)), tracker: tracker(vx: 170, vy: 170), env: Self.env, settings: ReleaseSettings())
+        #expect(abs((d.seenVelocity?.x ?? 0) - 0.17) < 0.02 && abs((d.seenVelocity?.y ?? 0) - 0.17) < 0.02)
     }
 
     /// BTN-s2: a natural release at 200 pt/s rests (no deceleration, willEndDragging sees 0); the same drag under a
