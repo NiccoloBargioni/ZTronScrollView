@@ -15,7 +15,8 @@ import SwiftUI
 /// }
 /// ```
 /// Without a proxy it reads the nearest enclosing `ZTronScrollView`'s header. It reports the geometry on screen (the
-/// presentation offset), frame by frame; nothing is drawn while the scroll view has no header.
+/// presentation offset), frame by frame. Before the header resolves (the first layout, a `.fit` measurement) and on a
+/// scroll view without a header it reports an all-zero geometry.
 public struct ZTronHeaderGeometryReader<Value: Equatable, Content: View>: View {
     private let header: ZTronHeaderProxy?
     private let transform: (ZTronHeaderGeometry) -> Value
@@ -36,9 +37,9 @@ public struct ZTronHeaderGeometryReader<Value: Equatable, Content: View>: View {
     }
 
     public var body: some View {
-        let transform = transform, content = content
-        return ZTronScrollReader(header?.state, of: { $0.header.map(transform) }) { value in
-            if let value { content(value) }
-        }
+        // Always a value: an empty content would never host the reader's probe (SwiftUI does not instantiate the
+        // background of an empty view), so it could not wake up once the header resolves.
+        let transform = transform
+        return ZTronScrollReader(header?.state, of: { transform($0.header ?? .unresolved) }, content: content)
     }
 }

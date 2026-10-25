@@ -399,7 +399,7 @@ public final class ZTronScrollState {
         settledThisTurn = true
         let r = ResizeMath.realize(intent, viewport: m.viewportSize, content: m.contentSize, insets: m.adjustedContentInset,
                                    header: m.headerObscured, focus: sizeChangesAnchor ?? .center, limits: zoomLimits,
-                                   alignment: contentAlignment)
+                                   alignment: contentAlignment, headerGeometry: HeaderMath.resizeGeometry(m))
         let g = ResizeMath.geometry(viewport: m.viewportSize, content: m.contentSize, insets: m.adjustedContentInset,
                                     alignment: contentAlignment)
         return (g.clamped(r.offset, at: r.scale), r.scale)
@@ -446,7 +446,8 @@ public final class ZTronScrollState {
 
     /// Keeps the committed geometry equal to the metrics unless a resize is in flight (then only `current` moves).
     private func syncCommit(_ m: inout ScrollMetrics, open: Bool) {
-        let snap = ResizeCommit.Snapshot(viewport: m.viewportSize, contentSize: m.contentSize, insets: m.adjustedContentInset)
+        let snap = ResizeCommit.Snapshot(viewport: m.viewportSize, contentSize: m.contentSize, insets: m.adjustedContentInset,
+                                         header: HeaderMath.resizeGeometry(m))
         m.resize.current = snap
         m.resize.header = m.headerObscured
         if !open { m.resize.previous = snap }
@@ -1211,8 +1212,17 @@ public final class ZTronScrollState {
         if motion != nil || transactionToken != nil { interrupt() }
         let s = storage.snapshot()
         guard s.metrics.viewportSize.width > 0, s.metrics.viewportSize.height > 0 else { return true }
-        let offset = TargetScrollMath.offset(for: frame, anchor: anchor, current: s.presentationOffset,
+        var offset = TargetScrollMath.offset(for: frame, anchor: anchor, current: s.presentationOffset,
                                              scale: s.presentationZoom, geometry: makeZoomGeometry(s.metrics))
+        if s.metrics.header?.vertical == true {
+            // The scaling header counts at the TARGET (M8b-3, M6 §4): the unobscured top is `aci.top + h(target) − R`.
+            offset.y = HeaderMath.solveTarget(metrics: s.metrics) { top in
+                var m = s.metrics
+                m.adjustedContentInset.top = top
+                return TargetScrollMath.offset(for: frame, anchor: anchor, current: s.presentationOffset,
+                                               scale: s.presentationZoom, geometry: makeZoomGeometry(m)).y
+            }
+        }
         if ambient {
             scroll(to: offset)
         } else {

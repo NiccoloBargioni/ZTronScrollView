@@ -15,6 +15,7 @@ struct HeaderHost: View {
         // identity and `@State` across every update; the modifiers below never change structure (a `size` change keeps it).
         return spec.builder(ZTronHeaderProxy(state: state))
             .modifier(HeaderMeasure(state: state, active: spec.size.isFit))
+            .modifier(HeaderInteractionGate(state: state))
             .modifier(HeaderFrameModifier(state: state, fade: spec.fade))
             .accessibilityElement(children: .contain)
             .accessibilitySortPriority(1)                // "precedes the content": announced before it
@@ -30,6 +31,21 @@ struct HeaderOverlay: View {
         if let spec {
             HeaderHost(spec: spec, state: state)
         }
+    }
+}
+
+/// On a view whose axes exclude `.vertical` the header is a banner stacked above the content (SPEC S10): the content's
+/// height proposal is the viewport minus the resting height. A leaf on `.metrics` around the content placeholder (no
+/// content body runs when it changes, only a layout pass); 0 on a vertical view or without a header, so it never changes
+/// the content's structure. Inside the layout host: the content is proposed `V − R` and the padded box keeps `V`.
+struct HeaderContentReserve: ViewModifier {
+    let state: ZTronScrollState
+    @StateObject private var relay = ChannelRelay()
+
+    func body(content: Content) -> some View {
+        if let storage = state.storage as? ChannelStorage { relay.subscribe(to: [.metrics], of: storage) }
+        let header = state.storage.metrics.header
+        return content.padding(.bottom, header.map { $0.vertical ? 0 : $0.resting } ?? 0)
     }
 }
 

@@ -138,6 +138,7 @@ struct ScrollContainer<Content: View>: View {
             .modifier(ContentSizeMeasure(state: state))
             .modifier(NamedSpaceModifier(name: "ztronScroll.content", useNew: state.usesNamedCoordinateSpace))
             .modifier(NamedSpaceModifier(name: nested.coordinateSpaceName, useNew: state.usesNamedCoordinateSpace))
+            .modifier(HeaderContentReserve(state: state))   // a horizontal view's content lays out below the banner (M8b-3)
             .modifier(ContentLayoutHost(axes: axes, useLayout: state.usesLayoutProtocol))
             .modifier(TransformHost(state: state, axes: axes))
             .modifier(NamedSpaceModifier(name: "ztronScroll.viewport", useNew: state.usesNamedCoordinateSpace))

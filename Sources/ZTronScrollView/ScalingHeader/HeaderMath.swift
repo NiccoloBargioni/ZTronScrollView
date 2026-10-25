@@ -1,5 +1,27 @@
 import SwiftUI
 
+/// A snapshot's header facts for the resize math (M8b-3): `base` = `adjustedContentInset.top − refreshHold.top` (`o′ = o.y +
+/// base`) and the collapse band. Interpolated with the drawn geometry like the insets.
+struct HeaderResize: Equatable, Sendable {
+    var base: CGFloat
+    var band: CGFloat
+
+    static func lerp(_ a: HeaderResize?, _ b: HeaderResize?, _ t: CGFloat) -> HeaderResize? {
+        guard let a, let b else { return b ?? a }
+        return HeaderResize(base: a.base + (b.base - a.base) * t, band: a.band + (b.band - a.band) * t)
+    }
+}
+
+/// Where the header was when a resize captured its intent.
+enum HeaderResizeAnchor: Equatable, Sendable {
+    /// At or above rest: `o′ ≤ 0` (a pull or a refresh hold) is kept.
+    case top(CGFloat)
+    /// Inside the band: the progress is kept (`o′ = p · band` in the new geometry).
+    case progress(CGFloat)
+    /// Collapsed: the visible centre below the minimum-height header is kept, and the header stays collapsed.
+    case collapsed
+}
+
 /// Pure scaling-header math (design M8b §2.4), no SwiftUI state. Conventions: `top0` = the header's top edge (the adjusted
 /// safe-area top), `R` resting height, `band = max(0, R − min)`, `o′` = the header-relative offset (content offset +
 /// `adjustedContentInset.top` − the refresh hold: rest is 0, a pull past the top is negative, scrolling up positive),
@@ -114,6 +136,14 @@ enum HeaderMath {
         return max(0, aci.top - m.contentInset.top - m.refreshHold.top - (m.header?.resting ?? 0))
     }
 
+    /// The top of the band a `.stretch` header grows into under a pull (`top0 + R`), where the top refresh indicator floats
+    /// (overlay placement: there is no gap, SPEC S10 "Refresh with the header"); `nil` without a stretching header (under
+    /// `.preserve` the gap opens below the resting header, which the plain base already counts).
+    static func stretchBandTop(_ m: ScrollMetrics) -> CGFloat? {
+        guard let header = m.header, header.behavior == .stretch, header.vertical else { return nil }
+        return top0(m) + header.resting
+    }
+
     /// How much the live header differs from the reserved resting height, `h − R` (negative while collapsed, positive while
     /// stretched): the unobscured top edge is `adjustedContentInset.top + delta` (indicators, `scrollTo`, the resize centre).
     static func obscuredDelta(offset: CGPoint, zoom: CGFloat, metrics m: ScrollMetrics) -> CGFloat {
@@ -137,6 +167,32 @@ enum HeaderMath {
             next = max(offsetY + base(new), b.band)
         }
         return next - base(new)
+    }
+
+    // MARK: Resize (SPEC S7: the scaling header keeps its collapse progress)
+
+    /// The header's resize geometry for `m` (`nil` without a header driven by the vertical offset).
+    static func resizeGeometry(_ m: ScrollMetrics) -> HeaderResize? {
+        guard let header = m.header, header.vertical else { return nil }
+        return HeaderResize(base: base(m), band: header.band)
+    }
+
+    /// Where the header is at a content offset (captured by the resize intent).
+    static func resizeAnchor(offsetY: CGFloat, _ g: HeaderResize) -> HeaderResizeAnchor {
+        let x = offsetY + g.base
+        if x <= 0 { return .top(x) }
+        if g.band > 0, x < g.band { return .progress(x / g.band) }
+        return .collapsed
+    }
+
+    /// The offset (y) that realises `anchor` in `g`: `o′` kept at or above rest, the progress inside the band, and while
+    /// collapsed the centre rule's `centred` (computed with the header at its minimum height), kept collapsed.
+    static func resizeOffsetY(_ anchor: HeaderResizeAnchor, centred: CGFloat, _ g: HeaderResize) -> CGFloat {
+        switch anchor {
+        case let .top(x): return x - g.base
+        case let .progress(p): return p * g.band - g.base
+        case .collapsed: return max(centred, g.band - g.base)
+        }
     }
 
     /// The content offset (y) that puts something where `place(startInset)` says, with the unobscured top edge evaluated at

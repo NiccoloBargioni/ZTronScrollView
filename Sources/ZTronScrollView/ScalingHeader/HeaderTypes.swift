@@ -78,6 +78,9 @@ public struct ZTronHeaderGeometry: Equatable, Sendable {
     /// The scroll view's width.
     public var width: CGFloat
 
+    /// What a reader sees before the header resolves or without a header: all zeros.
+    static let unresolved = ZTronHeaderGeometry(progress: 0, height: 0, stretch: 0, minHeight: 0, restingHeight: 0, width: 0)
+
     /// A reader transform that changes only `steps + 1` times over a full collapse: `round(progress · steps)`.
     public static func quantizedProgress(steps: Int) -> (ZTronHeaderGeometry) -> Int {
         { Int(($0.progress * CGFloat(steps)).rounded()) }

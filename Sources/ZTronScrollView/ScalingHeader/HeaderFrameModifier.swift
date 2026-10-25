@@ -14,7 +14,7 @@ struct HeaderFrameModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         if let storage = state.storage as? ChannelStorage {
-            relay.subscribe(to: [.target, .metrics, .phase], of: storage)
+            relay.subscribe(to: [.target, .metrics], of: storage)
         }
         #if DEBUG
         ZTronRenderCounters.increment("header.frame")
@@ -22,24 +22,40 @@ struct HeaderFrameModifier: ViewModifier {
         let storage = state.storage
         let metrics = storage.metrics
         var offset = storage.targetOffset
-        // The same pixel snap as the transform host, so the header's bottom meets the content's top on the same pixel.
-        if storage.phase == .idle, !metrics.resize.isOpen {
+        // The same pixel snap as the transform host, so the header's bottom meets the content's top on the same pixel. The
+        // phase is read untracked: this leaf never wakes on a phase edge (a settled motion has already written a snapped
+        // target).
+        if storage.snapshot().phase == .idle, !metrics.resize.isOpen {
             offset.y = ContentGeometry.snap(offset.y, scale: displayScale)
         }
         // The zoom matters only without the vertical axis (D15); a vertical view never wakes on it.
         let zoom = metrics.header?.vertical == false ? storage.targetZoom : 1
         let h = HeaderMath.geometry(offset: offset, zoom: zoom, metrics: metrics)?.height ?? 0
-        // The content's gate (D11): no press while the content moves without a finger or while a drag is recognized.
-        let blocked = (storage.phase == .decelerating || storage.phase == .animating) && !storage.isTracking || storage.isDragging
         let visible = h > 0.5
         return content
             .frame(minWidth: 0, maxWidth: .infinity, minHeight: h, maxHeight: h, alignment: .top)
             .overlay(HeaderFade(fade: fade))
             .clipped()
-            .allowsHitTesting(visible && !blocked)
-            .disabled(blocked)
+            .allowsHitTesting(visible)
             .accessibilityHidden(!visible)
             .padding(.top, HeaderMath.top0(metrics))
+    }
+}
+
+/// The content's hit-testing gate (D11) for the header, in its own leaf on `.phase` (so the frame leaf never wakes on a
+/// phase edge): no press while the content moves without a finger or while a drag is recognized; a drag that starts on
+/// a header button scrolls.
+struct HeaderInteractionGate: ViewModifier {
+    let state: ZTronScrollState
+    @StateObject private var relay = ChannelRelay()
+
+    func body(content: Content) -> some View {
+        if let storage = state.storage as? ChannelStorage { relay.subscribe(to: [.phase], of: storage) }
+        let storage = state.storage
+        let blocked = (storage.phase == .decelerating || storage.phase == .animating) && !storage.isTracking || storage.isDragging
+        return content
+            .allowsHitTesting(!blocked)
+            .disabled(blocked)
     }
 }
 
