@@ -27,6 +27,8 @@ struct PanGestureAdapter: ViewModifier {
     @Environment(\.ztronScrollIsEnabled) private var ownEnabled
     @Environment(\.ztronHorizontalBounce) private var bounceX
     @Environment(\.ztronVerticalBounce) private var bounceY
+    /// `View.ztronScrollYieldsToSheet(_:)`: while true every gesture below attaches with `GestureMask.subviews`.
+    @Environment(\.ztronYieldsToSheet) private var yields
     @Environment(\.displayScale) private var displayScale
     @State private var observer = CatchObserverState()
     /// Fallback observer gating (iOS < 18): the zero-distance drag steals touches from UIKit-backed controls, so
@@ -52,6 +54,7 @@ struct PanGestureAdapter: ViewModifier {
         coordinator.settings.bounceX = bounceX.physics
         coordinator.settings.bounceY = bounceY.physics
         coordinator.settings.displayScale = displayScale
+        coordinator.yieldsToSheet = yields
         let arming = armed
         let send: @MainActor (PanEvent) -> Void = { [coordinator] event in
             coordinator.handle(event)
@@ -66,11 +69,20 @@ struct PanGestureAdapter: ViewModifier {
             .modifier(NativeEnabledBridge(coordinator: coordinator))
             .modifier(ArbitrationRegistration(coordinator: coordinator, policy: nestedPolicy))
             .modifier(GatedGestureAttach(mode: mode, pan: pan(send: send),
-                                         observer: uikit ? nil : observerGestureBox(send: send), arming: arming, gated: gated))
+                                         observer: uikit ? nil : observerGestureBox(send: send), arming: arming, gated: gated,
+                                         yields: yields))
             .modifier(PinchGestureAttach(pinch: PinchGestureAdapter.gesture(coordinator: coordinator, observer: observer),
-                                         doubleTap: tap))
+                                         doubleTap: tap, yields: yields))
             .modifier(CatchArmingProbe(state: gated ? coordinator.state : nil, arming: arming, observer: observer))
             .modifier(UIKitObserverAttach(enabled: uikit, coordinator: coordinator, catchState: observer))
+            .onChangeCompat(of: yields) { yielding in
+                // The masked gestures are cancelled by SwiftUI without `onEnded`: forget what they left behind, then end
+                // a sequence in flight like a cancelled touch.
+                guard yielding else { return }
+                observer.reset()
+                arming.touchEnded()
+                coordinator.cancelForSheetYield()
+            }
     }
 
     private func pan(send: @escaping @MainActor (PanEvent) -> Void) -> some Gesture {
@@ -117,38 +129,44 @@ struct PanGestureAdapter: ViewModifier {
 }
 
 /// Attaches pan and observer according to `mode`. `observer` is nil on the iOS 15-16 UIKit observer path (D31).
+/// `yields` (`ztronScrollYieldsToSheet`) keeps the modifier chain and flips only the mask / `isEnabled`, so the content's
+/// identity and body are untouched: `.subviews` disables the gesture and leaves the content's own controls working.
 struct GestureAttach<P: Gesture>: ViewModifier {
     let mode: PanGestureMode
     let pan: P
     let observer: AnyGesture<Void>?
     var observerEnabled = true
+    var yields = false
 
     @ViewBuilder
     func body(content: Content) -> some View {
         if #available(iOS 18, *) {
-            // Named so a pager's UIKit pan can run alongside (SPEC S12, S16).
+            // Named so a pager's UIKit pan can run alongside (SPEC S12, S16). `isEnabled: false` is `.subviews`.
             let n = scrollArbitrationGestureName
+            let on = !yields
             switch (mode, observer) {
             case (.simultaneous, let observer?):
-                content.simultaneousGesture(observer, name: n).simultaneousGesture(pan, name: n)
+                content.simultaneousGesture(observer, name: n, isEnabled: on)
+                    .simultaneousGesture(pan, name: n, isEnabled: on)
             case (.gesture, let observer?):
-                content.gesture(observer.simultaneously(with: pan), name: n)
+                content.gesture(observer.simultaneously(with: pan), name: n, isEnabled: on)
             case (.high, let observer?):
-                content.highPriorityGesture(observer.simultaneously(with: pan), name: n)
+                content.highPriorityGesture(observer.simultaneously(with: pan), name: n, isEnabled: on)
             case (_, nil):
-                content.simultaneousGesture(pan, name: n)
+                content.simultaneousGesture(pan, name: n, isEnabled: on)
             }
         } else {
+            let mask: GestureMask = yields ? .subviews : .all
             switch (mode, observer) {
             case (.simultaneous, let observer?):
-                content.simultaneousGesture(observer, including: observerEnabled ? .all : .subviews)
-                    .simultaneousGesture(pan)
+                content.simultaneousGesture(observer, including: observerEnabled ? mask : .subviews)
+                    .simultaneousGesture(pan, including: mask)
             case (.gesture, let observer?):
-                content.gesture(observer.simultaneously(with: pan))
+                content.gesture(observer.simultaneously(with: pan), including: mask)
             case (.high, let observer?):
-                content.highPriorityGesture(observer.simultaneously(with: pan))
+                content.highPriorityGesture(observer.simultaneously(with: pan), including: mask)
             case (_, nil):
-                content.simultaneousGesture(pan)
+                content.simultaneousGesture(pan, including: mask)
             }
         }
     }
@@ -218,10 +236,11 @@ struct GatedGestureAttach<P: Gesture>: ViewModifier {
     let observer: AnyGesture<Void>?
     @ObservedObject var arming: CatchArming
     let gated: Bool
+    var yields = false
 
     func body(content: Content) -> some View {
         content.modifier(GestureAttach(mode: mode, pan: pan, observer: observer,
-                                       observerEnabled: !gated || arming.isArmed))
+                                       observerEnabled: !gated || arming.isArmed, yields: yields))
     }
 }
 

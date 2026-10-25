@@ -5,7 +5,7 @@ Current: integrated HEAD f985f95 verified 2026-10-20 (unit 349/349 on 27.0 + 17.
 | Milestone | Status | Budget % | Used % (my readings) | Notes |
 |---|---|---|---|---|
 | M0 | done | 0–1 | | repo, scripts, hook, agents, CLAUDE.md, skeleton packages; host + iOS 27 sim tests green |
-| MC | partial | 3–5 | | package + spike done; tag blocked on Q3 (iOS 17.5) decision, see Orchestration.md Open items #1 |
+| MC | partial | 3–5 | | package + spike done; tag waits for the user (Q3 decided 2026-10-25, D50: option (a)); see Orchestration.md Open items #1, #5 |
 | M1 | done | 6–9 | | physics 99 tests, availability 16 tests, design note; weekly limit hit in fix round (recovered 2026-10-18) |
 | M2 | done | 7–10 | | render proof green on 27.0 + 17.5, both paths (docs/progress/M2-s3.md) |
 | M3 | done | 8–10 | | pan/release/catch/delegate/arbitration; 123 unit tests; demo UI 14/14 on 27.0 both paths; PanUITests 7/7 on 17.5 both paths |
@@ -30,3 +30,4 @@ Device feedback queue:
 | M6b | done | ~3–4 | | content-integral overlay (D41): `scrollContentIntegralOverlay` member + twin, Layout / GeometryReader hosts, `ztronScrollCounterScaled(anchor:)`; ContentOverlayTests 21, ContentOverlayUITests 4/4 on 27.0 + 17.5 both paths, unit 637 (docs/progress/M6b-s1.md) |
 | M6b-s2 | done | ~1.5 | | content-overlay revision R6 (user): `fillMaxWidth(height:)` / `fillMaxHeight(width:)` lengths, clamped `ZTronUnit*` types, canonical size equality; unit 645, UI 17/17 × 4 lanes (docs/progress/M6b-s2.md) |
 | M6b-s3 | done | ~1 | | content-overlay revision R7 (user): DEBUG diagnostics for every clamp / normalization with the caller's file and line (`ZTronDiagnostics`, NSLog, bounded); unit 659 on 27.0 + 17.5 (docs/progress/M6b-s3.md) |
+| SHEET-b | done | 1.5 | | `View.ztronScrollYieldsToSheet(_:)` built: gestures masked with `.subviews` while true (`isEnabled:` on 18+), in-flight drag/pinch end like a cancelled touch, deceleration settles; `SheetUITests` Y1–Y6 + `SheetYieldTests` (26 cases) green on 27.0 + 17.5 preferred / forced / uikit; parity row full for `.resizes` per detent (docs/progress/SHEET-s2.md); open: user's real iOS 15/16 run |

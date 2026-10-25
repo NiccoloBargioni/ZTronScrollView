@@ -21,10 +21,15 @@ enum SheetArgs {
     static var start: String { value("-ZTronSheetStart") ?? detents.first ?? "medium" }
     static var interaction: String { value("-ZTronSheetInteraction") ?? "default" }
     static var noDismiss: Bool { args.contains("-ZTronSheetNoDismiss") }
-    /// `-ZTronSheetYield none|scrollDisabled|ztronScrollDisabled|scrollDisabledAlways|ztronScrollDisabledAlways|hitTest|pullRelease`: what the demo does so the sheet can have the drag. `scrollDisabled` /
+    /// `-ZTronSheetYield none|scrollDisabled|ztronScrollDisabled|scrollDisabledAlways|ztronScrollDisabledAlways|hitTest|pullRelease|api`
+    /// (comma-separated to combine, e.g. `api,pullRelease`): what the demo does so the sheet can have the drag. `scrollDisabled` /
     /// `hitTest` switch our view off while the sheet sits at a detent that is not its largest; `pullRelease` turns an
-    /// overscroll release at the top (> 60 pt) into a detent change (large -> medium) or a dismissal, from the delegate.
-    static var yield: String { value("-ZTronSheetYield") ?? "none" }
+    /// overscroll release at the top (> 60 pt) into a detent change (large -> medium) or a dismissal, from the delegate;
+    /// `api` is the library's `ztronScrollYieldsToSheet(detent != .large)` (SHEET-s2).
+    static var yieldModes: [String] { (value("-ZTronSheetYield") ?? "none").split(separator: ",").map(String.init) }
+    /// The experiment among `yieldModes` (everything but `api`).
+    static var yield: String { yieldModes.first { $0 != "api" } ?? "none" }
+    static var yieldsApi: Bool { yieldModes.contains("api") }
     /// `-ZTronSheetPlain simultaneous|simultaneous0|gesture|highPriority|maskedSubviews|maskedAtMedium|spatial|magnify|doubleTap|allMaskedAtMedium|none`: no scroll view at all, a plain pane with a SwiftUI
     /// DragGesture of that kind (or none) in its place, to tell the library's behaviour from SwiftUI's own.
     static var plain: String? { value("-ZTronSheetPlain") }
@@ -104,7 +109,8 @@ final class SheetProbe: ZTronScrollViewDelegate {
         s += "trk=\(tracking) dragBegan=\(dragBegan) dragEnded=\(dragEnded) dismissed=\(dismissCount) pull=\(pullReleases) nc=\(nativeCalls) pc=\(plainChanges)"
         #if DEBUG
         let c = ZTronRenderCounters.snapshot
-        for k in ["pan.ev.down", "pan.ev.drag", "pan.ev.cancel", "pan.ev.up", "pan.ev.dragEnd", "uikit.began", "uikit.cancelled"] {
+        for k in ["pan.ev.down", "pan.ev.drag", "pan.ev.cancel", "pan.ev.up", "pan.ev.dragEnd", "uikit.began", "uikit.cancelled",
+                  "content.body", "button.fired"] {
             s += " c.\(k)=\(c[k] ?? 0)"
         }
         #endif
@@ -199,14 +205,29 @@ private struct SheetSampler: UIViewRepresentable {
 }
 #endif
 
-/// The 80 rows (44 pt) both variants show; no inputs, so nothing re-evaluates it.
+/// The 80 rows (44 pt) both variants show; no inputs, so nothing re-evaluates it (`content.body` stays 0). Row 3 carries a
+/// Button (`button.fired`): controls in the content must keep working while the view yields to the sheet.
 private struct SheetRows: View {
     var body: some View {
-        VStack(spacing: 0) {
+        #if DEBUG
+        ZTronRenderCounters.increment("content.body")
+        #endif
+        return VStack(spacing: 0) {
             ForEach(0..<80, id: \.self) { i in
-                Text("Row \(i)").frame(maxWidth: .infinity, minHeight: 44, maxHeight: 44)
-                    .background(i % 2 == 0 ? Color.blue.opacity(0.15) : Color.green.opacity(0.15))
-                    .id("row.\(i)")
+                Group {
+                    if i == 3 {
+                        Button("Tap row 3") {
+                            #if DEBUG
+                            ZTronRenderCounters.increment("button.fired")
+                            #endif
+                        }.accessibilityIdentifier("sheet.contentButton")
+                    } else {
+                        Text("Row \(i)")
+                    }
+                }
+                .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 44)
+                .background(i % 2 == 0 ? Color.blue.opacity(0.15) : Color.green.opacity(0.15))
+                .id("row.\(i)")
             }
         }
     }
@@ -327,10 +348,18 @@ private struct SheetNativeList: View {
     }
 }
 
-/// `-ZTronSheetYield scrollDisabled|hitTest`: our view switched off while the sheet is not at its largest detent.
+/// `-ZTronSheetYield scrollDisabled|hitTest|api`: our view switched off while the sheet is not at its largest detent.
 private struct SheetYield: ViewModifier {
     let off: Bool
     @ViewBuilder func body(content: Content) -> some View {
+        if SheetArgs.yieldsApi {
+            experiment(content).ztronScrollYieldsToSheet(off)
+        } else {
+            experiment(content)
+        }
+    }
+
+    @ViewBuilder private func experiment(_ content: Content) -> some View {
         switch SheetArgs.yield {
         case "scrollDisabled":
             if #available(iOS 16, *) { content.scrollDisabled(off) } else { content }
