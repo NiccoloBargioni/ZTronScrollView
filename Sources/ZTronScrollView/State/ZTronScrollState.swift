@@ -1212,15 +1212,19 @@ public final class ZTronScrollState {
         if motion != nil || transactionToken != nil { interrupt() }
         let s = storage.snapshot()
         guard s.metrics.viewportSize.width > 0, s.metrics.viewportSize.height > 0 else { return true }
+        let geometry = makeZoomGeometry(s.metrics)
         var offset = TargetScrollMath.offset(for: frame, anchor: anchor, current: s.presentationOffset,
-                                             scale: s.presentationZoom, geometry: makeZoomGeometry(s.metrics))
+                                             scale: s.presentationZoom, geometry: geometry)
         if s.metrics.header?.vertical == true {
-            // The scaling header counts at the TARGET (M8b-3, M6 §4): the unobscured top is `aci.top + h(target) − R`.
+            // The scaling header counts at the TARGET (M8b-3, M6 §4): the unobscured top is `aci.top + h(target) − R`,
+            // probed against the real bounds.
+            let bounds = geometry.y.bounds(at: s.presentationZoom)
             offset.y = HeaderMath.solveTarget(metrics: s.metrics) { top in
                 var m = s.metrics
                 m.adjustedContentInset.top = top
-                return TargetScrollMath.offset(for: frame, anchor: anchor, current: s.presentationOffset,
-                                               scale: s.presentationZoom, geometry: makeZoomGeometry(m)).y
+                return TargetScrollMath.axisOffset(lower: frame.minY, length: frame.height, anchor: anchor?.y,
+                                                   current: s.presentationOffset.y, scale: s.presentationZoom,
+                                                   axis: makeZoomGeometry(m).y, bounds: bounds)
             }
         }
         if ambient {

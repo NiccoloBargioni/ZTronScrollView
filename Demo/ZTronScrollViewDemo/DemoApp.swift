@@ -32,6 +32,8 @@ struct DemoApp: App {
             case "targets": TargetsScreen()
             case "eventLog": EventLogScreen()
             case "refresh": RefreshScreen()
+            case "profile": ProfileScreen()
+            case "banner": BannerScreen()
             case "zoom": ZoomScreen()
             case "image": ImageScreen()
             case "calibrate": CalibrateScreen()
