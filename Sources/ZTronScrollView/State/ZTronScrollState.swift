@@ -492,17 +492,9 @@ public final class ZTronScrollState {
                 #endif
                 return
             }
-            let gOld = makeZoomGeometry(old.metrics), gNew = makeZoomGeometry(m)
             let z = old.presentationZoom
-            var o = old.presentationOffset
-            if let a = sizeChangesAnchor {
-                let pOld = CGPoint(x: gOld.x.insets.start + (gOld.x.viewportLength - gOld.x.insets.total) * a.x,
-                                   y: gOld.y.insets.start + (gOld.y.viewportLength - gOld.y.insets.total) * a.y)
-                let u = ZoomSolver.contentPoint(under: pOld, offset: o, scale: z, geometry: gOld)
-                o = ZoomSolver.offset(keeping: u, under: pOld, scale: z, geometry: gNew, clamped: true)
-            } else {
-                o = gNew.clamped(o, at: z)
-            }
+            let o = offsetAfterContentSizeChange(old.presentationOffset, from: makeZoomGeometry(old.metrics),
+                                                 to: makeZoomGeometry(m), zoom: z)
             if o != old.presentationOffset { unanimated { writeBoth(offset: o, zoom: z) } }
             #if DEBUG
             dbg("cs idle \(f(old.metrics.contentSize))->\(f(size)) vp:\(f(old.metrics.viewportSize)) wroteOffset:\(o != old.presentationOffset) \(f(old.presentationOffset))->\(f(o)) z:\(f(z))")
@@ -510,6 +502,31 @@ public final class ZTronScrollState {
         }
         resolveZoomLimits()
         positionDriver.layoutChanged()
+    }
+
+    /// SwiftUI's rule for an idle content-size change (PARITY-s1, measured against a native `ScrollView` on 17.5, 18.6, 26.5
+    /// and 27.0), per scrollable axis:
+    /// 1. until the view is first moved (a touch or any scroll command), the `.initialOffset` anchor is applied again, so a
+    ///    list that starts at the bottom stays there while its content loads;
+    /// 2. an axis sitting at the anchored position of `.sizeChanges` (or, when the content fitted, of `.alignment`) stays at
+    ///    that anchored position in the new geometry: a view scrolled to the bottom with a bottom anchor stays at the bottom;
+    /// 3. anything else keeps its offset (clamped): content inserted above the visible area pushes the visible content down.
+    func offsetAfterContentSizeChange(_ offset: CGPoint, from gOld: ZoomGeometry, to gNew: ZoomGeometry, zoom z: CGFloat) -> CGPoint {
+        func axis(_ v: CGFloat, _ old: AxisGeometry, _ new: AxisGeometry, _ initial: CGFloat?, _ size: CGFloat?, _ align: CGFloat?,
+                  scrolls: Bool) -> CGFloat {
+            let bOld = old.bounds(at: z), bNew = new.bounds(at: z)
+            func anchored(_ a: CGFloat, _ b: AxisBounds) -> CGFloat { b.min + a * (b.max - b.min) }
+            guard scrolls else { return bNew.clamped(v) }
+            if positionDriver.initialAnchorHeld, let a = initial { return anchored(a, bNew) }
+            let fitted = bOld.max - bOld.min < 0.5
+            if let a = size ?? (fitted ? align : nil), abs(v - anchored(a, bOld)) <= 0.5 { return anchored(a, bNew) }
+            return bNew.clamped(v)
+        }
+        return CGPoint(
+            x: axis(offset.x, gOld.x, gNew.x, initialOffsetAnchor?.x, sizeChangesAnchor?.x, alignmentAnchor?.x,
+                    scrolls: scrollAxes.contains(.horizontal)),
+            y: axis(offset.y, gOld.y, gNew.y, initialOffsetAnchor?.y, sizeChangesAnchor?.y, alignmentAnchor?.y,
+                    scrolls: scrollAxes.contains(.vertical)))
     }
 
     /// Where content sits on an axis where it is smaller than the viewport (design M2 section 5). Not observed.

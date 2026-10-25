@@ -5,8 +5,11 @@ import SwiftUI
 /// where the user left the view. The scroll view writes it back only when a user gesture decided where it lands and when
 /// that motion settled (`isPositionedByUser` is then `true`), never per frame and never after a programmatic request.
 ///
-/// A user scroll writes `viewID` (the `ztronScrollID` view under the position's anchor) when one is there, else `point`
-/// (the content offset). `scrollTo(x:)` / `scrollTo(y:)` move one axis and leave `point` and `edge` `nil`.
+/// A point is in content space, like SwiftUI's: `scrollTo(point:)` puts it at the top-leading corner of the unobscured area
+/// (the offset is the point minus the leading insets), and `scrollTo(x:)` / `scrollTo(y:)` do the same on one axis, leaving
+/// `point` and `edge` `nil` (``x`` / ``y`` read them back, like SwiftUI's on iOS 26).
+///
+/// A user scroll writes `viewID` (the `ztronScrollID` view under the position's anchor) when one is there, else `point`.
 public struct ZTronScrollPosition: Equatable, Sendable {
     enum Request: Equatable, @unchecked Sendable {
         case id(AnyHashable, UnitPoint?)
@@ -23,6 +26,10 @@ public struct ZTronScrollPosition: Equatable, Sendable {
     var serial: UInt64
     /// `true` once the scroll view wrote the position after a user scroll; `false` for a value you set.
     public private(set) var isPositionedByUser: Bool
+    /// The id as the app gave it when it is `Sendable` (or as SwiftUI wrote it back). SwiftUI's `ScrollPosition(id:)` matches
+    /// views by the id's own type, so the iOS 18+ bridge hands it over unwrapped: an `AnyHashable` wrapper never matched a view
+    /// (PARITY-s1). Not part of `==` (the request carries the same id).
+    var sendableID: (any Hashable & Sendable)?
 
     private static let lock = NSLock()
     nonisolated(unsafe) private static var lastSerial: UInt64 = 0
@@ -46,6 +53,14 @@ public struct ZTronScrollPosition: Equatable, Sendable {
         isPositionedByUser = false
     }
 
+    /// SwiftUI's own shape (`some Hashable & Sendable`); chosen for every `Sendable` id, so the native bridge can pass it on.
+    public init<ID: Hashable & Sendable>(id: ID, anchor: UnitPoint? = nil) {
+        request = .id(AnyHashable(id), anchor)
+        serial = Self.nextSerial()
+        isPositionedByUser = false
+        sendableID = id
+    }
+
     public init(point: CGPoint) { self.init(.point(point)) }
     public init(edge: Edge) { self.init(.edge(edge)) }
     public init(x: CGFloat) { self.init(.x(x)) }
@@ -66,6 +81,9 @@ public struct ZTronScrollPosition: Equatable, Sendable {
     }
 
     public mutating func scrollTo<ID: Hashable>(id: ID, anchor: UnitPoint? = nil) { self = ZTronScrollPosition(id: id, anchor: anchor) }
+    public mutating func scrollTo<ID: Hashable & Sendable>(id: ID, anchor: UnitPoint? = nil) {
+        self = ZTronScrollPosition(id: id, anchor: anchor)
+    }
     public mutating func scrollTo(edge: Edge) { self = ZTronScrollPosition(edge: edge) }
     public mutating func scrollTo(point: CGPoint) { self = ZTronScrollPosition(point: point) }
     public mutating func scrollTo(x: CGFloat) { self = ZTronScrollPosition(x: x) }
@@ -84,7 +102,7 @@ public struct ZTronScrollPosition: Equatable, Sendable {
         return nil
     }
 
-    /// The content offset the position names.
+    /// The content-space point the position names (see the type's notes on content space).
     public var point: CGPoint? {
         switch request {
         case let .point(p)?, let .xy(p)?: return p
@@ -92,9 +110,31 @@ public struct ZTronScrollPosition: Equatable, Sendable {
         }
     }
 
+    /// The x value of a `scrollTo(x:)` / `scrollTo(x:y:)` request (SwiftUI's `x`, iOS 26).
+    public var x: CGFloat? {
+        switch request {
+        case let .x(v)?: return v
+        case let .xy(p)?: return p.x
+        default: return nil
+        }
+    }
+
+    /// The y value of a `scrollTo(y:)` / `scrollTo(x:y:)` request (SwiftUI's `y`, iOS 26).
+    public var y: CGFloat? {
+        switch request {
+        case let .y(v)?: return v
+        case let .xy(p)?: return p.y
+        default: return nil
+        }
+    }
+
     public var edge: Edge? {
         if case let .edge(e)? = request { return e }
         return nil
+    }
+
+    public static func == (lhs: ZTronScrollPosition, rhs: ZTronScrollPosition) -> Bool {
+        lhs.request == rhs.request && lhs.serial == rhs.serial && lhs.isPositionedByUser == rhs.isPositionedByUser
     }
 
     /// The `ZTronScrollPosition` after a user scroll (the driver's write-back): same serial as the value it answers.

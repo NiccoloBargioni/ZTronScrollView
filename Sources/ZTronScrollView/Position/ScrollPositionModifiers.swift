@@ -77,6 +77,8 @@ private struct NativePositionBridge: ViewModifier {
                 return (cache.native as? ScrollPosition) ?? current.native
             },
             set: { new in
+                // SwiftUI writes back the value it was given after a programmatic request; only a different value is news.
+                if let old = cache.native as? ScrollPosition, old == new { return }
                 cache.native = new
                 let converted = ZTronScrollPosition(new, serial: position.wrappedValue.serial)
                 cache.ours = converted

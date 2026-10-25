@@ -162,6 +162,34 @@ struct PositionTests {
         #expect(s.peek.presentationOffset == CGPoint(x: 5, y: 6))
     }
 
+    /// PARITY-s1: SwiftUI's points are in content space, so under a leading inset the point lands at the top-leading corner of
+    /// the unobscured area (offset = point − inset); clamping uses the inset bounds (native, 18.6 / 26.5 / 27.0: under a 50 pt
+    /// top inset `scrollTo(point: (0, 300))` is offset 250, `scrollTo(y: 500)` is 450, `(0, -100)` rests at the top, -50).
+    @Test(arguments: OSPath.allCases) func pointsAreInContentSpaceLikeSwiftUIs(path: OSPath) {
+        let (s, _) = make(path)
+        s.contentInsetAdjustmentBehavior = .never
+        s.contentInset = EdgeInsets(top: 50, leading: 20, bottom: 0, trailing: 0)
+        let d = s.positionDriver
+        d.receive(ZTronScrollPosition(point: CGPoint(x: 0, y: 300)))
+        #expect(s.peek.presentationOffset == CGPoint(x: -20, y: 250))
+        d.receive(ZTronScrollPosition(y: 500))
+        #expect(s.peek.presentationOffset == CGPoint(x: -20, y: 450))              // one axis: x stays
+        d.receive(ZTronScrollPosition(x: 120))
+        #expect(s.peek.presentationOffset == CGPoint(x: 100, y: 450))
+        d.receive(ZTronScrollPosition(point: CGPoint(x: 0, y: -100)))
+        #expect(s.peek.presentationOffset == CGPoint(x: -20, y: -50))              // clamped to the resting top-leading corner
+        d.receive(ZTronScrollPosition(x: 30, y: 9999))
+        #expect(s.peek.presentationOffset == CGPoint(x: 10, y: 700))               // max = 900 + 0 − 200
+    }
+
+    @Test func oneAxisRequestsReadBackLikeSwiftUIs() {
+        #expect(ZTronScrollPosition(x: 4).x == 4 && ZTronScrollPosition(x: 4).y == nil && ZTronScrollPosition(x: 4).point == nil)
+        #expect(ZTronScrollPosition(y: 5).y == 5 && ZTronScrollPosition(y: 5).x == nil)
+        let xy = ZTronScrollPosition(x: 4, y: 5)
+        #expect(xy.x == 4 && xy.y == 5 && xy.point == CGPoint(x: 4, y: 5))         // SwiftUI 18.6: scrollTo(x:y:) reads back a point
+        #expect(ZTronScrollPosition(point: CGPoint(x: 1, y: 2)).x == nil)
+    }
+
     @Test(arguments: OSPath.allCases) func viewRequestsUseTheAnchorOfTheModifierUnlessTheRequestHasOne(path: OSPath) {
         let (s, _) = make(path, anchor: .bottom)
         s.positionDriver.receive(ZTronScrollPosition(id: 4))

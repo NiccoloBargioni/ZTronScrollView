@@ -81,6 +81,68 @@ struct DefaultScrollAnchorTests {
         #expect(abs((y + 50).truncatingRemainder(dividingBy: 100)) < 0.5 || y == 700 || y == 0, "landed at \(y)")
     }
 
+    // MARK: PARITY-s1 · content-size changes follow SwiftUI's rule (measured next to a native ScrollView)
+
+    func contentSize(_ s: ZTronScrollState, _ height: CGFloat) { s.setContentSize(CGSize(width: 300, height: height)) }
+
+    @Test(arguments: OSPath.allCases) func theInitialAnchorHoldsUntilTheViewIsFirstMoved(path: OSPath) {
+        let s = makeState(path)
+        s.now = { 100 }
+        s.initialOffsetAnchor = .bottom
+        s.setMetrics(Self.metrics)
+        #expect(s.peek.presentationOffset.y == 700)
+        contentSize(s, 1032)                                                          // native: 4250 → 4382 after three rows
+        #expect(s.peek.presentationOffset.y == 832)
+        contentSize(s, 900)
+        #expect(s.peek.presentationOffset.y == 700)
+        s.setContentOffset(CGPoint(x: 0, y: 700), animated: false)                  // any command, even to where it is
+        contentSize(s, 1032)
+        #expect(s.peek.presentationOffset.y == 700)                                  // kept from now on
+    }
+
+    @Test(arguments: OSPath.allCases) func aSizeChangesAnchorHoldsAnAxisThatSitsAtItsAnchoredPosition(path: OSPath) {
+        let s = makeState(path)
+        s.now = { 100 }
+        s.sizeChangesAnchor = .bottom
+        s.setMetrics(Self.metrics)
+        contentSize(s, 1032)
+        #expect(s.peek.presentationOffset.y == 0)                                    // at the top, not at the bottom: kept
+        s.setContentOffset(CGPoint(x: 0, y: 832), animated: false)
+        contentSize(s, 1164)
+        #expect(s.peek.presentationOffset.y == 964)                                  // at the bottom: stays at the bottom
+        s.setContentOffset(CGPoint(x: 0, y: 400), animated: false)
+        contentSize(s, 1296)
+        #expect(s.peek.presentationOffset.y == 400)                                  // in between: kept (content above shifts nothing)
+        s.sizeChangesAnchor = .center
+        s.setContentOffset(CGPoint(x: 0, y: 548), animated: false)                   // (1296 − 200) / 2
+        contentSize(s, 1428)
+        #expect(s.peek.presentationOffset.y == 614)                                  // native: 2125 → 2191
+    }
+
+    @Test(arguments: OSPath.allCases) func contentThatFittedGrowsFromItsAlignmentAnchor(path: OSPath) {
+        for (anchor, expected) in [(UnitPoint?.some(.bottom), CGFloat(300)), (.center, 150), (nil, 0)] {
+            let s = makeState(path)
+            s.now = { 100 }
+            s.alignmentAnchor = anchor
+            s.setMetrics(ScrollMetrics(viewportSize: CGSize(width: 100, height: 200), contentSize: CGSize(width: 100, height: 88),
+                                       displayScale: 2))
+            s.setContentOffset(.zero, animated: false)
+            contentSize(s, 500)                                                       // native rows 2 → 5: bottom 70, center 35
+            #expect(s.peek.presentationOffset.y == expected, "\(String(describing: anchor))")
+        }
+    }
+
+    @Test(arguments: OSPath.allCases) func withoutAnchorsAContentChangeKeepsTheOffset(path: OSPath) {
+        let s = makeState(path)
+        s.now = { 100 }
+        s.setMetrics(Self.metrics)
+        s.setContentOffset(CGPoint(x: 0, y: 700), animated: false)
+        contentSize(s, 1032)
+        #expect(s.peek.presentationOffset.y == 700)                                  // native: no pin without an anchor
+        contentSize(s, 600)
+        #expect(s.peek.presentationOffset.y == 400)                                  // clamped
+    }
+
     // MARK: 10 · member, twin, precedence (hosted)
 
     struct Probe: View {
@@ -151,11 +213,18 @@ struct DefaultScrollAnchorTests {
         user = user.positioned(by: .id(AnyHashable(2), nil), serial: user.serial)
         #expect(user.isPositionedByUser && !user.native.isPositionedByUser)
         #expect(ZTronScrollPosition(id: 7) != ZTronScrollPosition(id: 7))            // a new request is a new value
+        // PARITY-s1: a Sendable id reaches SwiftUI with its own type (SwiftUI matches views by it), equal to SwiftUI's own value.
+        #expect(ZTronScrollPosition(id: 3, anchor: .center).native == ScrollPosition(id: 3, anchor: .center))
+        if #available(iOS 26, *) {
+            #expect(ZTronScrollPosition(ScrollPosition(y: 5)).y == 5)                 // 26 reads one-axis requests back
+            #expect(ZTronScrollPosition(ScrollPosition(x: 4)).x == 4)
+        }
     }
 
     final class NativeModel: ObservableObject {
-        @Published var position = ZTronScrollPosition()
+        @Published var position = ZTronScrollPosition() { didSet { writes += 1 } }
         @Published var id: Int?
+        var writes = 0
     }
 
     @Test(arguments: OSPath.allCases) func theTwinDrivesANativeScrollView(path: OSPath) {
@@ -177,6 +246,16 @@ struct DefaultScrollAnchorTests {
         model.position = ZTronScrollPosition(edge: .bottom)
         pump(0.5)
         #expect(sv.contentOffset.y > top + 1000, "offset \(sv.contentOffset.y)")
+        // PARITY-s1: an id request reaches the native view (it never did through an `AnyHashable` wrapper), a point is in
+        // content space (it lands at the top of the unobscured area), and SwiftUI's echo of a request is not written back.
+        let writes = model.writes
+        model.position = ZTronScrollPosition(id: 7, anchor: .top)
+        pump(0.5)
+        #expect(abs(sv.contentOffset.y + sv.adjustedContentInset.top - 700) < 0.5, "id 7: \(sv.contentOffset.y)")
+        model.position = ZTronScrollPosition(point: CGPoint(x: 0, y: 300))
+        pump(0.5)
+        #expect(abs(sv.contentOffset.y + sv.adjustedContentInset.top - 300) < 0.5, "point: \(sv.contentOffset.y)")
+        #expect(model.writes == writes + 2, "writes \(model.writes - writes)")
         unhost(w)
     }
 }

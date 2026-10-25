@@ -30,6 +30,7 @@ struct DemoApp: App {
             case "pager": PagerScreen()
             case "nestedPager": NestedPagerScreen()
             case "targets": TargetsScreen()
+            case "positionParity": PositionParityScreen()
             case "eventLog": EventLogScreen()
             case "refresh": RefreshScreen()
             case "zoom": ZoomScreen()

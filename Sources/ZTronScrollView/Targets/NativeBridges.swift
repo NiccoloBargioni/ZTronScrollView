@@ -106,16 +106,32 @@ extension ZTronScrollPosition {
             request = .edge(edge)
         } else if let point = native.point {
             request = .point(point)
+        } else if #available(iOS 26, *), let axes = Self.axes(native) {
+            request = axes
         } else {
             request = nil
         }
         self.init(request: request, serial: serial, isPositionedByUser: native.isPositionedByUser)
+        sendableID = native.viewID
+    }
+
+    /// iOS 26 reads one-axis requests back (`x` / `y`); before that they read as no request.
+    @available(iOS 26, *)
+    private static func axes(_ native: ScrollPosition) -> Request? {
+        switch (native.x, native.y) {
+        case let (x?, y?): return .xy(CGPoint(x: x, y: y))
+        case let (x?, nil): return .x(x)
+        case let (nil, y?): return .y(y)
+        case (nil, nil): return nil
+        }
     }
 
     /// SwiftUI's position for this request (`x` / `y` requests become one-axis `scrollTo`s).
     public var native: ScrollPosition {
         switch request {
-        case let .id(id, anchor)?: return ScrollPosition(id: SendableID(id), anchor: anchor)
+        case let .id(id, anchor)?:
+            if let typed = sendableID { return ScrollPosition(id: typed, anchor: anchor) }
+            return ScrollPosition(id: SendableID(id), anchor: anchor)
         case let .edge(edge)?: return ScrollPosition(edge: edge)
         case let .point(point)?: return ScrollPosition(point: point)
         case let .x(x)?: return ScrollPosition(x: x)
@@ -126,9 +142,10 @@ extension ZTronScrollPosition {
     }
 }
 
-/// SwiftUI's `ScrollPosition(id:)` wants a `Sendable` id while `AnyHashable` is not. This carries one, and converts back to
-/// the wrapped value when SwiftUI type-erases it (`_HasCustomAnyHashableRepresentation`, a public stdlib protocol), so it
-/// compares equal to the view ids the app gave.
+/// SwiftUI's `ScrollPosition(id:)` wants a `Sendable` id. For an id the app gave as non-`Sendable` this carries it, and
+/// converts back to the wrapped value when type-erased (`_HasCustomAnyHashableRepresentation`, a public stdlib protocol) so it
+/// reads back equal; SwiftUI itself matches views by the id's own type, so such a request does not find the view (PARITY-s1:
+/// every `Sendable` id goes through `sendableID` instead).
 @available(iOS 18, *)
 private struct SendableID: Hashable, @unchecked Sendable, _HasCustomAnyHashableRepresentation {
     let base: AnyHashable

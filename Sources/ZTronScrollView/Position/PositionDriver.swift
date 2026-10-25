@@ -58,6 +58,9 @@ final class PositionDriver {
     /// The animation of the transaction the change arrived in (`withAnimation { position = … }`), live for one run-loop turn.
     private var transactionAnimation: Animation?
     private var didApplyInitialOffset = false
+    /// The initial offset was placed by an anchor and nothing has moved the view since: a content-size change places it again
+    /// (SwiftUI's rule, see `ZTronScrollState.offsetAfterContentSizeChange`).
+    private(set) var initialAnchorHeld = false
 
     /// Write-backs and applied requests (tests and the demo read them; the render counters carry the same numbers in DEBUG).
     private(set) var writes = 0
@@ -135,11 +138,14 @@ final class PositionDriver {
         let z = snapshot.presentationZoom, o = snapshot.presentationOffset
         let bx = g.x.bounds(at: z), by = g.y.bounds(at: z)
         var target = o
+        // A point is in content space, like SwiftUI's: it lands at the top-leading corner of the unobscured area, so the
+        // offset is the point minus the leading insets (PARITY-s1: `scrollTo(point: (0, 300))` under a 50 pt inset is offset 250).
+        let sx = g.x.insets.start, sy = g.y.insets.start
         switch request {
         case .id: break
-        case let .point(p), let .xy(p): target = g.clamped(p, at: z)
-        case let .x(v): target.x = bx.clamped(v)
-        case let .y(v): target.y = by.clamped(v)
+        case let .point(p), let .xy(p): target = g.clamped(CGPoint(x: p.x - sx, y: p.y - sy), at: z)
+        case let .x(v): target.x = bx.clamped(v - sx)
+        case let .y(v): target.y = by.clamped(v - sy)
         case let .edge(e):
             switch e {
             case .top: target.y = by.min
@@ -187,12 +193,14 @@ final class PositionDriver {
         if state.scrollAxes.contains(.horizontal) { o.x = bx.min + a.x * (bx.max - bx.min) }
         if state.scrollAxes.contains(.vertical) { o.y = by.min + a.y * (by.max - by.min) }
         if o != state.peek.presentationOffset { state.setContentOffset(o, animated: false) }
+        initialAnchorHeld = true                             // after the write: setting the offset is an intervention
     }
 
     /// Any scroll command or touch ran: a held request is superseded, and what moves next is not the user's.
     func interventionBegan() {
         pending = nil
         userMotion = false
+        initialAnchorHeld = false
     }
 
     // MARK: Scroll view → client
