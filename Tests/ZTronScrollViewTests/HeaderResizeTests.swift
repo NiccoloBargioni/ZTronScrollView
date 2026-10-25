@@ -12,11 +12,11 @@ struct HeaderResizeTests {
     static let portrait = ViewportMetrics(size: CGSize(width: 402, height: 874), safeArea: EdgeInsets(top: 62, leading: 0, bottom: 34, trailing: 0))
     static let landscape = ViewportMetrics(size: CGSize(width: 874, height: 402), safeArea: EdgeInsets(top: 0, leading: 62, bottom: 21, trailing: 62))
 
-    func make(_ path: OSPath, size: ZTronHeaderSize) -> (ZTronScrollState, Clock) {
+    func make(_ path: OSPath, size: ZTronHeaderSize, behavior: ZTronHeaderScalingBehavior = .preserve) -> (ZTronScrollState, Clock) {
         let clock = Clock()
         let s = makeState(path)
         s.now = { clock.t }
-        s.headerSpec = HeaderSizing(size: size, behavior: .preserve, snap: .disabled)
+        s.headerSpec = HeaderSizing(size: size, behavior: behavior, snap: .disabled)
         s.setViewport(Self.portrait)
         s.setContentSize(CGSize(width: 402, height: 3000))
         s.track(offset: CGPoint(x: 0, y: -s.adjustedContentInset.top), zoom: 1)
@@ -88,5 +88,19 @@ struct HeaderResizeTests {
         scroll(s, oPrime: 180)
         rotate(s, clock, to: Self.portrait)
         #expect(s.headerGeometry?.progress == 1, "the centre rule would land above rest; collapsed is kept: \(oPrime(s))")
+    }
+
+    /// While a resize is open the presentation is the drawn offset of the interpolated geometry and the metrics are the new
+    /// ones: readers read the target instead (found by a DEBUG rotation probe: a `.stretch` banner reported a 196 pt pull
+    /// rotating back to portrait).
+    @Test(arguments: OSPath.allCases) func whileAResizeIsOpenReadersSeeWhereItLands(path: OSPath) {
+        let (s, clock) = make(path, size: .aspectRatio(16.0 / 9.0), behavior: .stretch)
+        rotate(s, clock, to: Self.landscape)
+        s.setViewport(Self.portrait)
+        s.setContentSize(CGSize(width: 402, height: 3000))
+        #expect(s.peek.metrics.resize.isOpen)
+        #expect(s.headerGeometry?.stretch == 0 && s.headerGeometry?.height == 226.125, "\(String(describing: s.headerGeometry))")
+        rotate(s, clock, to: Self.portrait)
+        #expect(s.headerGeometry?.stretch == 0 && s.headerGeometry?.progress == 0)
     }
 }
