@@ -100,6 +100,17 @@ struct HeaderTapButton: View {
     }
 }
 
+/// A childless accessibility element exactly as large as the header's live frame (a `.contain` container would report the
+/// union of its children, overflow included): what the UI tests measure.
+struct HeaderBox: View {
+    var body: some View {
+        Color.clear
+            .accessibilityElement()
+            .accessibilityLabel("header box")
+            .accessibilityIdentifier("header.box")
+    }
+}
+
 /// Records the largest stretch / height it saw (a per-frame reader: it is a leaf, nothing else runs).
 struct HeaderProbe: View {
     let header: ZTronHeaderProxy
@@ -165,6 +176,10 @@ struct ProfileHeader: View {
             .padding(10)
             HeaderProbe(header: header)
         }
+        // Takes the live frame even when the avatar row is taller (the overflow is clipped, the row stays glued to the
+        // bottom edge): the root's frame IS the header's live height for the UI tests.
+        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .bottom)
+        .background(HeaderBox())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("header.root")
     }
@@ -226,6 +241,8 @@ struct BannerHeader: View {
             .overlay(alignment: .bottomLeading) { BannerTitle(header: header).padding(10) }
             .overlay(alignment: .topTrailing) { HeaderTapButton().padding(10) }
             .overlay(HeaderProbe(header: header))
+            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+            .background(HeaderBox())
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("header.root")
     }

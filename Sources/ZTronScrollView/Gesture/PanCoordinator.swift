@@ -170,6 +170,11 @@ final class PanCoordinator: ObservableObject {
 
     func handle(_ incoming: PanEvent) {
         var event = incoming
+        #if DEBUG
+        if case .touchDown = incoming, state.headerSpec?.behavior == .stretch, !peekEnvironment().bouncesY {
+            HeaderDiagnostics.note("withScalingHeader: .stretch shows only when the vertical axis can bounce (scrollable content with .automatic, scrollBounceBehavior(.always) or a refresher); this view's cannot")
+        }
+        #endif
         // The touch-down time becomes `caughtAt` and is compared with `state.now()` at release (fling acceleration):
         // stamp it on the state clock (D14: observer/event clocks differ from the state clock on iOS 27 and on the
         // DragGesture fallback), so `touchDuration` is never negative or decades long.

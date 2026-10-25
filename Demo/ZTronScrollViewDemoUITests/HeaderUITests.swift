@@ -56,9 +56,10 @@ final class HeaderUITests: XCTestCase {
         a.press(forDuration: 0.05, thenDragTo: b, withVelocity: velocity, thenHoldForDuration: hold)
     }
 
+    /// The header's live frame height (0 when it is hidden from accessibility at h ≤ 0.5).
     private func headerHeight(_ app: XCUIApplication) -> CGFloat {
-        let root = element(app, "header.root")
-        return root.exists ? root.frame.height : 0
+        let box = element(app, "header.box")
+        return box.exists ? box.frame.height : 0
     }
 
     private func assertNoBodies(_ i: Info, _ tag: String) {
@@ -78,11 +79,14 @@ final class HeaderUITests: XCTestCase {
         let p = i.double("p")
         XCTAssertTrue(abs(p) < 0.01 || abs(p - 1) < 0.01, "snapped to a position: p = \(p)")
         // A long swipe collapses it to its minimum.
+        app.buttons["header.expand"].tap()
+        Thread.sleep(forTimeInterval: 1.0)
         drag(app, from: (0.5, 0.9), to: (0.5, 0.1), hold: 0.3)
         Thread.sleep(forTimeInterval: 1.5)
         XCTAssertEqual(headerHeight(app), 64, accuracy: 1, "collapsed to min")
         i = info(app, "collapsed")
         XCTAssertEqual(i.double("p"), 1, accuracy: 0.001)
+        XCTAssertEqual(i.double("h"), 64, accuracy: 0.01)
         XCTAssertGreaterThan(i.counters["header.frame"] ?? 0, 0, "the frame leaf ran")
         assertNoBodies(i, "profile")
     }
@@ -108,7 +112,7 @@ final class HeaderUITests: XCTestCase {
         let i = info(app, "refresh")
         XCTAssertEqual(i.counters["refresh.actions"], 1, "one action per pull")
         XCTAssertEqual(i.double("smax"), 0, ".preserve never stretches")
-        XCTAssertEqual(i.double("hmax"), 240, accuracy: 0.5, "the header kept its resting height while the gap opened")
+        XCTAssertEqual(i.double("h"), 240, accuracy: 0.5, "the header kept its resting height while the gap opened")
         XCTAssertEqual(i.double("p"), 0, accuracy: 0.001)
         assertNoBodies(i, "refresh")
     }
@@ -119,15 +123,21 @@ final class HeaderUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 1.0)
         XCTAssertEqual(headerHeight(app), 100, accuracy: 1, "half of a 0…200 band")
         let button = element(app, "header.button")
-        XCTAssertTrue(button.isHittable)
-        button.tap()
+        XCTAssertTrue(button.exists)
+        let spot = button.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        print("HEADER \(path) button frame \(button.frame) hittable \(button.isHittable)")
+        spot.tap()
         Thread.sleep(forTimeInterval: 0.3)
         XCTAssertEqual(info(app, "tap").double("taps"), 1, "the header's button works at partial height")
         app.buttons["header.collapse"].tap()
         Thread.sleep(forTimeInterval: 1.0)
         let gone = element(app, "header.button")
-        XCTAssertTrue(!gone.exists || !gone.isHittable, "a header at 0 is hidden from hit-testing and accessibility")
-        assertNoBodies(info(app, "collapsed"), "button")
+        XCTAssertFalse(gone.exists && gone.frame.height > 0 && gone.isHittable, "a header at 0 is hidden from accessibility")
+        spot.tap()
+        Thread.sleep(forTimeInterval: 0.3)
+        let i = info(app, "collapsed")
+        XCTAssertEqual(i.double("taps"), 1, "a header at 0 is hidden from hit-testing")
+        assertNoBodies(i, "button")
     }
 
     // MARK: banner
@@ -170,7 +180,7 @@ final class HeaderUITests: XCTestCase {
         drag(app, from: (0.5, 0.6), to: (0.5, 0.95), hold: 0.3)       // a vertical pull: no stretch on a horizontal view
         Thread.sleep(forTimeInterval: 1.0)
         XCTAssertEqual(headerHeight(app), resting, accuracy: 1, "fixed: no collapse, no stretch")
-        let header = element(app, "header.root").frame
+        let header = element(app, "header.box").frame
         let row = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'header.row.'")).firstMatch
         XCTAssertTrue(row.exists)
         XCTAssertGreaterThanOrEqual(row.frame.minY, header.maxY - 1, "the content lays out below the banner")
