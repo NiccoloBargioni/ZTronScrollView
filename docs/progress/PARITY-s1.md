@@ -1,5 +1,5 @@
 # PARITY-s1 handoff · 2026-10-25 · Opus 5.5 (side session, Orchestration Open item 9: positions compared against native)
-Status: done on branch `claude/elastic-kirch-23bf73` (not merged) — three user confirmations pending (D53, D54 a, D55 b).
+Status: done on branch `claude/elastic-kirch-23bf73` (not merged); D53, D54 a and D55 b confirmed by the user 2026-10-26.
 Report: `docs/design/PARITY-positions.md` (method, the 25-row parity table per API × OS, decisions, open). Raw readouts and
 the n / b / z comparer: side-session notes `parity-s1/`.
 Changed:
@@ -25,7 +25,6 @@ resets y, c same id + new anchor ignored on 18/26, d 17.5 id binding of eager st
 D55 OS-dependent native behaviour (a initial anchor on growth: 27+ only, b 17.5 center fraction rule not mirrored,
 c 17's id-binding top alignment mirrored on < 18).
 Open:
-- User: confirm D53 (behaviour-visible: `ZTronScrollPosition()` reports no view, like `ScrollPosition()`), D54 a, D55 b.
 - Fitted content: SwiftUI reports its alignment as content inset / offset in `onScrollGeometryChange`, ours as padding
   (drawn alike) — M7 geometry parity follow-up.
 - Native `LazyVStack` keeps visible rows in place on insertion above (M9). Not measured: per-view `onScrollVisibilityChange`
@@ -34,8 +33,8 @@ Open:
   regression whose fix (DBG-s2, e8c5674 on `claude/determined-lederberg-7907ea`) was never merged into main;
   `ProofUITests.testNoClockTicksAtRest` red on this fresh 27.0 device at the base commit 80e2e08 too (2 ticks, the known
   fresh-device artifact); `PagerUITests.testPagerArbitration` on 17.5 = Q3 (D50).
-Next: 1. User answers D53 / D54 a / D55 b. 2. Merge the branch (docs rows touch shared files: parity-matrix, Orchestration,
-STATE, SPEC). 3. M7 follow-up: `ScrollGeometry` for fitted content.
+Next: 1. Merge the branch (docs rows touch shared files: parity-matrix, Orchestration, STATE, SPEC). 2. M7 follow-up:
+`ScrollGeometry` for fitted content (session `scrollgeometry-parity-vs` started 2026-10-26).
 Tests (private fresh simulators, own derived data):
 - Unit `scripts/test.sh -only-testing:ZTronScrollViewTests` → 681/681 (57 suites) on 27.0 and 17.5 at da9d482 (library
   code unchanged since).

@@ -57,7 +57,7 @@ behaviour are recorded (D54). Raw readouts: side-session notes `parity-s1/*.txt`
 | 24 | `onScrollTargetVisibilityChange` under a 50 pt inset | the unobscured area (offset 250: rows 7, 8) | the whole viewport (6, 7, 8) | unobscured area | — | ✓ | ✓ | ✓ | **fixed** |
 | 25 | `LazyVStack`, rows inserted above | keeps the visible rows in place (1214 → 1346), even with the binding `nil` | — (no lazy stack) | — | — | — | — | — | Open: M9 |
 
-## 3. Decisions (Orchestration D53–D55)
+## 3. Decisions (Orchestration D53–D55; D53, D54 a and D55 b confirmed by the user 2026-10-26)
 
 - **D53 · write-back.** The position bindings follow SwiftUI's measured write-back (rows 10, 11, 13) instead of M6's
   "≤ 2 writes per gesture" (design Q2): while the user moves the view the binding follows the reported view, once per change;
