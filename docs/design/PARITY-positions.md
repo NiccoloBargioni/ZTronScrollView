@@ -42,7 +42,7 @@ behaviour are recorded (D54). Raw readouts: side-session notes `parity-s1/*.txt`
 | 9 | read-back `point` / `x` / `y` | `scrollTo(x:y:)` reads as `point`, 26+ `x` / `y` nil; `scrollTo(y:)` reads 26+ `y` | no `x` / `y` | `x` / `y` for one-axis requests only | — | ✓ | ✓ | ✓ | **fixed** (API added) |
 | 10 | user scroll → `ScrollPosition(idType: Int.self)` | the reported view is written every time it changes (a 10-row fling: 11 writes), never a point; `isPositionedByUser` stays **false**. Id type `Never`: one write per gesture, nothing named, `isPositionedByUser` true | ≤ 2 writes (release target + settle), view under the anchor point else `point`, any id type | one write per view passed, id type filter, no point, `isPositionedByUser` true | — | ✓ | ✓ | ✓ | **fixed**; user flag ✗ by choice (D54 a) |
 | 11 | which view a user scroll reports | anchor point nearest the unobscured area's anchor point: top anchor = nearest row top (offset 34 → row 1, 69.7 → row 2), center = the row holding the center | the row under the top edge (34 → 0, 69.7 → 1) | nearest anchor point | ✓ | ✓ | ✓ | ✓ | **fixed** |
-| 12 | `scrollPosition(id:)` set by the app (ids, insets, center anchor, lazy, `withAnimation`, `nil`) | as rows 6–8 | same | same | ✓ | ✓ | ✓ | ✓ | parity |
+| 12 | `scrollPosition(id:)` set by the app (ids, insets, center anchor, lazy, `withAnimation`, `nil`) | 18+: as rows 6–8; 17.5: without an anchor the row's top meets the (unobscured) top (1320, 2640, 1270 under the inset) | the 18+ least scroll everywhere | least scroll from iOS 18, top-leading before | ✓ | ✓ | ✓ | ✓ | **fixed**, per OS like native (D55 c) |
 | 13 | `scrollPosition(id:)` after a user scroll | written per row passed, nearest rule; **17.5 + non-lazy stack: never written** (lazy: written) | ≤ 2 writes | per row passed | ✗ (non-lazy) / ✓ (lazy) | ✓ | ✓ | ✓ | **fixed**; 17.5 native defect (D54 d) |
 | 14 | programmatic scroll (reader jump, animated offset) | writes nothing | nothing | nothing | ✓ | ✓ | ✓ | ✓ | parity |
 | 15 | R5 view-aligned limits (fling over 120 pt cells) | never 480, byOne / byFew / automatic 240 | same | same | ✓ (offsets; ids on `LazyHStack`) | ✓ | ✓ | ✓ | parity; M6-s3's 17.5 "native = 0" = row 13's defect + the no-op Reset |
@@ -70,7 +70,9 @@ behaviour are recorded (D54). Raw readouts: side-session notes `parity-s1/*.txt`
   ours does, like 18+.
 - **D55 · OS-dependent native behaviour.** (a) the initial anchor re-applied on content growth before the first scroll exists
   only on 27.0 → ours on iOS 27+ only (per-OS parity); (b) 17.5's center anchor keeps a fraction of the range on content
-  changes → ours uses the 18+ rule everywhere (the user may ask for the 17 rule on 15–17).
+  changes → ours uses the 18+ rule everywhere (the user may ask for the 17 rule on 15–17); (c) SwiftUI 17's
+  `scrollPosition(id:)` without an anchor puts the named view at the top, 18+ scrolls the least → ours does the same per OS
+  (15–16, which have no SwiftUI version, follow 17).
 
 ## 4. Open
 

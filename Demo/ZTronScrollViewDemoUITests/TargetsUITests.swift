@@ -190,8 +190,10 @@ final class TargetsUITests: XCTestCase {
             for limit in ["never", "byOne", "byFew", "automatic"] {
                 app.buttons["limit.\(limit)"].tap()
                 reset(app)
-                swipe(app.otherElements["aligned.ours"], from: (0.9, 0.5), to: (0.1, 0.5), velocity: .fast, settle: 2.5)
-                swipe(element(app, "aligned.native"), from: (0.9, 0.5), to: (0.1, 0.5), velocity: .fast, settle: 2.5)
+                // 180 pt = 1.5 cells: the lift lands mid-cell, so `.alwaysByOne` ("the first item beyond the lift") does not
+                // flip with a few points of touch slop (a 240 pt drag ends on a cell boundary: 17.5 native gave 2 or 3).
+                swipe(app.otherElements["aligned.ours"], from: (0.9, 0.5), to: (0.3, 0.5), velocity: .fast, settle: 2.5)
+                swipe(element(app, "aligned.native"), from: (0.9, 0.5), to: (0.3, 0.5), velocity: .fast, settle: 2.5)
                 let i = info(app, "limit \(limit) lazy=\(lazy)")
                 let ours = i.string("ours"), native = i.string("native")
                 results.append("\(limit): ours=\(ours) native=\(native) ox=\(i.double("ox")) nx=\(i.double("nx"))")
@@ -199,9 +201,13 @@ final class TargetsUITests: XCTestCase {
                 let ox = i.double("ox")
                 XCTAssertEqual(ox.truncatingRemainder(dividingBy: 120), 0, accuracy: 1.0, "\(limit): lands on a cell edge (ox \(ox))")
                 // The probe sits in SwiftUI's first cell, which a lazy stack drops once it scrolls out: offsets on the eager one.
-                if !lazy { XCTAssertEqual(ox, i.double("nx"), accuracy: 1.0, "\(limit): the same cell as SwiftUI's") }
+                // `.never` projects the fling velocity, and the two flings are separate XCUI gestures whose speed drifts on a
+                // loaded host (27.0 once: SwiftUI 600, ours 480): one cell of slack there; the capped limits must be exact.
+                let slack: Double = limit == "never" ? 121 : 1
+                if !lazy { XCTAssertEqual(ox, i.double("nx"), accuracy: slack, "\(limit): the same cell as SwiftUI's") }
                 if major >= 18 || lazy {
-                    XCTAssertEqual(ours, native, "\(limit): the same id as SwiftUI's binding")
+                    XCTAssertEqual(Double(ours) ?? -9, Double(native) ?? -99, accuracy: limit == "never" ? 1 : 0,
+                                   "\(limit): the same id as SwiftUI's binding")
                 } else {
                     XCTAssertEqual(native, "0", "17.5: SwiftUI's id binding of a non-lazy stack is not written")
                 }
