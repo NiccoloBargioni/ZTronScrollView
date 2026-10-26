@@ -332,6 +332,10 @@ struct HeaderBackgroundView: View {
             }
         }
         .allowsHitTesting(false)
+        // The whole subtree's accessibility is replaced by nothing (iOS 15): `accessibilityHidden` alone, even on an
+        // ignoring element, left the ambient copy's own elements (a `.contain` container inside the header content)
+        // exposed (measured in HeaderUITests: two header buttons).
+        .accessibilityRepresentation { Color.clear.accessibilityHidden(true) }
         .accessibilityHidden(true)
     }
 }

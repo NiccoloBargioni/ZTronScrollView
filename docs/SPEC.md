@@ -440,7 +440,8 @@ Calibrate the defaults side by side with UIRefreshControl.
 
 A banner-style header laid out as the first thing of the scroll view, above the content. It collapses from its resting height to a
 minimum as the content scrolls up (shrinking from the bottom, its top edge pinned), stays at the minimum while the content scrolls by,
-and reacts to a pull past the top either not at all (`.preserve`) or by growing with the pull (`.stretch`). The reference (Exyte) reaches the
+and reacts to a pull past the top either by moving down with the content at its resting height (`.preserve`, amended 2026-10-26) or by
+growing with the pull (`.stretch`). The reference (Exyte) reaches the
 underlying UIScrollView through UIKit introspection; that is forbidden here (S2) and this design uses none of it, nor reflection or private
 API: the header is driven by our own offset state through a leaf modifier. (Amendment 2026-10-19 (user): confirmed, no introspection anywhere.)
 
@@ -455,6 +456,8 @@ extension ZTronScrollView {
         scalingBehavior: ZTronHeaderScalingBehavior = .preserve,
         snap: ZTronHeaderSnap = .disabled,
         fade: ZTronHeaderFade? = nil,
+        background: ZTronHeaderBackground? = nil,         // 2026-10-26 (user): .ambientBlur(radius:) / .frostedGlass(radius:) / .color / .view { }
+        overflow: ZTronHeaderOverflow = .uncapped,        // D52 (user): .uncapped / .capped(fraction:) / .refit
         @ViewBuilder header: @escaping (ZTronHeaderProxy) -> Header) -> Self
 }
 public enum ZTronHeaderSize: Equatable, Sendable {
@@ -564,9 +567,9 @@ positions and progress share one convention (0 = expanded, 1 = collapsed); the r
 | | `.preserve` | `.stretch` |
 |---|---|---|
 | live height `h` | `R − c` | `R − c + g` |
-| header frame / proposal | `(0, top0, W, h)` / `(W, h)`, clipped | same |
-| top edge | pinned at `top0`, always | pinned at `top0`, always |
-| pull past the top (`g > 0`) | no consequence on the header: height `R`; the content pulls away and a gap `g` opens between the header's bottom and the content's top (the scroll view's background shows; a refresh indicator lives there) | the header grows by `g` from its bottom edge; a `scaledToFill` child zooms in with the pull; the header's bottom edge stays glued to the content's top (no gap) |
+| header frame / proposal | `(0, top0 + g, W, h)` / `(W, h)`, clipped | `(0, top0, W, h)` / `(W, h)`, clipped |
+| top edge | `top0 + g`: pinned at `top0` except under a pull, where it moves down with the content | pinned at `top0`, always |
+| pull past the top (`g > 0`) | **(amended 2026-10-26, user)** the header keeps its height `R` and moves down with the content by `g`: its bottom edge stays on the content's top and a gap `g` opens ABOVE it, between `top0` and the header's top (the scroll view's background shows; a refresh indicator lives there) | the header grows by `g` from its bottom edge; a `scaledToFill` child zooms in with the pull; the header's bottom edge stays glued to the content's top (no gap) |
 | scroll up (`0 < o′ ≤ band`) | shrinks from the bottom, top pinned: `h = R − c` | same |
 | past the band | `h = min`; the content scrolls by under it; with `min = 0` it has vanished | same |
 | `progress` / `stretch` | `band > 0 ? c / band : 0` / `0` | same / `g` |
@@ -595,8 +598,21 @@ snapping off, `.stretch` still grows; DEBUG warning when both bounds were given 
 
 **Refresh with the header (amended).** Only S9's API. The indicator placement follows from the live header height: with `.stretch` the
 hold `H` stretches the header by `H` and the indicator floats over the stretched band (overlay placement whatever `overlay:` says, because
-there is no gap); with `.preserve` the indicator sits in the gap between the header's bottom and the content's top (height `H` while
-refreshing). Load-more at the bottom is unaffected by the header.
+there is no gap); with `.preserve` the indicator sits in the gap above the header, `[top0, top0 + pull]` (height `H` while refreshing; the
+header moved down by `H` with the content, amended 2026-10-26 by the user). Load-more at the bottom is unaffected by the header.
+
+**Background (2026-10-26, user).** `background: ZTronHeaderBackground? = nil` wraps the header in a container whose background fills the
+header's live frame, below the header's content and below the fade, clipped with it, hidden from accessibility and hit-testing: so an aspect
+ratio ≤ 1 or a refit / aspect-fit content never leaves blank areas. `.ambientBlur(radius:)` = a blurred, scaled-to-fill second instance of the
+header's own content (its body runs once more per cold change, never per frame); `.frostedGlass(radius:)` = a backdrop blur with the system
+`Material` nearest to `radius` (approximate); `.color(Color)`; `.view { … }` (type-erased). It follows the live frame in every animation
+(collapse, `.stretch` growth, the `.preserve` translation, resizes, rotations) by layout.
+
+**Seamless edges (2026-10-26, user, mission critical).** In every header animation the header's bottom edge stays on the content's top edge,
+laterally aligned, with no one-frame jumps: system rotations, app-driven animated resizes, `.fit` re-measures, refresh holds, snaps and
+`scrollTo`. The header's geometry comes from layout (its slot's top edge from the safe area, `R(W, H)` with the size and the overflow policy
+resolved in the same layout pass as the container, `.fit`'s measurement adopted by the viewport commit of the same update); the content and
+the header are each one layer group (`geometryGroup` 17+, `compositingGroup` 15–16) so Core Animation moves them rigidly in a rotation.
 
 **Snapping (kept; convention amended).** Only inside the band; positions as collapse progress (0 expanded, 1 collapsed; default `[0, 1]`).
 `.immediately` resolves the release target to the nearest position, velocity-aware, through the normal target pipeline after the user's
