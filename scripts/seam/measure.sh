@@ -2,14 +2,14 @@
 # M8b-3 R5 seam lab: records the simulator screen while one SeamLabUITests method drives the seam lab, then measures
 # the header/content seam per frame (scripts/seam/analyze.py).
 #
-# usage: scripts/seam/measure.sh <udid> <rotate|width> <out-dir> -- <launch args...> [--forced]
+# usage: scripts/seam/measure.sh <udid> <rotate|width|pull> <out-dir> -- <launch args...> [--forced]
 #   e.g. scripts/seam/measure.sh 7190…60FA rotate out/aspect-rest -- -ZTronHeaderSize aspect -ZTronSeamStart rest
 # env: ZS_SEAM_DD     derived-data path (default: <repo>/.dd/<udid>; one xcodebuild per path)
 #      ZS_SEAM_TIMEOUT seconds before the test run is killed as hung (default 1500)
 # Output in <out-dir>: rec.mov (the recording), meta.json, test.log, frames.csv, summary.json, worst-*.png.
 set -u
 root="$(cd "$(dirname "$0")/../.." && pwd)"
-udid="${1:?udid}"; test="${2:?rotate|width}"; out="${3:?out-dir}"; shift 3
+udid="${1:?udid}"; test="${2:?rotate|width|pull}"; out="${3:?out-dir}"; shift 3
 [ "${1:-}" = "--" ] && shift
 forced=""; args=()
 for a in "$@"; do
@@ -18,7 +18,8 @@ done
 case "$test" in
   rotate) method="testRotate" ;;
   width) method="testWidth" ;;
-  *) echo "test must be rotate or width" >&2; exit 2 ;;
+  pull) method="testPull" ;;
+  *) echo "test must be rotate, width or pull" >&2; exit 2 ;;
 esac
 mkdir -p "$out"; out="$(cd "$out" && pwd)"
 dd="${ZS_SEAM_DD:-$root/.dd/$udid}"

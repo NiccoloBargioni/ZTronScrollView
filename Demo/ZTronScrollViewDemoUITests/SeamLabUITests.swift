@@ -39,6 +39,22 @@ final class SeamLabUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 2.5)
     }
 
+    /// A pull past the top: press on the content, drag down 220 pt slowly, hold 1.5 s (the finger stays down), release (the
+    /// content springs back). `.preserve`: the header moves down with the content (the gap opens above it); `.stretch`: it
+    /// grows. Either way its bottom edge stays on the content's top.
+    func testPull() {
+        let app = launch()
+        XCTAssertTrue(app.buttons["seam.width"].waitForExistence(timeout: 10))
+        Thread.sleep(forTimeInterval: 1.5)
+        let window = app.windows.firstMatch
+        let start = window.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.55))
+        let end = start.withOffset(CGVector(dx: 0, dy: 220))
+        print("SEAMLAB mark pull \(Date().timeIntervalSince1970)")
+        start.press(forDuration: 0.1, thenDragTo: end, withVelocity: 300, thenHoldForDuration: 1.5)
+        print("SEAMLAB mark release \(Date().timeIntervalSince1970)")
+        Thread.sleep(forTimeInterval: 2.0)
+    }
+
     /// Full width, 60 % (animated 1.2 s), full width again.
     func testWidth() {
         let app = launch()

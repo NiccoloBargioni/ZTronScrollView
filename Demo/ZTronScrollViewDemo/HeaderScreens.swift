@@ -3,11 +3,13 @@ import ZTronScrollView
 
 // M8b-3: the scaling-header screens (docs/design/M8b-refresh-header.md §3, SPEC S14 "Refresh and header").
 // `-ZTronScreen profile`: `.fixed(min: 64, max: 240)`, `.preserve`, `-ZTronHeaderSnap immediately|after|disabled` (default
-// immediately), a `.system` refresher in the gap, the avatar scale and the title fade through the reader.
+// immediately), a `.system` refresher in the gap a pull opens above the header (the header moves down with the content),
+// the avatar scale and the title fade through the reader.
 // `-ZTronScreen banner`: `-ZTronHeaderSize aspect|fixed|fit` (default aspect = `.aspectRatio(16/9)`),
 // `-ZTronHeaderOverflow uncapped|capped|refit` (capped = `.capped(fraction: 0.6)`), `.stretch`, a fade,
 // the title font from the live height, an overlay refresher over the stretched band, a horizontal-axis toggle.
-// Both show `content.body`, `header.builder`, `header.frame`, `refresh.actions`, `header.measure` and a `stateInfo` line
+// Both take `-ZTronHeaderBackground ambient|glass|color|view|none` (ZTronHeaderBackground, default none) and show
+// `content.body`, `header.builder`, `header.frame`, `refresh.actions`, `header.measure` and a `stateInfo` line
 // (`y`, `p` progress, `h` height, `R` resting, `smax` largest stretch, `taps` header button taps) after `Info`.
 
 enum HeaderDemo {
@@ -17,6 +19,17 @@ enum HeaderDemo {
         return fallback
     }
 
+    /// `-ZTronHeaderBackground`: the header's background (what shows where the content leaves the live frame uncovered).
+    static var background: ZTronHeaderBackground? {
+        switch argument("-ZTronHeaderBackground", "none") {
+        case "ambient": return .ambientBlur(radius: 30)
+        case "glass": return .frostedGlass(radius: 20)
+        case "color": return .color(.black)
+        case "view": return .view { LinearGradient(colors: [.purple, .orange], startPoint: .topLeading, endPoint: .bottomTrailing) }
+        default: return nil
+        }
+    }
+
     static let keys = ["content.body", "header.builder", "header.frame", "refresh.actions", "header.measure"]
 
     /// The largest stretch and height the header's readers saw since the last reset (written by leaves, read by `Info`).
@@ -24,7 +37,11 @@ enum HeaderDemo {
     @MainActor static var maxHeight: CGFloat = 0
     @MainActor static var taps = 0
 
-    static func load() async { try? await Task.sleep(nanoseconds: 600_000_000) }
+    /// The refresh action: `-ZTronLoadSeconds <s>` (default 0.6).
+    static func load() async {
+        let s = Double(argument("-ZTronLoadSeconds", "0.6")) ?? 0.6
+        try? await Task.sleep(nanoseconds: UInt64(max(0, s) * 1_000_000_000))
+    }
 }
 
 /// A content row that counts its own body: no collapse, stretch, snap or refresh may run it.
@@ -145,7 +162,8 @@ struct ProfileScreen: View {
             ZTronScrollView(.vertical, state: state) {
                 VStack(spacing: 0) { ForEach(0..<40, id: \.self) { HeaderRow(index: $0) } }
             }
-            .withScalingHeader(size: .fixed(min: 64, max: 240), scalingBehavior: .preserve, snap: snap) { header in
+            .withScalingHeader(size: .fixed(min: 64, max: 240), scalingBehavior: .preserve, snap: snap,
+                               background: HeaderDemo.background) { header in
                 ProfileHeader(header: header)
             }
             .refresher(style: .system) { await HeaderDemo.load() }
@@ -231,7 +249,8 @@ struct BannerScreen: View {
                 VStack(spacing: 0) { ForEach(0..<40, id: \.self) { HeaderRow(index: $0) } }
             }
         }
-        .withScalingHeader(size: size, scalingBehavior: .stretch, fade: .linear(to: .black, from: 0.4), overflow: overflow) { header in
+        .withScalingHeader(size: size, scalingBehavior: .stretch, fade: .linear(to: .black, from: 0.4),
+                           background: HeaderDemo.background, overflow: overflow) { header in
             BannerHeader(header: header)
         }
         .refresher(overlay: true) { await HeaderDemo.load() }

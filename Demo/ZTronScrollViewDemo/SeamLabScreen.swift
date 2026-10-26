@@ -6,11 +6,17 @@ import ZTronScrollView
 // content), a pure red header filling its live frame, a pure green first row (80 pt), then 40 rows alternating pure
 // yellow / pure magenta (60 pt). No text in the measured column.
 // `-ZTronHeaderSize fixed|aspect|fit` (fixed = .fixed(min: 64, max: 240), aspect = .aspectRatio(16/9, min: 64),
-// fit = .fit(min: 64) over a 16:9 red view), `-ZTronHeaderBehavior preserve|stretch`, `-ZTronSeamStart rest|half`
-// (half = snapHeader(.progress(0.5), animated: false) before the first layout), `-ZTronSeamInset <pt>`
-// (contentInset.top: the analyzer's control, a known gap between the header's bottom and the content's top).
+// fit = .fit(min: 64) over a 16:9 red view), `-ZTronHeaderBehavior preserve|stretch`,
+// `-ZTronSeamStart rest|half|collapsed` (half = snapHeader(.progress(0.5), animated: false) before the first layout,
+// collapsed = snapHeader(.collapsed)), `-ZTronSeamInset <pt>` (contentInset.top: the analyzer's control, a known gap
+// between the header's bottom and the content's top), `-ZTronHeaderOverflow uncapped|capped|refit` (D52; capped =
+// .capped(fraction: 0.5)), `-ZTronHeaderBackground ambient|glass|color|view` (ZTronHeaderBackground: with ambient, color
+// and view the red content is a 16:9 box fitted into the frame and the background, red too, fills the rest of the live
+// frame, so the analyzer measures the BACKGROUND's edges wherever the frame is not 16:9; glass keeps the filling content,
+// a material is not a pure color).
 // The white square at the bottom-trailing corner (`seam.width`) animates the scroll view's width between full and 60 %
-// of the screen (easeInOut 1.2 s), centered: an app-driven animated viewport resize.
+// of the screen (easeInOut 1.2 s), centered: an app-driven animated viewport resize. SeamLabUITests.testPull drags the
+// content down from its middle and holds (the `.preserve` header moves down with it, the `.stretch` one grows).
 
 enum SeamLab {
     static let red = Color(red: 1, green: 0, blue: 0)
@@ -34,8 +40,32 @@ enum SeamLab {
     }
 
     static var startsHalf: Bool { HeaderDemo.argument("-ZTronSeamStart", "rest") == "half" }
+    static var startsCollapsed: Bool { HeaderDemo.argument("-ZTronSeamStart", "rest") == "collapsed" }
 
     static var inset: CGFloat { CGFloat(Double(HeaderDemo.argument("-ZTronSeamInset", "0")) ?? 0) }
+
+    static var overflow: ZTronHeaderOverflow {
+        switch HeaderDemo.argument("-ZTronHeaderOverflow", "uncapped") {
+        case "capped": return .capped(fraction: 0.5)
+        case "refit": return .refit
+        default: return .uncapped
+        }
+    }
+
+    static var backgroundName: String { HeaderDemo.argument("-ZTronHeaderBackground", "none") }
+
+    static var background: ZTronHeaderBackground? {
+        switch backgroundName {
+        case "ambient": return .ambientBlur(radius: 20)
+        case "glass": return .frostedGlass(radius: 20)
+        case "color": return .color(red)
+        case "view": return .view { LinearGradient(colors: [red, red], startPoint: .top, endPoint: .bottom) }
+        default: return nil
+        }
+    }
+
+    /// The header content leaves room for the background (a 16:9 box fitted into the live frame).
+    static var letterboxed: Bool { ["ambient", "color", "view"].contains(backgroundName) }
 }
 
 struct SeamLabScreen: View {
@@ -44,6 +74,7 @@ struct SeamLabScreen: View {
         s.contentInset.top = SeamLab.inset
         // Queued before the first layout: applied unanimated once the header, viewport and content are known.
         if SeamLab.startsHalf { s.snapHeader(to: .progress(0.5), animated: false) }
+        if SeamLab.startsCollapsed { s.snapHeader(to: .collapsed, animated: false) }
         return s
     }()
     @State private var narrow = false
@@ -55,7 +86,8 @@ struct SeamLabScreen: View {
                 // edges it touches and reserves the safe area in adjustedContentInset (top0 = the safe-area top).
                 ZTronScrollView(.vertical, state: state) { SeamLabContent() }
                     .scrollIndicators(.hidden)
-                    .withScalingHeader(size: SeamLab.size, scalingBehavior: SeamLab.behavior) { _ in SeamLabHeader() }
+                    .withScalingHeader(size: SeamLab.size, scalingBehavior: SeamLab.behavior, background: SeamLab.background,
+                                       overflow: SeamLab.overflow) { _ in SeamLabHeader() }
                     .background(SeamLab.blue)
                     .frame(width: narrow ? g.size.width * 0.6 : g.size.width, height: g.size.height)
                     .frame(maxWidth: .infinity)
@@ -74,9 +106,14 @@ struct SeamLabScreen: View {
 }
 
 /// The header: pure red filling the live frame. Under `.fit` a 16:9 red view measures W · 9/16 at the proposed width.
+/// With a letterboxing background the red content is a 16:9 box fitted into the frame (the background fills the rest).
 struct SeamLabHeader: View {
     var body: some View {
-        if SeamLab.isFit {
+        if SeamLab.letterboxed {
+            SeamLab.red
+                .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+        } else if SeamLab.isFit {
             SeamLab.red
                 .aspectRatio(16.0 / 9.0, contentMode: .fit)
                 .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)

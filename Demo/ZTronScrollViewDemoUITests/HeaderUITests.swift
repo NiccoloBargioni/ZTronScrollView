@@ -101,11 +101,35 @@ final class HeaderUITests: XCTestCase {
         assertNoBodies(i, "after")
     }
 
-    func testProfileRefreshesInTheGapBelowTheHeader() {
-        let app = launch("profile")
+    /// User decision 2026-10-26: under `.preserve` the pull and the refresh hold move the header down with the content (its
+    /// height stays R, its bottom edge on the content's top) and the indicator sits in the gap ABOVE it.
+    func testProfileRefreshesInTheGapAboveTheHeader() {
+        let app = launch("profile", ["-ZTronLoadSeconds", "4"])
         let a11y = element(app, "ztron.refresh.a11y.top")
         XCTAssertTrue(a11y.waitForExistence(timeout: 3))
+        let scroller = element(app, "header.scroller").frame
+        let rest = element(app, "header.box").frame
         drag(app, from: (0.5, 0.05), to: (0.5, 0.95), hold: 0.4)
+        // While the action runs (4 s), the header rests below the hold.
+        let holding = Date().addingTimeInterval(3)
+        while Date() < holding, (a11y.value as? String) == "Idle" { Thread.sleep(forTimeInterval: 0.1) }
+        Thread.sleep(forTimeInterval: 0.6)
+        let header = element(app, "header.box").frame
+        let row = element(app, "header.row.0").frame
+        print("HEADER \(path) refresh hold: scroller \(scroller) rest \(rest) header \(header) row0 \(row)")
+        XCTAssertGreaterThan(header.minY, rest.minY + 20, "the header moved down with the hold (gap above it)")
+        XCTAssertEqual(header.height, 240, accuracy: 1, "the header kept its resting height")
+        if abs(row.height - 50) < 1 {   // the row's frame (not only its text's)
+            XCTAssertEqual(row.minY, header.maxY, accuracy: 1, "the header's bottom edge is the content's top")
+        } else {
+            XCTAssertGreaterThanOrEqual(row.minY, header.maxY - 1, "the content starts below the header")
+        }
+        let spinner = app.activityIndicators.firstMatch
+        if spinner.exists {
+            print("HEADER \(path) spinner \(spinner.frame)")
+            XCTAssertLessThanOrEqual(spinner.frame.maxY, header.minY + 1, "the indicator sits above the header")
+            XCTAssertGreaterThanOrEqual(spinner.frame.minY, rest.minY - 1, "inside the gap, below the slot's top")
+        }
         let end = Date().addingTimeInterval(8)
         while Date() < end, (a11y.value as? String) != "Idle" { Thread.sleep(forTimeInterval: 0.2) }
         Thread.sleep(forTimeInterval: 1.0)
@@ -205,6 +229,22 @@ final class HeaderUITests: XCTestCase {
         let back = info(app, "portrait")
         XCTAssertEqual(back.double("p"), 0.5, accuracy: 0.01)
         XCTAssertEqual(back.counters["content.body"], 0, "content.body 0 across two rotations")
+    }
+
+    /// User decision 2026-10-26: `.ambientBlur` draws a second instance of the header content behind it; that copy is
+    /// hidden from accessibility (one button, one box) and from hit-testing (one tap counted), and nothing runs per frame.
+    func testAmbientBackgroundIsHiddenAndNeverRunsPerFrame() {
+        let app = launch("banner", ["-ZTronHeaderSize", "fixed", "-ZTronHeaderBackground", "ambient"])
+        XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "header.button").count, 1, "the copy's button is hidden")
+        XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "header.box").count, 1, "the copy's box is hidden")
+        element(app, "header.button").tap()
+        Thread.sleep(forTimeInterval: 0.3)
+        XCTAssertEqual(info(app, "ambient tap").double("taps"), 1, "one tap: the copy is not hit-testable")
+        drag(app, from: (0.5, 0.8), to: (0.5, 0.4), hold: 0.3)
+        Thread.sleep(forTimeInterval: 1.0)
+        drag(app, from: (0.5, 0.2), to: (0.5, 0.6), hold: 0.3)
+        Thread.sleep(forTimeInterval: 1.5)
+        assertNoBodies(info(app, "ambient"), "ambient")
     }
 
     func testFitMeasuresTheNaturalHeight() {
