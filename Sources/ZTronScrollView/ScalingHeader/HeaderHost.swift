@@ -1,8 +1,10 @@
 import SwiftUI
 
-/// The container's header hook (design M8b §2.2): drawn in the viewport overlay, top edge pinned, above the content and
-/// below the refresh indicators and the scroll indicators. Cold: its body runs on install, on a parent rebuild (a new
-/// builder closure is always applied, R7) and never because of scrolling, refreshing, collapse or stretch.
+/// The container's header hook (design M8b §2.2): drawn in an overlay of the viewport attached after its
+/// `.ignoresSafeArea` (SwiftUI places the header slot's top edge at the safe-area top in the same layout pass as the
+/// container), above the content and below the refresh indicators and the scroll indicators. Cold: its body runs on
+/// install, on a parent rebuild (a new builder closure is always applied, R7) and never because of scrolling,
+/// refreshing, collapse, stretch or a resize.
 struct HeaderHost: View {
     let spec: HeaderSpec
     let state: ZTronScrollState
@@ -13,10 +15,17 @@ struct HeaderHost: View {
         #endif
         // The ONLY place the user's builder runs. The erased type is fixed at the call site, so the header keeps its
         // identity and `@State` across every update; the modifiers below never change structure (a `size` change keeps it).
-        return spec.builder(ZTronHeaderProxy(state: state))
+        let built = spec.builder(ZTronHeaderProxy(state: state))
+        // The header stack, built here (cold) and framed by the hot leaf: the content fills the live frame (top-aligned;
+        // proposed no height, its ideal height: `.fit` measures through it), the background below it fills the same frame
+        // (an ambient copy is the same builder result, a second instance), the fade above it.
+        return built
             .modifier(HeaderMeasure(state: state, active: spec.size.isFit))
             .modifier(HeaderInteractionGate(state: state))
-            .modifier(HeaderFrameModifier(state: state, fade: spec.fade))
+            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .top)
+            .background(HeaderBackgroundView(background: spec.background, copy: built))
+            .overlay(HeaderFade(fade: spec.fade))
+            .modifier(HeaderFrameModifier(state: state, size: spec.size, overflow: spec.overflow))
             .accessibilityElement(children: .contain)
             .accessibilitySortPriority(1)                // "precedes the content": announced before it
     }
@@ -69,6 +78,7 @@ extension ZTronScrollState {
     func setHeaderNatural(_ height: CGFloat) {
         guard height.isFinite, abs(height - (headerNatural ?? -1)) > 0.5 else { return }
         headerNatural = height
+        headerNaturalLive = nil   // an older layout record must not override this value
         headerMeasurements += 1
         #if DEBUG
         ZTronRenderCounters.increment("header.measure")

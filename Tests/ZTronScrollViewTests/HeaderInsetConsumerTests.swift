@@ -3,7 +3,8 @@ import Testing
 @testable import ZTronScrollView
 
 /// Design M8b §3 tests 10 and 13: the live header height counts onto the unobscured top for the scroll indicators, the
-/// `scrollTo` anchors (at the target) and the refresh indicator (in the gap under `.preserve`, over the stretched band under
+/// `scrollTo` anchors (at the target) and the refresh indicator (in the gap above the moved header under `.preserve`, over
+/// the stretched band under
 /// `.stretch`), with a refresh hold.
 @MainActor
 @Suite(.serialized)
@@ -74,18 +75,24 @@ struct HeaderInsetConsumerTests {
         #expect(placement.visibleLength(vertical: true) == 60)
     }
 
-    @Test(arguments: OSPath.allCases) func aPreservedHeaderLeavesTheHoldAsAGapWithTheIndicatorInIt(path: OSPath) {
+    /// User decision 2026-10-26: the `.preserve` header moves down with the hold (height R), the gap opens ABOVE it and the
+    /// indicator sits there, `[top0, top0 + H]`; the header's bottom edge stays on the content's top.
+    @Test(arguments: OSPath.allCases) func aPreservedHeaderMovesDownWithTheHoldAndTheIndicatorSitsAboveIt(path: OSPath) {
         let s = make(path)
         s.setRefreshHold(EdgeInsets(top: 60, leading: 0, bottom: 0, trailing: 0), followsOffset: true)
         let m = s.peek.metrics
-        #expect(oPrime(s) == -60 && s.headerGeometry?.height == 240 && HeaderMath.contentGap(o: -60, m: m.header!) == 60)
+        #expect(oPrime(s) == -60 && s.headerGeometry?.height == 240)
+        #expect(HeaderMath.gapAbove(o: -60, m: m.header!) == 60 && HeaderMath.translation(o: -60, m: m.header!) == 60)
         let (base, overlay) = RefreshIndicatorMath.base(edge: .top, metrics: m, overlay: false)
-        #expect(!overlay && base.top == 302)
+        #expect(!overlay && base.top == 62, "the base is the header slot's top (top0)")
         let placement = RefreshIndicatorMath.placement(edge: .top, style: .system, overlay: false, refreshing: true, dragPosition: 1,
                                                        pull: 60, length: 60, viewport: m.viewportSize, base: base)!
-        #expect(placement.frame.minY == 302 && placement.clip.minY == 302 && placement.clip.maxY == 362, "in the gap below the header")
+        #expect(placement.frame.minY == 62 && placement.clip.minY == 62 && placement.clip.maxY == 122,
+                "in the gap above the header")
+        let headerTop: CGFloat = 62 + 60, headerBottom = headerTop + 240
         let content = 0 - s.contentOffset.y
-        #expect(content == 362, "the content's top is the gap's bottom")
+        #expect(content == 362 && content == headerBottom, "the header's bottom edge is the content's top")
+        #expect(placement.clip.maxY == headerTop, "the gap ends at the header's top edge")
     }
 
     @Test(arguments: OSPath.allCases) func theOtherEdgesIgnoreTheHeader(path: OSPath) {

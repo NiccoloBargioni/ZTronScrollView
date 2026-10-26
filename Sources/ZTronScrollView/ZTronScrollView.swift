@@ -142,10 +142,18 @@ struct ScrollContainer<Content: View>: View {
             .modifier(ContentLayoutHost(axes: axes, useLayout: state.usesLayoutProtocol))
             .modifier(TransformHost(state: state, axes: axes))
             .modifier(NamedSpaceModifier(name: "ztronScroll.viewport", useNew: state.usesNamedCoordinateSpace))
-            .overlay(alignment: .top) { HeaderOverlay(spec: header, state: state) }   // scaling header (M8b-3)
-            .overlay(RefreshOverlay(state: state, pan: coordinator, axes: axes, member: config.refreshers))   // refresh indicators (M8b)
-            .overlay(ScrollIndicatorsOverlay(state: state, member: chrome))   // chrome leaves: the viewport's own frame (M8)
             .ignoresSafeArea(.all, edges: edges)
+            // Scaling header (M8b-3), attached AFTER `.ignoresSafeArea`: SwiftUI places its slot's top edge at the safe-area
+            // top in the same layout pass as the container size (no state, so a rotation or an animated resize moves it with
+            // the content); the other edges are ignored again (full width, and the overflow container reaches the bottom).
+            .overlay(alignment: .top) {
+                HeaderOverlay(spec: header, state: state).ignoresSafeArea(.all, edges: edges.subtracting(.top))
+            }
+            // Above the header (z-order contract), in the viewport's own frame again, so their metric coordinates hold.
+            .overlay(RefreshOverlay(state: state, pan: coordinator, axes: axes, member: config.refreshers)
+                .ignoresSafeArea(.all, edges: edges))   // refresh indicators (M8b)
+            .overlay(ScrollIndicatorsOverlay(state: state, member: chrome)
+                .ignoresSafeArea(.all, edges: edges))   // chrome leaves: the viewport's own frame (M8)
             .modifier(ViewportObserver(state: state, edges: edges))
             .modifier(MeasurementIsolation())
             .background(FrameClockDriver(state: state))

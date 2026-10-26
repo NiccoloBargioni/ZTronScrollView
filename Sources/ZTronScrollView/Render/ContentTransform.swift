@@ -200,12 +200,43 @@ struct TransformHost: ViewModifier {
         // A leaf modifier change on the placeholder: content bodies are not re-evaluated.
         let blocked = (storage.phase == .decelerating || storage.phase == .animating) && !storage.isTracking || storage.isDragging
         return content
+            .modifier(ContentLayerGroup(useGeometryGroup: state.usesGeometryGroup))
             .allowsHitTesting(!blocked)
             .disabled(blocked)
             .modifier(ContentTransform(offset: offset, scale: scale, insets: metrics.adjustedContentInset,
                                        commit: metrics.resize, limits: state.zoomLimits, alignment: state.contentAlignment,
                                        paging: state.isPagingEnabled ? axes : [], probe: state.probe))
             .modifier(CompletionObserver(state: state))
+    }
+}
+
+/// The scrolled content as ONE layer group under the content transform (M8b-3 seamless header, seam spike C). Without it
+/// SwiftUI pushes the transform down to the content's leaf layers; in a system rotation Core Animation interpolates every
+/// layer-geometry change made inside UIKit's rotation block, so the leaves that stay visible interpolate while the ones
+/// that enter or leave the viewport (culled) or are rebuilt land at once: the content tears and never moves with the
+/// header. With the group the transform is the group's and Core Animation moves the content rigidly, in lockstep with the
+/// header's frame (also a group, `HeaderLayerGroup`). No content body runs; the branch is a `let` flag fixed at state
+/// creation (R6), so the identity never changes.
+///
+/// 17+: `geometryGroup()`, which isolates geometry only (no compositing semantics, no offscreen pass).
+/// 15–16: `compositingGroup()`, the only iOS 13 modifier that ends the push-down at a layer boundary (measured on the
+/// forced lane: the same rigid rotation). Chosen over nothing, given the open question of its cost: a compositing group
+/// renders offscreen only for a compositing effect applied ABOVE it (an ancestor's opacity < 1 or blend mode), exactly
+/// when UIKit's default group opacity (`allowsGroupOpacity`) renders a `UIScrollView`'s subtree offscreen too; with none,
+/// it is a plain container layer (no rasterization, filter or mask: checked on the forced path's layer tree). Under such
+/// an ancestor effect the content then fades as one image, as a `UIScrollView`'s does, instead of leaf by leaf. Without the
+/// group the 15–16 content would tear in every rotation, which the seamless-header requirement rules out. Device check on
+/// a real 15/16 (Instruments, offscreen passes while scrolling under an opacity transition) remains open.
+struct ContentLayerGroup: ViewModifier {
+    let useGeometryGroup: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if useGeometryGroup, #available(iOS 17, *) {
+            content.geometryGroup()
+        } else {
+            content.compositingGroup()
+        }
     }
 }
 

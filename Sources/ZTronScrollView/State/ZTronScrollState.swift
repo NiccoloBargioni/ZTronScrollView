@@ -10,6 +10,9 @@ public final class ZTronScrollState {
     let usesLayoutProtocol: Bool
     let usesNamedCoordinateSpace: Bool
     let usesGeometryChange: Bool
+    /// The content's and the header's layer group (M8b-3 seamless header): `geometryGroup()` (17+) or
+    /// `compositingGroup()`. Fixed here like the other render paths (R6): the branch never changes the identity.
+    let usesGeometryGroup: Bool
     /// Gesture and completion paths, fixed here like the render paths (R6): a body that read the switch would flip
     /// branch when it re-evaluates under another forced set and rebuild the content (DBG-s1).
     let usesSpatialEvents: Bool
@@ -174,6 +177,12 @@ public final class ZTronScrollState {
     /// against the viewport width in `applyViewport`, so a rotation's new resting height is part of the same commit.
     var headerSpec: HeaderSizing?
     var headerNatural: CGFloat?
+    /// The latest `.fit` measurement and the width it was taken at, recorded synchronously by the header's layout pass
+    /// (16+ `HeaderFrameLayout`, 15 the measuring pass): a viewport commit at that width adopts it in the same update, so
+    /// the state's `R` and the layout's agree in the commit (a rotation or an animated resize moves both together).
+    var headerNaturalLive: (width: CGFloat, height: CGFloat)?
+    /// A viewport resize commit is open (the 15-path `.fit` measuring pass joins it in the same update).
+    var isResizeInFlight: Bool { isResizeOpen }
     /// How many `.fit` measurements changed the natural height (per state; the tests' counter).
     var headerMeasurements = 0
     /// A `snapHeader(to:)` made before the header metrics exist, applied unanimated by the first `setHeaderMetrics`.
@@ -191,6 +200,7 @@ public final class ZTronScrollState {
         }
         usesLayoutProtocol = ZTronAvailability.isAvailable(.layoutProtocol)
         usesNamedCoordinateSpace = ZTronAvailability.isAvailable(.namedCoordinateSpace)
+        usesGeometryGroup = ZTronAvailability.isAvailable(.geometryGroup)
         usesGeometryChange = ZTronAvailability.isAvailable(.geometryChange)
         usesSpatialEvents = ZTronAvailability.isAvailable(.spatialEvents)
         usesUIKitTouchObserver = ZTronAvailability.isAvailable(.uikitTouchObserver) && !usesSpatialEvents
@@ -656,6 +666,21 @@ public final class ZTronScrollState {
         if header == nil { pendingHeaderSnap = nil } else { applyPendingHeaderSnap() }
     }
 
+    /// `.fit`: the header's layout measured its ideal height at `width` in this update's layout pass; the viewport commit
+    /// uses it (one measurement), so the content's inset and the header's layout height change together, inside the same
+    /// transaction (a rotation's Core Animation block, an animated resize's transaction). The deferred report of the
+    /// same value is then a no-op.
+    private func adoptLiveNatural(width: CGFloat) {
+        guard headerOverride == nil, headerSpec?.size.isFit == true, let live = headerNaturalLive,
+              abs(live.width - width) <= 0.5, abs(live.height - (headerNatural ?? -1)) > 0.5 else { return }
+        headerNatural = live.height
+        headerNaturalLive = nil   // consumed: the commit is now the newer value
+        headerMeasurements += 1
+        #if DEBUG
+        ZTronRenderCounters.increment("header.measure")
+        #endif
+    }
+
     /// The header metrics of the next layout: an explicit `setHeaderMetrics`, else the container's spec at the viewport
     /// (width, overflow container), else unchanged.
     private func resolvedHeader(viewport: CGSize, safe: EdgeInsets, current: HeaderMetrics?) -> HeaderMetrics? {
@@ -741,6 +766,7 @@ public final class ZTronScrollState {
         m.viewportSize = size
         m.safeAreaInsets = safe
         if let hold = holdOverride { m.refreshHold = hold }
+        adoptLiveNatural(width: size.width)
         m.header = resolvedHeader(viewport: size, safe: safe, current: old.header)
         m.adjustedContentInset = Self.adjusted(contentInset: contentInset, safe: safe,
                                                behavior: contentInsetAdjustmentBehavior, axes: scrollAxes,

@@ -38,13 +38,16 @@ import Testing
             #expect(g.progress == c / band)
             #expect(g.stretch == (behavior == .stretch ? gap : 0))
             #expect(g.minHeight == 64 && g.restingHeight == 240 && g.width == 402)
-            // Content top in the viewport: aci.top − o′; the gap below the header bottom (top0 + h).
+            // Content top in the viewport: aci.top − o′; the header's top edge top0 + translation (user decision
+            // 2026-10-26: `.preserve` moves down with a pull, the gap opens ABOVE it), its bottom edge that + h.
             let contentTop = m.adjustedContentInset.top - o
             #expect(contentTop == top0 + 240 + gap - (o > 0 ? o : 0))
-            let gapBelow = contentTop - (top0 + g.height)
+            let translation = HeaderMath.translation(o: o, m: h)
+            #expect(translation == (behavior == .preserve ? gap : 0), "preserve translates by the pull, stretch is pinned")
+            #expect(HeaderMath.gapAbove(o: o, m: h) == translation, "the gap above the header is the translation")
+            let gapBelow = contentTop - (top0 + translation + g.height)
             if o <= 0 {
-                #expect(gapBelow == (behavior == .preserve ? gap : 0), "preserve opens a gap, stretch stays glued")
-                #expect(HeaderMath.contentGap(o: o, m: h) == gapBelow)
+                #expect(gapBelow == 0, "both behaviors keep the header's bottom on the content's top under a pull")
             } else if o <= band {
                 #expect(gapBelow == 0, "collapse: the header bottom is glued to the content top")
             } else {
@@ -144,6 +147,58 @@ import Testing
         }
         #expect(delta(0) == 0 && delta(100) == -100 && delta(500) == -176 && delta(-40) == 40)
         #expect(HeaderMath.obscuredDelta(offset: .zero, zoom: 1, metrics: Self.metrics(nil)) == 0)
+        // `.preserve` (user decision 2026-10-26): the header keeps R and moves down by the pull: its bottom edge is 40 pt
+        // lower too.
+        let p = Self.metrics(Self.profile)
+        #expect(HeaderMath.obscuredDelta(offset: CGPoint(x: 0, y: -40 - HeaderMath.base(p)), zoom: 1, metrics: p) == 40)
+    }
+
+    /// User decision 2026-10-26 (reverses A1): under a pull `.preserve` translates by `g` with its height `R`; the refresh
+    /// base is the slot's top (`top0`), the gap `[top0, top0 + g]` above the header; `.stretch` keeps `top0 + R`, overlay.
+    @Test func aPreservedHeaderTranslatesWithThePull() {
+        let h = Self.profile
+        for g in [0, 1, 30, 120] as [CGFloat] {
+            #expect(HeaderMath.translation(o: -g, m: h) == g && HeaderMath.height(o: -g, m: h) == 240)
+            #expect(HeaderMath.translation(o: -g, m: Self.banner) == 0 && HeaderMath.height(o: -g, m: Self.banner) == 240 + g)
+        }
+        #expect(HeaderMath.translation(o: 50, m: h) == 0, "no translation while collapsing")
+        #expect(HeaderMath.translation(o: .nan, m: h) == 0)
+        let preserve = HeaderMath.refreshTop(Self.metrics(h, hold: 60))
+        #expect(preserve?.base == 62 && preserve?.overlay == false, "the gap above the header: [top0, top0 + pull]")
+        let stretch = HeaderMath.refreshTop(Self.metrics(Self.banner, hold: 60))
+        #expect(stretch?.base == 302 && stretch?.overlay == true, "over the stretched band")
+        #expect(HeaderMath.refreshTop(Self.metrics(nil)) == nil)
+    }
+
+    /// The layout resolves `R(W, H)` with the same size and overflow policy as the state (D52), so the committed resting
+    /// height and the layout's agree exactly at the committed viewport, and `liveHeight` equals the state's `R − c + s`.
+    @Test(arguments: [ZTronHeaderOverflow.uncapped, .capped(fraction: 0.5), .refit])
+    func theLayoutAndTheStateResolveTheSameRestingHeight(overflow: ZTronHeaderOverflow) {
+        let safe = EdgeInsets(top: 0, leading: 62, bottom: 21, trailing: 62)
+        for size in [ZTronHeaderSize.aspectRatio(16.0 / 9.0, min: 64), .fixed(min: 64, max: 500), .fit(min: 64)] {
+            for viewport in [CGSize(width: 874, height: 402), CGSize(width: 402, height: 874), CGSize(width: 750, height: 402)] {
+                let container = HeaderMath.containerHeight(viewport: viewport, safe: safe, adjusted: .vertical)
+                let natural = viewport.width * 9 / 16
+                guard let state = HeaderMath.resolve(size: size, width: viewport.width, natural: natural,
+                                                     containerHeight: container, overflow: overflow).metrics else {
+                    Issue.record("unresolved \(size)"); continue
+                }
+                // The overlay is proposed the viewport below the safe-area top; the layout subtracts the bottom inset.
+                let proposedHeight = viewport.height - safe.top
+                for p in [0, 0.25, 1] as [CGFloat] {
+                    let live = HeaderLiveInput(size: size, overflow: overflow,
+                                               metrics: HeaderMetrics(min: 1, resting: 2, behavior: .preserve, width: 1),
+                                               progress: p, bottomInset: safe.bottom, committedContainer: 1)
+                    let r = HeaderMath.layoutResting(width: viewport.width, containerHeight: proposedHeight - safe.bottom,
+                                                     natural: natural, live)
+                    #expect(r.resting == state.resting && r.min == min(state.min, state.resting),
+                            "\(size) \(overflow) \(viewport): layout \(r) vs state \(state.resting) / \(state.min)")
+                    let h = HeaderMath.liveHeight(width: viewport.width, containerHeight: proposedHeight - safe.bottom,
+                                                  natural: natural, live)
+                    #expect(abs(h - (state.resting - p * state.band)) < 1e-9, "\(size) \(overflow) \(viewport) p \(p): h \(h)")
+                }
+            }
+        }
     }
 
     /// `scrollTo` anchors are evaluated at the target (M6 §4): the unobscured top edge is `aci.top + h(target) − R`.

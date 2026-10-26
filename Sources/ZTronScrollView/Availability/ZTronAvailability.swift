@@ -118,7 +118,7 @@ public enum ZTronAvailability {
         case .scrollBounceBehaviorType:
             if #available(iOS 16.4, *) { return true } else { return false }
         case .perPropertyObservation, .visualEffect, .magnifyGesture, .nativeCurves, .animationCompletion,
-             .keyPathTransaction, .keyboardScrolling, .sensoryFeedback, .namedCoordinateSpace:
+             .keyPathTransaction, .keyboardScrolling, .sensoryFeedback, .namedCoordinateSpace, .geometryGroup:
             if #available(iOS 17, *) { return true } else { return false }
         case .spatialEvents, .liveMagnifyCentroid, .subviewContainers:
             if #available(iOS 18, *) { return true } else { return false }

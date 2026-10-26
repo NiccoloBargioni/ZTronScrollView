@@ -12,6 +12,34 @@ struct HeaderResize: Equatable, Sendable {
     }
 }
 
+/// The state's half of the header's live frame (M8b-3 seamless header, from seam spike A), built by the per-frame leaf
+/// from the target offset (or, while a resize is open, from the resize intent's anchor): the layout combines it with the
+/// proposed size (`HeaderMath.liveHeight`), so an animated resize interpolates the header with the content.
+struct HeaderLiveInput: Equatable {
+    /// The container's size spec (`nil`: none, the committed `R` is used).
+    var size: ZTronHeaderSize?
+    /// The overflow policy (D52), applied by the layout to its own `W × H` exactly as the state applies it.
+    var overflow: ZTronHeaderOverflow = .uncapped
+    /// The committed metrics (`nil`: unresolved, the header is not drawn).
+    var metrics: HeaderMetrics?
+    /// Collapse progress, `.stretch` growth and `.preserve` translation (both `g` under a pull).
+    var progress: CGFloat = 0
+    var stretch: CGFloat = 0
+    var translation: CGFloat = 0
+    /// The state's height (`R − c + stretch`): a banner of a view without the vertical axis keeps it (its content reserve
+    /// is state-driven too).
+    var stateHeight: CGFloat = 0
+    /// The adjusted safe-area bottom (0 when the content does not adjust for it): the overflow container is the proposed
+    /// height minus it (the header's overlay is proposed the viewport below the safe-area top).
+    var bottomInset: CGFloat = 0
+    /// The container height the committed metrics were resolved against (`HeaderMath.containerHeight`).
+    var committedContainer: CGFloat = 0
+    /// `.fit`: the committed natural height (the 15 path tells a limited `R` from the natural one).
+    var natural: CGFloat?
+
+    var layoutDriven: Bool { metrics?.vertical == true }
+}
+
 /// Where the header was when a resize captured its intent.
 enum HeaderResizeAnchor: Equatable, Sendable {
     /// At or above rest: `o′ ≤ 0` (a pull or a refresh hold) is kept.
@@ -22,10 +50,21 @@ enum HeaderResizeAnchor: Equatable, Sendable {
     case collapsed
 }
 
-/// Pure scaling-header math (design M8b §2.4), no SwiftUI state. Conventions: `top0` = the header's top edge (the adjusted
-/// safe-area top), `R` resting height, `band = max(0, R − min)`, `o′` = the header-relative offset (content offset +
-/// `adjustedContentInset.top` − the refresh hold: rest is 0, a pull past the top is negative, scrolling up positive),
-/// `c = clamp(o′, 0, band)` the collapse travel and `g = max(0, −o′)` the overflow.
+/// Pure scaling-header math (design M8b §2.4), no SwiftUI state. Conventions: `top0` = the top of the header's slot (the
+/// adjusted safe-area top), `R` resting height, `band = max(0, R − min)`, `o′` = the header-relative offset (content
+/// offset + `adjustedContentInset.top` − the refresh hold: rest is 0, a pull past the top is negative, scrolling up
+/// positive), `c = clamp(o′, 0, band)` the collapse travel and `g = max(0, −o′)` the overflow.
+///
+/// | | `.preserve` | `.stretch` |
+/// |---|---|---|
+/// | top edge | `top0 + g` (moves down with the content) | `top0` (pinned) |
+/// | height `h` | `R − c` | `R − c + g` |
+/// | bottom edge | `top0 + g + R − c` | `top0 + R − c + g` |
+/// | gap above the header (`gapAbove`) | `g`: `[top0, top0 + g]`, the refresh indicator's slot | 0 (the indicator floats over the band) |
+/// | content top (viewport y) | `aci.top − hold − o′ = top0 + ci.top + R − c + g` = the bottom edge (+ `ci.top`) | same |
+///
+/// So the header's bottom edge is the content's top edge on both sides of rest (a developer `contentInset.top` adds a
+/// constant gap); past the band the content scrolls under the collapsed header.
 enum HeaderMath {
     /// The metrics `size` resolves to at `width` (the viewport width) and a DEBUG warning when the size is degenerate. `nil`
     /// while the width is unknown or `.fit` is unmeasured. `containerHeight` (the viewport below the adjusted safe area,
@@ -90,10 +129,15 @@ enum HeaderMath {
     /// The live height at `o′`.
     static func height(o oPrime: CGFloat, m: HeaderMetrics) -> CGFloat { geometry(o: oPrime, m: m).height }
 
-    /// The gap between the header's bottom and the content's top a pull opens: `.preserve` `max(0, −o′)`, `.stretch` 0.
-    static func contentGap(o oPrime: CGFloat, m: HeaderMetrics) -> CGFloat {
+    /// The gap a pull opens ABOVE the header, between `top0` and the header's top edge (user decision 2026-10-26):
+    /// `.preserve` `max(0, −o′)` (the header moves down with the content by that much), `.stretch` 0 (its top is pinned).
+    /// Also the header's translation. There is never a gap between the header's bottom and the content's top.
+    static func gapAbove(o oPrime: CGFloat, m: HeaderMetrics) -> CGFloat {
         m.behavior == .preserve ? max(0, -(oPrime.isFinite ? oPrime : 0)) : 0
     }
+
+    /// The header's top edge below `top0` at `o′` (the `.preserve` translation, `gapAbove`).
+    static func translation(o oPrime: CGFloat, m: HeaderMetrics) -> CGFloat { gapAbove(o: oPrime, m: m) }
 
     /// The `o′` of collapse progress `p` (ONE convention: 0 expanded, 1 collapsed).
     static func snapOffset(progress p: CGFloat, m: HeaderMetrics) -> CGFloat {
@@ -158,19 +202,25 @@ enum HeaderMath {
         return max(0, aci.top - m.contentInset.top - m.refreshHold.top - (m.header?.resting ?? 0))
     }
 
-    /// The top of the band a `.stretch` header grows into under a pull (`top0 + R`), where the top refresh indicator floats
-    /// (overlay placement: there is no gap, SPEC S10 "Refresh with the header"); `nil` without a stretching header (under
-    /// `.preserve` the gap opens below the resting header, which the plain base already counts).
-    static func stretchBandTop(_ m: ScrollMetrics) -> CGFloat? {
-        guard let header = m.header, header.behavior == .stretch, header.vertical else { return nil }
-        return top0(m) + header.resting
+    /// The top refresh indicator's base with a vertical header (SPEC S10 "Refresh with the header"): `.stretch` → the top
+    /// of the band it grows into (`top0 + R`), overlay placement forced (there is no gap: the indicator floats over the
+    /// stretched band); `.preserve` → `top0`, the gap `[top0, top0 + pull]` a pull opens above the header that moves down
+    /// with the content (user decision 2026-10-26), placement as the refresher says. `nil` without a vertical header.
+    static func refreshTop(_ m: ScrollMetrics) -> (base: CGFloat, overlay: Bool)? {
+        guard let header = m.header, header.vertical else { return nil }
+        switch header.behavior {
+        case .stretch: return (top0(m) + header.resting, true)
+        case .preserve: return (top0(m), false)
+        }
     }
 
-    /// How much the live header differs from the reserved resting height, `h − R` (negative while collapsed, positive while
-    /// stretched): the unobscured top edge is `adjustedContentInset.top + delta` (indicators, `scrollTo`, the resize centre).
+    /// How far the live header's bottom edge is from where the resting header's would be (`top0 + R`), `h + translation −
+    /// R` (negative while collapsed, the pull `g` under a pull for both behaviors): the unobscured top edge is
+    /// `adjustedContentInset.top + delta` (indicators, `scrollTo`, the resize centre).
     static func obscuredDelta(offset: CGPoint, zoom: CGFloat, metrics m: ScrollMetrics) -> CGFloat {
         guard let header = m.header else { return 0 }
-        return height(o: headerOffset(offset: offset, zoom: zoom, metrics: m), m: header) - header.resting
+        let o = headerOffset(offset: offset, zoom: zoom, metrics: m)
+        return height(o: o, m: header) + translation(o: o, m: header) - header.resting
     }
 
     /// The offset (y) that keeps the header's collapse progress across a change of its metrics (`size`, a new `.fit`
@@ -189,6 +239,35 @@ enum HeaderMath {
             next = max(offsetY + base(new), b.band)
         }
         return next - base(new)
+    }
+
+    // MARK: Layout-driven live frame (M8b-3 seamless header)
+
+    /// The resting height and minimum at a LAYOUT size: the proposed width `w` and the overflow container (`containerHeight`,
+    /// the proposed height below the safe-area top minus the adjusted safe-area bottom; `nil`: the committed one). The same
+    /// `resolve` as the state's (size, D52 overflow policy, `min ≥ R` rule), so at the committed viewport the layout and
+    /// the state agree exactly. `.fit` at the committed width and container keeps the committed `R`: a header content
+    /// change moves the header and the content together, in the state's commit (which adopts the measurement).
+    static func layoutResting(width w: CGFloat, containerHeight: CGFloat?, natural: CGFloat?,
+                              _ live: HeaderLiveInput) -> (resting: CGFloat, min: CGFloat) {
+        guard let m = live.metrics else { return (0, 0) }
+        let committed = (m.resting, Swift.min(m.min, m.resting))
+        guard let size = live.size, w > 0, w.isFinite else { return committed }
+        let container = containerHeight.map { $0.isFinite ? Swift.max(0, $0) : 0 } ?? live.committedContainer
+        if size.isFit, abs(w - m.width) <= 0.5, abs(container - live.committedContainer) <= 0.5 { return committed }
+        guard let r = resolve(size: size, width: w, natural: natural, behavior: m.behavior, vertical: m.vertical,
+                              containerHeight: container, overflow: live.overflow).metrics else { return committed }
+        return (r.resting, Swift.min(r.min, r.resting))
+    }
+
+    /// The header's live height at a layout size: `h = (1 − p) · R(W, H) + p · min(W, H) + stretch`, with `p` and the
+    /// stretch from the state and `R`, `min` from the layout. Equal to the state's `R − c + stretch` at the committed
+    /// viewport; inside a resize nothing in it changes at the unanimated commit while the progress is kept (D51).
+    static func liveHeight(width w: CGFloat, containerHeight: CGFloat?, natural: CGFloat?, _ live: HeaderLiveInput) -> CGFloat {
+        guard live.metrics != nil else { return 0 }
+        guard live.layoutDriven else { return live.stateHeight }
+        let r = layoutResting(width: w, containerHeight: containerHeight, natural: natural, live)
+        return Swift.max(0, (1 - live.progress) * r.resting + live.progress * r.min + live.stretch)
     }
 
     // MARK: Resize (SPEC S7: the scaling header keeps its collapse progress)

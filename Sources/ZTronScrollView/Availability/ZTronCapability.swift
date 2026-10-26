@@ -57,6 +57,10 @@ public enum ZTronCapability: String, CaseIterable, Sendable, Hashable {
     /// divergences) and never alongside `SpatialEventGesture`. Fallback: `DragGesture(minimumDistance: 0)` as on 17.
     /// DEBUG only: ``ZTronAvailability/forceUIKitTouchObserver(_:)`` turns it on for 17+ simulators.
     case uikitTouchObserver
+    /// `geometryGroup()` (iOS 17): the scrolled content and the scaling header are each ONE layer group, so Core Animation
+    /// moves them rigidly and together when it interpolates a system rotation (M8b-3 seamless header). Fallback:
+    /// `compositingGroup()` (iOS 13), the same layer boundary (see `ContentLayerGroup`).
+    case geometryGroup
     /// `TimelineView(.animation)` (iOS 15). Always available: never gated, never forced.
     case frameClock
 
@@ -73,7 +77,7 @@ public enum ZTronCapability: String, CaseIterable, Sendable, Hashable {
         case .scrollBounceBehaviorType:
             return (16, 4)
         case .perPropertyObservation, .visualEffect, .magnifyGesture, .nativeCurves, .animationCompletion,
-             .keyPathTransaction, .keyboardScrolling, .sensoryFeedback, .namedCoordinateSpace:
+             .keyPathTransaction, .keyboardScrolling, .sensoryFeedback, .namedCoordinateSpace, .geometryGroup:
             return (17, 0)
         case .spatialEvents, .liveMagnifyCentroid, .subviewContainers:
             return (18, 0)

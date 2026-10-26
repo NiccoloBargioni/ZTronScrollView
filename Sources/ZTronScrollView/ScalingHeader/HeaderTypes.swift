@@ -1,9 +1,10 @@
 import SwiftUI
 
 // Scaling header (SPEC S10, amendment 2026-10-19; design M8b §2): the public value types. The header is installed with
-// `ZTronScrollView.withScalingHeader(size:scalingBehavior:snap:fade:header:)`, precedes the content (its resting height
-// is reserved in `adjustedContentInset.top`), collapses by shrinking from the bottom with its top edge pinned and reacts
-// to a pull past the top with `.preserve` (no consequence on the header) or `.stretch` (it grows with the pull).
+// `ZTronScrollView.withScalingHeader(size:scalingBehavior:snap:fade:background:overflow:header:)`, precedes the content
+// (its resting height is reserved in `adjustedContentInset.top`), collapses by shrinking from the bottom with its top edge
+// pinned and reacts to a pull past the top with `.preserve` (it moves down with the content: a gap opens above it) or
+// `.stretch` (it grows with the pull, its top edge pinned).
 
 /// How tall the header rests and how far it collapses.
 public enum ZTronHeaderSize: Equatable, Sendable {
@@ -41,8 +42,10 @@ public enum ZTronHeaderOverflow: Equatable, Sendable {
     case refit
 }
 
-/// The reaction to a pull past the top: `.preserve` leaves the header at its resting height (the content pulls away and
-/// a gap opens below the header), `.stretch` grows the header from its bottom edge with the (rubber-banded) pull.
+/// The reaction to a pull past the top: `.preserve` keeps the header at its resting height and moves it down with the
+/// content (a gap opens ABOVE the header, between the safe-area top and the header's top edge, where a refresh indicator
+/// sits; user decision 2026-10-26), `.stretch` grows the header from its bottom edge with the (rubber-banded) pull, its
+/// top edge pinned (a refresh indicator floats over the stretched band).
 public enum ZTronHeaderScalingBehavior: Sendable {
     case preserve, stretch
 }
@@ -78,13 +81,57 @@ public struct ZTronHeaderFade: Equatable {
     }
 }
 
+/// What fills the header's live frame behind the header's content (user decision 2026-10-26), so a header whose content
+/// does not cover its frame (an aspect ratio ≤ 1, a `.refit` or aspect-fit content) shows it instead of blank areas. It is
+/// drawn below the content and below the `fade:` gradient, clipped to the live frame, and follows that frame in every
+/// animation (collapse, `.stretch` growth, the `.preserve` pull, resizes, rotations) by layout: nothing in it runs per
+/// frame. Hidden from accessibility and from hit-testing.
+public struct ZTronHeaderBackground {
+    enum Kind {
+        case ambientBlur(radius: CGFloat)
+        case frostedGlass(radius: CGFloat)
+        case color(Color)
+        case view(AnyView)
+    }
+    let kind: Kind
+
+    /// A blurred, scaled-to-fill second instance of the header's own content (the "ambient" artwork background of a music
+    /// player). The copy is the same builder result instantiated a second time: its body runs once more per cold change
+    /// of the header (install, a parent rebuild, a size change), never per frame. It is laid out at the live frame, filled
+    /// with the content's own aspect ratio (overflow cropped) and blurred by `radius` points with opaque edges. It is a
+    /// separate instance: its `@State` is its own, and a ``ZTronHeaderGeometryReader`` inside the header also updates in
+    /// the copy.
+    public static func ambientBlur(radius: CGFloat = 30) -> Self { Self(kind: .ambientBlur(radius: radius)) }
+
+    /// A backdrop blur of whatever is drawn behind the header, with the system material (`Material`, iOS 15+) whose blur
+    /// is nearest to `radius`: about 6 pt `.ultraThinMaterial`, 12 `.thinMaterial`, 20 `.regularMaterial`, 30
+    /// `.thickMaterial`, 40 `.ultraThickMaterial`. The radius is APPROXIMATE: the materials' blurs are the system's (they
+    /// also differ in tint and vibrancy) and the value only picks the nearest one.
+    public static func frostedGlass(radius: CGFloat = 20) -> Self { Self(kind: .frostedGlass(radius: radius)) }
+
+    /// A plain color.
+    public static func color(_ color: Color) -> Self { Self(kind: .color(color)) }
+
+    /// Any view, proposed the live frame. Type-erased; built by the caller, once per cold change of the header.
+    public static func view<V: View>(@ViewBuilder _ content: () -> V) -> Self { Self(kind: .view(AnyView(content()))) }
+
+    /// The material nearest to a blur radius (`.frostedGlass`).
+    static func material(radius: CGFloat) -> Material {
+        let nominal: [(CGFloat, Material)] = [(6, .ultraThinMaterial), (12, .thinMaterial), (20, .regularMaterial),
+                                              (30, .thickMaterial), (40, .ultraThickMaterial)]
+        let r = radius.isFinite ? radius : 20
+        return nominal.min { abs($0.0 - r) < abs($1.0 - r) }!.1
+    }
+}
+
 /// What a header child reads through ``ZTronHeaderGeometryReader`` (or `ZTronScrollGeometry.header`).
 public struct ZTronHeaderGeometry: Equatable, Sendable {
     /// 0 expanded … 1 collapsed; 0 when the header cannot collapse.
     public var progress: CGFloat
     /// The live height, stretch included.
     public var height: CGFloat
-    /// ≥ 0: how much `.stretch` grew the header past its resting height; always 0 under `.preserve`.
+    /// ≥ 0: how much `.stretch` grew the header past its resting height; always 0 under `.preserve` (a pull moves a
+    /// preserved header down by that amount instead).
     public var stretch: CGFloat
     public var minHeight: CGFloat
     /// The resolved resting height (the reference's `maxHeight`).

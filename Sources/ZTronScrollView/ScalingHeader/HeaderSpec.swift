@@ -8,6 +8,7 @@ struct HeaderSpec {
     var behavior: ZTronHeaderScalingBehavior
     var snap: ZTronHeaderSnap
     var fade: ZTronHeaderFade?
+    var background: ZTronHeaderBackground?
     var overflow: ZTronHeaderOverflow = .uncapped
     var builder: (ZTronHeaderProxy) -> AnyView
 
