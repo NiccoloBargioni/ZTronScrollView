@@ -24,9 +24,12 @@ the coverage profile across it. n's sign: continuity; else green before yellow; 
                edge fixes it outright, otherwise the candidates are checked against the pixels (the green row of a
                candidate must be hidden: no visible yellow, magenta or blue where it would be) and the one nearest the
                prediction from the previous frames wins (no prediction: the smallest overlap). ctopSrc = green |
-               greentop | greenfar | rows; ctopAmb = 1 when that choice is not clear-cut: several candidates and no
-               fresh prediction (none from the last two frames), a runner-up within 60 pt of it, or the winner > 30 pt
-               off it (e.g. a collapsed header with the green row scrolled away); ambiguous frames stay out of the
+               greentop | greenfar | greenclip | rows; ctopAmb = 1 when that choice is not clear-cut: several
+               candidates and no fresh prediction (none from the last two frames), a runner-up within 60 pt of it, or
+               the winner > 30 pt off it (e.g. a collapsed header with the green row scrolled away), and (v2.1) for
+               greenclip: the green row's far edge facing the background with no other content edge visible, which in
+               this lab is the viewport's clip cutting the row (it is always followed by the yellow row), so the
+               content top is not derivable from the pixels; ambiguous frames stay out of the
                maxima (summary maxOverlapAmbiguous reports them apart). Torn content (the 27.0 rotation draws the green
                row at its old place and the next rows at their new one, over it or apart from it): the green edge
                nearest the header's bottom edge sets the content top (what meets the header) and ctopSplit = 1 says the
@@ -675,6 +678,14 @@ class Analyzer:
             l = max(fam["GB"], key=lambda x: x.length)
             anchors.append(("greenfar", l.s / sc - GREEN_PT, l.s / sc))
         ct, src, k_used, amb = float("nan"), None, None, 0
+        # v2.1: the green row's far edge facing the background with no other content edge anywhere (no green -> yellow,
+        # no background -> green, no row boundary, no yellow top facing the background) is the VIEWPORT's clip, not the
+        # row's far edge: in the lab the green row is always followed by the yellow one, so a far edge with nothing
+        # beyond it means the content is cut there (e.g. the last frames of a rotation, the green row passing under the
+        # container's clip). The content top is then not derivable (the strip may be the row's start, its end or both):
+        # the frame is unresolved (ctopSrc greenclip, ctopAmb 1, out of the maxima; the greenfar reading is the
+        # largest overlap it could hide).
+        clip_only = (len(anchors) == 1 and anchors[0][0] == "greenfar" and not rows and not fam["BY"])
         if anchors:
             # Torn content (the 27.0 rotation draws the green row at its old place and the next rows at their new one):
             # the anchor nearest the header's bottom edge sets the content top, i.e. what meets the header; the others
@@ -687,6 +698,8 @@ class Analyzer:
             if phase is not None and abs(wrap(ct - phase, 2 * ROW_PT)) > SPLIT_PT:
                 split = True
             k_used = 0
+            if clip_only:
+                src, amb = "greenclip", 1
         elif rows:
             # Candidates phase + 120 m: every visible boundary must be one of the rows (1 <= k <= 39).
             ub = min(l.s / sc - GREEN_PT - ROW_PT * k0 for l, k0 in rows)

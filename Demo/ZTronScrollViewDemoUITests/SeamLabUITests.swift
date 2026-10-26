@@ -26,17 +26,27 @@ final class SeamLabUITests: XCTestCase {
         return app
     }
 
+    /// `-ZTronSeamInfo 1`: the lab's state line.
+    private func info(_ app: XCUIApplication, _ tag: String) {
+        let e = app.staticTexts["seam.info"]
+        guard e.exists else { return }
+        print("SEAMLAB info \(tag): \(e.value as? String ?? "?")")
+    }
+
     /// Portrait rest, landscape (system rotation), portrait again.
     func testRotate() {
         let app = launch()
         XCTAssertTrue(app.buttons["seam.width"].waitForExistence(timeout: 10))
         Thread.sleep(forTimeInterval: 1.5)
+        info(app, "portrait")
         print("SEAMLAB mark landscape \(Date().timeIntervalSince1970)")
         XCUIDevice.shared.orientation = .landscapeLeft
         Thread.sleep(forTimeInterval: 2.5)
+        info(app, "landscape")
         print("SEAMLAB mark portrait \(Date().timeIntervalSince1970)")
         XCUIDevice.shared.orientation = .portrait
         Thread.sleep(forTimeInterval: 2.5)
+        info(app, "portrait again")
     }
 
     /// A pull past the top: press on the content, drag down 220 pt slowly, hold 1.5 s (the finger stays down), release (the

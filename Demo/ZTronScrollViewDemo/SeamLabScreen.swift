@@ -102,7 +102,30 @@ struct SeamLabScreen: View {
             }
         }
         .background(SeamLab.blue.ignoresSafeArea())
+        .overlay(alignment: .topLeading) { if SeamLab.info { SeamLabInfo(state: state) } }
     }
+}
+
+/// `-ZTronSeamInfo 1` (diagnostics only, it draws over the lab): the state's geometry twice a second as an accessibility
+/// value (`seam.info`) that SeamLabUITests prints.
+struct SeamLabInfo: View {
+    let state: ZTronScrollState
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+            let g = state.headerGeometry
+            let vp = state.geometry.containerSize
+            let text = String(format: "vp=%.1fx%.1f aci=%.1f/%.1f y=%.2f R=%.3f h=%.3f p=%.4f", vp.width,
+                              vp.height, state.adjustedContentInset.top, state.adjustedContentInset.bottom,
+                              state.contentOffset.y, g?.restingHeight ?? -1, g?.height ?? -1, g?.progress ?? -1)
+            Text(text).font(.system(size: 6)).foregroundColor(.white)
+                .accessibilityIdentifier("seam.info").accessibilityValue(text)
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+extension SeamLab {
+    static var info: Bool { HeaderDemo.argument("-ZTronSeamInfo", "0") == "1" }
 }
 
 /// The header: pure red filling the live frame. Under `.fit` a 16:9 red view measures W · 9/16 at the proposed width.
