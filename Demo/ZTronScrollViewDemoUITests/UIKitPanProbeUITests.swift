@@ -201,9 +201,9 @@ final class UIKitPanProbeUITests: XCTestCase {
     /// Where UIKit's own nested scroll views put the cross-axis / same-axis boundary (the design's axis rule says 45°).
     func testQ3e_nativeBoundary() { nativePageRows(targets: ["nativeCarousel", "nativeList", "plain"], q: "Q3e", angles: sweep, speeds: [150, 2500]) }
 
-    /// The probe with a measured boundary (`ZS_UKP_BOUNDARY`, degrees from the view's axis), V off.
+    /// The probe with a measured boundary (`ZS_UKP_BOUNDARY` = `h,v` degrees from the view's axis), V off.
     func testQ3f_probeBoundary() {
-        let b = ProcessInfo.processInfo.environment["ZS_UKP_BOUNDARY"] ?? "60"
+        let b = ProcessInfo.processInfo.environment["ZS_UKP_BOUNDARY"] ?? "45,60"
         nativePageRows(targets: ["carousel:off", "list:off"], q: "Q3e", angles: sweep, speeds: [150, 2500], extra: ["-ZTronProbeBoundary", b])
     }
 
