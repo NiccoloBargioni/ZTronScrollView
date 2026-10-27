@@ -18,7 +18,9 @@ import ZTronScrollView
 // analyzer v2.2).
 // The white square at the bottom-trailing corner (`seam.width`) animates the scroll view's width between full and 60 %
 // of the screen (easeInOut 1.2 s), centered: an app-driven animated viewport resize. SeamLabUITests.testPull drags the
-// content down from its middle and holds (the `.preserve` header moves down with it, the `.stretch` one grows).
+// content down from its middle and holds (the `.preserve` header stays still and the gap opens below it, or with
+// `-ZTronSeamPull followContent` moves down with the content, D65; the `.stretch` one grows).
+// `-ZTronSeamPull openGap|followContent` (D65): the member `scalingHeaderPullBehavior(_:)` (default: not set, `.openGap`).
 // Left of it, `seam.scroll` toggles a transaction-driven scroll (`withAnimation(.easeInOut(duration: 1.2)) {
 // state.scroll(to:) }`) between rest and y = 400 (past the collapse band, the content under the collapsed header), and
 // `seam.snap` toggles `snapHeader(to: .collapsed / .expanded, animated: true)` (the clock path). `-ZTronSeamRefresh <s>`
@@ -227,9 +229,10 @@ extension SeamLabScreen {
     private var scroller: ZTronScrollView<SeamLabContent> {
         let base = ZTronScrollView(SeamLab.horizontal ? .horizontal : .vertical, state: state) { SeamLabContent() }
             .scrollIndicators(.hidden)
-        let view = SeamLab.noHeader ? base : base
+        var view = SeamLab.noHeader ? base : base
             .withScalingHeader(size: SeamLab.size, scalingBehavior: SeamLab.behavior, background: SeamLab.background,
                                overflow: SeamLab.overflow) { [tall] _ in SeamLabHeader(tall: tall) }
+        if let pull = SeamLab.pull { view = view.scalingHeaderPullBehavior(pull) }
         if SeamLab.hold {
             // A held refresh with a white probe as its indicator (centred in the indicator's frame).
             return view.refresher(refreshView: { _ in Color.white.frame(width: 20, height: 20) }) {
@@ -245,6 +248,14 @@ extension SeamLabScreen {
 }
 
 extension SeamLab {
+    /// `-ZTronSeamPull openGap|followContent` (D65); absent: not set (the library default, `.openGap`).
+    static var pull: ZTronHeaderPullBehavior? {
+        switch HeaderDemo.argument("-ZTronSeamPull", "") {
+        case "openGap": return .openGap
+        case "followContent": return .followContent
+        default: return nil
+        }
+    }
     static var scrollBand: CGFloat? { Double(HeaderDemo.argument("-ZTronSeamScrollBand", "")).map { CGFloat($0) } }
     /// `-ZTronSeamWidthThenScroll <s>`: `seam.width` also toggles the scroll `s` seconds later, while the resize is open
     /// (a scroll command closes it inside its animated transaction: the header's held offset at the close).

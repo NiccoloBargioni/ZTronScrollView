@@ -3,8 +3,10 @@ import ZTronScrollView
 
 // M8b-3: the scaling-header screens (docs/design/M8b-refresh-header.md §3, SPEC S14 "Refresh and header").
 // `-ZTronScreen profile`: `.fixed(min: 64, max: 240)`, `.preserve`, `-ZTronHeaderSnap immediately|after|disabled` (default
-// immediately), a `.system` refresher in the gap a pull opens above the header (the header moves down with the content),
-// the avatar scale and the title fade through the reader.
+// immediately), `-ZTronHeaderPull openGap|followContent` (D65, default openGap: the header stays still and the pull's gap,
+// with the `.system` refresher, opens below it; followContent: the header moves down with the content, the gap above it;
+// set through the environment twin `ztronScalingHeaderPullBehavior`), the avatar scale and the title fade through the
+// reader.
 // `-ZTronScreen banner`: `-ZTronHeaderSize aspect|fixed|fit` (default aspect = `.aspectRatio(16/9)`),
 // `-ZTronHeaderOverflow uncapped|capped|refit` (capped = `.capped(fraction: 0.6)`), `.stretch`, a fade,
 // the title font from the live height, an overlay refresher over the stretched band, a horizontal-axis toggle.
@@ -148,6 +150,11 @@ struct ProfileScreen: View {
     @State private var info = ""
     @State private var snapshot: [String: Int] = [:]
 
+    /// `-ZTronHeaderPull openGap|followContent` (D65).
+    private var pull: ZTronHeaderPullBehavior {
+        HeaderDemo.argument("-ZTronHeaderPull", "openGap") == "followContent" ? .followContent : .openGap
+    }
+
     private var snap: ZTronHeaderSnap {
         switch HeaderDemo.argument("-ZTronHeaderSnap", "immediately") {
         case "after": return .afterFinishAccelerating()
@@ -172,6 +179,7 @@ struct ProfileScreen: View {
             .accessibilityIdentifier("header.scroller")
         }
         .padding(.horizontal, 6)
+        .ztronScalingHeaderPullBehavior(pull)
     }
 }
 

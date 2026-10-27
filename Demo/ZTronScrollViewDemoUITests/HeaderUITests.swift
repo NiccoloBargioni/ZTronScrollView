@@ -1,7 +1,8 @@
 import XCTest
 
 /// M8b-3: the scaling header in the demo (docs/design/M8b-refresh-header.md §3): profile (`.fixed`, `.preserve`, snapping,
-/// a `.system` refresher in the gap) and banner (`.aspectRatio(16/9)`, `.stretch`, fade, overlay refresher, horizontal axis,
+/// a `.system` refresher in the gap, below the still header by default (D65) or above the moving one with
+/// `-ZTronHeaderPull followContent`) and banner (`.aspectRatio(16/9)`, `.stretch`, fade, overlay refresher, horizontal axis,
 /// rotation). Every run checks `header.builder == 0` and `content.body == 0` after its gestures.
 final class HeaderUITests: XCTestCase {
     private var forced: Bool { ProcessInfo.processInfo.environment["ZS_DEMO_FORCED"] == "1" }
@@ -101,10 +102,11 @@ final class HeaderUITests: XCTestCase {
         assertNoBodies(i, "after")
     }
 
-    /// User decision 2026-10-26: under `.preserve` the pull and the refresh hold move the header down with the content (its
-    /// height stays R, its bottom edge on the content's top) and the indicator sits in the gap ABOVE it.
+    /// D61 (`ZTronHeaderPullBehavior.followContent`, opt-in since D65): under `.preserve` the pull and the refresh hold move
+    /// the header down with the content (its height stays R, its bottom edge on the content's top) and the indicator sits in
+    /// the gap ABOVE it.
     func testProfileRefreshesInTheGapAboveTheHeader() {
-        let app = launch("profile", ["-ZTronLoadSeconds", "4"])
+        let app = launch("profile", ["-ZTronLoadSeconds", "4", "-ZTronHeaderPull", "followContent"])
         let a11y = element(app, "ztron.refresh.a11y.top")
         XCTAssertTrue(a11y.waitForExistence(timeout: 3))
         let scroller = element(app, "header.scroller").frame
@@ -139,6 +141,46 @@ final class HeaderUITests: XCTestCase {
         XCTAssertEqual(i.double("h"), 240, accuracy: 0.5, "the header kept its resting height while the gap opened")
         XCTAssertEqual(i.double("p"), 0, accuracy: 0.001)
         assertNoBodies(i, "refresh")
+    }
+
+    /// D65 (`ZTronHeaderPullBehavior.openGap`, the default): under `.preserve` the pull and the refresh hold leave the header
+    /// still at its resting place and height; the gap opens BETWEEN its bottom edge and the content's top, and the indicator
+    /// sits in that gap.
+    func testProfileOpenGapHeaderStaysStillUnderAPull() {
+        let app = launch("profile", ["-ZTronLoadSeconds", "4"])
+        let a11y = element(app, "ztron.refresh.a11y.top")
+        XCTAssertTrue(a11y.waitForExistence(timeout: 3))
+        let rest = element(app, "header.box").frame
+        let restRow = element(app, "header.row.0").frame
+        drag(app, from: (0.5, 0.05), to: (0.5, 0.95), hold: 0.4)
+        let holding = Date().addingTimeInterval(3)
+        while Date() < holding, (a11y.value as? String) == "Idle" { Thread.sleep(forTimeInterval: 0.1) }
+        Thread.sleep(forTimeInterval: 0.6)
+        let header = element(app, "header.box").frame
+        let row = element(app, "header.row.0").frame
+        print("HEADER \(path) openGap hold: rest \(rest) row0 at rest \(restRow) header \(header) row0 \(row)")
+        XCTAssertEqual(header.minY, rest.minY, accuracy: 1, "the header stayed still (its top edge)")
+        XCTAssertEqual(header.height, 240, accuracy: 1, "the header kept its resting height")
+        XCTAssertEqual(header.maxY, rest.maxY, accuracy: 1, "the header stayed still (its bottom edge)")
+        XCTAssertGreaterThan(row.minY, header.maxY + 20, "the gap opened below the header")
+        XCTAssertGreaterThan(row.minY, restRow.minY + 20, "the content moved down with the hold")
+        let spinner = app.activityIndicators.firstMatch
+        if spinner.exists {
+            print("HEADER \(path) openGap spinner \(spinner.frame)")
+            XCTAssertGreaterThanOrEqual(spinner.frame.minY, header.maxY - 1, "the indicator sits below the header")
+            XCTAssertLessThanOrEqual(spinner.frame.maxY, row.minY + 1, "inside the gap, above the content")
+        }
+        let end = Date().addingTimeInterval(8)
+        while Date() < end, (a11y.value as? String) != "Idle" { Thread.sleep(forTimeInterval: 0.2) }
+        Thread.sleep(forTimeInterval: 1.0)
+        let after = element(app, "header.box").frame
+        XCTAssertEqual(after.minY, rest.minY, accuracy: 1, "at rest again")
+        let i = info(app, "openGap")
+        XCTAssertEqual(i.counters["refresh.actions"], 1, "one action per pull")
+        XCTAssertEqual(i.double("smax"), 0, ".preserve never stretches")
+        XCTAssertEqual(i.double("h"), 240, accuracy: 0.5)
+        XCTAssertEqual(i.double("p"), 0, accuracy: 0.001)
+        assertNoBodies(i, "openGap")
     }
 
     func testAHeaderButtonWorksAtPartialHeightAndHidesAtZero() {
