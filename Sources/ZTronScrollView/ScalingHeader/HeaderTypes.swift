@@ -84,8 +84,9 @@ public struct ZTronHeaderFade: Equatable {
 /// What fills the header's live frame behind the header's content (user decision 2026-10-26), so a header whose content
 /// does not cover its frame (an aspect ratio ≤ 1, a `.refit` or aspect-fit content) shows it instead of blank areas. It is
 /// drawn below the content and below the `fade:` gradient, clipped to the live frame, and follows that frame in every
-/// animation (collapse, `.stretch` growth, the `.preserve` pull, resizes, rotations) by layout: nothing in it runs per
-/// frame. Hidden from accessibility and from hit-testing.
+/// animation (collapse, `.stretch` growth, the `.preserve` pull, resizes, rotations) by layout: no body in it is
+/// re-evaluated per frame, but it is laid out at the live frame each frame of a collapse and the renderer redraws a blur
+/// or a material at the new size. Hidden from accessibility and from hit-testing. Known limits: SPEC S10.
 public struct ZTronHeaderBackground {
     enum Kind {
         case ambientBlur(radius: CGFloat)
@@ -99,10 +100,12 @@ public struct ZTronHeaderBackground {
     /// player). The copy is the same builder result instantiated a second time: its body runs once more per cold change
     /// of the header (install, a parent rebuild, a size change), never per frame. It is laid out at the live frame, filled
     /// with the content's own aspect ratio (overflow cropped) and blurred by `radius` points with opaque edges (an infinite
-    /// radius is the strongest blur, a negative one none). It is a separate instance: its `@State` is its own and its
-    /// `onAppear` / `task` run for it too. Readers inside it (``ZTronHeaderGeometryReader``, ``ZTronScrollReader``) are
-    /// cold: they show the geometry taken when the copy was built and at each cold change (a resize, a new resting
-    /// height), never per frame, so the copy never doubles the header's per-frame reader work.
+    /// radius is the strongest blur, a negative one none). It is a separate instance: its `@State` is its own, its
+    /// `onAppear` / `task` run for it too (side effects run twice), and `matchedGeometryEffect` or focus identifiers in
+    /// the header content are duplicated (two sources of one id: avoid them in a header with this background). Readers
+    /// inside it (``ZTronHeaderGeometryReader``, ``ZTronScrollReader``) are cold: they show the geometry taken when the
+    /// copy was built and at each cold change (a resize, a new resting height), never per frame, so the copy never
+    /// doubles the header's per-frame reader work.
     public static func ambientBlur(radius: CGFloat = 30) -> Self { Self(kind: .ambientBlur(radius: radius)) }
 
     /// A backdrop blur of whatever is drawn behind the header, with the system material (`Material`, iOS 15+) whose blur

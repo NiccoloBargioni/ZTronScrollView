@@ -87,44 +87,32 @@ enum HeaderResizeAnchor: Equatable, Sendable {
 /// So the header's bottom edge is the content's top edge on both sides of rest (a developer `contentInset.top` adds a
 /// constant gap); past the band the content scrolls under the collapsed header.
 enum HeaderMath {
-    /// The metrics `size` resolves to at `width` (the viewport width) and a DEBUG warning when the size is degenerate. `nil`
-    /// while the width is unknown or `.fit` is unmeasured. `containerHeight` (the viewport below the adjusted safe area,
-    /// `HeaderMath.containerHeight`) limits the resting height and `min` per `overflow`; unknown (≤ 0) limits nothing.
-    static func resolve(size: ZTronHeaderSize, width: CGFloat, natural: CGFloat?,
+    /// The metrics `size` resolves to at `width` (the viewport width); `nil` while the width is unknown or `.fit` is
+    /// unmeasured. `containerHeight` (the viewport below the adjusted safe area, `HeaderMath.containerHeight`) limits the
+    /// resting height and `min` per `overflow`; unknown (≤ 0) limits nothing. Pure and string-free: the header's layout
+    /// calls it on every pass (`layoutResting`); the DEBUG diagnostics of a degenerate size are `warning(…)`, which only
+    /// the state's cold resolve (`HeaderSizing.resolve`) asks for.
+    static func metrics(size: ZTronHeaderSize, width: CGFloat, natural: CGFloat?,
                         behavior: ZTronHeaderScalingBehavior = .preserve, vertical: Bool = true,
-                        containerHeight: CGFloat = 0, overflow: ZTronHeaderOverflow = .uncapped)
-        -> (metrics: HeaderMetrics?, warning: String?) {
+                        containerHeight: CGFloat = 0, overflow: ZTronHeaderOverflow = .uncapped) -> HeaderMetrics? {
         var minimum = max(0, size.minimum.isFinite ? size.minimum : 0)
-        var warning: String?
         var resting: CGFloat
         switch size {
-        case let .fixed(min, max):
+        case let .fixed(_, max):
             resting = max.isFinite ? Swift.max(0, max) : 0
-            if min > max { warning = "withScalingHeader: .fixed(min: \(min), max: \(max)) has min > max: a fixed header of height \(min)" }
         case let .aspectRatio(ratio, _):
-            guard width > 0, width.isFinite else { return (nil, nil) }
-            if ratio > 0, ratio.isFinite {
-                resting = width / ratio
-            } else {
-                resting = 0
-                warning = "withScalingHeader: .aspectRatio(\(ratio)) needs a positive ratio (width / height)"
-            }
+            guard width > 0, width.isFinite else { return nil }
+            resting = ratio > 0 && ratio.isFinite ? width / ratio : 0
         case .fit:
-            guard let natural else { return (nil, nil) }
+            guard let natural else { return nil }
             resting = natural.isFinite ? Swift.max(0, natural) : 0
-            if resting < 1 {
-                warning = "withScalingHeader: .fit measured a resting height of \(resting): the header has no ideal height (only flexible views). Use .fixed, .aspectRatio or .frame(idealHeight:)"
-            }
         }
         // The overflow policy (D59): the size's resting height and `min`, limited by the container.
         if containerHeight > 0, containerHeight.isFinite {
             let limit: CGFloat
             switch overflow {
             case .uncapped: limit = .infinity
-            case let .capped(fraction):
-                let f = fraction.isFinite ? min(max(fraction, 0), 1) : 1
-                if f != fraction { warning = warning ?? "withScalingHeader: overflow .capped(fraction: \(fraction)) is outside 0…1, read as \(f)" }
-                limit = containerHeight * f
+            case let .capped(fraction): limit = containerHeight * (fraction.isFinite ? min(max(fraction, 0), 1) : 1)
             case .refit: limit = containerHeight     // .aspectRatio: W / r capped at H is the aspect fit of r inside W × H
             }
             resting = min(resting, limit)
@@ -133,8 +121,34 @@ enum HeaderMath {
         // `min ≥ R`: a fixed-height header of height `min` (band 0, progress 0, no snapping; `.stretch` still grows).
         if minimum >= resting { resting = minimum }
         let w = width.isFinite ? Swift.max(0, width) : 0
-        return (HeaderMetrics(min: minimum, resting: resting, behavior: behavior, width: w, vertical: vertical), warning)
+        return HeaderMetrics(min: minimum, resting: resting, behavior: behavior, width: w, vertical: vertical)
     }
+
+    #if DEBUG
+    /// The DEBUG warning for a degenerate `size` or `overflow` (the first that applies), `nil` when there is none or the
+    /// size does not resolve (`metrics(…)` is `nil`). Never on the layout path.
+    static func warning(size: ZTronHeaderSize, width: CGFloat, natural: CGFloat?, containerHeight: CGFloat = 0,
+                        overflow: ZTronHeaderOverflow = .uncapped) -> String? {
+        switch size {
+        case let .fixed(min, max):
+            if min > max { return "withScalingHeader: .fixed(min: \(min), max: \(max)) has min > max: a fixed header of height \(min)" }
+        case let .aspectRatio(ratio, _):
+            guard width > 0, width.isFinite else { return nil }
+            if !(ratio > 0 && ratio.isFinite) { return "withScalingHeader: .aspectRatio(\(ratio)) needs a positive ratio (width / height)" }
+        case .fit:
+            guard let natural else { return nil }
+            let resting = natural.isFinite ? Swift.max(0, natural) : 0
+            if resting < 1 {
+                return "withScalingHeader: .fit measured a resting height of \(resting): the header has no ideal height (only flexible views). Use .fixed, .aspectRatio or .frame(idealHeight:)"
+            }
+        }
+        if containerHeight > 0, containerHeight.isFinite, case let .capped(fraction) = overflow {
+            let f = fraction.isFinite ? min(max(fraction, 0), 1) : 1
+            if f != fraction { return "withScalingHeader: overflow .capped(fraction: \(fraction)) is outside 0…1, read as \(f)" }
+        }
+        return nil
+    }
+    #endif
 
     /// The live geometry at `o′` (§2.4 table).
     static func geometry(o oPrime: CGFloat, m: HeaderMetrics) -> ZTronHeaderGeometry {
@@ -266,7 +280,7 @@ enum HeaderMath {
 
     /// The resting height and minimum at a LAYOUT size: the proposed width `w` and the overflow container (`containerHeight`,
     /// the slot's proposed height, the region between the adjusted safe areas; `nil`: the committed one). The same
-    /// `resolve` as the state's (size, D59 overflow policy, `min ≥ R` rule), so at the committed viewport the layout and
+    /// `metrics(…)` as the state's (size, D59 overflow policy, `min ≥ R` rule), so at the committed viewport the layout and
     /// the state agree exactly. `.fit` at the committed width and container keeps the committed `R`: a header content
     /// change moves the header and the content together, in the state's commit (which adopts the measurement).
     static func layoutResting(width w: CGFloat, containerHeight: CGFloat?, natural: CGFloat?,
@@ -276,8 +290,8 @@ enum HeaderMath {
         guard let size = live.size, w > 0, w.isFinite else { return committed }
         let container = containerHeight.map { $0.isFinite ? Swift.max(0, $0) : 0 } ?? live.committedContainer
         if size.isFit, abs(w - m.width) <= 0.5, abs(container - live.committedContainer) <= 0.5 { return committed }
-        guard let r = resolve(size: size, width: w, natural: natural, behavior: m.behavior, vertical: m.vertical,
-                              containerHeight: container, overflow: live.overflow).metrics else { return committed }
+        guard let r = metrics(size: size, width: w, natural: natural, behavior: m.behavior, vertical: m.vertical,
+                              containerHeight: container, overflow: live.overflow) else { return committed }
         return (r.resting, Swift.min(r.min, r.resting))
     }
 

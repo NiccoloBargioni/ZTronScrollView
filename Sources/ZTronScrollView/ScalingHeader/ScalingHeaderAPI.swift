@@ -10,13 +10,28 @@ extension ZTronScrollView {
     /// edge pinned below the safe area, and it collapses to `min` by shrinking from the bottom as the content scrolls up.
     /// A pull past the top moves it down with the content under `.preserve` (a gap opens above it) and grows it under
     /// `.stretch` (only when the vertical axis can bounce: scrollable content, `scrollBounceBehavior(.always)` or a
-    /// refresher). Its bottom edge stays on the content's top edge in every animation: collapse, pulls, refresh holds,
-    /// snaps, `scrollTo`, rotations and animated resizes.
+    /// refresher). Its bottom edge stays on the content's top edge in collapse, pulls, refresh holds, snaps, `scrollTo`,
+    /// rotations and app-driven animated resizes, with the known limits below. Content shorter than the viewport is
+    /// top-aligned under the header.
     ///
     /// The builder runs once per cold change (install, a parent rebuild), never while scrolling: it receives a
-    /// ``ZTronHeaderProxy`` and its children read the live geometry through ``ZTronHeaderGeometryReader``. Refresh is S9's
-    /// `refresher(…)` (with `.stretch` the indicator floats over the stretched band, with `.preserve` it sits in the gap
-    /// above the header).
+    /// ``ZTronHeaderProxy`` and its children read the live geometry through ``ZTronHeaderGeometryReader``. No body in the
+    /// header runs because it collapses or stretches; its subtree is laid out again at the live frame (a layout pass) every
+    /// frame of a collapse. Refresh is S9's `refresher(…)` (with `.stretch` the indicator floats over the stretched band,
+    /// with `.preserve` it sits in the gap above the header).
+    ///
+    /// Known limits (SPEC S10 "Seamless edges", "Natural height", "15–16 layer groups"):
+    /// - iOS 15–16: on an app-driven animated resize (Split View, Stage Manager, a `withAnimation` size change), a `.fit`
+    ///   header inside the collapse band and an overflow-limited resting height (`.capped` / `.refit` while the limit sets
+    ///   it) land at the resize's end in one frame; rotations are seamless. A `.fit` header's content change inside the
+    ///   band is not re-measured.
+    /// - iOS 15–16: the header and the content are each drawn as one compositing group, so a blend mode inside one does
+    ///   not reach the other or what is behind the scroll view.
+    /// - A scroll command issued while an animated resize is in flight ends the resize: the content takes the final
+    ///   geometry at once while the header still animates.
+    /// - `background: .ambientBlur` draws a SECOND instance of the header content: its `onAppear` / `task` run for it
+    ///   too, and `matchedGeometryEffect` or focus identifiers inside the header are duplicated (avoid them there, or use
+    ///   another background).
     ///
     /// - Parameters:
     ///   - size: `.fixed(min:max:)`, `.aspectRatio(_:min:)` (recommended for banners) or `.fit(min:)` (measured).

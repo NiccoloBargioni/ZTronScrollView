@@ -399,7 +399,8 @@ overlay host vs content with `accessibilitySortPriority` on 17.5 and 27.0 (Voice
   `h − R` (negative while collapsed) because `R` is in `aci.top`; `ScrollMetrics.headerObscured` is left for M9.
 - §2.2: the D11 gate is its own leaf on `.phase`; the frame leaf wakes on `.target` + `.metrics` only (1 body per transaction). The
   fade is drawn inside the frame leaf (same layout result). The host does not read the width: 0 builder runs per rotation.
-- §2.4 refresh: `.stretch` base = `top0 + R`, overlay forced; `.preserve` base = `aci.top − hold`. `top0` = the adjusted safe-area top.
+- §2.4 refresh: `.stretch` base = `top0 + R`, overlay forced; `.preserve` base = `top0` (the gap a pull opens ABOVE the header, which moves
+  down with the content; user decision 2026-10-26; it was `aci.top − hold` before; corrected M8b-s6). `top0` = the adjusted safe-area top.
 - `.immediately` is composed in offset space at the release pipeline's compose hook (after `decideTarget`, before
   `willEndDragging`), not inside `effectiveTargetBehavior`; it retargets only when the landing moves.
 - Horizontal view: `HeaderContentReserve` proposes `V − R` to the content (R only, so header-less views are unchanged).

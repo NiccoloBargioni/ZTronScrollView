@@ -22,17 +22,21 @@ struct HeaderSizing: Equatable {
     var snap: ZTronHeaderSnap
     var overflow: ZTronHeaderOverflow = .uncapped
 
-    /// `HeaderMath.resolve` plus its DEBUG warnings; `nil` while the width is unknown or `.fit` unmeasured.
+    /// `HeaderMath.metrics` plus its DEBUG warnings (cold: the state's commits, never the layout path); `nil` while the
+    /// width is unknown or `.fit` unmeasured.
     @MainActor func resolve(width: CGFloat, natural: CGFloat?, vertical: Bool, containerHeight: CGFloat) -> HeaderMetrics? {
-        let r = HeaderMath.resolve(size: size, width: width, natural: natural, behavior: behavior, vertical: vertical,
-                                   containerHeight: containerHeight, overflow: overflow)
+        let metrics = HeaderMath.metrics(size: size, width: width, natural: natural, behavior: behavior, vertical: vertical,
+                                         containerHeight: containerHeight, overflow: overflow)
         #if DEBUG
-        if let warning = r.warning { HeaderDiagnostics.note(warning) }
-        if r.metrics != nil, behavior == .stretch, !vertical {
+        if let warning = HeaderMath.warning(size: size, width: width, natural: natural, containerHeight: containerHeight,
+                                            overflow: overflow) {
+            HeaderDiagnostics.note(warning)
+        }
+        if metrics != nil, behavior == .stretch, !vertical {
             HeaderDiagnostics.note("withScalingHeader: .stretch is inert on a scroll view without the vertical axis (a fixed banner)")
         }
         #endif
-        return r.metrics
+        return metrics
     }
 }
 

@@ -63,31 +63,37 @@ import Testing
     }
 
     @Test func sizesResolve() {
-        let fixed = HeaderMath.resolve(size: .fixed(min: 64, max: 240), width: 402, natural: nil)
-        #expect(fixed.metrics?.resting == 240 && fixed.metrics?.min == 64 && fixed.warning == nil)
-        let aspect = HeaderMath.resolve(size: .aspectRatio(16.0 / 9.0), width: 402, natural: nil)
-        #expect(aspect.metrics?.resting == 226.125 && aspect.metrics?.min == 0)
-        #expect(HeaderMath.resolve(size: .aspectRatio(16.0 / 9.0), width: 0, natural: nil).metrics == nil, "width unknown")
-        #expect(HeaderMath.resolve(size: .fit(min: 10), width: 402, natural: nil).metrics == nil, ".fit unmeasured")
-        let fit = HeaderMath.resolve(size: .fit(min: 10), width: 402, natural: 180)
-        #expect(fit.metrics?.resting == 180 && fit.metrics?.min == 10 && fit.warning == nil)
-        let stretch = HeaderMath.resolve(size: .fixed(max: 100), width: 402, natural: nil, behavior: .stretch, vertical: false)
-        #expect(stretch.metrics?.behavior == .stretch && stretch.metrics?.vertical == false)
+        let fixed = HeaderMath.metrics(size: .fixed(min: 64, max: 240), width: 402, natural: nil)
+        #expect(fixed?.resting == 240 && fixed?.min == 64)
+        #expect(HeaderMath.warning(size: .fixed(min: 64, max: 240), width: 402, natural: nil) == nil)
+        let aspect = HeaderMath.metrics(size: .aspectRatio(16.0 / 9.0), width: 402, natural: nil)
+        #expect(aspect?.resting == 226.125 && aspect?.min == 0)
+        #expect(HeaderMath.metrics(size: .aspectRatio(16.0 / 9.0), width: 0, natural: nil) == nil, "width unknown")
+        #expect(HeaderMath.metrics(size: .fit(min: 10), width: 402, natural: nil) == nil, ".fit unmeasured")
+        #expect(HeaderMath.warning(size: .aspectRatio(0), width: 0, natural: nil) == nil, "unresolved: no warning yet")
+        #expect(HeaderMath.warning(size: .fit(), width: 402, natural: nil) == nil, "unmeasured: no warning yet")
+        let fit = HeaderMath.metrics(size: .fit(min: 10), width: 402, natural: 180)
+        #expect(fit?.resting == 180 && fit?.min == 10)
+        #expect(HeaderMath.warning(size: .fit(min: 10), width: 402, natural: 180) == nil)
+        let stretch = HeaderMath.metrics(size: .fixed(max: 100), width: 402, natural: nil, behavior: .stretch, vertical: false)
+        #expect(stretch?.behavior == .stretch && stretch?.vertical == false)
     }
 
     @Test func degenerateRangesAreFixedHeadersThatStillStretch() {
-        let r = HeaderMath.resolve(size: .fixed(min: 300, max: 200), width: 402, natural: nil, behavior: .stretch)
-        let m = try! #require(r.metrics)
-        #expect(r.warning != nil, "both bounds given the wrong way: DEBUG warning")
+        let m = try! #require(HeaderMath.metrics(size: .fixed(min: 300, max: 200), width: 402, natural: nil, behavior: .stretch))
+        #expect(HeaderMath.warning(size: .fixed(min: 300, max: 200), width: 402, natural: nil) != nil,
+                "both bounds given the wrong way: DEBUG warning")
         #expect(m.resting == 300 && m.band == 0)
         #expect(HeaderMath.geometry(o: 50, m: m).progress == 0 && HeaderMath.height(o: 50, m: m) == 300)
         #expect(HeaderMath.height(o: -30, m: m) == 330, ".stretch still grows")
         #expect(HeaderMath.nearestSnap(to: 10, positions: [0, 1], m: m) == nil, "no snapping without a band")
-        let aspect = HeaderMath.resolve(size: .aspectRatio(16.0 / 9.0, min: 400), width: 402, natural: nil)
-        #expect(aspect.metrics?.resting == 400 && aspect.warning == nil, "min ≥ R from a computed size: fixed, no warning")
-        let flexible = HeaderMath.resolve(size: .fit(), width: 402, natural: 0)
-        #expect(flexible.warning?.contains(".frame(idealHeight:)") == true, "a flexible-only .fit header names the fix")
-        #expect(HeaderMath.resolve(size: .aspectRatio(0), width: 402, natural: nil).warning != nil)
+        #expect(HeaderMath.metrics(size: .aspectRatio(16.0 / 9.0, min: 400), width: 402, natural: nil)?.resting == 400)
+        #expect(HeaderMath.warning(size: .aspectRatio(16.0 / 9.0, min: 400), width: 402, natural: nil) == nil,
+                "min ≥ R from a computed size: fixed, no warning")
+        #expect(HeaderMath.warning(size: .fit(), width: 402, natural: 0)?.contains(".frame(idealHeight:)") == true,
+                "a flexible-only .fit header names the fix")
+        #expect(HeaderMath.warning(size: .aspectRatio(0), width: 402, natural: nil) != nil)
+        #expect(HeaderMath.metrics(size: .aspectRatio(0), width: 402, natural: nil)?.resting == 0, "a bad ratio: no height")
     }
 
     @Test func snapPositionsAreCollapseProgress() {
@@ -179,8 +185,8 @@ import Testing
             for viewport in [CGSize(width: 874, height: 402), CGSize(width: 402, height: 874), CGSize(width: 750, height: 402)] {
                 let container = HeaderMath.containerHeight(viewport: viewport, safe: safe, adjusted: .vertical)
                 let natural = viewport.width * 9 / 16
-                guard let state = HeaderMath.resolve(size: size, width: viewport.width, natural: natural,
-                                                     containerHeight: container, overflow: overflow).metrics else {
+                guard let state = HeaderMath.metrics(size: size, width: viewport.width, natural: natural,
+                                                     containerHeight: container, overflow: overflow) else {
                     Issue.record("unresolved \(size)"); continue
                 }
                 // The slot is proposed the region between the safe areas (M8b-s6): its height is the container.
@@ -238,24 +244,27 @@ import Testing
     /// container below the 21 pt bottom safe area) is 491.625 pt uncapped.
     @Test func theOverflowPolicyLimitsTheRestingHeightAndMin() {
         func r(_ size: ZTronHeaderSize, _ policy: ZTronHeaderOverflow, natural: CGFloat? = nil) -> HeaderMetrics? {
-            HeaderMath.resolve(size: size, width: 874, natural: natural, containerHeight: 381, overflow: policy).metrics
+            HeaderMath.metrics(size: size, width: 874, natural: natural, containerHeight: 381, overflow: policy)
         }
         let banner = ZTronHeaderSize.aspectRatio(16.0 / 9.0, min: 64)
         #expect(r(banner, .uncapped)?.resting == 491.625, "the default keeps W / r")
         #expect(r(banner, .capped(fraction: 0.5))?.resting == 190.5)
         #expect(r(banner, .refit)?.resting == 381, "the aspect fit of 16:9 inside 874 x 381 is 381 tall")
         #expect(r(.aspectRatio(16.0 / 9.0), .refit)?.resting == 381)
-        #expect(HeaderMath.resolve(size: banner, width: 402, natural: nil, containerHeight: 778, overflow: .refit).metrics?.resting
+        #expect(HeaderMath.metrics(size: banner, width: 402, natural: nil, containerHeight: 778, overflow: .refit)?.resting
                 == 226.125, "a header that fits is untouched")
         #expect(r(.fixed(min: 64, max: 500), .refit)?.resting == 381)
         #expect(r(.fixed(min: 64, max: 500), .capped(fraction: 0.6))?.resting == 228.6)
         #expect(r(.fit(), .refit, natural: 600)?.resting == 381)
         let tight = r(.fixed(min: 300, max: 400), .capped(fraction: 0.5))
         #expect(tight?.resting == 190.5 && tight?.min == 190.5 && tight?.band == 0, "min is limited the same way")
-        #expect(HeaderMath.resolve(size: banner, width: 874, natural: nil, containerHeight: 0, overflow: .refit).metrics?.resting
+        #expect(HeaderMath.metrics(size: banner, width: 874, natural: nil, containerHeight: 0, overflow: .refit)?.resting
                 == 491.625, "an unknown container limits nothing")
-        let odd = HeaderMath.resolve(size: banner, width: 874, natural: nil, containerHeight: 381, overflow: .capped(fraction: 3))
-        #expect(odd.metrics?.resting == 381 && odd.warning != nil, "a fraction outside 0…1 is clamped, with a DEBUG warning")
+        let odd = HeaderMath.metrics(size: banner, width: 874, natural: nil, containerHeight: 381, overflow: .capped(fraction: 3))
+        let oddWarning = HeaderMath.warning(size: banner, width: 874, natural: nil, containerHeight: 381, overflow: .capped(fraction: 3))
+        #expect(odd?.resting == 381 && oddWarning != nil, "a fraction outside 0…1 is clamped, with a DEBUG warning")
+        #expect(HeaderMath.warning(size: banner, width: 874, natural: nil, containerHeight: 0, overflow: .capped(fraction: 3)) == nil,
+                "no container: the fraction limits nothing, no warning")
         #expect(HeaderMath.containerHeight(viewport: CGSize(width: 874, height: 402),
                                            safe: EdgeInsets(top: 0, leading: 62, bottom: 21, trailing: 62), adjusted: .vertical) == 381)
         #expect(HeaderMath.containerHeight(viewport: CGSize(width: 874, height: 402),
