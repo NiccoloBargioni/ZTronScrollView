@@ -657,7 +657,9 @@ hold `H` stretches the header by `H` and the indicator floats over the stretched
 there is no gap); with `.preserve` the indicator sits in the gap: with `.openGap` (D65, the default) below the still header, at the plain
 base `aci.top − hold` (the resting header's bottom edge, plus `contentInset.top`), `[top0 + R, top0 + R + pull]`, placement as the
 refresher says; with `.followContent` (D61) above the header, `[top0, top0 + pull]` (height `H` while refreshing; the header moved down by
-`H` with the content, amended 2026-10-26 by the user). Load-more at the bottom is unaffected by the header.
+`H` with the content, amended 2026-10-26 by the user). Limit (D65, open item 18): a rotation during the hold that leaves the header
+taller than the new viewport (an uncapped 16:9 header in landscape) puts the `.openGap` gap below the screen, and the indicator is not
+drawn during that rotation (as `.stretch`'s, whose band is off-screen too); the header, the gap and the content stay seamless. Load-more at the bottom is unaffected by the header.
 **(Amended 2026-10-27, M8b-s6.)** During an app-driven animated resize while refreshing, the indicator is drawn at the presented
 geometry: its placement is computed in the committed geometry (the resize commit is unanimated) with the pull taken from the target,
 and a render-time transform (`RefreshResizeEffect`, a `GeometryEffect`) moves it by the presented − committed difference at the drawn

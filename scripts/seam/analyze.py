@@ -70,8 +70,11 @@ the gap below it EQUALS the pull by design, so the raw seam is not the measure t
         hdr_bot_c - its first-rest value, hdrDev = the header thickness against its first-rest value (both about 0: the
         header is still at its rest height). Use it for pulls, refresh holds and their ends without a rotation.
   hold  the gap is the refresh hold, constant while the header and the content move together (a rotation during the
-        hold): for each segment whose rest before and rest after have the same seam (within 1 pt, the open gap),
-        gapExcess = seam - that seam; segments that open or close the gap are listed, not evaluated.
+        hold): for each segment whose rest before and rest after have the same seam (within 1 pt, the open gap; one of
+        them may be unmeasured, e.g. a landscape rest whose content is below the screen), gapExcess = seam - that seam;
+        a segment that opens or closes the gap (the hold's begin / end: the seams before and after differ) is measured
+        like a pull against the rest before it: gapExcess = seam - seamBefore - (ctop_c - its ctop_c), hdrBotDev =
+        hdr_bot_c - its hdr_bot_c (the header stays still while the gap opens).
   summary.openGap: mode, reference, maxGapExcess (|.|, frame), maxHdrBotDev, maxHdrDev, evaluated frames, per segment.
 Outputs frames.csv, summary.json and worst-*.png (annotated: white = header bottom, cyan = header top, black = content
 top (extrapolated under the header), grey = row boundaries used, orange = lateral edges).
@@ -934,26 +937,35 @@ def open_gap_check(mode, measured, segs):
                         "maxPull": round(max((r["ctop_c"] - c0 for r in rs if clear(r, "ctop_c")), default=0.0), 3)})
         out["segments"] = per
     else:
-        per, n = [], 0
+        per, n, dev_b = [], 0, (0.0, None)
         for k, (a, b) in enumerate(segs):
             before, after = med(rests[k], "seam"), med(rests[k + 1], "seam") if k + 1 < len(rests) else None
             item = {"frames": [measured[a]["frame"], measured[b]["frame"]], "seamBefore": before, "seamAfter": after}
-            if before is None or after is None or abs(before - after) > 1.0:
+            changes = before is not None and after is not None and abs(before - after) > 1.0
+            ref = before if before is not None else after
+            c_ref, b_ref = med(rests[k], "ctop_c"), med(rests[k], "hdr_bot_c")
+            if ref is None or (changes and (c_ref is None or b_ref is None)):
                 item["evaluated"] = False
                 per.append(item)
                 continue
             w = (0.0, None)
             for r in measured[a: b + 1]:
-                if clear(r, "seam"):
-                    r["gapExcess"] = round(r["seam"] - before, 3)
-                    n += 1
-                    if abs(r["gapExcess"]) > abs(w[0]):
-                        w = (r["gapExcess"], r["frame"])
-            item.update(evaluated=True, maxGapExcess=w[0], frame=w[1])
+                if changes and clear(r, "hdr_bot_c"):
+                    r["hdrBotDev"] = round(r["hdr_bot_c"] - b_ref, 3)
+                    if abs(r["hdrBotDev"]) > abs(dev_b[0]):
+                        dev_b = (r["hdrBotDev"], r["frame"])
+                if not clear(r, "seam") or (changes and not clear(r, "ctop_c")):
+                    continue
+                expected = before + (r["ctop_c"] - c_ref) if changes else ref
+                r["gapExcess"] = round(r["seam"] - expected, 3)
+                n += 1
+                if abs(r["gapExcess"]) > abs(w[0]):
+                    w = (r["gapExcess"], r["frame"])
+            item.update(evaluated=True, model="pull" if changes else "constant", maxGapExcess=w[0], frame=w[1])
             if abs(w[0]) > abs(worst[0]):
                 worst = w
             per.append(item)
-        out.update(evaluatedFrames=n, segments=per)
+        out.update(evaluatedFrames=n, maxHdrBotDev=dev_b[0], maxHdrBotDevFrame=dev_b[1], segments=per)
     out.update(maxGapExcess=worst[0], maxGapExcessFrame=worst[1])
     return out
 

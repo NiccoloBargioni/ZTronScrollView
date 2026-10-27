@@ -187,6 +187,13 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
    re-laid out every control in the content on every scroll / zoom frame, and with it the overlay `Layout` holding the
    demo banner's `Button`. The gate is now its own leaf (`ContentInteractionGate`, one `Bool`); regression unit test
    `ContentOverlayTests.motionFramesDoNotLayOutControlsAgain`. 17.5 never showed it (hosted or UI).
+18. **D65 `.openGap` limits (2026-10-27)**: (a) a rotation during a refresh hold with a header taller than the new viewport
+   (uncapped 16:9 in landscape, R 491 pt over 402): the gap, and the top indicator in it, end below the screen, and the indicator
+   is not drawn during the rotation (seam lab probe visible in 5-6 of 32 rotation frames on 27.0 / 17.5 / forced; the header /
+   gap / content seam stays within 0.2 pt). `.stretch` (base `top0 + R`) behaves the same since M8b-s6 (verify lane); a header that
+   fits (`.fixed` 240) keeps the indicator in all 32 frames, 0.79 pt from its place; `.followContent` 32/32. Not a mask jump: a
+   laid-out clip box instead of `RefreshClip` changed nothing (spike, not committed). (b) iOS 15/16 runtimes unverified here (the
+   forced lane on 27.0 only), as item 16 (a).
 
 ## Decisions (keep)
 - D1 Naming map in CLAUDE.md (ZoomScroll → ZTronScroll, `ztronScroll…` modifiers; matches ZTronPages' `ztronPage()`).
@@ -458,7 +465,11 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
   `HeaderMath.swift`, `HeaderSpec.swift`, `ScalingHeaderAPI.swift`, `Modifiers/ScrollConfigTwins.swift`, `ZTronScrollView.swift`;
   tests `HeaderMathTests`, `HeaderInsetConsumerTests`, `HeaderLayoutFrameTests`, `HeaderPullBehaviorTests`, `HeaderUITests`
   (`testProfileOpenGapHeaderStaysStillUnderAPull`; the D61 test runs with `-ZTronHeaderPull followContent`); demo
-  `-ZTronHeaderPull`, seam lab `-ZTronSeamPull` (`opengap` / `follow`, `analyze.py --open-gap pull|hold`); SPEC S10.
+  `-ZTronHeaderPull`, seam lab `-ZTronSeamPull` (`opengap` / `follow`, `analyze.py --open-gap pull|hold`); SPEC S10. Measured
+  (27.0, 17.5, 27.0 forced; pull, pull + refresh hold + end, rotation during a hold, snap, `withAnimation` scroll through the band,
+  `.ambientBlur` pull, `.stretch` pull, both modes): `.openGap` header still under the pull (header bottom and height within 0.5 pt
+  of rest, gap − pull within 0.33 pt), every other seam within 0.67 pt, lateral within 0.17 pt, no one-frame step above 0.25;
+  limits: open item 18.
 - D16 (user, 2026-10-18) Physics and the post-rotation re-centering are generated and tested by **Fable 5.1**
   (builder agents with model fable). Re-centering ports ZTronMapKit's normalized-centre discipline
   (ContentGeometry: capture before resize, restore = centre × newContentSize − newViewport/2, clamp, centre smaller
