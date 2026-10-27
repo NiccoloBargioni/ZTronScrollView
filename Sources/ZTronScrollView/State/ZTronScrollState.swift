@@ -170,6 +170,17 @@ public final class ZTronScrollState {
     /// (the paging index of the view-aligned case). Re-aligned when the resize closes and while the settle window is open.
     private var resizeAlignedIDs: (x: AnyHashable?, y: AnyHashable?)?
     private var settledThisTurn = false
+    /// Scaling header (M8b-3, cold): the container's `withScalingHeader` values and the measured `.fit` height; resolved
+    /// against the viewport width in `applyViewport`, so a rotation's new resting height is part of the same commit.
+    var headerSpec: HeaderSizing?
+    var headerNatural: CGFloat?
+    /// How many `.fit` measurements changed the natural height (per state; the tests' counter).
+    var headerMeasurements = 0
+    /// A `snapHeader(to:)` made before the header metrics exist, applied unanimated by the first `setHeaderMetrics`.
+    var pendingHeaderSnap: ZTronHeaderSnapTarget?
+    private var headerOverride: HeaderMetrics??
+    /// A deceleration ended in this flush: `.afterFinishAccelerating` looks at the rest once the flush is over.
+    private var headerSettlePending = false
 
     /// Chooses the storage once; the path never flips afterwards (R6).
     public init() {
@@ -271,6 +282,7 @@ public final class ZTronScrollState {
         if pendingEndDecelerating {
             pendingEndDecelerating = false
             notifyDidEndDecelerating()
+            headerSettlePending = true
         }
         if pendingEndNotification {
             pendingEndNotification = false
@@ -287,6 +299,10 @@ public final class ZTronScrollState {
         deliverObservers()
         evaluateReachEdges()
         onFlush?()
+        if headerSettlePending {
+            headerSettlePending = false
+            settleHeaderSnap()
+        }
     }
 
     /// Finger / clock writes are unanimated (cancels an in-flight SwiftUI animation without a jump).
@@ -385,7 +401,7 @@ public final class ZTronScrollState {
         settledThisTurn = true
         let r = ResizeMath.realize(intent, viewport: m.viewportSize, content: m.contentSize, insets: m.adjustedContentInset,
                                    header: m.headerObscured, focus: sizeChangesAnchor ?? .center, limits: zoomLimits,
-                                   alignment: contentAlignment)
+                                   alignment: contentAlignment, headerGeometry: HeaderMath.resizeGeometry(m))
         let g = ResizeMath.geometry(viewport: m.viewportSize, content: m.contentSize, insets: m.adjustedContentInset,
                                     alignment: contentAlignment)
         return (g.clamped(r.offset, at: r.scale), r.scale)
@@ -413,7 +429,7 @@ public final class ZTronScrollState {
             var m = metrics
             m.adjustedContentInset = Self.adjusted(contentInset: m.contentInset, safe: m.safeAreaInsets,
                                                    behavior: contentInsetAdjustmentBehavior, axes: scrollAxes,
-                                                   hold: m.refreshHold)
+                                                   hold: m.refreshHold, header: m.header)
             syncCommit(&m, open: false)
             storage.metrics = m
         }
@@ -422,9 +438,9 @@ public final class ZTronScrollState {
     }
 
     static func adjusted(contentInset: EdgeInsets, safe: EdgeInsets, behavior: ZTronContentInsetAdjustmentBehavior,
-                         axes: Axis.Set, hold: EdgeInsets = EdgeInsets()) -> EdgeInsets {
+                         axes: Axis.Set, hold: EdgeInsets = EdgeInsets(), header: HeaderMetrics? = nil) -> EdgeInsets {
         let e = behavior.edges(for: axes)
-        return EdgeInsets(top: contentInset.top + (e.contains(.top) ? safe.top : 0) + hold.top,
+        return EdgeInsets(top: contentInset.top + (e.contains(.top) ? safe.top : 0) + hold.top + (header?.resting ?? 0),
                           leading: contentInset.leading + (e.contains(.leading) ? safe.leading : 0) + hold.leading,
                           bottom: contentInset.bottom + (e.contains(.bottom) ? safe.bottom : 0) + hold.bottom,
                           trailing: contentInset.trailing + (e.contains(.trailing) ? safe.trailing : 0) + hold.trailing)
@@ -432,7 +448,8 @@ public final class ZTronScrollState {
 
     /// Keeps the committed geometry equal to the metrics unless a resize is in flight (then only `current` moves).
     private func syncCommit(_ m: inout ScrollMetrics, open: Bool) {
-        let snap = ResizeCommit.Snapshot(viewport: m.viewportSize, contentSize: m.contentSize, insets: m.adjustedContentInset)
+        let snap = ResizeCommit.Snapshot(viewport: m.viewportSize, contentSize: m.contentSize, insets: m.adjustedContentInset,
+                                         header: HeaderMath.resizeGeometry(m))
         m.resize.current = snap
         m.resize.header = m.headerObscured
         if !open { m.resize.previous = snap }
@@ -510,6 +527,7 @@ public final class ZTronScrollState {
         }
         resolveZoomLimits()
         positionDriver.layoutChanged()
+        applyPendingHeaderSnap()
     }
 
     /// Where content sits on an axis where it is smaller than the viewport (design M2 section 5). Not observed.
@@ -567,7 +585,8 @@ public final class ZTronScrollState {
             var m = storage.snapshot().metrics
             m.refreshHold = hold
             m.adjustedContentInset = Self.adjusted(contentInset: m.contentInset, safe: m.safeAreaInsets,
-                                                   behavior: contentInsetAdjustmentBehavior, axes: scrollAxes, hold: hold)
+                                                   behavior: contentInsetAdjustmentBehavior, axes: scrollAxes, hold: hold,
+                                                   header: m.header)
             syncCommit(&m, open: isResizeOpen)
             storage.metrics = m
             notifyAdjustedInsetChange()
@@ -628,6 +647,26 @@ public final class ZTronScrollState {
         }
     }
 
+    /// The scaling header's metrics changed (install / removal, `size`, a new `.fit` measurement): a discrete inset change
+    /// through the inset-only rule (M5 section 6, the header keeps its collapse progress); applies a pending `snapHeader`.
+    func setHeaderMetrics(_ header: HeaderMetrics?) {
+        headerOverride = .some(header)
+        adjustedInputsChanged()
+        headerOverride = nil
+        if header == nil { pendingHeaderSnap = nil } else { applyPendingHeaderSnap() }
+    }
+
+    /// The header metrics of the next layout: an explicit `setHeaderMetrics`, else the container's spec at the viewport
+    /// (width, overflow container), else unchanged.
+    private func resolvedHeader(viewport: CGSize, safe: EdgeInsets, current: HeaderMetrics?) -> HeaderMetrics? {
+        if let override = headerOverride { return override }
+        guard let spec = headerSpec else { return current }
+        let container = HeaderMath.containerHeight(viewport: viewport, safe: safe,
+                                                   adjusted: contentInsetAdjustmentBehavior.edges(for: scrollAxes))
+        return spec.resolve(width: viewport.width, natural: headerNatural, vertical: scrollAxes.contains(.vertical),
+                            containerHeight: container) ?? current
+    }
+
     /// Registry callback (M6). Since D17 the resize preserves the normalized centre of the whole content (ZTronMapKit
     /// geometry); a target's own reflow no longer re-anchors it.
     func targetFrameDidChange(_ id: AnyHashable) {
@@ -686,6 +725,7 @@ public final class ZTronScrollState {
     func setViewport(_ viewport: ViewportMetrics) {
         applyViewport(size: viewport.size, safe: viewport.safeArea, header: nil)
         positionDriver.layoutChanged()
+        applyPendingHeaderSnap()
     }
 
     private func applyViewport(size: CGSize, safe: EdgeInsets, header: CGFloat?) {
@@ -701,9 +741,10 @@ public final class ZTronScrollState {
         m.viewportSize = size
         m.safeAreaInsets = safe
         if let hold = holdOverride { m.refreshHold = hold }
+        m.header = resolvedHeader(viewport: size, safe: safe, current: old.header)
         m.adjustedContentInset = Self.adjusted(contentInset: contentInset, safe: safe,
                                                behavior: contentInsetAdjustmentBehavior, axes: scrollAxes,
-                                               hold: m.refreshHold)
+                                               hold: m.refreshHold, header: m.header)
         m.contentInset = contentInset
         if let header { m.headerObscured = header }
         guard m != old || m.adjustedContentInset != old.adjustedContentInset else { return }
@@ -763,8 +804,12 @@ public final class ZTronScrollState {
                     return
                 }
                 let gOld = makeZoomGeometry(old), gNew = makeZoomGeometry(m)
-                let o = ResizeMath.insetChange(offset: s.presentationOffset, scale: s.presentationZoom, old: gOld, new: gNew,
+                var o = ResizeMath.insetChange(offset: s.presentationOffset, scale: s.presentationZoom, old: gOld, new: gNew,
                                                anchor: sizeChangesAnchor)
+                if hadViewport, sizeChangesAnchor == nil, old.header != m.header,
+                   let y = HeaderMath.keepProgress(offsetY: s.presentationOffset.y, old: old, new: m) {
+                    o.y = gNew.y.bounds(at: s.presentationZoom).clamped(y)   // a header change keeps its progress (S10)
+                }
                 if o != s.presentationOffset {
                     if hadViewport { writeBoth(offset: o, zoom: s.presentationZoom) } else { unanimated { writeBoth(offset: o, zoom: s.presentationZoom) } }
                 }
@@ -1172,8 +1217,21 @@ public final class ZTronScrollState {
         if motion != nil || transactionToken != nil { interrupt() }
         let s = storage.snapshot()
         guard s.metrics.viewportSize.width > 0, s.metrics.viewportSize.height > 0 else { return true }
-        let offset = TargetScrollMath.offset(for: frame, anchor: anchor, current: s.presentationOffset,
-                                             scale: s.presentationZoom, geometry: makeZoomGeometry(s.metrics))
+        let geometry = makeZoomGeometry(s.metrics)
+        var offset = TargetScrollMath.offset(for: frame, anchor: anchor, current: s.presentationOffset,
+                                             scale: s.presentationZoom, geometry: geometry)
+        if s.metrics.header?.vertical == true {
+            // The scaling header counts at the TARGET (M8b-3, M6 §4): the unobscured top is `aci.top + h(target) − R`,
+            // probed against the real bounds.
+            let bounds = geometry.y.bounds(at: s.presentationZoom)
+            offset.y = HeaderMath.solveTarget(metrics: s.metrics) { top in
+                var m = s.metrics
+                m.adjustedContentInset.top = top
+                return TargetScrollMath.axisOffset(lower: frame.minY, length: frame.height, anchor: anchor?.y,
+                                                   current: s.presentationOffset.y, scale: s.presentationZoom,
+                                                   axis: makeZoomGeometry(m).y, bounds: bounds)
+            }
+        }
         if ambient {
             scroll(to: offset)
         } else {

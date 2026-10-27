@@ -202,12 +202,14 @@ enum IndicatorMath {
     /// The inset of the thumbs' track: the safe area the content actually adjusts for (`adjustedContentInset` minus the
     /// developer inset and the refresh hold, UIKit's `automaticallyAdjustsScrollIndicatorInsets`) plus the state's
     /// `scrollIndicatorInsets` plus the view's `extra` (`contentMargins(for: .scrollIndicators)`).
-    static func trackInsets(_ m: ScrollMetrics, extra: EdgeInsets) -> EdgeInsets {
+    /// `header` is the scaling header's live height against its reserved resting height (`h − R`, M8b-3): the track starts
+    /// below the header as it collapses and stretches.
+    static func trackInsets(_ m: ScrollMetrics, extra: EdgeInsets, header: CGFloat = 0) -> EdgeInsets {
         let a = m.adjustedContentInset, c = m.contentInset, h = m.refreshHold, i = m.indicatorInsets
         func sum(_ adjusted: CGFloat, _ content: CGFloat, _ hold: CGFloat, _ own: CGFloat, _ more: CGFloat) -> CGFloat {
             max(0, adjusted - content - hold) + own + more
         }
-        return EdgeInsets(top: sum(a.top, c.top, h.top, i.top, extra.top),
+        return EdgeInsets(top: sum(a.top + header, c.top, h.top, i.top, extra.top),
                           leading: sum(a.leading, c.leading, h.leading, i.leading, extra.leading),
                           bottom: sum(a.bottom, c.bottom, h.bottom, i.bottom, extra.bottom),
                           trailing: sum(a.trailing, c.trailing, h.trailing, i.trailing, extra.trailing))
@@ -436,7 +438,8 @@ struct ScrollIndicatorsLeaf: View {
         let resolved = resolved, extra = extraInsets
         let controller = controller, state = state
         return ChromeLeaf(state, channels: resolved.drawsAnything ? .all : []) { sample in
-            let track = IndicatorMath.trackInsets(sample.metrics, extra: extra)
+            let track = IndicatorMath.trackInsets(sample.metrics, extra: extra, header: HeaderMath.obscuredDelta(
+                offset: sample.offset, zoom: sample.zoom, metrics: sample.metrics))
             let layout = IndicatorMath.layout(offset: sample.offset, zoom: sample.zoom, metrics: sample.metrics,
                                               trackInsets: track, resolved: resolved, axes: state.scrollAxes,
                                               zoomEnabled: state.isZoomEnabled)

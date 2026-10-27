@@ -7,6 +7,9 @@ struct ResizeCommit: Equatable, Sendable {
         var viewport: CGSize = .zero
         var contentSize: CGSize = .zero
         var insets: EdgeInsets = EdgeInsets()
+        /// The scaling header's resize geometry in this snapshot (M8b-3; `nil` without a header driven by the vertical
+        /// offset): what keeps its collapse progress across the resize (SPEC S7).
+        var header: HeaderResize?
     }
     struct Paging: Equatable, Sendable {
         var x: Int?

@@ -19,6 +19,8 @@ struct ScrollViewConfig {
     /// Content-integral overlays (M6b): the member's calls in order, or on the environment the twins' (appended,
     /// outermost first). The container draws `environment + member` (twins below members).
     var contentOverlays: [ContentOverlayDecl] = []
+    /// The scaling header (M8b-3): member only (`withScalingHeader`; a header is per view, no twin). A later call replaces it.
+    var header: HeaderSpec?
 }
 
 private struct ScrollConfigKey: EnvironmentKey {

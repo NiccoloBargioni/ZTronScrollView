@@ -112,4 +112,6 @@ struct ResizeIntent: Equatable, Sendable {
     var normalizedCenter: CGPoint
     var scale: CGFloat
     var atFit: Bool
+    /// Where the scaling header was (M8b-3): realised instead of the centre on y, except while collapsed.
+    var header: HeaderResizeAnchor?
 }

@@ -39,7 +39,7 @@ enum ResizeMath {
 
     /// The point at `unit` of the unobscured rect (`.center` is the preserved visible center).
     static func unobscuredPoint(viewport: CGSize, insets: EdgeInsets, header: CGFloat, at unit: UnitPoint) -> CGPoint {
-        let h = max(0, header.isFinite ? header : 0)
+        let h = headerTerm(header, insets: insets)
         let w = viewport.width - insets.leading - insets.trailing
         let v = viewport.height - insets.top - insets.bottom - h
         return CGPoint(x: insets.leading + w * unit.x, y: insets.top + h + v * unit.y)
@@ -74,16 +74,22 @@ enum ResizeMath {
 
     // MARK: ZTronMapKit mapping (D17)
 
+    /// The header term added to the top inset: the scaling header's resting height is part of the inset since M8b-3, so a
+    /// collapsed header contributes `min − R < 0`; never more negative than the top inset itself.
+    static func headerTerm(_ header: CGFloat, insets: EdgeInsets) -> CGFloat {
+        header.isFinite ? max(header, -max(0, insets.top)) : 0
+    }
+
     /// ZTronMapKit's `viewport`: the unobscured area (insets and the scaling header removed), never negative.
     static func unobscuredViewport(_ v: CGSize, insets: EdgeInsets, header: CGFloat) -> CGSize {
-        let h = max(0, header.isFinite ? header : 0)
+        let h = headerTerm(header, insets: insets)
         return CGSize(width: max(0, v.width - insets.leading - insets.trailing),
                       height: max(0, v.height - insets.top - insets.bottom - h))
     }
 
     /// Unobscured start edge per axis (`insets.start`, plus the header on y).
     private static func unobscuredStart(insets: EdgeInsets, header: CGFloat) -> CGPoint {
-        CGPoint(x: insets.leading, y: insets.top + max(0, header.isFinite ? header : 0))
+        CGPoint(x: insets.leading, y: insets.top + headerTerm(header, insets: insets))
     }
 
     /// Library offset `o` (`x_v = s*x_c + pad - o`) -> ZTronMapKit offset `o' = o + start - pad` (`x_u = s*x_c - o'`,
@@ -105,20 +111,24 @@ enum ResizeMath {
                        alignment: UnitPoint) -> ResizeIntent {
         let s = scale > 0 && scale.isFinite ? scale : 1
         let g = geometry(viewport: snap.viewport, content: snap.contentSize, insets: snap.insets, alignment: alignment)
+        // The scaling header (M8b-3): its place is captured; a collapsed one counts at its minimum height in the centre.
+        let anchor = snap.header.map { HeaderMath.resizeAnchor(offsetY: offset.y, $0) }
+        let header = header + (anchor == .collapsed ? -(snap.header?.band ?? 0) : 0)
         let o = mapKitOffset(offset, insets: snap.insets, header: header, pad: g.alignmentPadding(at: s))
         let v = unobscuredViewport(snap.viewport, insets: snap.insets, header: header)
         let k = CGSize(width: snap.contentSize.width * s, height: snap.contentSize.height * s)
         let n = CenterGeometry.normalizedPoint(contentOffset: o, viewport: v, contentSize: k, focus: focus)
             ?? CGPoint(x: 0.5, y: 0.5)
         let fit = fitScale(content: snap.contentSize, viewport: snap.viewport, insets: snap.insets)
-        return ResizeIntent(normalizedCenter: n, scale: s, atFit: fit.map { isAtFit(s, fit: $0) } ?? false)
+        return ResizeIntent(normalizedCenter: n, scale: s, atFit: fit.map { isAtFit(s, fit: $0) } ?? false, header: anchor)
     }
 
     /// Scale, offset (library convention, clamped by ZTronMapKit `contentOffset(normalizedCenter:)`) and alignment
     /// padding that realise `intent` in the geometry (`viewport`, `content`, `insets`).
     static func realize(_ intent: ResizeIntent, viewport: CGSize, content: CGSize, insets: EdgeInsets, header: CGFloat,
-                        focus: UnitPoint, limits: ZoomLimits, alignment: UnitPoint)
+                        focus: UnitPoint, limits: ZoomLimits, alignment: UnitPoint, headerGeometry: HeaderResize? = nil)
         -> (offset: CGPoint, scale: CGFloat, pad: CGPoint) {
+        let header = header + (intent.header == .collapsed ? -(headerGeometry?.band ?? 0) : 0)
         var s = intent.scale
         if intent.atFit, let f = fitScale(content: content, viewport: viewport, insets: insets) { s = f }
         let range = limits.resolve(unscaledContentSize: content, viewportSize: viewport, insets: axisInsets(insets))
@@ -128,7 +138,9 @@ enum ResizeMath {
         let v = unobscuredViewport(viewport, insets: insets, header: header)
         let k = CGSize(width: content.width * s, height: content.height * s)
         let o = CenterGeometry.contentOffset(normalizedPoint: intent.normalizedCenter, viewport: v, contentSize: k, focus: focus)
-        return (libraryOffset(o, insets: insets, header: header, pad: pad), s, pad)
+        var r = libraryOffset(o, insets: insets, header: header, pad: pad)
+        if let anchor = intent.header, let g = headerGeometry { r.y = HeaderMath.resizeOffsetY(anchor, centred: r.y, g) }
+        return (r, s, pad)
     }
 
     /// The geometry actually drawn at `size` under `commit` (interpolated content size and insets).
@@ -136,7 +148,8 @@ enum ResizeMath {
         let t = progress(size: size, from: commit.previous.viewport, to: commit.current.viewport)
         return ResizeCommit.Snapshot(viewport: size,
                                      contentSize: lerp(commit.previous.contentSize, commit.current.contentSize, t),
-                                     insets: lerp(commit.previous.insets, commit.current.insets, t))
+                                     insets: lerp(commit.previous.insets, commit.current.insets, t),
+                                     header: HeaderResize.lerp(commit.previous.header, commit.current.header, t))
     }
 
     /// F: the offset, scale and alignment padding drawn when the container is `size` big (design M5 section 3, D17).
@@ -153,7 +166,8 @@ enum ResizeMath {
         let intent = commit.intent
             ?? self.intent(offset: offset, scale: scale, in: cur, header: commit.header, focus: commit.focus, alignment: alignment)
         let r = realize(intent, viewport: size, content: content, insets: insets, header: commit.header, focus: commit.focus,
-                        limits: limits, alignment: alignment)
+                        limits: limits, alignment: alignment,
+                        headerGeometry: HeaderResize.lerp(prev.header, cur.header, t))
         var o = r.offset
         if paging.contains(.horizontal), let k = commit.pagingIndex.x { o.x = CGFloat(k) * size.width }
         if paging.contains(.vertical), let k = commit.pagingIndex.y { o.y = CGFloat(k) * size.height }

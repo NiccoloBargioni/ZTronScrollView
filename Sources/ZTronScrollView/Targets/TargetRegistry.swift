@@ -193,8 +193,9 @@ enum TargetScrollMath {
     /// - `anchor == nil`: the minimal scroll that shows the frame inside the inset-adjusted viewport (a frame longer
     ///   than the visible length aligns its start).
     /// - `anchor == a`: the point `a` of the frame lands on the point `a` of the visible area.
+    /// `bounds` overrides the clamp (the scaling header's solve probes other insets against the real bounds, M8b-3).
     static func axisOffset(lower: CGFloat, length: CGFloat, anchor: CGFloat?, current o: CGFloat, scale: CGFloat,
-                           axis g: AxisGeometry) -> CGFloat {
+                           axis g: AxisGeometry, bounds: AxisBounds? = nil) -> CGFloat {
         let s = scale.isFinite && scale > 0 ? scale : 1
         let start = s * lower + g.alignmentPadding(at: s)
         let len = s * length
@@ -213,6 +214,6 @@ enum TargetScrollMath {
         } else {
             wanted = o
         }
-        return g.bounds(at: s).clamped(wanted)
+        return (bounds ?? g.bounds(at: s)).clamped(wanted)
     }
 }

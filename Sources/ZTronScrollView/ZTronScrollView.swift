@@ -123,6 +123,10 @@ struct ScrollContainer<Content: View>: View {
         // identity, so the environment write never re-evaluates content bodies.
         let nested = coordinator.nestedArbiter
         let observerBoxes = observerStore.boxes(for: envConfig.observers + config.observers)
+        // Scaling header (M8b-3): a cold write, resolved against the viewport width at the next layout (so the first
+        // layout already reserves the resting height); a change after that is applied by `headerSpecChanged()` below.
+        let header = config.header
+        state.headerSpec = header?.sizing
         return content
             // Content-integral overlays (M6b): laid out from the content's own size, inside both content spaces and under
             // the transform; twins below members. Always applied (an empty list draws nothing).
@@ -134,9 +138,11 @@ struct ScrollContainer<Content: View>: View {
             .modifier(ContentSizeMeasure(state: state))
             .modifier(NamedSpaceModifier(name: "ztronScroll.content", useNew: state.usesNamedCoordinateSpace))
             .modifier(NamedSpaceModifier(name: nested.coordinateSpaceName, useNew: state.usesNamedCoordinateSpace))
+            .modifier(HeaderContentReserve(state: state))   // a horizontal view's content lays out below the banner (M8b-3)
             .modifier(ContentLayoutHost(axes: axes, useLayout: state.usesLayoutProtocol))
             .modifier(TransformHost(state: state, axes: axes))
             .modifier(NamedSpaceModifier(name: "ztronScroll.viewport", useNew: state.usesNamedCoordinateSpace))
+            .overlay(alignment: .top) { HeaderOverlay(spec: header, state: state) }   // scaling header (M8b-3)
             .overlay(RefreshOverlay(state: state, pan: coordinator, axes: axes, member: config.refreshers))   // refresh indicators (M8b)
             .overlay(ScrollIndicatorsOverlay(state: state, member: chrome))   // chrome leaves: the viewport's own frame (M8)
             .ignoresSafeArea(.all, edges: edges)
@@ -158,5 +164,7 @@ struct ScrollContainer<Content: View>: View {
             .onAppear { proxyScope?.attach(state) }
             .onDisappear { proxyScope?.detach(state) }
             .onChangeCompat(of: effectiveLimits) { state.zoomLimits = $0 }
+            .onAppear { state.headerSpecChanged() }
+            .onChangeCompat(of: header?.sizing) { _ in state.headerSpecChanged() }
     }
 }

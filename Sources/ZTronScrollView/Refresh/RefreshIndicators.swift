@@ -87,6 +87,21 @@ enum RefreshIndicatorMath {
     }
 }
 
+extension RefreshIndicatorMath {
+    /// The edge bases (`adjustedContentInset − refreshHold`) and whether the indicator floats over the content. With a
+    /// scaling header (M8b-3): under `.preserve` the gap opens below the resting header, which the base already counts;
+    /// under `.stretch` there is no gap, so the top indicator floats over the stretched band (`top0 + R`), overlay placement
+    /// whatever `overlay:` says (SPEC S10 "Refresh with the header").
+    static func base(edge: Edge, metrics m: ScrollMetrics, overlay: Bool) -> (EdgeInsets, Bool) {
+        let aci = m.adjustedContentInset, hold = m.refreshHold
+        var base = EdgeInsets(top: aci.top - hold.top, leading: aci.leading - hold.leading,
+                              bottom: aci.bottom - hold.bottom, trailing: aci.trailing - hold.trailing)
+        guard edge == .top, let band = HeaderMath.stretchBandTop(m) else { return (base, overlay) }
+        base.top = band
+        return (base, true)
+    }
+}
+
 // MARK: Host (cold) — the container hook
 
 /// Owns the coordinator of one scroll view and the cold bookkeeping around it. An `ObservableObject` that never
@@ -241,12 +256,10 @@ struct RefreshEdgeIndicator: View {
             let m = sample.metrics
             let pull = RefreshMath.signedPull(edge: edge, offset: sample.offset, zoom: sample.zoom, metrics: m,
                                               alignment: state.contentAlignment)
-            let aci = m.adjustedContentInset, hold = m.refreshHold
-            let base = EdgeInsets(top: aci.top - hold.top, leading: aci.leading - hold.leading,
-                                  bottom: aci.bottom - hold.bottom, trailing: aci.trailing - hold.trailing)
+            let (base, overlay) = RefreshIndicatorMath.base(edge: edge, metrics: m, overlay: spec.overlay)
             indicator.modifier(RefreshPlacementEffect(
-                pull: pull, edge: edge, style: spec.style, overlay: spec.overlay, length: spec.configuration.indicatorHeight,
-                refreshing: refresh.mode == .refreshing || (retract == .spinner && !spec.overlay), refresh: refresh, retract: retract,
+                pull: pull, edge: edge, style: spec.style, overlay: overlay, length: spec.configuration.indicatorHeight,
+                refreshing: refresh.mode == .refreshing || (retract == .spinner && !overlay), refresh: refresh, retract: retract,
                 viewport: m.viewportSize, base: base))
         }
     }

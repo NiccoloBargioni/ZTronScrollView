@@ -86,8 +86,14 @@ extension ZTronScrollState {
         let iy = ReleaseInput(origin: r.origin.y, dragStart: r.dragStart.y, velocity: vy, bounds: env.boundsY,
                               bounces: env.bouncesY, rate: rate, thresholds: settings.thresholds, rubberBandVelocity: rawY)
         let natural = CGPoint(x: ReleasePipeline.naturalRest(ix), y: ReleasePipeline.naturalRest(iy))
-        let decision = decideTarget(r, env: env, settings: settings, ix: ix, iy: iy, enabledX: enabledX, enabledY: enabledY,
+        var decision = decideTarget(r, env: env, settings: settings, ix: ix, iy: iy, enabledX: enabledX, enabledY: enabledY,
                                     natural: natural)
+        // Compose hook (M8b-3, design Q3): the scaling header's `.immediately` snap runs AFTER the target behavior, before
+        // willEndDragging, so the delegate and the modifiers see the final target.
+        if enabledY, let y = HeaderSnapBehavior(state: self)?.retarget(decision.proposed.y, bounds: env.boundsY) {
+            decision.proposed.y = y
+            decision.snapsY = true
+        }
         var proposed = decision.proposed
         notifyWillEndDragging(velocity: CGPoint(x: vx / 1000, y: vy / 1000), target: &proposed)
         let targetX = (decision.snapsX || proposed.x != natural.x) ? proposed.x : nil
@@ -107,6 +113,7 @@ extension ZTronScrollState {
             endTracking()
         }
         onReleaseTargetDecided?(CGPoint(x: mx.endPosition, y: my.endPosition))
+        if !willDecelerate { settleHeaderSnap() }   // `.afterFinishAccelerating` after a release at rest (M8b-3)
         return (mx, my)
     }
 
