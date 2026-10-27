@@ -99,3 +99,9 @@ Open:
 2. Unchanged: 15-path `.fit` in the band on an app-driven resize; scroll command overlapping a resize (M8b-s4).
 3. `ChromeLeafTests.aScriptedScrollAndZoomRunNoContentBodyAndOneLeafBodyPerFrame` counted 24 leaf bodies instead of 20 once in
    the 17.5 full run (a global counter shared with parallel suites); green alone and on 27.0.
+Tests (M8b-s6):
+- Unit `scripts/test.sh -only-testing:ZTronScrollViewTests`: 747 tests in 68 suites green on 27.0 and on 17.5 (1 known
+  issue: F6 on the forced lane); the 27.0 run is clean under the feedback-loop guard.
+- `HeaderUITests` + `ResizeUITests` + `ProofUITests` + `RefreshUITests`: 43/43 on 27.0 preferred and 17.5; 27.0 forced 42/43
+  (`ProofUITests.testWithAnimationScroll` content.body 1 once; that screen has no header or refresher; ProofUITests forced
+  × 3 iterations: 18/18).
