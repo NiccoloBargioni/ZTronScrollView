@@ -89,9 +89,9 @@ struct ResizeSafeAreaStepTests {
         #expect(ZTronScrollState.stepDrawn(recent: sz([874, 811.82]), step: CGSize(width: 0, height: -62)))
         // 17.5, end of the change: 304.39 -> 303.85, then the bottom inset 0 -> 34.1 (not drawn yet).
         #expect(!ZTronScrollState.stepDrawn(recent: sz([305.1, 304.39, 303.85]), step: CGSize(width: 0, height: 34.1)))
-        // 17.5, reverse: 3.9 pt bottom steps while the frame moves 8.6 pt per frame (not drawn yet), and the top
+        // 17.5, reverse: 3.9 pt bottom steps while the frame moves 8.6 pt per frame (ambiguous: drawn), and the top
         // extension at the end (drawn).
-        #expect(!ZTronScrollState.stepDrawn(recent: sz([717.9, 726.53, 735.12]), step: CGSize(width: 0, height: 3.9)))
+        #expect(ZTronScrollState.stepDrawn(recent: sz([717.9, 726.53, 735.12]), step: CGSize(width: 0, height: 3.9)))
         #expect(ZTronScrollState.stepDrawn(recent: sz([789.93, 791.71, 851.85]), step: CGSize(width: 0, height: 59.7)))
         #expect(ZTronScrollState.stepDrawn(recent: sz([874]), step: CGSize(width: 0, height: -62)), "no motion known: drawn")
     }

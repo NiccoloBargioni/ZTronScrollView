@@ -699,6 +699,30 @@ screen recordings, `scripts/seam/`):
   stretch the state's: 0 unless zoomed content pans, D15; its overflow container the committed one), so an app-driven animated width
   change interpolates it with the content (it took the state's height: laid out at `(W_new, R_old)` in the animated pass and re-set by the
   unanimated commit, 90 pt gap / overlap and 159 pt lateral in the seam lab).
+- **The resize curve (amended 2026-10-27, M8b-s6 close).** The content follows the drawn container size along the commit's
+  line WITHOUT clamping its progress `t`: SwiftUI interpolates the container and the header's slot in one curve value that
+  leaves [0, 1]. A spring overshoots the target (t > 1); a second `withAnimation` size change while the first runs (a toggle
+  tapped twice) is composed additively, so the drawn size first keeps moving past the snapshot the second commit starts from
+  (t < 0). The content size, insets and header geometry are extrapolated along the same line. Clamped, the content sat at
+  the end geometry while the header overshot (seam lab, `.spring(response: 0.55, dampingFraction: 0.5)`: 14.5 pt seam and
+  13 pt lateral on 27.0, 11 pt capped) or froze at the snapshot while the header kept moving (retarget 0.5 s into a 1.2 s
+  change: 23 pt). The default `.spring()` overshoots about 1 % and stayed under 1 pt. Unit tests `ResizeExtrapolationTests`.
+- **Safe-area steps (amended 2026-10-27, M8b-s6 close).** SwiftUI re-evaluates the safe area of the scroll view's animated
+  frame in stages, outside the app's transaction. Measured on a bottom-pinned height change (a banner or search field
+  inserted above the scroll view; its top leaves the top safe area): the animated layout reports the new height with the
+  OLD top inset (27.0: 874 → 373.3 pt, top 62, bottom 34 → 0); the first animated frame drops the 62 pt top extension at
+  once (the drawn size 874 → 812 while the frame between the safe areas has not moved); the bottom extension comes back as
+  a step when the animation ends; the reverse change brings the bottom extension back in 3–4 pt steps over its last frames
+  and the top one at its end. A viewport change that moves only the safe-area extension (`size` minus the insets on the
+  ignored edges unchanged: `ZTronScrollState.isSafeAreaStep`) is drawn as a step of the extended frame, size and origin,
+  so it is committed as a SHIFT of the open transition (`ResizeMath.shifted`: the same progress, both ends moved by the
+  step), not as a new transition from the drawn snapshot (that kept the old top inset under a frame that had lost it: the
+  content 62 pt below the header on 27.0, 59 pt on 17.5, closing over the 1.2 s animation; a `.stretch` refresh indicator
+  with it). SwiftUI draws a step either before it reports it (the first frame above, 27.0 and 17.5) or one frame after (17.5:
+  the bottom extension at the end, reported while the frame is still drawn at 303.85 pt); the state tells them apart from
+  the effect's recent drawn sizes (`ZTronScrollState.stepDrawn`, a linear prediction with and without the step), and the
+  undrawn frame keeps the track before the step (`ResizeCommit.stepFallback`; without it a capped header's content sat
+  4.7 pt above it for that frame). Unit tests `ResizeSafeAreaStepTests`.
 - **The resting height of `.fit`** is adopted in the viewport commit of the same update (see Natural height). On 15–16 the measuring pass
   arms in the commit's own update when the committed width is not the one it last measured at, so a rotation's measurement joins the open
   resize inside UIKit's animation block (armed one update later through `onChange`, it landed after the never-animated resize had closed:

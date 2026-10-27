@@ -975,14 +975,18 @@ public final class ZTronScrollState {
     /// is evaluated, then the top inset 62 -> 0 is reported, 27.0 and 17.5) or one frame after (the bottom inset
     /// coming back at the end, 17.5: reported while the frame is still drawn at 303.85, drawn at 337.67 the next frame).
     /// Decided on the axis of the step: the last size is compared with the one the recent motion predicts (linear),
-    /// with and without the step.
+    /// with and without the step. A step no larger than twice the recent per-frame motion cannot be told from it and
+    /// counts as drawn (the reverse change's 3–4 pt bottom steps over frames moving 8 pt, reported every frame: as
+    /// drawn the seam stayed ≤ 0.17 pt on 17.5, as undrawn it reached 1.17 pt).
     static func stepDrawn(recent: [CGSize], step: CGSize) -> Bool {
         guard let last = recent.last, recent.count >= 2 else { return true }
         let horizontal = abs(step.width) > abs(step.height)
         let v = recent.map { horizontal ? $0.width : $0.height }
         let d = horizontal ? step.width : step.height
         let n = v.count
-        let predicted = n >= 3 ? 2 * v[n - 2] - v[n - 3] : v[n - 2]
+        let motion = n >= 3 ? v[n - 2] - v[n - 3] : 0
+        guard abs(d) > 2 * abs(motion) else { return true }
+        let predicted = v[n - 2] + motion
         let x = horizontal ? last.width : last.height
         return abs(x - (predicted + d)) < abs(x - predicted)
     }
