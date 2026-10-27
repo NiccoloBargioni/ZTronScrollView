@@ -29,7 +29,7 @@ final class ProofUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 0.5)
         var out: [String: Int] = [:]
         for key in ["content.body", "transformHost.body", "transform.effect", "clock.tick", "clock.dupTick", "didScroll",
-                    "reader.zoom", "reader.offset"] {
+                    "reader.zoom", "reader.offset", "screen.body"] {
             let v = app.staticTexts["counter.\(key)"].value as? String ?? "?"
             out[key] = Int(v) ?? -2
         }
@@ -62,6 +62,9 @@ final class ProofUITests: XCTestCase {
         app.buttons["WithAnimationScroll"].tap()
         Thread.sleep(forTimeInterval: 2.5)
         let c = snapshot(app)
+        // No parent update in the counted window: Reset's settle write once re-ran the screen there, and that update re-ran
+        // the content's body under host load (SwiftUI, not the scroll; a native ScrollView too). The label is its own leaf.
+        XCTAssertEqual(c["screen.body"], 0, "the screen's body never runs in the counted window")
         XCTAssertEqual(c["content.body"], 0)
         XCTAssertGreaterThanOrEqual(c["transform.effect"]!, 20)
         XCTAssertLessThanOrEqual(c["transformHost.body"]!, 4)

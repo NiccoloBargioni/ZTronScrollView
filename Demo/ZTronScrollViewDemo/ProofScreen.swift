@@ -48,12 +48,18 @@ struct ProofScreen: View {
     }
 
     var body: some View {
+        // This screen's own body: a parent update of the content (SettleStatus), counted so the tests can see one.
+        #if DEBUG
+        let _ = ZTronRenderCounters.increment("screen.body")
+        #endif
         VStack(spacing: 6) {
             controls
             scroller
             readers
             Text(path).font(.caption2).accessibilityIdentifier("path").accessibilityValue(path)
-            counters
+            // `screen.body` in an overlay, not a tenth row: with the row, testNoClockTicksAtRest saw the transform effect
+            // evaluated twice at rest after the counters were zeroed (forced 27.0, 3 of 3; 0 of 3 as an overlay).
+            counters.overlay(alignment: .bottomTrailing) { CounterRow(key: "screen.body", value: snapshot["screen.body"] ?? 0) }
             // Fixed frames: the texts written by Reset and Snapshot never change the layout (a VStack that grows moves the
             // scroll view, a layout pass that evaluates the content's transform effect, review d16).
             Text(stateInfo).font(.caption2).frame(width: 360, height: 30)
