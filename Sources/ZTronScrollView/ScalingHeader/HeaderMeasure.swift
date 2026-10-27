@@ -65,6 +65,8 @@ final class HeaderNaturalReporter: ObservableObject {
 private struct HeaderNaturalReport: Equatable {
     var size: CGSize
     var generation: Int
+    /// The committed viewport width the pass ran for: a new width is a new report, even at the same size.
+    var width: CGFloat
 }
 
 private struct HeaderNaturalKey: PreferenceKey {
@@ -105,12 +107,14 @@ struct HeaderMeasuringPass: ViewModifier {
                 if pass {
                     GeometryReader { proxy in
                         Color.clear.preference(key: HeaderNaturalKey.self,
-                                               value: HeaderNaturalReport(size: proxy.size, generation: generation))
+                                               value: HeaderNaturalReport(size: proxy.size, generation: generation,
+                                                                          width: width))
                     }
                 }
             })
             .onPreferenceChange(HeaderNaturalKey.self) { report in
-                guard let size = report?.size else { return }
+                guard let report else { return }
+                let size = report.size
                 MainActor.assumeIsolated {
                     #if DEBUG
                     ZTronRenderCounters.event(String(format: "meas %.1fx%.1f open:%d", size.width, size.height,
@@ -121,7 +125,7 @@ struct HeaderMeasuringPass: ViewModifier {
                     // pass stays on: the next layout at the real width reports.
                     if size.width > 0 {
                         measuring = false
-                        measuredWidth = width
+                        measuredWidth = report.width
                         if state.isResizeInFlight { state.unanimated { state.setHeaderNatural(size.height) } }
                     }
                 }
