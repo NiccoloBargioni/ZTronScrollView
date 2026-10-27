@@ -21,7 +21,8 @@ import ZTronScrollView
 // content down from its middle and holds (the `.preserve` header moves down with it, the `.stretch` one grows).
 // Left of it, `seam.scroll` toggles a transaction-driven scroll (`withAnimation(.easeInOut(duration: 1.2)) {
 // state.scroll(to:) }`) between rest and y = 400 (past the collapse band, the content under the collapsed header), and
-// `seam.snap` toggles `snapHeader(to: .collapsed / .expanded, animated: true)` (the clock path).
+// `seam.snap` toggles `snapHeader(to: .collapsed / .expanded, animated: true)` (the clock path). `-ZTronSeamRefresh <s>`
+// adds a `.system` refresher whose action takes `s` seconds: testPull then measures the refresh hold and its end.
 
 enum SeamLab {
     static let red = Color(red: 1, green: 0, blue: 0)
@@ -94,10 +95,7 @@ struct SeamLabScreen: View {
             ZStack(alignment: .bottomTrailing) {
                 // Laid out in the safe area like a native ScrollView: the library extends the viewport to the screen
                 // edges it touches and reserves the safe area in adjustedContentInset (top0 = the safe-area top).
-                ZTronScrollView(.vertical, state: state) { SeamLabContent() }
-                    .scrollIndicators(.hidden)
-                    .withScalingHeader(size: SeamLab.size, scalingBehavior: SeamLab.behavior, background: SeamLab.background,
-                                       overflow: SeamLab.overflow) { _ in SeamLabHeader() }
+                scroller
                     .background(SeamLab.blue)
                     .frame(width: narrow ? g.size.width * 0.6 : g.size.width, height: g.size.height)
                     .frame(maxWidth: .infinity)
@@ -130,6 +128,28 @@ struct SeamLabScreen: View {
         }
         .background(SeamLab.blue.ignoresSafeArea())
         .overlay(alignment: .topLeading) { if SeamLab.info { SeamLabInfo(state: state) } }
+    }
+}
+
+extension SeamLabScreen {
+    /// The lab's scroll view; with `-ZTronSeamRefresh <s>` a `.system` refresher whose action takes `s` seconds (the
+    /// refresh hold: the content rests below the indicator, the header follows it).
+    private var scroller: ZTronScrollView<SeamLabContent> {
+        let view = ZTronScrollView(.vertical, state: state) { SeamLabContent() }
+            .scrollIndicators(.hidden)
+            .withScalingHeader(size: SeamLab.size, scalingBehavior: SeamLab.behavior, background: SeamLab.background,
+                               overflow: SeamLab.overflow) { _ in SeamLabHeader() }
+        guard let seconds = SeamLab.refreshSeconds else { return view }
+        // Trigger at 60 pt: the 220 pt drag of testPull crosses it under the rubber band and fires while pulling.
+        return view.refresher(style: .system, configuration: ZTronRefreshConfiguration(triggerDistance: 60)) {
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+        }
+    }
+}
+
+extension SeamLab {
+    static var refreshSeconds: Double? {
+        Double(HeaderDemo.argument("-ZTronSeamRefresh", "")).map { max(0, $0) }
     }
 }
 
