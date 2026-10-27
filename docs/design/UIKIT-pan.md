@@ -1,4 +1,4 @@
-# UIKIT-pan · A recognizing UIKit pan for two approved scenarios (D60; design, pending the user's answers)
+# UIKIT-pan · An opt-in recognizing UIKit pan for two approved scenarios (D60; design, answers recorded; next: spike U1)
 
 **Decision (user, 2026-10-27).** A UIKit pan recognizer is approved for exactly two scenarios, both with 100 % test coverage:
 - **N**: a `ZTronScrollView` inside SwiftUI's own vertical `ScrollView` on iOS 26+. This is Open item 13(a): today the page never scrolls
@@ -8,12 +8,16 @@
 It is a new SPEC S2 exception next to D31. ScrollArbitration stays frozen (S16), and S4 and S7 hold. Revised once after a three-lens
 adversarial review: correctness, testability, and scope/API (31 findings, all folded in below).
 
+**Opt-in (user, 2026-10-27, with the §9 answers).** The path exists only in views under one opt-in modifier,
+`ztronScrollUIKitPan(_:)` (§3). A view without it runs today's code: no UIKit object, no new gesture, no detector. The §9
+recommendations are accepted; the modifier replaces Q2's `.offAxis` overload and settles Q4.
+
 Sources:
 - this session's four reader reports: the gesture stack on main 9e60063; DBG-s8 on `claude/confident-babbage-6acfe7`; SHEET-s1/s2, DBG-s7
   (`claude/suspicious-elbakyan-3d1622`) and SHEET-s3 (`claude/sweet-payne-efd027`); the branch landscape and the coverage gates;
 - MC-contract, UIKIT-touch-observer.md (D31, D33), ZTRONPAGES-integration.md.
 
-No production code. No SPEC edit until §9 is answered.
+No production code. The SPEC and CLAUDE.md are edited in U5 (§7).
 
 ## 1. Why a UIKit pan alone fixes neither scenario
 
@@ -55,10 +59,11 @@ change:
 
 **Install.** Where the recognizer lives depends on the OS:
 - **18+:** `UIGestureRecognizerRepresentable` through `.gesture(_:)` on the viewport. This is the DBG-s8 shape, and SwiftUI hit-tests it,
-  so occlusion and covering bars behave like SwiftUI. On 18+ it is attached to every view with `isEnabled = false` unless a scenario is
-  active: a conditional around a gesture modifier would change the content's identity (S4). §7 says this; §9 Q4 asks.
+  so occlusion and covering bars behave like SwiftUI. It is attached only in an opted-in view whose scenario this OS and SDK can run
+  (§3), with `isEnabled = false` unless the sequence's latch picks the UIKit path. The opt-in is latched per view, so the branch around
+  the gesture modifier never flips and the content keeps its identity (S4).
 - **15–17 (S only):** D31's window route. A zero-size anchor in `.background { if active { Anchor() } }` keeps the content's identity, and
-  the anchor exists only while S applies. A window recognizer bypasses SwiftUI hit-testing, so `shouldReceive(touch)` requires both "the
+  the anchor exists only while S applies (`.inSheet` latched, not yielding). A window recognizer bypasses SwiftUI hit-testing, so `shouldReceive(touch)` requires both "the
   touch began inside the viewport rect" and `anchor.isDescendant(of: touch.view)`. `isDescendant` is public UIKit, and `touch.view` is
   UIKit's own hit-test result. With that test, a sheet presented over the view and UIKit bars are rejected. A SwiftUI overlay inside the same
   hosting view still passes; that limitation is documented.
@@ -92,7 +97,7 @@ The core is given those raw inputs. It never uses `env.bouncesX` / `bouncesY`: `
 
 The dominant axis comes from the translation when its length is ≥ 8 pt, otherwise from `velocity(in:)`, because the first call can come at
 0–1 pt (ZTRONPAGES note B). The boundary is 45°, and a tie goes to the other axis. Precedence, first match wins:
-1. **Decline everything** if the view is disabled, if it yields `.always`, if `\.isEnabled` is false, or if the observer has counted ≥ 2
+1. **Decline everything** if the view is disabled, if it yields to the sheet, if `\.isEnabled` is false, or if the observer has counted ≥ 2
    touches in this sequence (see "Second finger").
 2. **Participant of a one-axis container** (nested ZTron view, `env.hasArbiter`): accept a drag more than the container's tolerance (30°)
    off its paging axis when the view can move on the cross axis. Rule 1 gives that drag to this view, so declining it would leave it dead:
@@ -141,32 +146,65 @@ and lift (D14). A start sample shorter than the hysteresis is harmless, because 
 A unit test pins that `heldRelease` (D29) is never set on this path. On 15–17 the SwiftUI `DragGesture` survives a second finger instead;
 the UIKit path deliberately uses the 18+ shape on every OS.
 
-## 3. Activation: exactly the approved scenarios
+## 3. Activation: the opt-in, then exactly the approved scenarios
 
-The decision is latched per sequence at the observer's touch-down, never mid-sequence. This replaces R6's fixed-at-init rule for three
-reads only: the pinch recognition-only switch, `centroidSource` and the yield gate. First match wins:
-1. `yields == .always` → inert (SHEET-s2 unchanged);
-2. `yields == .offAxis` → UIKit path (S);
-3. N holds → UIKit path;
+**The opt-in (user, 2026-10-27).** One public modifier gates the whole path. It is environment-backed, so it propagates, and the innermost
+value wins:
+
+```swift
+public struct ZTronUIKitPan: OptionSet, Sendable {
+    public static let inNativeScrollView: ZTronUIKitPan   // N
+    public static let inSheet: ZTronUIKitPan              // S
+}
+extension View {
+    public func ztronScrollUIKitPan(_ scenarios: ZTronUIKitPan) -> some View
+}
+```
+
+- The environment default is `[]`. There is no default argument: the app names each scenario, and `[]` turns the path off in a subtree.
+- **Latched per view.** The set is read once, at the view's first body evaluation, into a `@State` reference box (a plain final class, so
+  storing the value triggers no update and no second body). A later change applies to views created after it. A live view keeps its set,
+  never re-runs a content body for it and never resets content state. In DEBUG it logs once when the environment and its latch differ.
+- `ztronScrollYieldsToSheet(_ yields: Bool)` is unchanged and stays live. There is no `ZTronSheetYield`.
+- It lives in `Gesture/UIKit/ZTronUIKitPanOptIn.swift` (SwiftUI only), so C1's folder rule covers it.
+
+What a view builds, by latched set:
+
+| Latched set | 15–17 | 18–25 | 26+, built with the 26 SDK |
+|---|---|---|---|
+| `[]` (the default) | today's code | today's code | today's code |
+| `.inSheet` | window pan + D31 observer while not yielding | representable pan (disabled until a sequence picks it) + D31 observer while active | as 18–25 |
+| `.inNativeScrollView` | today's code | today's code | representable pan + detector leaf; D31 observer while N holds |
+| both | as `.inSheet` | as `.inSheet` | the union of the two rows |
+
+"Today's code" means byte-identical structure: no recognizer, anchor, detector or new modifier. On 26+ built with an older SDK,
+`.inNativeScrollView` builds nothing, as on 18–25. The DEBUG counter `uikitpan.made` (recognizers and anchors created) proves it on every
+existing screen (§6 C3).
+
+**Per sequence.** The decision is latched per sequence at the observer's touch-down, never mid-sequence. This replaces R6's fixed-at-init
+rule for three reads only: the pinch recognition-only switch, `centroidSource` and the yield gate. First match wins:
+1. yielding to the sheet (`ztronScrollYieldsToSheet(true)`) → inert (SHEET-s2 unchanged);
+2. `.inSheet` latched → UIKit path (S);
+3. `.inNativeScrollView` latched and N holds → UIKit path (N);
 4. otherwise → SwiftUI path.
 
 N holds when all of these are true:
 - the app was built with the iOS 26 SDK or later (`#if compiler(>=6.2)`, the `isInBuildSDK` pattern of `ZTronCapability.swift:103-106`). D47
   is gated by the linked SDK, and the package's tools-version 6.0 also builds with older Xcodes;
 - `#available(iOS 26, *)`;
-- `onGeometryChange(for: Bool.self) { $0.bounds(of: .scrollView(axis: .vertical)) != nil }` (iOS 17 API) reports true. Its action runs only
-  when the Bool flips, so nothing is per frame;
+- `onGeometryChange(for: Bool.self) { $0.bounds(of: .scrollView(axis: .vertical)) != nil }` (iOS 17 API), on a leaf in the viewport's
+  background, reports true. Its action runs only when the Bool flips, so nothing is per frame;
 - the same-axis clause of the axis rule allows it.
 
 N is vertical-only: the approved scenario is SwiftUI's own vertical `ScrollView`. Horizontal scrollers, `List`, `Form` and `TabView(.page)`
-stay off until you widen them (§9 Q3; Q4 of the spike records what they would detect).
+stay off (§9 Q3); U1's Q4 table records what they would detect, for a later widening.
 
-**Flips.** A flip of `yields` or of the detector re-runs the adapter body once, never the content's (SHEET-s2 precedent; C3 asserts
-`content.body` 0 on every flip). A drag in flight on the path being switched off ends like a cancelled touch.
+**Flips.** A flip of the yield or of the detector re-runs the adapter body once, never the content's (SHEET-s2 precedent; C3 asserts
+`content.body` 0 on every flip). A drag in flight on the path being switched off ends like a cancelled touch. A change of the opt-in is not
+a flip: the latch ignores it.
 
-**S is opt-in, set by the app.** A new overload `ztronScrollYieldsToSheet(_ mode: ZTronSheetYield)`, with `.never`, `.always` and
-`.offAxis`. The Bool overload keeps resolving for `()`, `(true)` and `(expr)`, so existing code is unaffected. It is environment-backed and
-propagates, so the app sets `.offAxis` once on the pager, at every detent:
+**S, set by the app.** The app writes `.ztronScrollUIKitPan(.inSheet)` once, on the pager or on the sheet's root. Every ZTron view below it
+takes the path, because each one's observer would otherwise hold the sheet (§1). At every detent:
 - **Horizontal pager:** vertical drags go to the sheet (expand at medium; collapse or dismiss at large); horizontal drags page.
 - **Vertical ZTron list page:** keeps its vertical drags. D36's "no top-edge hand-off" stays documented. Drags of 30–45° are the list's
   (rule 1, axis rule step 2), and flatter drags page.
@@ -175,8 +213,9 @@ propagates, so the app sets `.offAxis` once on the pager, at every detent:
   - steeper drags go to the sheet;
   - once zoomed it pans, and D28 arbitrates against the pager.
 
-ZTronPages cannot detect a sheet: setting `.offAxis` itself would put the UIKit pan on every pager, outside S. The app sets it. On iOS 15
-there are no detents (`presentationDetents` is 16+), so S there means dismissal only.
+ZTronPages cannot detect a sheet and never sets the opt-in itself: that would put the UIKit pan on every pager, outside S. Its docs show
+the one line. `.inSheet` outside a sheet is allowed (the A/B lane uses it); a vertical drag on a horizontal view then moves nothing, as
+today. On iOS 15 there are no detents (`presentationDetents` is 16+), so S there means dismissal only.
 
 ## 4. Spike first (U1)
 
@@ -207,23 +246,23 @@ Every question has a pass criterion:
 If Q1 or Q2 fails on a lane, S has no UIKit-pan answer on that OS: report it and stop for that OS. If no variant V passes Q3 for the same
 axis, axis-rule step 4 applies.
 
-## 5. Build sessions (after U1 and §9)
+## 5. Build sessions (after U1)
 
 | Session | Owns | Done when | Est. |
 |---|---|---|---|
 | **U1** spike (Opus) | `Demo/…/Probes/*`, sheet and native-page probe screens (port DBG-s8 `MixedProbe` / `MixedTopology`), readout counters, handoff `UIKITPAN-s1.md` | Q1–Q9 answered with numbers per lane | 2.5–3 % |
 | **U2** core (Sonnet builder) | `Gesture/UIKit/UIKitPanCore.swift` (axis rule, raw-state table, second finger, swallow, decline), `PanSession.swift` (`.declined` transitions, settle effect), `NestedScrollArbiter.swift` (`participantDeclined`), unit suites | 100 % kind-0 regions from unit tests alone; exhaustive truth tables | 2–2.5 % |
-| **U3** shell + wiring (Sonnet builder) | `Gesture/UIKit/UIKitPanRecognizer.swift` (both routes), `PanGestureAdapter.swift` (second input to the `yields` switch, detector, representable attach), `PanCoordinator.swift` (latch, yield gate, `centroidSource`), `PinchGestureAdapter.swift` (recognition-only per latch), `ZTronCapability` / `ZTronAvailability` (`.uikitPan`, SDK gate, DEBUG `-ZTronForceUIKitPan`), `ScrollEnvironment.swift` (`ZTronSheetYield`), shell tests on a real `UIWindow`, both gate scripts (+ a gate self-test) | unit suites green on 17.5 / 18.5 / 26.5 / 27.0; scope gate clean | 3.5–4.5 % |
-| **U4** demo + UI matrix (Sonnet builder; lanes via test-runner) | `NativePageScreen` + `UIKitPanUITests` (flip DBG-s8's strict `XCTExpectFailure`), sheet pager content + `SheetPagerUITests`, `UIKitControlsContent` on both paths, covered-view screens, native baselines | §6 matrix green; coverage gate 100 % | 4–5 % |
+| **U3** shell + wiring (Sonnet builder) | `Gesture/UIKit/UIKitPanRecognizer.swift` (both routes), `PanGestureAdapter.swift` (opt-in latch read, second input to the `yields` switch, detector leaf, representable attach), `PanCoordinator.swift` (latch, yield gate, `centroidSource`), `PinchGestureAdapter.swift` (recognition-only per latch), `ZTronCapability` / `ZTronAvailability` (`.uikitPan`, SDK gate), `Gesture/UIKit/ZTronUIKitPanOptIn.swift` (option set, modifier, environment key, latch box, DEBUG `uikitpan.made`), shell tests on a real `UIWindow`, both gate scripts (+ a gate self-test) | unit suites green on 17.5 / 18.5 / 26.5 / 27.0; scope gate clean | 4–5 % |
+| **U4** demo + UI matrix (Sonnet builder; lanes via test-runner) | `NativePageScreen` + `UIKitPanUITests` (DBG-s8's strict test passes opted in; its `XCTExpectFailure` stays for the row without the opt-in), sheet pager content + `SheetPagerUITests`, `UIKitControlsContent` on both paths, covered-view screens, native baselines | §6 matrix green; coverage gate 100 % | 4–5 % |
 | **U5** docs (clerk) | SPEC S2, S3, S8, S11, S12 and S14 (§7 text), NESTED §6.1, SHEET-spike, parity rows, Orchestration (item 13 closed, D47 texts, D60, renumber the duplicate D47), ZTRONPAGES §5 items 3–4 | — | 0.5–1 % |
 
-Order: U1 → U2 → U3 → U4 → U5 (U5 can draft in parallel). Total ≈ 13–16 %.
+Order: U1 → U2 → U3 → U4 → U5 (U5 can draft in parallel). Total ≈ 13.5–16.5 % (the opt-in adds ≈ 0.5 % to U3).
 
 Neither session touches `Packages/ScrollArbitration` or `ZTronScrollPhysics`. The unmerged D34/D37 (confirmed) and D40 / SHEET-s3's D47
 (unconfirmed) rewrite the same `GestureAttach` switch (6 conflict hunks against main). Settle their merge before U3 (§9 Q7). The UIKit path
 does not depend on them, because it disables the SwiftUI observer.
 
-## 6. "100 % test coverage": definition and gates (proposal, §9 Q5)
+## 6. "100 % test coverage": definition and gates (accepted, §9 Q5)
 
 **C1 · code.** Every file under `Sources/ZTronScrollView/Gesture/UIKit/` (the new files and D31's) at 100 % kind-0 regions, lines and
 functions. The total is the union of the unit run and the coverage lanes below.
@@ -232,6 +271,8 @@ functions. The total is the union of the unit run and the coverage lanes below.
 - So the gate also requires every `&&` / `||` right-hand-side region to run on both outcomes: 0 < count < the count of the enclosing
   condition.
 - D31's `?? .zero` (`UIKitTouchObserver.swift:50`) becomes a `guard`, with a deallocated-coordinator shell test.
+- The opt-in file is unit-tested on its own: environment default `[]`, innermost value wins, first value wins in the latch box, the
+  DEBUG log fires once.
 
 Gate mechanics for `scripts/coverage-uikit.sh`:
 - `build-for-testing` once per lane, every run and re-run as `test-without-building` into that lane's folder;
@@ -249,7 +290,7 @@ using one of them fails the gate.
 - delegate methods UIKit never calls;
 - the second-finger reset: XCUI cannot land a finger during a one-finger drag.
 
-The real `.cancelled` route is deterministic: a DEBUG timer flips `.offAxis` → `.always` during a held XCUI drag. UIKit cancels a recognizer
+The real `.cancelled` route is deterministic: a DEBUG timer flips `ztronScrollYieldsToSheet` from false to true during a held XCUI drag. UIKit cancels a recognizer
 whose `isEnabled` goes false, and `.cancelled` passes the yield gate.
 
 **C3 · behaviour.** One strict UI test per cell, with a native baseline where one exists (a native carousel or list in the page; a native
@@ -258,10 +299,11 @@ XCUI's first sample.
 
 | Scenario | Topologies | Drags and checks |
 |---|---|---|
-| N | horizontal ZTron carousel, vertical ZTron list, zoomer at 1× and zoomed, `ztronScrollDisabled(true)` carousel, `UIKitControlsContent`, a sheet over the carousel, nav / tab bar overlap | vertical, horizontal, 40°, 50° at 150–2500 pt/s; drag from a Button; tap; pinch (one `pinch.began`, focal error ≤ 30 pt, also after a flip); catch during the carousel's deceleration, then a vertical drag; `content.body` 0 |
-| S | horizontal pager (1× zoomer, zoomed zoomer, list, Buttons, `UIKitControlsContent`) at medium and large, `.offAxis` | vertical (expand, collapse, dismiss); horizontal (page +1, `topMin == topMax`); 35° and 40° on the list page (list scrolls, pager 0); 35° on the Button page (pages); zoomer at its edge per the arbiter; catch during a page settle, then a vertical drag (page snaps, sheet moves); mid-drag flip (DEBUG timer); `.independent` row |
-| A/B release | the same screen, UIKit vs SwiftUI path on 18.5 (`-ZTronForceUIKitPan`) | flings at 600 and 1500 pt/s, no hold; final position read at `phase == idle`; \|Δ\| ≤ max(5 %, 8 pt) over 3 runs. A native carousel is printed as a reference only, with tolerance from the parity row D49 settles on |
-| Regression | every existing suite, on the SwiftUI path | full unit suite and full demo UI suite |
+| N | under `.inNativeScrollView`: horizontal ZTron carousel, vertical ZTron list, zoomer at 1× and zoomed, `ztronScrollDisabled(true)` carousel, `UIKitControlsContent`, a sheet over the carousel, nav / tab bar overlap | vertical, horizontal, 40°, 50° at 150–2500 pt/s; drag from a Button; tap; pinch (one `pinch.began`, focal error ≤ 30 pt, also after a flip); catch during the carousel's deceleration, then a vertical drag; `content.body` 0 |
+| S | horizontal pager (1× zoomer, zoomed zoomer, list, Buttons, `UIKitControlsContent`) at medium and large, `.inSheet` | vertical (expand, collapse, dismiss); horizontal (page +1, `topMin == topMax`); 35° and 40° on the list page (list scrolls, pager 0); 35° on the Button page (pages); zoomer at its edge per the arbiter; catch during a page settle, then a vertical drag (page snaps, sheet moves); mid-drag flip (DEBUG timer); `.independent` row |
+| A/B release | a non-paging horizontal carousel with and without `.ztronScrollUIKitPan(.inSheet)` (a demo launch argument), on 18.5 | flings at 600 and 1500 pt/s, no hold; final position read at `phase == idle`; \|Δ\| ≤ max(5 %, 8 pt) over 3 runs. A native carousel is printed as a reference only, with tolerance from the parity row D49 settles on |
+| Opt-in gate | every N and S topology without the modifier; an inner `ztronScrollUIKitPan([])` under an opted-in sheet; `.inNativeScrollView` alone on 17.5 and 18.5 | today's behaviour (N: page 0 under a ZTron drag, DBG-s8's expected failure kept for this row; S: sheet frozen, D36); `uikitpan.made` 0. Latch: switch the opt-in on and off after the view appears, then drag: nothing changes, `content.body` 0, one DEBUG log; re-present the sheet: the new set applies |
+| Regression | every existing suite, without the opt-in | full unit suite and full demo UI suite; `uikitpan.made` 0 at every suite's end (one shared teardown check) |
 
 **Lanes.** Private clones, staggered starts, 26.0 run alone:
 
@@ -273,34 +315,41 @@ XCUI's first sample.
 
 `-ZTronForceAllFallbacks` does not turn the UIKit path off. Forced lanes run it with every other fallback forced (D31 observer,
 `MagnificationGesture`, `TapGesture`), which is the 15–16 shape on 17.5. This is an explicit exception to D31 R4 while the path is active.
-`-ZTronForceUIKitPan` exists only for the A/B lane.
+There is no force flag for this path: lanes opt in through the demo screens, as apps do.
 
 **C4 · not runnable here.** Reported by the gate as "user run", never as passed:
 - iOS 15/16 (macOS 27): the 15-only arms are the `TapGesture` double tap at the visible centre, and the sheet without detents;
 - real fingers;
 - a second finger landing during a UIKit pan (D20/D23/D25/D29 order), together with Open item 8's device check.
+- a build with an SDK older than iOS 26 run on 26+: `.inNativeScrollView` must build nothing there (the other `#if compiler` arm),
+  unless an Xcode 16.x is installed on this Mac.
 
-## 7. SPEC S2 amendment text (to apply in U5 after §9)
+## 7. SPEC S2 amendment and CLAUDE.md text (applied in U5)
 
-> **Amendment 2026-10-27 (user, D60): the UIKit pan.**
+> **Amendment 2026-10-27 (user, D60): the opt-in UIKit pan.**
 > - **Replaces, for N and S only,** D31's "only on iOS 15.0–16.x", "never for … gesture recognition", "runs only under
 >   `#unavailable(iOS 17)`" and "iOS 18+ keeps `SpatialEventGesture`".
-> - **Scenarios.** (N) iOS 26+ in apps built with the iOS 26 SDK or later, for a view inside SwiftUI's vertical `ScrollView` (detected with
->   `bounds(of: .scrollView(axis: .vertical))`); (S) iOS <§9 Q1>+, for a view under `ztronScrollYieldsToSheet(.offAxis)`.
+> - **Opt-in.** Only a view under `ztronScrollUIKitPan(_:)`, with a scenario that its OS and SDK can run, builds any of this. Every other
+>   view keeps the pure-SwiftUI structure. The set is latched per view at its first body.
+> - **Scenarios.** (N) `.inNativeScrollView`: iOS 26+ in apps built with the iOS 26 SDK or later, for a view inside SwiftUI's vertical
+>   `ScrollView` (detected with `bounds(of: .scrollView(axis: .vertical))`). (S) `.inSheet`: iOS 15+, declared by the app, because a sheet
+>   cannot be detected.
 > - **Allowed in `Sources/ZTronScrollView/Gesture/UIKit/`:**
->   - one `UIPanGestureRecognizer` per view (one touch, cancels and delays nothing, named `scrollArbitrationGestureName`, simultaneous at
->     least with every recognizer of that name, `shouldBegin` decided by the pure core);
->   - installed through `UIGestureRecognizerRepresentable` on 18+, attached disabled to every view;
+>   - one `UIPanGestureRecognizer` per opted-in view (one touch, cancels and delays nothing, named `scrollArbitrationGestureName`,
+>     simultaneous at least with every recognizer of that name, `shouldBegin` decided by the pure core);
+>   - installed through `UIGestureRecognizerRepresentable` on 18+, attached disabled and enabled per sequence;
 >   - installed by D31's anchor and window route on 15–17, present only while S applies, with `shouldReceive` requiring
 >     `anchor.isDescendant(of: touch.view)`;
 >   - the D31 observer on every OS while the path is active, also named.
-> - **Flags.** DEBUG `-ZTronForceUIKitPan` forces the path. `-ZTronForceAllFallbacks` leaves it on.
+> - **Flags.** None for this path. `-ZTronForceAllFallbacks` leaves it on.
 > - **Gates.** 100 % kind-0 regions, lines and functions over the lane union, plus the widened scope gate.
 > - **Still forbidden:** `UIScrollView`, `UIHostingController`, matching recognizers by class or private name, our own superview or class
 >   walks, private API.
 
-CLAUDE.md's non-negotiable ("No UIKit/AppKit, *Representable … UIKit appears only in the MC spike app") predates D31 as well. Its wording is
-yours to update.
+CLAUDE.md's non-negotiable predates D31 as well. U5 replaces its second sentence with (§9 Q6, accepted):
+
+> No AppKit, CADisplayLink, reflection or private API. UIKit and `*Representable` only in `Sources/ZTronScrollView/Gesture/UIKit/`
+> under SPEC S2's exceptions (D31's touch observer, D60's opt-in pan), and in demo probes and samplers.
 
 ## 8. Risks
 
@@ -318,19 +367,19 @@ yours to update.
 - **R7.** Merge entanglement (§5) and the duplicate D47 numbers: U5 renumbers one.
 - **R8.** Lanes are costly and flaky under host load (300–1000): ≈ 8–9 h of regression plus the coverage and behaviour lanes. Use private
   clones and read every flake against load.
+- **R9.** The opt-in is static per view. An app that toggles it at runtime sees no change on live views (a DEBUG log says so). Apps
+  that never opt in keep D47 and D36 as documented limitations; ZTronPages' docs show the `.inSheet` line.
 
-## 9. Open questions (for the user)
+## 9. Questions and the user's answers (2026-10-27)
 
-1. **OS range of S:** 15+ (the window route on 15–17; 17.5 runs it natively; 15/16 on your machine, dismissal only on 15), or 18+ only
-   (the representable route only)? Recommended: 15+, because ZTronPages targets 15+.
-2. **API for S:** the `ztronScrollYieldsToSheet(_: ZTronSheetYield)` overload with `.offAxis`, set by the app (recommended), or a separate
-   modifier?
-3. **N parents:** SwiftUI's vertical `ScrollView` only, as approved. Do you also want horizontal `ScrollView`, `List`, `Form` or
-   `TabView(.page)` parents, after U1's Q4 table? The last of these would also turn ZTRONPAGES T4 from "unsupported" into "UIKit path".
-4. **Inert recognizer on 18+:** a disabled `UIPanGestureRecognizer` is attached to every ZTron view on 18+ (constant structure, S4) and
-   enabled only in N or S. OK, or do you prefer init-time activation, which loses runtime detection?
-5. **100 % definition:** C1–C4 (regions, lines, functions and `&&`/`||` outcomes; every C3 cell; listed unit-only regions; 15/16 and
-   multi-finger by you). Is that what you meant?
-6. **UIKit in demo probes** for U1 (DBG-s8 precedent), and the CLAUDE.md wording update: OK?
-7. **Merge order:** land D34/D37 (confirmed) before U3? And your decision on D40 and SHEET-s3's D47 (unconfirmed), which edit the same
-   switch?
+The user accepted every recommendation and added the opt-in gate (§3).
+1. **OS range of S:** 15+, the window route on 15–17 (17.5 runs it here; 15/16 are the user's runs, dismissal only on 15). Accepted.
+2. **API for S:** superseded by the opt-in: `.ztronScrollUIKitPan(.inSheet)`. There is no `ZTronSheetYield`, and the Bool
+   `ztronScrollYieldsToSheet` is unchanged.
+3. **N parents:** SwiftUI's vertical `ScrollView` only. Accepted. Widening needs a new decision after U1's Q4 table; it would also turn
+   ZTRONPAGES T4 from "unsupported" into "UIKit path".
+4. **Inert recognizer on 18+:** settled by the opt-in. The disabled recognizer exists only in opted-in views, and runtime detection stays.
+5. **100 % definition:** C1–C4 (§6), plus the opt-in gate rows. Accepted.
+6. **UIKit in demo probes** for U1, and the CLAUDE.md wording (§7): accepted.
+7. **Merge order:** land D34/D37 (confirmed) before U3: accepted. D40 and SHEET-s3's D47 (unconfirmed) had no recommendation and stay
+   open. They edit the same `GestureAttach` switch, so they block U3, not U1 or U2.
