@@ -30,9 +30,12 @@ struct HeaderSafeAreaInsetTests {
         }
     }
 
-    /// The drawn content offsets (the transform effect's, one per frame it is evaluated at) while the inset toggles.
-    func toggle(path: OSPath, animated: Bool)
-        -> (before: CGFloat, after: CGFloat, drawn: [CGFloat], r: (CGFloat, CGFloat), top: CGFloat, container: CGFloat) {
+    /// The drawn content offsets (the transform effect's, one per frame it is evaluated at) while the inset toggles, and
+    /// the run loop's clock when each was seen (`seen`, seconds since the toggle). `stallEvery` > 0 blocks the main thread
+    /// for 50 ms before every n-th sample: the sampler overrunning under host load, made deterministic.
+    func toggle(path: OSPath, animated: Bool, stallEvery: Int = 0)
+        -> (before: CGFloat, after: CGFloat, drawn: [CGFloat], seen: [TimeInterval], r: (CGFloat, CGFloat), top: CGFloat,
+            container: CGFloat) {
         let log = Log(), model = Model()
         let s = makeState(path)
         let w = withOSPath(path) {
@@ -56,14 +59,38 @@ struct HeaderSafeAreaInsetTests {
         } else {
             model.inset = true
         }
-        var drawn: [CGFloat] = []
-        for _ in 0..<90 {
+        var drawn: [CGFloat] = [], seen: [TimeInterval] = []
+        let t0 = ProcessInfo.processInfo.systemUptime
+        for i in 0..<90 {
+            if stallEvery > 0, i % stallEvery == stallEvery - 1 { Thread.sleep(forTimeInterval: 0.05) }
             pump(1.0 / 60)
-            if let p = s.probe.pending?.offset.y, drawn.last != p { drawn.append(p) }
+            if let p = s.probe.pending?.offset.y, drawn.last != p {
+                drawn.append(p)
+                seen.append(ProcessInfo.processInfo.systemUptime - t0)
+            }
         }
         // D64: an app-provided safe area is not the keyboard (the probe stays 0), so it still limits `R` (below).
         #expect(s.peek.metrics.keyboardExtension == 0, "\(path): keyboard probe \(s.peek.metrics.keyboardExtension)")
-        return (before, s.peek.targetOffset.y, drawn, (r0, s.peek.metrics.header?.resting ?? -1), top, container)
+        return (before, s.peek.targetOffset.y, drawn, seen, (r0, s.peek.metrics.header?.resting ?? -1), top, container)
+    }
+
+    /// Drawn with the animation: many frames, none moving more than a few points per frame (37.5 pt over 1.2 s, about
+    /// 0.8 pt per 60 Hz frame at the curve's steepest), landing at the new rest. The animation runs on the render clock,
+    /// the samples on `pump(1/60)`, a wall-clock spin that overruns under host load: several frames drawn between two
+    /// samples gave steps of 2.3-2.7 pt next to 0.8 pt ones on a continuous curve (a raw `< 2` per sample failed about
+    /// half of the 27.0 runs). So a step is judged against the 60 Hz frames that elapsed between its two samples (2 pt
+    /// per frame), and no single step may carry half of the whole change (the seam lab's PASS rule; the unanimated write
+    /// this suite guards against moved all of it in one frame).
+    func expectDrawnWithTheCurve(_ r: (before: CGFloat, after: CGFloat, drawn: [CGFloat], seen: [TimeInterval],
+                                       r: (CGFloat, CGFloat), top: CGFloat, container: CGFloat), _ label: String) {
+        let steps = zip(r.drawn.dropFirst(), r.drawn).map { abs($0 - $1) }
+        let frames = zip(r.seen.dropFirst(), r.seen).map { max(1, ($0 - $1) * 60) }
+        let perFrame = zip(steps, frames).map { $0 / $1 }
+        let change = abs(r.after - r.before)
+        #expect(r.drawn.count > 30, "\(label): drawn \(r.drawn)")
+        #expect((perFrame.max() ?? 0) < 2, "\(label): worst step per frame \(perFrame.max() ?? 0), steps \(steps), frames \(frames)")
+        #expect((steps.max() ?? 0) < 0.5 * change, "\(label): worst step \(steps.max() ?? 0) of \(change) in \(r.drawn)")
+        #expect(abs((r.drawn.last ?? 0) - r.after) < 0.5, "\(label): lands at \(r.drawn.last ?? .nan) vs \(r.after)")
     }
 
     @Test(arguments: OSPath.allCases)
@@ -73,11 +100,18 @@ struct HeaderSafeAreaInsetTests {
         #expect(abs(r.r.0 - 0.25 * r.container) < 0.5 && abs(r.r.1 - 0.25 * (r.container - 150)) < 0.5,
                 "\(path): R \(r.r), container \(r.container)")
         #expect(abs(r.before + r.top + r.r.0) < 0.5 && abs(r.after + r.top + r.r.1) < 0.5, "\(path): rest \(r.before) -> \(r.after)")
-        // Drawn with the animation: many frames, none moving more than a few points (37.5 pt over 1.2 s).
-        let steps = zip(r.drawn.dropFirst(), r.drawn).map { abs($0 - $1) }
-        #expect(r.drawn.count > 30, "\(path): drawn \(r.drawn)")
-        #expect((steps.max() ?? 0) < 2, "\(path): worst step \(steps.max() ?? 0) in \(r.drawn)")
-        #expect(abs((r.drawn.last ?? 0) - r.after) < 0.5, "\(path): lands at \(r.drawn.last ?? .nan) vs \(r.after)")
+        expectDrawnWithTheCurve(r, "\(path)")
+    }
+
+    /// The check above under a sampler that overruns (50 ms stalls every 7th sample, the host-load flake made
+    /// deterministic): the frames drawn in between land in one sample (27.0: raw steps up to 4.1-4.3 pt, which the former
+    /// raw `< 2` check failed), and the curve still passes; the stalls are seen (a sample interval of 2.5 frames or more).
+    @Test(arguments: OSPath.allCases)
+    func aStalledSamplerJudgesTheDrawnCurve(path: OSPath) {
+        let r = toggle(path: path, animated: true, stallEvery: 7)
+        let frames = zip(r.seen.dropFirst(), r.seen).map { ($0 - $1) * 60 }
+        #expect((frames.max() ?? 0) >= 2.5, "\(path): sample intervals \(frames)")
+        expectDrawnWithTheCurve(r, "\(path) stalled")
     }
 
     /// Unanimated, the content lands at once (the header's slot does too).
