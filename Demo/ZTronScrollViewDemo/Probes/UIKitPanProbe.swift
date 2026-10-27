@@ -8,7 +8,7 @@ import ScrollArbitration
 // rebuilt from demo types so its UIKit behaviour can be measured before U2/U3 build it. A copy of the passive D31 observer,
 // one axis-aware `UIPanGestureRecognizer` per probe view (delegate variant V), the library's own pinch and double-tap types,
 // and a demo scroller whose offset the probe pan drives (snap on `.ended` and on decline; body re-runs are fine here).
-// Launch args: `-ZTronProbeV on|off|axis` (default axis), `-ZTronProbeRoute window` (the 15–17 window route on 18+ too),
+// Launch args: `-ZTronProbeV on|off|axis|ctl` (default axis; ctl = off + wait for UIControl recognizers), `-ZTronProbeRoute window` (the 15–17 window route on 18+ too),
 // `-ZTronProbeResetAfter N` (reset the pan after N `.changed`, as the second-finger rule does), `-ZTronProbeEnvEnabled`
 // (the shell's `\.isEnabled` read). Every reading goes to `ProbeHub` (counters `uikitpan.*`, per-frame channel ranges).
 
@@ -419,7 +419,7 @@ final class ProbePanDriver: NSObject, UIGestureRecognizerDelegate {
         count("simul.ask")
         switch ProbeArgs.v {
         case "on": return true
-        case "off": return false
+        case "off", "ctl": return false
         default:
             guard let d = detectedAxis, let p = g as? UIPanGestureRecognizer else { return true }
             let a = sequenceAxis ?? axis(of: p).0
@@ -429,7 +429,12 @@ final class ProbePanDriver: NSObject, UIGestureRecognizerDelegate {
         }
     }
 
-    func gestureRecognizer(_ g: UIGestureRecognizer, shouldRequireFailureOf other: UIGestureRecognizer) -> Bool { false }
+    /// V `ctl` (Q7): V off, and the pan waits for a recognizer on a `UIControl` (UISlider's own pan on 26+) to fail.
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldRequireFailureOf other: UIGestureRecognizer) -> Bool {
+        guard ProbeArgs.v == "ctl", other.view is UIControl else { return false }
+        count("requireFailure.control")
+        return true
+    }
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool { false }
 
     /// Window route: the touch began inside the viewport rect and UIKit's hit view contains the anchor (`desc`, the design's

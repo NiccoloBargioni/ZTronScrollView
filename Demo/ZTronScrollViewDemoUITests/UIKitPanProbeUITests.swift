@@ -272,7 +272,8 @@ final class UIKitPanProbeUITests: XCTestCase {
     }
 
     func testQ7_controls() {
-        for v in ["on", "off"] {
+        let vs = (ProcessInfo.processInfo.environment["ZS_UKP_Q7V"] ?? "on,off,ctl").split(separator: ",").map(String.init)
+        for v in vs {
             let (app, empty) = pagerApp(["-ZTronProbeV", v])
             func row(_ name: String, _ act: () -> Void) {
                 probeReset(app)
