@@ -268,7 +268,7 @@ final class UIKitPanProbeUITests: XCTestCase {
 
     private func q7Line(_ d: [String: String]) -> String {
         let keys = ["ctlB", "ctlS", "ctlT", "ctlX", "ctlW", "ctlSt", "ctlSeg", "controls.x.span", "controls.y.span"]
-        return keys.map { "\($0)=\(d[$0] ?? "-")" }.joined(separator: " ") + " " + counters(d)
+        return keys.map { "\($0)=\(d[$0] ?? "-")" }.joined(separator: " ") + " " + counters(d) + " others=\(d["others"] ?? "-")"
     }
 
     func testQ7_controls() {
