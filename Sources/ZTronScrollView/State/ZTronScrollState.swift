@@ -196,6 +196,9 @@ public final class ZTronScrollState {
     var headerTurn = 0
     var headerTurnAdvanceScheduled = false
     private var headerOverride: HeaderMetrics??
+    /// D64: the keyboard probe's latest value (`setKeyboardExtension`), committed by the next viewport report.
+    private var keyboardProbe: CGFloat = 0
+    private var keyboardCommitScheduled = false
     /// A deceleration ended in this flush: `.afterFinishAccelerating` looks at the rest once the flush is over.
     private var headerSettlePending = false
 
@@ -661,7 +664,7 @@ public final class ZTronScrollState {
     /// `contentInset` / behavior changed: recompute the adjusted inset and apply the inset-only rule.
     private func adjustedInputsChanged() {
         let m = storage.snapshot().metrics
-        applyViewport(size: m.viewportSize, safe: m.safeAreaInsets, header: m.headerObscured)
+        applyViewport(size: m.viewportSize, safe: m.safeAreaInsets, keyboard: m.keyboardExtension, header: m.headerObscured)
     }
 
     /// M8b hook: the scaling header's current height shifts the preserved center only.
@@ -701,11 +704,12 @@ public final class ZTronScrollState {
 
     /// The header metrics of the next layout: an explicit `setHeaderMetrics`, else the container's spec at the viewport
     /// (width, overflow container), else unchanged.
-    private func resolvedHeader(viewport: CGSize, safe: EdgeInsets, current: HeaderMetrics?) -> HeaderMetrics? {
+    private func resolvedHeader(viewport: CGSize, safe: EdgeInsets, keyboard: CGFloat, current: HeaderMetrics?) -> HeaderMetrics? {
         if let override = headerOverride { return override }
         guard let spec = headerSpec else { return current }
         let container = HeaderMath.containerHeight(viewport: viewport, safe: safe,
-                                                   adjusted: contentInsetAdjustmentBehavior.edges(for: scrollAxes))
+                                                   adjusted: contentInsetAdjustmentBehavior.edges(for: scrollAxes),
+                                                   keyboard: keyboard)
         return spec.resolve(width: viewport.width, natural: headerNatural, vertical: scrollAxes.contains(.vertical),
                             containerHeight: container) ?? current
     }
@@ -766,12 +770,46 @@ public final class ZTronScrollState {
     /// the old visible center is placed at the new one (see `ResizeMath`). The commit itself never animates: the
     /// transform effect maps the animated container size to the offset/scale in lockstep with the system transition.
     func setViewport(_ viewport: ViewportMetrics) {
-        applyViewport(size: viewport.size, safe: viewport.safeArea, header: nil)
+        if let k = viewport.keyboard { keyboardProbe = Self.sanitizedKeyboard(k) }
+        applyViewport(size: viewport.size, safe: viewport.safeArea, keyboard: keyboardProbe, header: nil)
         positionDriver.layoutChanged()
         applyPendingHeaderSnap()
     }
 
-    private func applyViewport(size: CGSize, safe: EdgeInsets, header: CGFloat?) {
+    /// D64, 16+: the keyboard probe's height (`KeyboardProbeLayout`, from the layout pass), the keyboard-free safe area of
+    /// the header's overflow container. The container's viewport report of the same update (a geometry action, after
+    /// layout) commits it with the safe area it belongs to (a keyboard shown or hidden changes both: the bottom inset by
+    /// the keyboard, this value by the same amount, so `R` stays). Recorded only: committed alone (against the committed
+    /// safe area) it would resolve `R` from a half-updated pair. When no viewport report follows in this run-loop turn (a
+    /// keyboard change that leaves the container's safe area as it was), it is committed at the turn's end through the
+    /// inset-only rule.
+    func setKeyboardExtension(_ value: CGFloat) {
+        let k = Self.sanitizedKeyboard(value)
+        guard k != keyboardProbe else { return }
+        #if DEBUG
+        dbg("kb probe \(f(keyboardProbe))->\(f(k)) committed:\(f(storage.snapshot().metrics.keyboardExtension))")
+        #endif
+        keyboardProbe = k
+        guard !keyboardCommitScheduled else { return }
+        keyboardCommitScheduled = true
+        RunLoop.main.perform(inModes: [.common]) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.keyboardCommitScheduled = false
+                let m = self.storage.snapshot().metrics
+                guard m.keyboardExtension != self.keyboardProbe else { return }
+                #if DEBUG
+                self.dbg("kb probe late commit \(self.f(m.keyboardExtension))->\(self.f(self.keyboardProbe))")
+                #endif
+                self.applyViewport(size: m.viewportSize, safe: m.safeAreaInsets, keyboard: self.keyboardProbe,
+                                   header: m.headerObscured)
+            }
+        }
+    }
+
+    private static func sanitizedKeyboard(_ k: CGFloat) -> CGFloat { k.isFinite ? max(0, k) : 0 }
+
+    private func applyViewport(size: CGSize, safe: EdgeInsets, keyboard: CGFloat, header: CGFloat?) {
         guard size.width.isFinite, size.height.isFinite else { return }
         let before = storage.snapshot()
         let old = before.metrics
@@ -783,9 +821,10 @@ public final class ZTronScrollState {
         var m = old
         m.viewportSize = size
         m.safeAreaInsets = safe
+        m.keyboardExtension = keyboard
         if let hold = holdOverride { m.refreshHold = hold }
         adoptLiveNatural(width: size.width)
-        m.header = resolvedHeader(viewport: size, safe: safe, current: old.header)
+        m.header = resolvedHeader(viewport: size, safe: safe, keyboard: keyboard, current: old.header)
         m.adjustedContentInset = Self.adjusted(contentInset: contentInset, safe: safe,
                                                behavior: contentInsetAdjustmentBehavior, axes: scrollAxes,
                                                hold: m.refreshHold, header: m.header)
@@ -842,7 +881,7 @@ public final class ZTronScrollState {
             withAnimationIfAny(follow) { batch {
                 let s = storage.snapshot()
                 #if DEBUG
-                dbg((hadViewport ? "vp inset" : "vp first") + " \(f(old.viewportSize))->\(f(size)) insets \(f(old.adjustedContentInset))->\(f(m.adjustedContentInset)) insetsChanged:\(insetsChanged) txAnim:\(positionDriver.animationInTurn != nil)")
+                dbg((hadViewport ? "vp inset" : "vp first") + " \(f(old.viewportSize))->\(f(size)) insets \(f(old.adjustedContentInset))->\(f(m.adjustedContentInset)) insetsChanged:\(insetsChanged) txAnim:\(positionDriver.animationInTurn != nil) kb:\(f(keyboard)) R:\(f(old.header?.resting ?? -1))->\(f(m.header?.resting ?? -1))")
                 #endif
                 syncCommit(&m, open: false)
                 storage.metrics = m
@@ -879,7 +918,7 @@ public final class ZTronScrollState {
         let step = isResizeOpen && Self.isSafeAreaStep(old: old, new: m, edges: contentInsetAdjustmentBehavior.edges(for: scrollAxes))
         #if DEBUG
         ZTronRenderCounters.increment("resize.viewport")
-        dbg("vp size \(f(old.viewportSize))->\(f(size)) insets \(f(old.adjustedContentInset))->\(f(m.adjustedContentInset)) content:\(f(old.contentSize)) wasOpen:\(isResizeOpen) origin:\(turnOrigin != nil) motion:\(motion != nil) tx:\(transactionToken != nil) intentReused:\(resizeIntent != nil) step:\(step)")
+        dbg("vp size \(f(old.viewportSize))->\(f(size)) insets \(f(old.adjustedContentInset))->\(f(m.adjustedContentInset)) content:\(f(old.contentSize)) wasOpen:\(isResizeOpen) origin:\(turnOrigin != nil) motion:\(motion != nil) tx:\(transactionToken != nil) intentReused:\(resizeIntent != nil) step:\(step) kb:\(f(keyboard)) R:\(f(old.header?.resting ?? -1))->\(f(m.header?.resting ?? -1))")
         #endif
         let interrupted = motion != nil || transactionToken != nil
         if interrupted {

@@ -112,7 +112,7 @@ struct HeaderFrameModifier: ViewModifier {
         return HeaderLiveInput(size: size, overflow: overflow, metrics: header, progress: p, stretch: stretch,
                                translation: translation, stateHeight: h,
                                committedContainer: HeaderMath.containerHeight(viewport: m.viewportSize, safe: m.safeAreaInsets,
-                                                                              adjusted: edges),
+                                                                              adjusted: edges, keyboard: m.keyboardExtension),
                                offset: offset, followsOffset: follows)
     }
 }

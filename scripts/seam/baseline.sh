@@ -2,7 +2,7 @@
 # M8b-3 R5 seam lab: runs a list of scenarios through scripts/seam/measure.sh, one after the other, on one simulator.
 #
 # usage: scripts/seam/baseline.sh <udid> <out-root> <scenario>...
-#   scenario = <size>-<start>-<behavior>-<test>[-<extra>...], test = rotate | width | pull | scroll | snap, extras (any order):
+#   scenario = <size>-<start>-<behavior>-<test>[-<extra>...], test = rotate | width | pull | scroll | snap | kbrotate, extras (any order):
 #              forced (the forced-fallback lane), capped | refit (-ZTronHeaderOverflow), ambient | glass | color | view
 #              (-ZTronHeaderBackground), marker (-ZTronSeamMarker 1: a cyan row at content y 320), refresh (-ZTronSeamRefresh 2.5:
 #              a refresher whose action holds 2.5 s, with pull: the refresh hold and its end), band (-ZTronSeamScrollBand 0.5:
@@ -37,6 +37,7 @@ for sc in "$@"; do
       vland) extra+=(-ZTronSeamLandscape 1) ;;        # with width: in landscape
       near[0-9]*) extra+=(-ZTronSeamRetarget 0.5 -ZTronSeamRetargetNear "${x#near}") ;;   # with height<digits>: 0.5 s in, retarget to the DRAWN height + <digits> pt (core check)
       kbfake) extra+=(-ZTronSeamFakeKeyboard 150) ;;  # with width: seam.width toggles a 150 pt bottom .safeAreaInset, easeInOut 1.2 s (core check)
+      kbreal) extra+=(-ZTronSeamKeyboard 1) ;;        # with width / kbrotate: seam.width toggles the system keyboard (D64)
       info) extra+=(-ZTronSeamInfo 2) ;;              # diagnostics only (draws the state line over the lab): DEBUG event log
       band) extra+=(-ZTronSeamScrollBand 0.5) ;;
       combo) extra+=(-ZTronSeamScrollBand 0.5 -ZTronSeamWidthThenScroll 0.5) ;;

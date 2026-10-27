@@ -61,6 +61,8 @@ struct HeaderSafeAreaInsetTests {
             pump(1.0 / 60)
             if let p = s.probe.pending?.offset.y, drawn.last != p { drawn.append(p) }
         }
+        // D64: an app-provided safe area is not the keyboard (the probe stays 0), so it still limits `R` (below).
+        #expect(s.peek.metrics.keyboardExtension == 0, "\(path): keyboard probe \(s.peek.metrics.keyboardExtension)")
         return (before, s.peek.targetOffset.y, drawn, (r0, s.peek.metrics.header?.resting ?? -1), top, container)
     }
 

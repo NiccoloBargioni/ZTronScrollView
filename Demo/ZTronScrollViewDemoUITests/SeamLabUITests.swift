@@ -96,6 +96,32 @@ final class SeamLabUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 2.0)
     }
 
+    /// D64 (`-ZTronSeamKeyboard 1`): the system keyboard up (`seam.width` focuses the lab's text field), a system rotation
+    /// to landscape and back with it up, then the keyboard down. The keyboard never changes the header's resting height.
+    func testKeyboardRotate() {
+        let app = launch()
+        let button = app.buttons["seam.width"]
+        XCTAssertTrue(button.waitForExistence(timeout: 10))
+        Thread.sleep(forTimeInterval: 1.5)
+        info(app, "rest")
+        print("SEAMLAB mark keyboard \(Date().timeIntervalSince1970)")
+        button.tap()
+        Thread.sleep(forTimeInterval: 2.5)
+        info(app, "keyboard")
+        print("SEAMLAB mark landscape \(Date().timeIntervalSince1970)")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        Thread.sleep(forTimeInterval: 2.5)
+        info(app, "landscape")
+        print("SEAMLAB mark portrait \(Date().timeIntervalSince1970)")
+        XCUIDevice.shared.orientation = .portrait
+        Thread.sleep(forTimeInterval: 2.5)
+        info(app, "portrait")
+        print("SEAMLAB mark hide \(Date().timeIntervalSince1970)")
+        button.tap()
+        Thread.sleep(forTimeInterval: 2.5)
+        info(app, "hidden")
+    }
+
     /// Full width, 60 % (animated 1.2 s), full width again. `-ZTronSeamLandscape 1`: in landscape.
     func testWidth() {
         let app = launch()

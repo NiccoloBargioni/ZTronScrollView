@@ -64,6 +64,10 @@ struct ScrollMetrics: Equatable, Sendable {
     var contentInset: EdgeInsets = EdgeInsets()
     /// Observed safe area of the container (bars, keyboard), unmasked.
     var safeAreaInsets: EdgeInsets = EdgeInsets()
+    /// D64: how far the keyboard's region of the bottom safe area reaches above the keyboard-free safe area (the cold
+    /// keyboard probe of `ViewportObserver`; 0 without a keyboard). Only the header's overflow container gives it back
+    /// (`HeaderMath.containerHeight`); `adjustedContentInset` keeps the whole safe area, keyboard included.
+    var keyboardExtension: CGFloat = 0
     /// The inset a refreshing edge keeps open for its indicator (M8b): the coordinator sets it at the lift and clears it
     /// when the refresh ends. Included in `adjustedContentInset`.
     var refreshHold: EdgeInsets = EdgeInsets()

@@ -150,8 +150,13 @@ struct ScrollContainer<Content: View>: View {
             // A committed bottom inset subtracted from a slot that reached the bottom was stale in the animated pass of a
             // resize that moves the scroll view's bottom off the home indicator (top-pinned height change: the inset goes
             // 34 -> 0 at the commit), so an engaged `.capped` / `.refit` limit was re-set by the commit (M8b-s6: 70 pt).
+            // The keyboard is not part of the container (D64): the slot also ignores the `.keyboard` region on the bottom
+            // edge, so showing or hiding the keyboard never changes `R` (the state resolves the same region:
+            // `ScrollMetrics.keyboardExtension` from `ViewportObserver`'s probe); the content's inset still includes it.
             .overlay(alignment: .top) {
-                HeaderOverlay(spec: header, state: state).ignoresSafeArea(.all, edges: edges.subtracting([.top, .bottom]))
+                HeaderOverlay(spec: header, state: state)
+                    .ignoresSafeArea(.all, edges: edges.subtracting([.top, .bottom]))
+                    .ignoresSafeArea(.keyboard, edges: .bottom)
             }
             // Above the header (z-order contract), in the viewport's own frame again, so their metric coordinates hold.
             .overlay(RefreshOverlay(state: state, pan: coordinator, axes: axes, member: config.refreshers)

@@ -203,9 +203,14 @@ enum HeaderMath {
     // MARK: Metrics-level helpers (offset in the library convention, `ScrollMetrics`)
 
     /// The height of the overflow policy's container: the viewport below the safe area on the adjusted edges (what a
-    /// `GeometryReader` around the scroll view, inside the safe area, would report), never negative.
-    static func containerHeight(viewport: CGSize, safe: EdgeInsets, adjusted edges: Edge.Set) -> CGFloat {
-        max(0, viewport.height - (edges.contains(.top) ? safe.top : 0) - (edges.contains(.bottom) ? safe.bottom : 0))
+    /// `GeometryReader` around the scroll view, inside the safe area, would report), never negative, WITHOUT the keyboard
+    /// (D64): `keyboard` is how far the keyboard's region of the bottom safe area reaches above the keyboard-free one
+    /// (`ScrollMetrics.keyboardExtension`, 0 without a keyboard), given back. The header's slot is the same region (its
+    /// overlay ignores the `.keyboard` region on the bottom edge), so the layout and the state resolve the same `R`; the
+    /// keyboard never changes `R` or `min`, while the content's adjusted inset keeps it (S8).
+    static func containerHeight(viewport: CGSize, safe: EdgeInsets, adjusted edges: Edge.Set, keyboard: CGFloat = 0) -> CGFloat {
+        let k = keyboard.isFinite ? max(0, keyboard) : 0
+        return max(0, viewport.height - (edges.contains(.top) ? safe.top : 0) - (edges.contains(.bottom) ? safe.bottom : 0)) + k
     }
 
     /// `A = adjustedContentInset.top − refreshHold.top`: `o′ = o.y + A`.

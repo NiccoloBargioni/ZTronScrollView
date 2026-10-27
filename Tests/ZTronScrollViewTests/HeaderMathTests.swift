@@ -270,4 +270,47 @@ import Testing
         #expect(HeaderMath.containerHeight(viewport: CGSize(width: 874, height: 402),
                                            safe: EdgeInsets(top: 0, leading: 62, bottom: 21, trailing: 62), adjusted: []) == 402)
     }
+
+    /// D64 (lead, 2026-10-27): the overflow container excludes the keyboard. With the keyboard up the bottom safe area is
+    /// the keyboard's (the scroll view's frame ends at its top); the probe's `keyboard` (how far it reaches above the
+    /// keyboard-free safe area) is given back, so the container, and with it `R` and `min` under every policy, is the one
+    /// without the keyboard. The slot (frame + the same extension: its overlay ignores the `.keyboard` region) agrees.
+    @Test(arguments: [ZTronHeaderOverflow.uncapped, .capped(fraction: 0.5), .refit])
+    func theKeyboardIsNotPartOfTheContainer(overflow: ZTronHeaderOverflow) {
+        // (viewport, safe area without the keyboard, the keyboard's bottom inset): portrait and landscape, 27.0 sizes.
+        let cases: [(CGSize, EdgeInsets, CGFloat)] = [
+            (CGSize(width: 402, height: 874), EdgeInsets(top: 62, leading: 0, bottom: 34, trailing: 0), 336),
+            (CGSize(width: 874, height: 402), EdgeInsets(top: 0, leading: 62, bottom: 21, trailing: 62), 224),
+            (CGSize(width: 393, height: 852), EdgeInsets(top: 59, leading: 0, bottom: 34, trailing: 0), 1000.0 / 3),
+        ]
+        for (viewport, free, kb) in cases {
+            var up = free
+            up.bottom = kb
+            let ext = kb - free.bottom
+            let without = HeaderMath.containerHeight(viewport: viewport, safe: free, adjusted: .vertical)
+            let with = HeaderMath.containerHeight(viewport: viewport, safe: up, adjusted: .vertical, keyboard: ext)
+            #expect(with == without, "\(viewport): \(with) vs \(without)")
+            // The slot: the frame between the safe areas (ending at the keyboard's top), extended by the probe's height.
+            let slot = (viewport.height - up.top - up.bottom) + ext
+            #expect(slot == with, "\(viewport): slot \(slot) vs state \(with)")
+            for size in [ZTronHeaderSize.aspectRatio(16.0 / 9.0, min: 64), .fixed(min: 300, max: 500), .fit(min: 64)] {
+                let a = HeaderMath.metrics(size: size, width: viewport.width, natural: 400, containerHeight: without, overflow: overflow)
+                let b = HeaderMath.metrics(size: size, width: viewport.width, natural: 400, containerHeight: with, overflow: overflow)
+                #expect(a != nil && a == b, "\(size) \(overflow) \(viewport): \(String(describing: a)) vs \(String(describing: b))")
+            }
+            // Without the extension the keyboard would shrink the container (the measured defect: R 190.5 -> 89 in landscape).
+            #expect(HeaderMath.containerHeight(viewport: viewport, safe: up, adjusted: .vertical) == without - ext)
+            // A view that does not adjust its bottom edge (`.never`): its viewport is the frame the keyboard shrank.
+            let shrunk = CGSize(width: viewport.width, height: viewport.height - kb)
+            #expect(HeaderMath.containerHeight(viewport: shrunk, safe: up, adjusted: [], keyboard: ext)
+                    == viewport.height - free.bottom, "\(viewport): .never")
+        }
+        let base = HeaderMath.containerHeight(viewport: CGSize(width: 402, height: 874),
+                                              safe: EdgeInsets(top: 62, leading: 0, bottom: 34, trailing: 0), adjusted: .vertical)
+        for bad in [-5, .nan, .infinity] as [CGFloat] {
+            #expect(HeaderMath.containerHeight(viewport: CGSize(width: 402, height: 874),
+                                               safe: EdgeInsets(top: 62, leading: 0, bottom: 34, trailing: 0), adjusted: .vertical,
+                                               keyboard: bad) == base, "a degenerate extension \(bad) counts as none")
+        }
+    }
 }

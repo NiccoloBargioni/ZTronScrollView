@@ -16,6 +16,9 @@ public extension NamedCoordinateSpace {
 struct ViewportMetrics: Equatable {
     var size: CGSize
     var safeArea: EdgeInsets
+    /// D64: the keyboard probe's value (`ScrollMetrics.keyboardExtension`) when it travels with this report (15 / forced:
+    /// one preference carries both); `nil`: not part of it (16+: the probe records it from its layout pass, `setKeyboardExtension`).
+    var keyboard: CGFloat? = nil
 }
 
 /// Declares a coordinate space; the `if` is on a `let` flag, so the placeholder's branch never flips (R6).
@@ -37,7 +40,9 @@ struct ViewportMetricsKey: PreferenceKey {
     static let defaultValue = ViewportMetrics(size: .zero, safeArea: EdgeInsets())
     static func reduce(value: inout ViewportMetrics, nextValue: () -> ViewportMetrics) {
         let n = nextValue()
-        if n.size != .zero { value = n }   // siblings contribute the default; keep the real one
+        // Siblings contribute the default; keep the real one. The keyboard probe (D64) contributes only its own field.
+        if n.size != .zero { value.size = n.size; value.safeArea = n.safeArea }
+        if let k = n.keyboard { value.keyboard = k }
     }
 }
 
@@ -57,16 +62,69 @@ struct ViewportObserver: ViewModifier {
     @ViewBuilder
     func body(content: Content) -> some View {
         if state.usesGeometryChange, #available(iOS 16, *) {
-            content.onGeometryChange(for: ViewportMetrics.self,
-                                     of: { metrics(size: $0.size, safe: $0.safeAreaInsets) },
-                                     action: { state.setViewport($0) })
+            // The probe records its height from its own layout pass, so the viewport report of the same update (an
+            // action, after layout) commits it with the safe area it belongs to. A geometry action of its own is not
+            // ordered against the container's: on 27.0 the keyboard's dismissal reached the state viewport first, and
+            // `R` was resolved with the keyboard still in (586 pt container, R 293 pt, drawn for 4 frames).
+            content
+                .background(alignment: .bottom) {
+                    KeyboardProbe.frame { KeyboardProbeLayout(state: state) { Color.clear } }
+                }
+                .onGeometryChange(for: ViewportMetrics.self,
+                                  of: { metrics(size: $0.size, safe: $0.safeAreaInsets) },
+                                  action: { state.setViewport($0) })
         } else {
+            // One preference carries both reports, so they reach the state together.
             content
                 .background(GeometryReader {
                     Color.clear.preference(key: ViewportMetricsKey.self,
                                            value: metrics(size: $0.size, safe: $0.safeAreaInsets))
                 })
+                .background(alignment: .bottom) {
+                    KeyboardProbe.frame {
+                        GeometryReader {
+                            Color.clear.preference(key: ViewportMetricsKey.self,
+                                                   value: ViewportMetrics(size: .zero, safeArea: EdgeInsets(),
+                                                                          keyboard: $0.size.height))
+                        }
+                    }
+                }
                 .onPreferenceChange(ViewportMetricsKey.self) { state.setViewport($0) }
         }
+    }
+}
+
+/// D64: the keyboard probe. A zero-height box on the container's bottom edge that ignores the `.keyboard` safe-area region
+/// there: SwiftUI extends it down to the keyboard-free safe area, so its height is how far the keyboard's region reaches
+/// above that (`ScrollMetrics.keyboardExtension`; 0 without a keyboard, and then it never changes: a rotation, a bar or a
+/// `.safeAreaInset` leaves it alone). The header's slot ignores the same region (`ScrollContainer`), so it is the
+/// container's region between the safe areas plus this height. Cold: its geometry changes when the keyboard does.
+enum KeyboardProbe {
+    static func frame<V: View>(@ViewBuilder _ reader: () -> V) -> some View {
+        reader()
+            .ignoresSafeArea(.keyboard, edges: .bottom)
+            .frame(height: 0)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
+/// 16+: the keyboard probe's reader. Placed in the probe's extended frame, it records that frame's height in the state
+/// synchronously from the main thread's layout pass (`setKeyboardExtension`; the async renderer's passes lay out the
+/// presented state and are skipped, as in `HeaderSlotLayout`). Fills its proposal. It needs a subview: SwiftUI never
+/// placed an empty one (27.0, the seam lab: no report at all).
+@available(iOS 16, *)
+struct KeyboardProbeLayout: Layout {
+    let state: ZTronScrollState
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        proposal.replacingUnspecifiedDimensions(by: .zero)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for v in subviews { v.place(at: bounds.origin, proposal: ProposedViewSize(bounds.size)) }
+        guard Thread.isMainThread else { return }
+        let h = bounds.height
+        MainActor.assumeIsolated { state.setKeyboardExtension(h) }
     }
 }
