@@ -279,6 +279,8 @@ final class UIKitPanProbeUITests: XCTestCase {
                 probeReset(app)
                 act()
                 Thread.sleep(forTimeInterval: 0.8)
+                // A drag along the tab bar can select the other tab (17.5): come back to the probe tab.
+                if !any(app, "probe.info").exists { app.tabBars.buttons.element(boundBy: 0).tap(); Thread.sleep(forTimeInterval: 0.5) }
                 emit("Q7", "v=\(v) row=\(name) \(q7Line(probeInfo(app)))")
             }
             func center(_ e: XCUIElement) -> CGPoint { CGPoint(x: e.frame.midX, y: e.frame.midY) }
@@ -306,7 +308,8 @@ final class UIKitPanProbeUITests: XCTestCase {
             }
             row("tabBarDrag") {
                 let tb = app.tabBars.firstMatch
-                drag(app, from: CGPoint(x: tb.frame.maxX - 60, y: tb.frame.minY + 20), by: vector(0, 150), velocity: velocity(600))
+                // Within the probe tab's item (the left half), so the lift does not select the other tab.
+                drag(app, from: CGPoint(x: tb.frame.minX + 30, y: tb.frame.minY + 20), by: CGVector(dx: 130, dy: 0), velocity: velocity(600))
             }
             row("headerDrag") {
                 let h = any(app, "probe.header")
