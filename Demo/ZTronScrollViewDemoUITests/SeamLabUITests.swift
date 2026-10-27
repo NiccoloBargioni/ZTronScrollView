@@ -96,17 +96,23 @@ final class SeamLabUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 2.0)
     }
 
-    /// Full width, 60 % (animated 1.2 s), full width again.
+    /// Full width, 60 % (animated 1.2 s), full width again. `-ZTronSeamLandscape 1`: in landscape.
     func testWidth() {
         let app = launch()
         let button = app.buttons["seam.width"]
         XCTAssertTrue(button.waitForExistence(timeout: 10))
+        if seamArgs.contains("-ZTronSeamLandscape") {
+            XCUIDevice.shared.orientation = .landscapeLeft
+            Thread.sleep(forTimeInterval: 2.5)
+        }
         Thread.sleep(forTimeInterval: 1.5)
         print("SEAMLAB mark narrow \(Date().timeIntervalSince1970)")
         button.tap()
         Thread.sleep(forTimeInterval: 2.5)
+        info(app, "narrow")
         print("SEAMLAB mark wide \(Date().timeIntervalSince1970)")
         button.tap()
         Thread.sleep(forTimeInterval: 2.5)
+        info(app, "wide")
     }
 }

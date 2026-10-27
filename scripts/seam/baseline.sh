@@ -30,6 +30,12 @@ for sc in "$@"; do
       refresh) extra+=(-ZTronSeamRefresh 2.5) ;;
       hold) extra+=(-ZTronSeamHold 1) ;;       # a held refresh from 0.8 s (white 20 pt probe indicator; scripts/seam/probe.py) (M8b-s6)
       sticky) extra+=(-ZTronSeamSticky 1) ;;   # a white 120 x 16 pt bar in an .overlay(alignment: .bottom) of the header (probe.py) (M8b-s6)
+      vbottom) extra+=(-ZTronSeamBottomPinned 1) ;;   # with height<digits>: bottom-pinned, the TOP inset goes 62 -> 0 (M8b-s6 close)
+      vboth) extra+=(-ZTronSeamBoth 1) ;;             # with height<digits>: the width animates to 60 % too
+      vspring) extra+=(-ZTronSeamSpring 1) ;;         # seam.width animates with .spring(response: 0.55, dampingFraction: 0.5)
+      vretarget) extra+=(-ZTronSeamRetarget 0.5) ;;   # seam.width toggles back 0.5 s into the change (additive retarget)
+      vland) extra+=(-ZTronSeamLandscape 1) ;;        # with width: in landscape
+      info) extra+=(-ZTronSeamInfo 2) ;;              # diagnostics only (draws the state line over the lab): DEBUG event log
       band) extra+=(-ZTronSeamScrollBand 0.5) ;;
       combo) extra+=(-ZTronSeamScrollBand 0.5 -ZTronSeamWidthThenScroll 0.5) ;;
       together) extra+=(-ZTronSeamScrollBand 0.5 -ZTronSeamWidthWithScroll 1) ;;

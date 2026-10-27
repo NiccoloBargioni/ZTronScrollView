@@ -858,9 +858,10 @@ public final class ZTronScrollState {
         }
 
         // A viewport size change: the center rule.
+        let step = isResizeOpen && Self.isSafeAreaStep(old: old, new: m, edges: contentInsetAdjustmentBehavior.edges(for: scrollAxes))
         #if DEBUG
         ZTronRenderCounters.increment("resize.viewport")
-        dbg("vp size \(f(old.viewportSize))->\(f(size)) insets \(f(old.adjustedContentInset))->\(f(m.adjustedContentInset)) content:\(f(old.contentSize)) wasOpen:\(isResizeOpen) origin:\(turnOrigin != nil) motion:\(motion != nil) tx:\(transactionToken != nil) intentReused:\(resizeIntent != nil)")
+        dbg("vp size \(f(old.viewportSize))->\(f(size)) insets \(f(old.adjustedContentInset))->\(f(m.adjustedContentInset)) content:\(f(old.contentSize)) wasOpen:\(isResizeOpen) origin:\(turnOrigin != nil) motion:\(motion != nil) tx:\(transactionToken != nil) intentReused:\(resizeIntent != nil) step:\(step)")
         #endif
         let interrupted = motion != nil || transactionToken != nil
         if interrupted {
@@ -903,7 +904,8 @@ public final class ZTronScrollState {
             var c = ResizeCommit()
             syncCommit(&m, open: false)
             c.current = m.resize.current
-            c.previous = cap
+            // A safe-area step keeps the open commit's progress, its track shifted by the step (`isSafeAreaStep`).
+            c.previous = step ? ResizeMath.shifted(commitOld.previous, from: commitOld.current, to: c.current) : cap
             c.header = m.headerObscured
             c.focus = focus
             c.isOpen = true
@@ -935,6 +937,26 @@ public final class ZTronScrollState {
             storage.isClockRunning = true
         }
         resolveZoomLimits()
+    }
+
+    /// A viewport change that only moved the safe-area extension (the frame between the safe areas, `size` minus the
+    /// insets on the ignored `edges`, is unchanged): SwiftUI's own re-evaluation of the safe area of the scroll view's
+    /// animated frame, never part of the app's transaction, so the extended frame takes it as a STEP, size and origin, in
+    /// the frame it is reported. Measured (M8b-s6 close, seam lab, bottom-pinned height change to 0.4 on 27.0): the
+    /// animated layout reports the new height with the old top inset (62); the next update, the first animated frame,
+    /// drops the 62 pt extension at once (the drawn size 874 -> 812 while the safe-area frame has not moved yet), and the
+    /// bottom one comes back (+34) as the animation ends; the reverse change brings the top extension back at its end and
+    /// the bottom one in 3–4 pt steps over the last frames. Committed as a new transition from the drawn snapshot (whose
+    /// size already holds the step, but not its insets), the content kept the old top inset while the frame had lost
+    /// it: 62 pt below the header, closing over the animation (59 pt on 17.5).
+    static func isSafeAreaStep(old: ScrollMetrics, new: ScrollMetrics, edges: Edge.Set) -> Bool {
+        func inner(_ m: ScrollMetrics) -> CGSize {
+            let s = m.safeAreaInsets
+            return CGSize(width: m.viewportSize.width - (edges.contains(.leading) ? s.leading : 0) - (edges.contains(.trailing) ? s.trailing : 0),
+                          height: m.viewportSize.height - (edges.contains(.top) ? s.top : 0) - (edges.contains(.bottom) ? s.bottom : 0))
+        }
+        let a = inner(old), b = inner(new)
+        return abs(a.width - b.width) <= 0.5 && abs(a.height - b.height) <= 0.5
     }
 
     /// One clock tick of the resize watch: while the probed container size differs from the committed viewport the

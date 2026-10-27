@@ -32,6 +32,10 @@ import ZTronScrollView
 // bottom edge): `-ZTronSeamSticky 1` puts a 120 x 16 pt bar in an `.overlay(alignment: .bottom)` of the header content (a
 // sticky overlay); `-ZTronSeamHold 1` installs a refresher whose indicator is a 20 x 20 pt square and begins refreshing
 // (no action) 0.8 s after launch, so every later stimulus runs during a refresh hold (M8b-s6).
+// Resize variants (M8b-s6 close, the verifier's break probes): `-ZTronSeamBottomPinned 1` (the height change is bottom-pinned:
+// the scroll view's top leaves the top safe area), `-ZTronSeamBoth 1` (height and width together), `-ZTronSeamSpring 1` (a
+// bouncy spring instead of easeInOut), `-ZTronSeamRetarget <s>` (the toggle again `s` seconds into the change), and
+// `-ZTronSeamLandscape 1` (SeamLabUITests.testWidth rotates to landscape first).
 
 enum SeamLab {
     static let red = Color(red: 1, green: 0, blue: 0)
@@ -108,9 +112,9 @@ struct SeamLabScreen: View {
                 // edges it touches and reserves the safe area in adjustedContentInset (top0 = the safe-area top).
                 scroller
                     .background(SeamLab.blue)
-                    .frame(width: narrow && SeamLab.heightFactor == nil ? g.size.width * 0.6 : g.size.width,
+                    .frame(width: narrow && (SeamLab.heightFactor == nil || SeamLab.both) ? g.size.width * 0.6 : g.size.width,
                            height: g.size.height * (narrow ? SeamLab.heightFactor ?? 1 : 1))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: SeamLab.bottomPinned ? .bottom : .top)
                 HStack(spacing: 4) {
                     Button {
                         snapped.toggle()
@@ -133,7 +137,14 @@ struct SeamLabScreen: View {
                             // One transaction: the size change and the scroll command together.
                             withAnimation(.easeInOut(duration: 1.2)) { narrow.toggle(); toggleScroll(animated: false) }
                         } else {
-                            withAnimation(.easeInOut(duration: 1.2)) { narrow.toggle() }
+                            withAnimation(SeamLab.resizeAnimation) { narrow.toggle() }
+                            if let delay = SeamLab.retarget {
+                                // The same toggle again mid-flight: SwiftUI composes the two changes additively.
+                                Task { @MainActor in
+                                    try? await Task.sleep(nanoseconds: UInt64(max(0, delay) * 1_000_000_000))
+                                    withAnimation(SeamLab.resizeAnimation) { narrow.toggle() }
+                                }
+                            }
                         }
                         if let delay = SeamLab.widthThenScroll {
                             Task { @MainActor in
@@ -212,6 +223,20 @@ extension SeamLab {
     /// `-ZTronSeamAnimateHeight <f>` (review d16, M8b-s6): `seam.width` animates the scroll view's height to `f` of the
     /// safe area's (top-pinned) instead of its width.
     static var heightFactor: CGFloat? { Double(HeaderDemo.argument("-ZTronSeamAnimateHeight", "")).map { CGFloat($0) } }
+    /// `-ZTronSeamBottomPinned 1` (M8b-s6 close, verifier probe vbottom): the scroll view is bottom-pinned, so a height
+    /// change moves its TOP off the top safe area (the top inset goes 62 -> 0 with the change on 27.0, 59 -> 0 on 17.5).
+    static var bottomPinned: Bool { HeaderDemo.argument("-ZTronSeamBottomPinned", "0") == "1" }
+    /// `-ZTronSeamBoth 1` (vboth): with `-ZTronSeamAnimateHeight`, the width animates to 60 % too.
+    static var both: Bool { HeaderDemo.argument("-ZTronSeamBoth", "0") == "1" }
+    /// `-ZTronSeamSpring 1` (vspring): `seam.width` animates with `.spring(response: 0.55, dampingFraction: 0.5)` (the frame
+    /// overshoots its target) instead of `.easeInOut(duration: 1.2)`.
+    static var resizeAnimation: Animation {
+        HeaderDemo.argument("-ZTronSeamSpring", "0") == "1" ? .spring(response: 0.55, dampingFraction: 0.5)
+            : .easeInOut(duration: 1.2)
+    }
+    /// `-ZTronSeamRetarget <s>` (vretarget): `seam.width` toggles the size back `s` seconds later, while the first change
+    /// is in flight (a toggle tapped twice quickly; SwiftUI composes the two animations additively).
+    static var retarget: Double? { Double(HeaderDemo.argument("-ZTronSeamRetarget", "")) }
     /// `-ZTronSeamHold 1`: a held refresh (white probe indicator) from 0.8 s after launch.
     static var hold: Bool { HeaderDemo.argument("-ZTronSeamHold", "0") == "1" }
     /// `-ZTronSeamSticky 1`: a white bar in a bottom-aligned overlay of the header content (a sticky overlay).

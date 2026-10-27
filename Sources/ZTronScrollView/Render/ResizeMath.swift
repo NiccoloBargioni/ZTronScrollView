@@ -45,15 +45,20 @@ enum ResizeMath {
         return CGPoint(x: insets.leading + w * unit.x, y: insets.top + h + v * unit.y)
     }
 
-    /// Progress `t` in [0, 1] of the animated `size` between `from` and `to`, on the axis with the larger |delta|;
-    /// 1 when the sizes are equal.
+    /// Progress `t` of the animated `size` between `from` (0) and `to` (1), on the axis with the larger |delta|; 1 when the
+    /// sizes are equal. NOT clamped to [0, 1]: SwiftUI interpolates every frame of the change (the container, the
+    /// scaling header's slot) linearly in one curve value that leaves [0, 1] — a spring overshoots `to` (t > 1), and a
+    /// retargeted change (a second `withAnimation` while the first runs) is composed additively, so the drawn size first
+    /// keeps moving past the snapshot the second commit starts from (t < 0). The content's geometry is extrapolated along
+    /// the same line, which keeps it on the header there; clamped, it stayed at the end geometry while the header
+    /// overshot (seam lab, spring with damping 0.5: 14.5 pt seam, 13 pt lateral) or froze at the snapshot while the
+    /// header kept moving (retarget after 0.5 s: 23 pt).
     static func progress(size: CGSize, from: CGSize, to: CGSize) -> CGFloat {
         let dw = to.width - from.width, dh = to.height - from.height
         let d = abs(dw) >= abs(dh) ? dw : dh
         guard abs(d) > 1e-9 else { return 1 }
         let t = abs(dw) >= abs(dh) ? (size.width - from.width) / dw : (size.height - from.height) / dh
-        guard t.isFinite else { return 1 }
-        return min(1, max(0, t))
+        return t.isFinite ? t : 1
     }
 
     static func isAtFit(_ scale: CGFloat, fit: CGFloat) -> Bool {
@@ -150,6 +155,24 @@ enum ResizeMath {
                                      contentSize: lerp(commit.previous.contentSize, commit.current.contentSize, t),
                                      insets: lerp(commit.previous.insets, commit.current.insets, t),
                                      header: HeaderResize.lerp(commit.previous.header, commit.current.header, t))
+    }
+
+    /// `s` moved by the model change `from` -> `to` (every field). An UNANIMATED change of the model while a transition is
+    /// in flight is drawn by SwiftUI as a step of the whole drawn track (additive composition: the in-flight animation keeps
+    /// its progress and both of its ends move by the change), so a commit for it keeps the open commit's progress with
+    /// `previous` shifted by the same change (`ZTronScrollState`, safe-area steps).
+    static func shifted(_ s: ResizeCommit.Snapshot, from a: ResizeCommit.Snapshot, to b: ResizeCommit.Snapshot)
+        -> ResizeCommit.Snapshot {
+        func d(_ p: CGSize, _ q: CGSize, _ r: CGSize) -> CGSize {
+            CGSize(width: max(0, p.width + r.width - q.width), height: max(0, p.height + r.height - q.height))
+        }
+        var header = b.header
+        if let h = s.header, let ha = a.header, let hb = b.header {
+            header = HeaderResize(base: h.base + hb.base - ha.base, band: h.band + hb.band - ha.band)
+        }
+        return ResizeCommit.Snapshot(viewport: d(s.viewport, a.viewport, b.viewport),
+                                     contentSize: d(s.contentSize, a.contentSize, b.contentSize),
+                                     insets: plus(s.insets, b.insets, minus: a.insets), header: header)
     }
 
     /// F: the offset, scale and alignment padding drawn when the container is `size` big (design M5 section 3, D17).
