@@ -38,7 +38,10 @@ Open:
 2. The 15/16 `.fit` inside the band jumps on an app-driven resize (documented limit, forced: 45 pt). Rotations are now
    seamless there.
 3. `ProofUITests.testNoClockTicksAtRest` on 27.0 preferred is flaky: `transform.effect` was 2 in the suite run. It then
-   passed 3 of 3 alone and 18 of 18 with ProofUITests ×3. It passes forced. It was also listed as pre-existing in DBG-s1.
+   passed 3 of 3 alone and 18 of 18 with ProofUITests ×3. It passes forced. (Corrected in M8b-s5: DBG-s1 recorded a
+   different counter, `clock.tick` 2, not this one; review d16 measured 5 of 8 failures at host load 300-700 and 1 of 8
+   at load 5, with and without the content group: a load-dependent late layout pass inside the fixed 0.3 s window,
+   fixed in M8b-s5 by zeroing the counters after a quiet period.)
 4. The cost of `compositingGroup` on a real 15/16 device is unmeasured.
 5. The held `o′` at a clock-tick close is fine, because a tick close is unanimated. Only the transaction cases in item 1
    fail.

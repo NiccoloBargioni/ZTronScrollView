@@ -178,7 +178,7 @@ The transform is driven by *target* values. The public `contentOffset`/`zoomScal
 - `contentSize` = unscaled size × `zoomScale`.
 - `adjustedContentInset` = `contentInset` + safe area, per `contentInsetAdjustmentBehavior`.
 - Per axis: min = −inset(start); max = max(min, contentSize + inset(end) − viewport).
-- Content smaller than the viewport is placed per `defaultScrollAnchor(_:for: .alignment)`. Default: native behavior, or `.center` when zooming is enabled (Photos-like).
+- Content smaller than the viewport is placed per `defaultScrollAnchor(_:for: .alignment)`. Default: native behavior, or `.center` when zooming is enabled (Photos-like). With a scaling header the vertical alignment is the top (S10 Placement, "Content that fits").
 
 ### Pan
 
@@ -570,6 +570,11 @@ positions and progress share one convention (0 = expanded, 1 = collapsed); the r
   its resting height is reserved as part of `adjustedContentInset.top` (`aci.top = safe.top + R + contentInset.top (+ refresh hold)`), the
   content's proposal, size and layout never change while the header collapses or stretches (S4.1), the header is drawn in the viewport
   layer above the content (z-order), and accessibility reads it before the content (sort priority).
+- **Content that fits (amended 2026-10-27, review d16):** with a header, content smaller than the viewport is aligned to the TOP vertically
+  (it starts at the header's bottom edge), whatever `defaultScrollAnchor(_:for: .alignment)` or the zoom default (`.center`) says; the
+  horizontal alignment is kept. Centred, it sat `pad` below the header (119 pt for a 300 pt content), at rest and under a pull, against
+  "the content starts below it". Decision for the lead / user to confirm; the alternative (the header follows the centred content's top,
+  a gap above it) also needs `.stretch` to grow by `pad` at rest.
 - **Horizontal scroll views:** the header is stacked above the horizontally scrolling content, full viewport width, the same way (a top
   inset of `R`); the content's height proposal is the viewport height minus the header. The header is driven by the **vertical** offset
   only, so on a view whose `axes` exclude `.vertical` it is a fixed banner: no collapse, no stretch, `progress` 0, `stretch` 0 (`.stretch`
@@ -612,7 +617,11 @@ changes inside the band (documented gap; use `.aspectRatio`/`.fixed`, or change 
 measurement (the `.ambientBlur` background is a drawing, not a measurement). A new resting height is a discrete inset change (S7), never
 per frame. **(Amended 2026-10-26, seamless edges.)** The measurement taken inside a layout pass is recorded synchronously and adopted by the
 viewport commit of the SAME update (a rotation, an animated resize), so the content's inset and the header's layout height change in the
-same transaction; a measurement outside a resize (a header content change) is delivered at the next main run-loop iteration as before.
+same transaction; a measurement outside a resize (a header content change) is delivered at the next main run-loop iteration as before,
+**in the transaction of the change (amended 2026-10-27, review d16)**: the header records the animated transaction of an update that
+reaches its content (a `.transaction` reader, reads only) with its run-loop turn, and a measurement of that turn is adopted in it, so the
+content's inset and the header's frame animate with the content's own change (unanimated, the whole content jumped by the height change
+in one frame: 150 pt). 15 at rest adopts in the same update the same way.
 
 **Zero height, degenerate range (kept).** `min` 0 → the header compresses to zero at full collapse and is hidden from hit-testing and
 accessibility; a header made only of flexible views has (nearly) no natural height under `.fit` (DEBUG warning naming the fix: `.fixed`,
@@ -628,9 +637,13 @@ header moved down by `H` with the content, amended 2026-10-26 by the user). Load
 header's live frame, below the header's content and below the fade, clipped with it, hidden from accessibility and hit-testing: so an aspect
 ratio ≤ 1 or a refit / aspect-fit content never leaves blank areas. `.ambientBlur(radius:)` = a blurred, scaled-to-fill second instance of the
 header's own content (its body runs once more per cold change: install, parent rebuild, size change; never per frame; its `@State` is its
-own; filled with the content's own aspect ratio, cropped to the frame, blurred with opaque edges); `.frostedGlass(radius:)` = a backdrop
-blur with the system `Material` nearest to `radius` (about 6 pt ultraThin, 12 thin, 20 regular, 30 thick, 40 ultraThick: the radius is
-APPROXIMATE, it only picks the nearest material, iOS 15+); `.color(Color)`; `.view { … }` (type-erased). It follows the live frame in
+own and its `onAppear` / `task` run for it too; filled with the content's own aspect ratio, cropped to the frame, blurred with opaque
+edges; readers inside the copy, `ZTronHeaderGeometryReader` and `ZTronScrollReader`, are COLD (an environment flag): they show the
+geometry taken at the copy's build and at each cold change of the metrics, never per frame, so the copy never doubles the header's
+per-frame reader work (review d16: they ran twice per frame); radius `+∞` = the strongest blur, negative / NaN = none);
+`.frostedGlass(radius:)` = a backdrop blur with the system `Material` nearest to `radius` (about 6 pt ultraThin, 12 thin, 20 regular,
+30 thick, 40 ultraThick: the radius is APPROXIMATE, it only picks the nearest material, iOS 15+; monotonic over the whole line, `+∞`
+ultraThick, `−∞` ultraThin, NaN regular); `.color(Color)`; `.view { … }` (type-erased). It follows the live frame in
 every animation (collapse, `.stretch` growth, the `.preserve` translation, resizes, rotations) by layout. Accessibility: the background's
 whole subtree is replaced by nothing (`accessibilityRepresentation`, iOS 15), so the header's controls are exposed exactly once even
 though the ambient copy draws them a second time (`accessibilityHidden` alone left the copy's elements inside a `.contain` container
@@ -663,6 +676,17 @@ screen recordings, `scripts/seam/`):
   offscreen only under a compositing effect applied above it, an ancestor's opacity < 1 or blend mode, exactly when UIKit's group opacity
   renders a `UIScrollView`'s subtree offscreen too; it adds no rasterization, filter or mask, unit-tested). Neither group runs a content or
   header body, and both are fixed at state creation, so the identity never changes. Open: the offscreen cost on a real 15/16 device.
+- **15–16 layer groups (amended 2026-10-27, review d16).** A compositing group is not drawing-neutral: blend modes inside it composite
+  within the group (a content `.blendMode(.multiply)` over the scroll view's background drew unblended blue on the forced path, blended on
+  17+ and on a native `ScrollView`), and an ancestor's opacity fades it as one image. So on 15–16 the CONTENT group is applied only to a
+  view that has a scaling header at its first render (latched: installing or removing the header later never changes the content's
+  identity; a header installed later rotates with the pre-group tearing on 15–16, one removed later keeps the group). Documented 15–16
+  differences of a header view: a content blend mode does not reach behind the scroll view, a header blend mode does not reach the content
+  scrolled under the header. 17+ `geometryGroup()` has none of these.
+- **Banners (amended 2026-10-27, review d16).** A view without the vertical axis lays its banner out from layout too (`R(W)`, its `p` and
+  stretch the state's: 0 unless zoomed content pans, D15; its overflow container the committed one), so an app-driven animated width
+  change interpolates it with the content (it took the state's height: laid out at `(W_new, R_old)` in the animated pass and re-set by the
+  unanimated commit, 90 pt gap / overlap and 159 pt lateral in the seam lab).
 - **The resting height of `.fit`** is adopted in the viewport commit of the same update (see Natural height). On 15–16 the measuring pass
   arms in the commit's own update when the committed width is not the one it last measured at, so a rotation's measurement joins the open
   resize inside UIKit's animation block (armed one update later through `onChange`, it landed after the never-animated resize had closed:
@@ -670,6 +694,11 @@ screen recordings, `scripts/seam/`):
 - The scroll view clips at its own frame; a `.preserve` gap and the safe areas outside that frame show what is behind the scroll view.
 - Known limit: on the 15 path a `.fit` header inside the band keeps a commit-time step on an app-driven resize (its `R` is the state's there;
   forced lane: 45 pt at half collapse). Rotations are seamless there.
+- Known limit (review d16): on the 15 path an overflow-limited `R` (`.capped` / `.refit` while the limit is what sets `R`, including a limit
+  that turns on during the resize) is the state's in the animated pass of an app-driven resize, so it lands at the commit (unit test:
+  laid out at 226 pt, re-set to the 155.6 pt limit). iOS 13 layout modifiers have no size proportional to the proposed height
+  (`capped(f)` is `f · H`) and a per-frame `GeometryReader` is ruled out (S4.6). Rotations are seamless there (laid out once, inside UIKit's
+  block); the default `.uncapped` is unaffected.
 - Known limit (open, M8b-s4): a scroll command that overlaps an open animated resize is not seamless. Issued while the resize animates, the
   command ends the resize (M5 intervention) and the content takes the committed geometry at once while the header keeps interpolating
   (seam lab: 26 pt gap, 48 pt lateral); issued in the size change's own `withAnimation`, the command is dropped by the resize but its target
@@ -679,7 +708,9 @@ screen recordings, `scripts/seam/`):
 `.immediately` resolves the release target to the nearest position, velocity-aware, through the normal target pipeline after the user's
 target behavior (design M8b Q3), so `willEndDragging` sees the snapped target. `.afterFinishAccelerating` animates to the nearest position
 once deceleration ends inside the band. `state.snapHeader(to:animated:)` clamps `.height`/`.progress` to the range; called before the
-first layout it applies at the first layout (replaces `initialSnapPosition`).
+first layout it applies at the first layout (replaces `initialSnapPosition`). An expanded target (`.expanded`, `.progress(0)`, `.height(R)`)
+leaves a resting view at or above rest where it is (a refresh hold rests at `o′ = −hold`: the target `o′ = 0` scrolled the content up by
+the hold and closed the indicator's gap, review d16); from the band it goes to the content's top rest, the hold's gap included.
 
 **Interaction (kept).** The header stays interactive (its buttons work); drags that start on it scroll the content; the content scrolls
 under it.
