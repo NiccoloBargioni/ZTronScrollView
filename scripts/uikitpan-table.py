@@ -106,6 +106,20 @@ def q3(rows):
     table(["lane", "target", "V", "rows = native", "verdict", "movers (baseline) / mismatches deg/speed:ours≠native"], out)
 
 
+def sweep(rows):
+    """Q3e: who moves per angle (deg from horizontal), for UIKit's own nested scroll views and the probe with a boundary."""
+    groups = defaultdict(dict)
+    for r in rows:
+        groups[(r["lane"], r["target"], r["v"], r.get("extra", "-"))][(int(r["deg"]), r["speed"])] = r["mover"]
+    degs = sorted({k[0] for g in groups.values() for k in g})
+    head = ["lane", "target", "V", "extra"] + [f"{d}°" for d in degs]
+    out = []
+    for (lane, target, v, extra), g in sorted(groups.items()):
+        out.append([lane, target, v, extra] + ["/".join(g.get((d, sp), "?") for sp in sorted({k[1] for k in g}, key=int)) for d in degs])
+    print("movers per angle, slow/fast (P page, T target, - none)\n")
+    table(head, out)
+
+
 def simple(rows, keys):
     table(["lane"] + keys, [[r["lane"]] + [r.get(k, "-") for k in keys] for r in rows])
 
@@ -152,6 +166,8 @@ def main():
             q2(r)
         elif q == "Q3":
             q3(r)
+        elif q == "Q3e":
+            sweep(r)
         elif q == "Q4":
             simple(r, ["parent", "det", "detGR"])
         elif q == "Q5":

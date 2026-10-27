@@ -30,6 +30,9 @@ enum ProbeArgs {
     /// Window route: `desc` = the design's `anchor.isDescendant(of: touch.view)` only; `root` (default) also accepts a hit view
     /// under the same view-controller root view as the anchor (measured: on 17.5 the hit view can be a sibling platform view).
     static var receiveRule: String { value("-ZTronProbeReceive") ?? "root" }
+    /// `-ZTronProbeBoundary <deg>`: a one-axis view accepts a drag within `deg` of its axis (the design's rule is 45°, dominant
+    /// axis); measured against UIKit's own nested scroll views (Q3e / Q3f).
+    static var boundary: Double? { value("-ZTronProbeBoundary").flatMap(Double.init) }
 }
 
 @MainActor func probeCount(_ key: String) {
@@ -389,6 +392,11 @@ final class ProbePanDriver: NSObject, UIGestureRecognizerDelegate {
         let ok: Bool
         if ProbeHub.shared.secondFinger || !envEnabled {
             ok = false
+        } else if let b = ProbeArgs.boundary, model.canMove(.horizontal) != model.canMove(.vertical) {
+            let s = src == "t" ? p.translation(in: p.view) : p.velocity(in: p.view)
+            let fromAxis = model.canMove(.horizontal) ? atan2(abs(s.y), abs(s.x)) : atan2(abs(s.x), abs(s.y))
+            ok = fromAxis * 180 / .pi <= b
+            count(ok ? "boundary.in" : "boundary.out")
         } else if let a {
             ok = model.canMove(a)
             count(a == .horizontal ? "axis.h" : "axis.v")

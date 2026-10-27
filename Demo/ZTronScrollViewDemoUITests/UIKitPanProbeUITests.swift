@@ -162,13 +162,12 @@ final class UIKitPanProbeUITests: XCTestCase {
 
     // MARK: N (Q3): a target inside SwiftUI's own vertical ScrollView
 
-    private func nativePageRows(targets: [String]) {
-        let angles: [Double] = [0, 40, 50, 90]
-        let speeds: [Double] = [150, 600, 2500]
+    private func nativePageRows(targets: [String], q: String = "Q3", angles: [Double] = [0, 40, 50, 90], speeds: [Double] = [150, 600, 2500],
+                                extra: [String] = []) {
         for spec in targets {
             let parts = spec.split(separator: ":").map(String.init)
             let target = parts[0], v = parts.count > 1 ? parts[1] : nil
-            var args = ["-ZTronScreen", "uikitPanPage", "-ZTronProbeTarget", target]
+            var args = ["-ZTronScreen", "uikitPanPage", "-ZTronProbeTarget", target] + extra
             if let v { args += ["-ZTronProbeV", v] }
             let app = launch(args)
             let el = any(app, "probe.target")
@@ -184,7 +183,7 @@ final class UIKitPanProbeUITests: XCTestCase {
                     let page = num(d, "page.y.span")
                     let tgt = d.keys.filter { $0.hasSuffix(".span") && $0 != "page.y.span" }.map { num(d, $0) }.max() ?? 0
                     let mover = (page > 0.5 ? "P" : "") + (tgt > 0.5 ? "T" : "")
-                    emit("Q3", "target=\(target) v=\(v ?? "-") deg=\(Int(a)) speed=\(Int(s)) mover=\(mover.isEmpty ? "-" : mover) page=\(Int(page)) tgt=\(Int(tgt)) "
+                    emit(q, "target=\(target) v=\(v ?? "-")\(extra.isEmpty ? "" : " extra=" + extra.joined(separator: "_")) deg=\(Int(a)) speed=\(Int(s)) mover=\(mover.isEmpty ? "-" : mover) page=\(Int(page)) tgt=\(Int(tgt)) "
                          + "bothPT=\(d["bothPT"] ?? "-") \(counters(d)) others=\(d["others"] ?? "-")")
                 }
             }
@@ -196,6 +195,17 @@ final class UIKitPanProbeUITests: XCTestCase {
     func testQ3b_carousel() { nativePageRows(targets: ["carousel:on", "carousel:off", "carousel:axis"]) }
     func testQ3c_list() { nativePageRows(targets: ["list:on", "list:off", "list:axis"]) }
     func testQ3d_zoomer() { nativePageRows(targets: ["zoomer:on", "zoomer:off", "zoomer:axis"]) }
+
+    private let sweep: [Double] = [10, 20, 30, 40, 50, 60, 70, 80]
+
+    /// Where UIKit's own nested scroll views put the cross-axis / same-axis boundary (the design's axis rule says 45°).
+    func testQ3e_nativeBoundary() { nativePageRows(targets: ["nativeCarousel", "nativeList", "plain"], q: "Q3e", angles: sweep, speeds: [150, 2500]) }
+
+    /// The probe with a measured boundary (`ZS_UKP_BOUNDARY`, degrees from the view's axis), V off.
+    func testQ3f_probeBoundary() {
+        let b = ProcessInfo.processInfo.environment["ZS_UKP_BOUNDARY"] ?? "60"
+        nativePageRows(targets: ["carousel:off", "list:off"], q: "Q3e", angles: sweep, speeds: [150, 2500], extra: ["-ZTronProbeBoundary", b])
+    }
 
     // MARK: Q4: detection
 
