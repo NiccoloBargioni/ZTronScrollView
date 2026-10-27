@@ -98,6 +98,47 @@ private struct NestedContent: View {
     }
 }
 
+/// Counts its own placements (`ControlLayouts`): any relayout of the control it holds places it again.
+@MainActor
+enum ControlLayouts {
+    static var content = 0, overlay = 0
+    static func reset() { content = 0; overlay = 0 }
+}
+
+@available(iOS 16, *)
+private struct ControlCountingLayout: Layout {
+    let inOverlay: Bool
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        proposal.replacingUnspecifiedDimensions(by: CGSize(width: 120, height: 44))
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        MainActor.assumeIsolated {
+            if inOverlay { ControlLayouts.overlay += 1 } else { ControlLayouts.content += 1 }
+        }
+        for s in subviews { s.place(at: bounds.origin, proposal: ProposedViewSize(bounds.size)) }
+    }
+}
+
+/// A bordered `Button` (a control: its layout follows the environment it is given) in a counting layout on 16+.
+private struct CountedButton: View {
+    let inOverlay: Bool
+    var body: some View {
+        let button = Button("Button") {}.buttonStyle(.bordered)
+        if #available(iOS 16, *) {
+            return AnyView(ControlCountingLayout(inOverlay: inOverlay) { button })
+        }
+        return AnyView(button)
+    }
+}
+
+/// Content `200 × 1000` with a control at its top.
+private struct ControlContent: View {
+    var body: some View {
+        Bodies.content += 1
+        return Color.red.frame(width: 200, height: 1000).overlay(alignment: .top) { CountedButton(inOverlay: false) }
+    }
+}
+
 /// The public helper inside the content.
 private struct HelperContent: View {
     var body: some View {
@@ -493,6 +534,42 @@ struct ContentOverlayTests {
         #expect(ZTronRenderCounters.value("contentOverlay.reader") == 0)
         #expect(ZTronRenderCounters.value("contentOverlay.place") == 0)
         #expect(s.targets.writes == writes, "the overlays' content-space frames never moved")
+        unhost(w)
+    }
+
+    /// SPEC S4: motion frames hand the content no new environment. The interaction gate (`.allowsHitTesting` /
+    /// `.disabled`) re-created by the transform host's per-frame body re-laid out every control in the content on every
+    /// zoom or scroll frame, and with an overlay's control the overlay `Layout` placed every overlay (27.0 under load:
+    /// 42–67 placements in a pinch, bound 2; hosted: one per frame). A control in the content and one in an overlay,
+    /// two axes, zoom and offset tracks: neither control is laid out again, the host is not placed.
+    @Test(arguments: OSPath.allCases) func motionFramesDoNotLayOutControlsAgain(path: OSPath) {
+        let s = makeState(path)
+        let w = withOSPath(path) {
+            host(ZTronScrollView([.horizontal, .vertical], state: s) { ControlContent() }
+                .scrollContentIntegralOverlay(anchor: .bottom, overlayAnchor: .bottom, size: .fillMaxWidth(16 / 9)) {
+                    CountedButton(inOverlay: true)
+                }
+                .scrollContentIntegralOverlay(anchor: .center, overlayAnchor: .center, size: .ideal, scaling: .counterScaled) {
+                    ScaledMarker()
+                }
+                .zoomRange(min: .absolute(1), max: .absolute(4)))
+        }
+        pump(0.2)
+        s.setZoomScale(2, animated: false); pump(0.2)
+        let o = s.contentOffset
+        Bodies.reset()
+        ControlLayouts.reset()
+        ZTronRenderCounters.reset()
+        for i in 1...10 { s.track(offset: o, zoom: 2 + 0.1 * CGFloat(i)); pump(0.03) }
+        for i in 1...10 { s.track(offset: CGPoint(x: o.x + 5 * CGFloat(i), y: o.y + 10 * CGFloat(i)), zoom: 3); pump(0.03) }
+        let what = "content \(ControlLayouts.content) overlay \(ControlLayouts.overlay) host \(ZTronRenderCounters.value("contentOverlay.place"))"
+        #expect(ZTronRenderCounters.value("transform.effect") >= 20, "every track drew a frame")
+        #expect(ZTronRenderCounters.value("contentOverlay.counterScale.body") >= 1, "the counter-scale leaf followed the zoom")
+        #expect(ControlLayouts.content == 0, "the content's control was not laid out again: \(what)")
+        #expect(ControlLayouts.overlay == 0, "the overlay's control was not laid out again: \(what)")
+        #expect(ZTronRenderCounters.value("contentOverlay.place") == 0, "the overlay host was not placed: \(what)")
+        #expect(ZTronRenderCounters.value("contentOverlay.reader") == 0)
+        #expect(Bodies.content == 0 && Bodies.scaled == 0)
         unhost(w)
     }
 

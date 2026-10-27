@@ -199,16 +199,32 @@ struct TransformHost: ViewModifier {
         }
         // Content is not hit-testable while it moves without a finger (a catching touch must not fire a Button) or
         // while a drag is recognized (a Button under the finger is cancelled instead of firing on lift).
-        // A leaf modifier change on the placeholder: content bodies are not re-evaluated.
         let blocked = (storage.phase == .decelerating || storage.phase == .animating) && !storage.isTracking || storage.isDragging
         return content
             .modifier(ContentLayerGroup(useGeometryGroup: state.usesGeometryGroup, hasHeader: hasHeader))
-            .allowsHitTesting(!blocked)
-            .disabled(blocked)
+            .modifier(ContentInteractionGate(blocked: blocked))
             .modifier(ContentTransform(offset: offset, scale: scale, insets: metrics.adjustedContentInset,
                                        commit: metrics.resize, limits: state.zoomLimits, alignment: state.contentAlignment,
                                        paging: state.isPagingEnabled ? axes : [], probe: state.probe))
             .modifier(CompletionObserver(state: state))
+    }
+}
+
+/// The content's hit-testing gate (D11), in a leaf of its own: its only input is `blocked`, so its body (and with it the
+/// `.disabled` environment transform it applies) runs when `blocked` flips (motion start and end), never on the transform
+/// host's per-frame evaluations. Applied inline in that body, `.disabled(blocked)` was a new environment transform on
+/// every frame of a scroll or zoom: every control in the content was laid out again on every frame, and a control in a
+/// content-integral overlay placed the overlay `Layout` (and measured its `.ideal` overlays) on every frame (27.0 under
+/// host load: 42–67 placements in a pinch, bound 2; hosted on 27.0 and 17.5: one per frame; open item 16). One `Bool`, no
+/// padding: equal and byte-identical while unchanged (D43). The header's controls have their own gate on `.phase`
+/// (`HeaderInteractionGate`).
+struct ContentInteractionGate: ViewModifier {
+    let blocked: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .allowsHitTesting(!blocked)
+            .disabled(blocked)
     }
 }
 
