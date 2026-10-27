@@ -53,12 +53,27 @@ enum ResizeMath {
     /// the same line, which keeps it on the header there; clamped, it stayed at the end geometry while the header
     /// overshot (seam lab, spring with damping 0.5: 14.5 pt seam, 13 pt lateral) or froze at the snapshot while the
     /// header kept moving (retarget after 0.5 s: 23 pt).
+    /// Bounded where the line is not SwiftUI's: a track no longer than `ContentTransform.pixelTolerance` is clamped to
+    /// [0, 1] (the effect is handed a pixel-rounded size, so over a sub-pixel track the rounding alone gave |t| up to 25,
+    /// the content drawn up to 2500 pt off), and a retarget's frames outside its own span follow the old track
+    /// (`ResizeCommit.outer`, `presented`).
     static func progress(size: CGSize, from: CGSize, to: CGSize) -> CGFloat {
+        let t = rawProgress(size: size, from: from, to: to)
+        return span(from: from, to: to) <= ContentTransform.pixelTolerance ? min(1, max(0, t)) : t
+    }
+
+    /// `progress` without any bound (1 when the sizes are equal).
+    static func rawProgress(size: CGSize, from: CGSize, to: CGSize) -> CGFloat {
         let dw = to.width - from.width, dh = to.height - from.height
         let d = abs(dw) >= abs(dh) ? dw : dh
         guard abs(d) > 1e-9 else { return 1 }
         let t = abs(dw) >= abs(dh) ? (size.width - from.width) / dw : (size.height - from.height) / dh
         return t.isFinite ? t : 1
+    }
+
+    /// The larger |delta| of a track's viewport (the axis `progress` measures on).
+    static func span(from: CGSize, to: CGSize) -> CGFloat {
+        max(abs(to.width - from.width), abs(to.height - from.height))
     }
 
     static func isAtFit(_ scale: CGFloat, fit: CGFloat) -> Bool {
@@ -148,23 +163,92 @@ enum ResizeMath {
         return (r, s, pad)
     }
 
-    /// The (previous, current) track `size` is drawn on: the commit's, or at a safe-area step's undrawn size the track
+    /// The track `size` is drawn on: the commit's (its `outer` included), or at a safe-area step's undrawn size the track
     /// before the step (`ResizeCommit.stepFallback`).
-    static func track(_ commit: ResizeCommit, size: CGSize) -> (previous: ResizeCommit.Snapshot, current: ResizeCommit.Snapshot) {
+    static func track(_ commit: ResizeCommit, size: CGSize)
+        -> (previous: ResizeCommit.Snapshot, current: ResizeCommit.Snapshot, outer: ResizeCommit.Segment?) {
         if let f = commit.stepFallback, abs(size.width - f.size.width) < 1e-3, abs(size.height - f.size.height) < 1e-3 {
-            return (f.previous, f.current)
+            return (f.previous, f.current, f.outer)
         }
-        return (commit.previous, commit.current)
+        return (commit.previous, commit.current, commit.outer)
     }
 
-    /// The geometry actually drawn at `size` under `commit` (interpolated content size and insets).
+    /// The geometry actually drawn at `size` under `commit` (content size, insets and header geometry): interpolated on
+    /// the commit's track at `progress`, extrapolated along it past either end (a spring's overshoot). A retarget of a
+    /// transition still drawn in motion (`ResizeCommit.outer`) is continued outside its own span from the nearer end along
+    /// the old track's slope: there the drawn size is the old animation's residual (additive composition), and this
+    /// commit's chord, from the snapshot to a target that may be within a point of it, has no bounded slope (review of
+    /// M8b-s6: a retarget to the drawn size + 1 pt extrapolated the bottom inset to 3555 pt, t = -175, the content moved
+    /// 116 pt in one frame without a header and 248 pt off a capped header). Continuous at both ends. There every field
+    /// is also kept within the values of the four snapshots: SwiftUI's sum of eased animations is a weighted mean of the
+    /// model values it ran between (`F(P0)(1 − f1) + F(C1)(f1 − f2) + F(C2) f2`), and the end the line starts from may
+    /// be the new model value, off the drawn track (the bottom inset of a top-pinned change went to −12 pt without it).
     static func presented(_ commit: ResizeCommit, size: CGSize) -> ResizeCommit.Snapshot {
-        let (prev, cur) = track(commit, size: size)
+        let (prev, cur, outer) = track(commit, size: size)
+        let raw = rawProgress(size: size, from: prev.viewport, to: cur.viewport)
+        if let o = outer, raw < 0 || raw > 1 {
+            let e = raw < 0 ? prev : cur
+            // The old track's progress from the end to `size`; none on a track too short to have a slope.
+            let k = span(from: o.previous.viewport, to: o.current.viewport) > ContentTransform.pixelTolerance
+                ? rawProgress(size: size, from: o.previous.viewport, to: o.current.viewport)
+                    - rawProgress(size: e.viewport, from: o.previous.viewport, to: o.current.viewport)
+                : 0
+            return bounded(moved(e, along: o, by: k, viewport: size), by: [prev, cur, o.previous, o.current])
+        }
         let t = progress(size: size, from: prev.viewport, to: cur.viewport)
         return ResizeCommit.Snapshot(viewport: size,
                                      contentSize: lerp(prev.contentSize, cur.contentSize, t),
                                      insets: lerp(prev.insets, cur.insets, t),
                                      header: HeaderResize.lerp(prev.header, cur.header, t))
+    }
+
+    /// `e` moved by `k` times the change of the track `o` (content size, insets, header geometry), drawn at `viewport`.
+    static func moved(_ e: ResizeCommit.Snapshot, along o: ResizeCommit.Segment, by k: CGFloat, viewport: CGSize)
+        -> ResizeCommit.Snapshot {
+        let a = o.previous, b = o.current
+        let content = CGSize(width: max(0, e.contentSize.width + (b.contentSize.width - a.contentSize.width) * k),
+                             height: max(0, e.contentSize.height + (b.contentSize.height - a.contentSize.height) * k))
+        let insets = EdgeInsets(top: e.insets.top + (b.insets.top - a.insets.top) * k,
+                                leading: e.insets.leading + (b.insets.leading - a.insets.leading) * k,
+                                bottom: e.insets.bottom + (b.insets.bottom - a.insets.bottom) * k,
+                                trailing: e.insets.trailing + (b.insets.trailing - a.insets.trailing) * k)
+        var header = e.header
+        if let h = e.header, let ha = a.header, let hb = b.header {
+            header = HeaderResize(base: h.base + (hb.base - ha.base) * k, band: h.band + (hb.band - ha.band) * k)
+        }
+        return ResizeCommit.Snapshot(viewport: viewport, contentSize: content, insets: insets, header: header)
+    }
+
+    /// `s` with every field (content size, insets, header geometry) clamped to the range of `snaps`' values.
+    static func bounded(_ s: ResizeCommit.Snapshot, by snaps: [ResizeCommit.Snapshot]) -> ResizeCommit.Snapshot {
+        func c(_ v: CGFloat, _ f: (ResizeCommit.Snapshot) -> CGFloat) -> CGFloat {
+            let vs = snaps.map(f)
+            return min(max(v, vs.min() ?? v), vs.max() ?? v)
+        }
+        var r = s
+        r.contentSize = CGSize(width: c(s.contentSize.width) { $0.contentSize.width },
+                               height: c(s.contentSize.height) { $0.contentSize.height })
+        r.insets = EdgeInsets(top: c(s.insets.top) { $0.insets.top }, leading: c(s.insets.leading) { $0.insets.leading },
+                              bottom: c(s.insets.bottom) { $0.insets.bottom }, trailing: c(s.insets.trailing) { $0.insets.trailing })
+        if let h = s.header {
+            let hs = snaps.compactMap(\.header)
+            if !hs.isEmpty {
+                r.header = HeaderResize(base: min(max(h.base, hs.map(\.base).min()!), hs.map(\.base).max()!),
+                                        band: min(max(h.band, hs.map(\.band).min()!), hs.map(\.band).max()!))
+            }
+        }
+        return r
+    }
+
+    /// The slope a size drawn under `commit` moves along at `size`: the old track outside a retarget's span, else the
+    /// commit's track (`presented`). A commit that retargets this one keeps it as its `outer`.
+    static func slope(_ commit: ResizeCommit, size: CGSize) -> ResizeCommit.Segment {
+        let (prev, cur, outer) = track(commit, size: size)
+        if let o = outer {
+            let raw = rawProgress(size: size, from: prev.viewport, to: cur.viewport)
+            if raw < 0 || raw > 1 || span(from: prev.viewport, to: cur.viewport) <= ContentTransform.pixelTolerance { return o }
+        }
+        return ResizeCommit.Segment(previous: prev, current: cur)
     }
 
     /// `s` moved by the model change `from` -> `to` (every field). An UNANIMATED change of the model while a transition is
@@ -192,15 +276,14 @@ enum ResizeMath {
     static func resolve(size: CGSize, offset: CGPoint, scale: CGFloat, insetsAnimated: EdgeInsets, commit: ResizeCommit,
                         limits: ZoomLimits, alignment: UnitPoint, paging: Axis.Set)
         -> (offset: CGPoint, scale: CGFloat, pad: CGPoint) {
-        let (prev, cur) = track(commit, size: size)
-        let t = progress(size: size, from: prev.viewport, to: cur.viewport)
-        let content = lerp(prev.contentSize, cur.contentSize, t)
-        let insets = plus(lerp(prev.insets, cur.insets, t), insetsAnimated, minus: commit.current.insets)
+        let cur = track(commit, size: size).current
+        let p = presented(commit, size: size)
+        let content = p.contentSize
+        let insets = plus(p.insets, insetsAnimated, minus: commit.current.insets)
         let intent = commit.intent
             ?? self.intent(offset: offset, scale: scale, in: cur, header: commit.header, focus: commit.focus, alignment: alignment)
         let r = realize(intent, viewport: size, content: content, insets: insets, header: commit.header, focus: commit.focus,
-                        limits: limits, alignment: alignment,
-                        headerGeometry: HeaderResize.lerp(prev.header, cur.header, t))
+                        limits: limits, alignment: alignment, headerGeometry: p.header)
         var o = r.offset
         if paging.contains(.horizontal), let k = commit.pagingIndex.x { o.x = CGFloat(k) * size.width }
         if paging.contains(.vertical), let k = commit.pagingIndex.y { o.y = CGFloat(k) * size.height }

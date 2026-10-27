@@ -713,6 +713,15 @@ screen recordings, `scripts/seam/`):
   0.33 pt on all three (capped forced: F6). With `.refit` at 0.25 of the height the frame is shorter than `R` and clips
   the header: the "header" step of 26.7 pt in one frame (hJ 0.85–0.89 against a 31 pt net change) is the bouncy frame's
   own velocity, header and clip moving together, seam ≤ 0.5. Unit tests `ResizeExtrapolationTests`.
+  Amended (core check, M8b-s6 close): a retarget whose new target is near the drawn size has a chord with almost no
+  viewport delta, so its unclamped `t` has no bound (−175 in a hosted run: the bottom inset of a top-pinned change
+  extrapolated to 3555 pt, the content stepped 116 pt per frame without a header; 248 pt off a capped header in the seam
+  lab). A retarget of a transition still drawn in motion keeps the old track (`ResizeCommit.outer`): outside its own span
+  the drawn geometry continues from the nearer end along the old track's slope, kept within the range of the snapshots'
+  values (SwiftUI's sum of eased animations is a weighted mean of the model values it ran between); a track no longer
+  than a pixel is not extrapolated. Collinear retargets stay exact; a non-collinear one keeps the chord model's residual
+  inside its span (unit, state path: 4.7–15.5 pt without a header, main's clamp 10.9–15.5; capped 25 pt, clamp 45.6).
+  Unit tests `ResizeRetargetTests`.
 - **Safe-area steps (amended 2026-10-27, M8b-s6 close).** SwiftUI re-evaluates the safe area of the scroll view's animated
   frame in stages, outside the app's transaction. Measured on a bottom-pinned height change (a banner or search field
   inserted above the scroll view; its top leaves the top safe area): the animated layout reports the new height with the
@@ -734,6 +743,14 @@ screen recordings, `scripts/seam/`):
   ≤ 0.5 pt on 27.0 and 17.5 (forced: F6), `.refit` at 0.25 ≤ 0.5 pt; height and width together ≤ 0.5 pt, lateral ≤ 0.3;
   `.stretch` hold indicator within 1.2 pt of its rest place (was 59 pt on 17.5), `.preserve` 0.67. Unit tests
   `ResizeSafeAreaStepTests`.
+- **Animated safe-area changes (amended 2026-10-27, core check of M8b-s6).** The slot between the safe areas follows an
+  app-animated safe-area change (`withAnimation` around a `.safeAreaInset`, a bar) in the app's transaction, so a header
+  whose `.capped` / `.refit` limit is engaged animates its height from layout; the state learns of the change after that
+  pass, outside the transaction. When the change moves the header's height, the content's inset and offset are written
+  in the animation the container's `.transaction` hook saw in that turn, so the transform draws them with the header's
+  curve (before: the content jumped 75 pt in one frame while the header animated, a seam closing over 1.2 s; with the
+  slot of M8b-3 both jumped together). Without a header height change, or without an animation in the turn (a system
+  rotation, an unanimated change), the write is unanimated as before. Unit tests `HeaderSafeAreaInsetTests`.
 - **The resting height of `.fit`** is adopted in the viewport commit of the same update (see Natural height). On 15–16 the measuring pass
   arms in the commit's own update when the committed width is not the one it last measured at, so a rotation's measurement joins the open
   resize inside UIKit's animation block (armed one update later through `onChange`, it landed after the never-animated resize had closed:

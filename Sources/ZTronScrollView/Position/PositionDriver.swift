@@ -57,6 +57,8 @@ final class PositionDriver {
     private var userMotion = false
     /// The animation of the transaction the change arrived in (`withAnimation { position = … }`), live for one run-loop turn.
     private var transactionAnimation: Animation?
+    /// The animation of the transaction a container update ran in during this run-loop turn (read, not consumed).
+    var animationInTurn: Animation? { transactionAnimation }
     private var didApplyInitialOffset = false
 
     /// Write-backs and applied requests (tests and the demo read them; the render counters carry the same numbers in DEBUG).

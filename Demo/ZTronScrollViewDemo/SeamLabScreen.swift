@@ -104,6 +104,14 @@ struct SeamLabScreen: View {
     @State private var tall = false
     @State private var far = false
     @State private var snapped = false
+    /// Core check (M8b-s6 close): `-ZTronSeamFakeKeyboard <pt>` (seam.width toggles a bottom safeAreaInset of <pt>, easeInOut 1.2 s) and
+    /// `-ZTronSeamKeyboard 1` (seam.width toggles the focus of a 24 pt white TextField: the real keyboard).
+    @State private var kbFake = false
+    @FocusState private var kbFocus: Bool
+    @State private var kbText = ""
+    /// Core check (M8b-s6 close): `-ZTronSeamRetargetNear <eps>` with `-ZTronSeamRetarget <s>`: `s` seconds into the change the height
+    /// is retargeted to the DRAWN height + eps (a non-collinear retarget near the presented value).
+    @State private var retargetHeight: CGFloat? = nil
 
     var body: some View {
         GeometryReader { g in
@@ -113,7 +121,8 @@ struct SeamLabScreen: View {
                 scroller
                     .background(SeamLab.blue)
                     .frame(width: narrow && (SeamLab.heightFactor == nil || SeamLab.both) ? g.size.width * 0.6 : g.size.width,
-                           height: g.size.height * (narrow ? SeamLab.heightFactor ?? 1 : 1))
+                           height: retargetHeight ?? g.size.height * (narrow ? SeamLab.heightFactor ?? 1 : 1))
+                    .modifier(SeamLabDrawnHeight(value: retargetHeight ?? g.size.height * (narrow ? SeamLab.heightFactor ?? 1 : 1)))
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: SeamLab.bottomPinned ? .bottom : .top)
                 HStack(spacing: 4) {
                     Button {
@@ -123,6 +132,10 @@ struct SeamLabScreen: View {
                         Color.white.frame(width: 24, height: 24)
                     }
                     .accessibilityIdentifier("seam.snap")
+                    if SeamLab.realKeyboard {
+                        TextField("", text: $kbText).focused($kbFocus).frame(width: 24, height: 24).background(Color.white)
+                            .accessibilityIdentifier("seam.kb")
+                    }
                     Button {
                         toggleScroll()
                     } label: {
@@ -130,15 +143,26 @@ struct SeamLabScreen: View {
                     }
                     .accessibilityIdentifier("seam.scroll")
                     Button {
-                        if SeamLab.fitGrow {
+                        if SeamLab.fakeKeyboard != nil {
+                            withAnimation(.easeInOut(duration: 1.2)) { kbFake.toggle() }
+                        } else if SeamLab.realKeyboard {
+                            kbFocus.toggle()
+                        } else if SeamLab.fitGrow {
                             // A `.fit` re-measure: the header's content changes height in an app animation.
                             withAnimation(.easeInOut(duration: 1.2)) { tall.toggle() }
                         } else if SeamLab.widthWithScroll {
                             // One transaction: the size change and the scroll command together.
                             withAnimation(.easeInOut(duration: 1.2)) { narrow.toggle(); toggleScroll(animated: false) }
                         } else {
-                            withAnimation(SeamLab.resizeAnimation) { narrow.toggle() }
-                            if let delay = SeamLab.retarget {
+                            withAnimation(SeamLab.resizeAnimation) { narrow.toggle(); retargetHeight = nil }
+                            if let delay = SeamLab.retarget, let eps = SeamLab.retargetNear, narrow {
+                                Task { @MainActor in
+                                    try? await Task.sleep(nanoseconds: UInt64(max(0, delay) * 1_000_000_000))
+                                    let d = SeamLabDrawnHeight.drawn
+                                    print("SEAMLAB retarget near drawn \(d) -> \(d + eps)")
+                                    withAnimation(SeamLab.resizeAnimation) { retargetHeight = d + eps }
+                                }
+                            } else if let delay = SeamLab.retarget, SeamLab.retargetNear == nil {
                                 // The same toggle again mid-flight: SwiftUI composes the two changes additively.
                                 Task { @MainActor in
                                     try? await Task.sleep(nanoseconds: UInt64(max(0, delay) * 1_000_000_000))
@@ -161,9 +185,14 @@ struct SeamLabScreen: View {
                 .padding(.bottom, 4)
             }
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) { Color.clear.frame(height: kbFake ? SeamLab.fakeKeyboard ?? 0 : 0) }
         .background(SeamLab.blue.ignoresSafeArea())
         .overlay(alignment: .topLeading) { if SeamLab.info { SeamLabInfo(state: state) } }
         .task {
+            if let y = SeamLab.startY {
+                try? await Task.sleep(nanoseconds: 600_000_000)
+                state.scroll(to: CGPoint(x: 0, y: y))
+            }
             guard SeamLab.hold else { return }
             try? await Task.sleep(nanoseconds: 800_000_000)
             state.beginRefreshing()
@@ -192,8 +221,9 @@ extension SeamLabScreen {
     /// The lab's scroll view; with `-ZTronSeamRefresh <s>` a `.system` refresher whose action takes `s` seconds (the
     /// refresh hold: the content rests below the indicator, the header follows it).
     private var scroller: ZTronScrollView<SeamLabContent> {
-        let view = ZTronScrollView(SeamLab.horizontal ? .horizontal : .vertical, state: state) { SeamLabContent() }
+        let base = ZTronScrollView(SeamLab.horizontal ? .horizontal : .vertical, state: state) { SeamLabContent() }
             .scrollIndicators(.hidden)
+        let view = SeamLab.noHeader ? base : base
             .withScalingHeader(size: SeamLab.size, scalingBehavior: SeamLab.behavior, background: SeamLab.background,
                                overflow: SeamLab.overflow) { [tall] _ in SeamLabHeader(tall: tall) }
         if SeamLab.hold {
@@ -329,4 +359,30 @@ extension SeamLab {
     /// `-ZTronSeamAxis horizontal` (review d16): the lab on a horizontal scroll view (the header is a fixed banner, the
     /// content 2000 pt wide).
     static var horizontal: Bool { HeaderDemo.argument("-ZTronSeamAxis", "vertical") == "horizontal" }
+}
+
+
+// MARK: Core check probes (M8b-s6 close): retarget near the drawn size, no header, start offset
+extension SeamLab {
+    static var retargetNear: CGFloat? { Double(HeaderDemo.argument("-ZTronSeamRetargetNear", "")).map { CGFloat($0) } }
+    static var noHeader: Bool { HeaderDemo.argument("-ZTronSeamNoHeader", "0") == "1" }
+    static var startY: CGFloat? { Double(HeaderDemo.argument("-ZTronSeamStartY", "")).map { CGFloat($0) } }
+}
+
+/// Reads the presented (animated) frame height every frame (`-ZTronSeamRetargetNear`).
+/// A GeometryEffect is asked about the animated (drawn) size every frame, as the library's own transform is.
+nonisolated struct SeamLabDrawnHeight: GeometryEffect {
+    var value: CGFloat
+    nonisolated(unsafe) static var drawn: CGFloat = 0
+    var animatableData: EmptyAnimatableData { get { EmptyAnimatableData() } set { } }
+    func effectValue(size: CGSize) -> ProjectionTransform {
+        SeamLabDrawnHeight.drawn = size.height
+        return ProjectionTransform()
+    }
+}
+
+// MARK: Core check probes: keyboard
+extension SeamLab {
+    static var fakeKeyboard: CGFloat? { Double(HeaderDemo.argument("-ZTronSeamFakeKeyboard", "")).map { CGFloat($0) } }
+    static var realKeyboard: Bool { HeaderDemo.argument("-ZTronSeamKeyboard", "0") == "1" }
 }

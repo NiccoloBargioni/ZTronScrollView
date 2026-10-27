@@ -324,6 +324,11 @@ public final class ZTronScrollState {
     }
 
     /// Finger / clock writes are unanimated (cancels an in-flight SwiftUI animation without a jump).
+    /// `body` in a transaction with `animation`, or as is when there is none.
+    func withAnimationIfAny(_ animation: Animation?, _ body: () -> Void) {
+        if let animation { withAnimation(animation, body) } else { body() }
+    }
+
     func unanimated(_ body: () -> Void) {
         if ZTronAvailability.isAvailable(.keyPathTransaction), #available(iOS 17, *) {
             withTransaction(\.disablesAnimations, true, body)
@@ -470,7 +475,7 @@ public final class ZTronScrollState {
                                          header: HeaderMath.resizeGeometry(m))
         m.resize.current = snap
         m.resize.header = m.headerObscured
-        if !open { m.resize.previous = snap; m.resize.stepFallback = nil }
+        if !open { m.resize.previous = snap; m.resize.stepFallback = nil; m.resize.outer = nil }
     }
 
     /// Measured, unscaled content size (cold, `!=`-guarded by the storage). A change with the viewport unchanged follows
@@ -821,10 +826,23 @@ public final class ZTronScrollState {
         if !hadViewport || !sizeChanged {
             // First layout and inset-only changes: no center rule. At the start edge stays at the start edge.
             if hadViewport { noteIdleGeometryChange(before: before) }
-            batch {
+            // An app-animated safe-area change (`withAnimation { … }` around a `.safeAreaInset`, a bar) that moves an
+            // engaged `.capped` / `.refit` limit: SwiftUI animates the header's slot, the region between the safe areas,
+            // in the app's transaction, so the header's height follows it from layout; this report arrives after that
+            // pass, outside the transaction. The content's inset and offset are written in the same animation (captured
+            // by the container's `.transaction` hook in this turn), so the transform's animatable insets and offset draw
+            // them with the header's curve (measured before: the content jumped 75 pt in one frame while the header
+            // animated, a seam closing over the animation; seam lab, landscape `.capped(0.5)`, 150 pt inset, 27.0 and
+            // 17.5). Without a header height change, or without an animation in the turn, the write stays as it was.
+            let follow = hadViewport && insetsChanged && m.header?.resting != old.header?.resting
+                ? positionDriver.animationInTurn : nil
+            #if DEBUG
+            if follow != nil { dbg("vp inset follows the transaction's animation") }
+            #endif
+            withAnimationIfAny(follow) { batch {
                 let s = storage.snapshot()
                 #if DEBUG
-                dbg((hadViewport ? "vp inset" : "vp first") + " \(f(old.viewportSize))->\(f(size)) insets \(f(old.adjustedContentInset))->\(f(m.adjustedContentInset)) insetsChanged:\(insetsChanged)")
+                dbg((hadViewport ? "vp inset" : "vp first") + " \(f(old.viewportSize))->\(f(size)) insets \(f(old.adjustedContentInset))->\(f(m.adjustedContentInset)) insetsChanged:\(insetsChanged) txAnim:\(positionDriver.animationInTurn != nil)")
                 #endif
                 syncCommit(&m, open: false)
                 storage.metrics = m
@@ -852,7 +870,7 @@ public final class ZTronScrollState {
                 if o != s.presentationOffset {
                     if hadViewport { writeBoth(offset: o, zoom: s.presentationZoom) } else { unanimated { writeBoth(offset: o, zoom: s.presentationZoom) } }
                 }
-            }
+            } }
             resolveZoomLimits()
             return
         }
@@ -909,13 +927,25 @@ public final class ZTronScrollState {
                 // When the frame that is drawn now still lacks the step (`stepDrawn`), that size keeps the old track.
                 let was = ResizeMath.track(commitOld, size: probe.pending?.size ?? .zero)
                 c.previous = ResizeMath.shifted(was.previous, from: was.current, to: c.current)
+                if let o = was.outer {   // the step moves the whole drawn track, a retarget's old one included
+                    c.outer = .init(previous: ResizeMath.shifted(o.previous, from: was.current, to: c.current),
+                                    current: ResizeMath.shifted(o.current, from: was.current, to: c.current))
+                }
                 let d = CGSize(width: c.current.viewport.width - was.current.viewport.width,
                                height: c.current.viewport.height - was.current.viewport.height)
                 if let p = probe.pending, !Self.stepDrawn(recent: probe.recentSizes, step: d) {
-                    c.stepFallback = .init(size: p.size, previous: was.previous, current: was.current)
+                    c.stepFallback = .init(size: p.size, previous: was.previous, current: was.current, outer: was.outer)
                 }
             } else {
                 c.previous = cap
+                // A retarget of a transition still drawn in motion: SwiftUI composes the two additively, so the frames
+                // drawn outside the new span are the old animation's residual (`ResizeCommit.outer`).
+                let tol = ContentTransform.pixelTolerance
+                if isResizeOpen, let p = probe.pending,
+                   abs(p.size.width - commitOld.current.viewport.width) > tol
+                    || abs(p.size.height - commitOld.current.viewport.height) > tol {
+                    c.outer = ResizeMath.slope(commitOld, size: p.size)
+                }
             }
             c.header = m.headerObscured
             c.focus = focus
