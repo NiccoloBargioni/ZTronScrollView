@@ -30,7 +30,7 @@ enum SheetArgs {
     /// The experiment among `yieldModes` (everything but `api`).
     static var yield: String { yieldModes.first { $0 != "api" } ?? "none" }
     static var yieldsApi: Bool { yieldModes.contains("api") }
-    /// `-ZTronSheetPlain simultaneous|simultaneous0|gesture|highPriority|maskedSubviews|maskedAtMedium|spatial|magnify|doubleTap|allMaskedAtMedium|none`: no scroll view at all, a plain pane with a SwiftUI
+    /// `-ZTronSheetPlain simultaneous|simultaneous0|gesture|highPriority|maskedSubviews|maskedAtMedium|spatial|magnify|doubleTap|allMaskedAtMedium|magnifyLib|spatialTap2|none` (or `uikitpan`, the UIKITPAN-s1 probe pager): no scroll view at all, a plain pane with a SwiftUI
     /// DragGesture of that kind (or none) in its place, to tell the library's behaviour from SwiftUI's own.
     static var plain: String? { value("-ZTronSheetPlain") }
     /// `-ZTronSheetIntrospect`: passive target/action hooks on every gesture recognizer from the sheet content up to the window.
@@ -52,6 +52,16 @@ final class SheetProbe: ZTronScrollViewDelegate {
     var offset: CGFloat = 0
     var offMin: CGFloat = .greatestFiniteMagnitude
     var offMax: CGFloat = -.greatestFiniteMagnitude
+    /// UIKITPAN-s1 x channel (`-ZTronSheetPlain uikitpan`): the probe pager's x, the zoomer page's x, and display frames in
+    /// which the sheet top and one of them both moved (> 0.5 pt).
+    var offX: CGFloat = 0
+    var offXMin: CGFloat = .greatestFiniteMagnitude
+    var offXMax: CGFloat = -.greatestFiniteMagnitude
+    var zxMin: CGFloat = .greatestFiniteMagnitude
+    var zxMax: CGFloat = -.greatestFiniteMagnitude
+    var bothX = 0
+    private var lastX: CGFloat?
+    private var lastZX: CGFloat?
     /// Display-link samples in which only the sheet moved, only the content offset moved, and both moved (> 0.5 pt).
     var sheetOnly = 0, offsetOnly = 0, both = 0
     var tracking = 0
@@ -80,6 +90,8 @@ final class SheetProbe: ZTronScrollViewDelegate {
     func reset() {
         sheetTopMin = sheetTop; sheetTopMax = sheetTop
         offMin = offset; offMax = offset
+        offXMin = offX; offXMax = offX; zxMin = lastZX ?? 0; zxMax = lastZX ?? 0; bothX = 0
+        ProbeHub.shared.resetReadings()
         sheetOnly = 0; offsetOnly = 0; both = 0; tracking = 0; dragBegan = 0; dragEnded = 0; pullReleases = 0; plainChanges = 0
         #if DEBUG
         ZTronRenderCounters.reset()
@@ -95,17 +107,26 @@ final class SheetProbe: ZTronScrollViewDelegate {
         sheetTopMin = min(sheetTopMin, top); sheetTopMax = max(sheetTopMax, top)
         offMin = min(offMin, newOffset); offMax = max(offMax, newOffset)
         if isTracking { tracking += 1 }
+        let x = ProbeHub.shared.models["pager"]?.off.x, zx = ProbeHub.shared.models["zoomer"]?.off.x
+        if let x { offX = x; offXMin = min(offXMin, x); offXMax = max(offXMax, x) }
+        if let zx { zxMin = min(zxMin, zx); zxMax = max(zxMax, zx) }
         if let lt = lastTop, let lo = lastOffset {
             let sheetMoved = abs(top - lt) > 0.5, offsetMoved = abs(newOffset - lo) > 0.5
             if sheetMoved && offsetMoved { both += 1 } else if sheetMoved { sheetOnly += 1 } else if offsetMoved { offsetOnly += 1 }
+            let xMoved = (x.flatMap { a in lastX.map { abs(a - $0) > 0.5 } } ?? false) || (zx.flatMap { a in lastZX.map { abs(a - $0) > 0.5 } } ?? false)
+            if sheetMoved && xMoved { bothX += 1 }
         }
-        lastTop = top; lastOffset = newOffset
+        lastTop = top; lastOffset = newOffset; lastX = x; lastZX = zx
     }
 
     var summary: String {
         func f(_ v: CGFloat) -> String { v.isFinite && abs(v) < 1e6 ? String(Int(v.rounded())) : "-" }
         var s = "det=\(detent) top=\(f(sheetTop)) topMin=\(f(sheetTopMin)) topMax=\(f(sheetTopMax)) h=\(f(sheetHeight)) "
         s += "off=\(f(offset)) offMin=\(f(offMin)) offMax=\(f(offMax)) shOnly=\(sheetOnly) offOnly=\(offsetOnly) both=\(both) "
+        if ProbeHub.shared.models["pager"] != nil {
+            s += "offX=\(f(offX)) offXMin=\(f(offXMin)) offXMax=\(f(offXMax)) zxMin=\(f(zxMin)) zxMax=\(f(zxMax)) bothX=\(bothX) "
+            s += "page=\(ProbeHub.shared.models["pager"]?.page ?? -1) "
+        }
         s += "trk=\(tracking) dragBegan=\(dragBegan) dragEnded=\(dragEnded) dismissed=\(dismissCount) pull=\(pullReleases) nc=\(nativeCalls) pc=\(plainChanges)"
         #if DEBUG
         let c = ZTronRenderCounters.snapshot
@@ -113,6 +134,7 @@ final class SheetProbe: ZTronScrollViewDelegate {
                   "content.body", "button.fired"] {
             s += " c.\(k)=\(c[k] ?? 0)"
         }
+        for k in c.keys.sorted() where k.hasPrefix("uikitpan.") || k.hasPrefix("probe.") { s += " c.\(k)=\(c[k] ?? 0)" }
         #endif
         return s
     }
@@ -251,6 +273,11 @@ private struct SheetReadout: View {
                 Button("Near") { scrollTo(row: 5) }.accessibilityIdentifier("sheet.near")
                 Button("Mid") { scrollTo(row: 15) }.accessibilityIdentifier("sheet.mid")
                 Button("Top") { scrollTo(row: 0) }.accessibilityIdentifier("sheet.top")
+                if SheetArgs.plain == "uikitpan" {
+                    ForEach(["P0", "ZMid", "ZEdge"], id: \.self) { k in
+                        Button(k) { ProbeSheetPager.position(k) }.accessibilityIdentifier("probe.\(k)")
+                    }
+                }
             }
             .font(.footnote)
             Text(info).font(.system(size: 9)).lineLimit(3).frame(maxWidth: .infinity, alignment: .leading)
@@ -296,6 +323,19 @@ private struct SheetPlainPane: View {
             }
         case "magnify":
             pane.simultaneousGesture(MagnificationGesture().onChanged { _ in SheetProbe.shared.plainChanges += 1 })
+        // UIKITPAN-s1 Q6: the library's own pinch and double-tap types, alone (MagnifyGesture 17+, SpatialTapGesture 16+).
+        case "magnifyLib":
+            if #available(iOS 17, *) {
+                pane.simultaneousGesture(MagnifyGesture().onChanged { _ in SheetProbe.shared.plainChanges += 1 })
+            } else {
+                pane.simultaneousGesture(MagnificationGesture().onChanged { _ in SheetProbe.shared.plainChanges += 1 })
+            }
+        case "spatialTap2":
+            if #available(iOS 16, *) {
+                pane.simultaneousGesture(SpatialTapGesture(count: 2).onEnded { _ in SheetProbe.shared.plainChanges += 1 })
+            } else {
+                pane.simultaneousGesture(TapGesture(count: 2).onEnded { SheetProbe.shared.plainChanges += 1 })
+            }
         case "doubleTap":
             pane.simultaneousGesture(TapGesture(count: 2).onEnded { SheetProbe.shared.plainChanges += 1 })
         // Everything the library attaches (pan, 0-distance observer / spatial events, pinch, double tap), masked together.
@@ -385,7 +425,9 @@ private struct SheetContent: View {
         VStack(spacing: 4) {
             SheetReadout(state: state)
             Group {
-                if let plain = SheetArgs.plain {
+                if SheetArgs.plain == "uikitpan" {
+                    ProbeSheetPager()
+                } else if let plain = SheetArgs.plain {
                     SheetPlainPane(mode: plain, atMedium: detent == "medium" && SheetArgs.detents.contains("large"))
                 } else if SheetArgs.native {
                     SheetNativeList()

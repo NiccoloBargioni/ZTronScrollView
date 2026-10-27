@@ -40,6 +40,9 @@ struct DemoApp: App {
             case "resize": ResizeScreen()
             case "sheet": SheetScreen()
             case "scrollDisabled": ScrollDisabledScreen()
+            case "uikitPanPage": UIKitPanPageScreen()
+            case "uikitPanPager": UIKitPanPagerScreen()
+            case "uikitPanDetect": UIKitPanDetectScreen()
             default: ProofScreen()
             }
         }
