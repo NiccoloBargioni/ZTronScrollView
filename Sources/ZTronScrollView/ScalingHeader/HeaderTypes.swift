@@ -98,9 +98,11 @@ public struct ZTronHeaderBackground {
     /// A blurred, scaled-to-fill second instance of the header's own content (the "ambient" artwork background of a music
     /// player). The copy is the same builder result instantiated a second time: its body runs once more per cold change
     /// of the header (install, a parent rebuild, a size change), never per frame. It is laid out at the live frame, filled
-    /// with the content's own aspect ratio (overflow cropped) and blurred by `radius` points with opaque edges. It is a
-    /// separate instance: its `@State` is its own, and a ``ZTronHeaderGeometryReader`` inside the header also updates in
-    /// the copy.
+    /// with the content's own aspect ratio (overflow cropped) and blurred by `radius` points with opaque edges (an infinite
+    /// radius is the strongest blur, a negative one none). It is a separate instance: its `@State` is its own and its
+    /// `onAppear` / `task` run for it too. Readers inside it (``ZTronHeaderGeometryReader``, ``ZTronScrollReader``) are
+    /// cold: they show the geometry taken when the copy was built and at each cold change (a resize, a new resting
+    /// height), never per frame, so the copy never doubles the header's per-frame reader work.
     public static func ambientBlur(radius: CGFloat = 30) -> Self { Self(kind: .ambientBlur(radius: radius)) }
 
     /// A backdrop blur of whatever is drawn behind the header, with the system material (`Material`, iOS 15+) whose blur
@@ -115,13 +117,23 @@ public struct ZTronHeaderBackground {
     /// Any view, proposed the live frame. Type-erased; built by the caller, once per cold change of the header.
     public static func view<V: View>(@ViewBuilder _ content: () -> V) -> Self { Self(kind: .view(AnyView(content()))) }
 
-    /// The material nearest to a blur radius (`.frostedGlass`).
+    /// The material nearest to a blur radius (`.frostedGlass`), monotonic over the whole line: `+∞` is the thickest,
+    /// `−∞` the thinnest, NaN the default's (20, `.regularMaterial`).
     static func material(radius: CGFloat) -> Material {
         let nominal: [(CGFloat, Material)] = [(6, .ultraThinMaterial), (12, .thinMaterial), (20, .regularMaterial),
                                               (30, .thickMaterial), (40, .ultraThickMaterial)]
-        let r = radius.isFinite ? radius : 20
+        let r = radius.isNaN ? 20 : min(max(radius, 0), 1_000)
         return nominal.min { abs($0.0 - r) < abs($1.0 - r) }!.1
     }
+
+    /// The radius `.ambientBlur` blurs with: negative and NaN draw no blur, `+∞` the strongest (`maximumBlurRadius`;
+    /// beyond a header's own size every radius looks alike, the blur averages the whole frame).
+    static func blurRadius(_ radius: CGFloat) -> CGFloat {
+        radius.isNaN ? 0 : min(max(radius, 0), maximumBlurRadius)
+    }
+
+    /// The largest `.ambientBlur` radius drawn (an infinite or larger one is read as this).
+    static let maximumBlurRadius: CGFloat = 1_000
 }
 
 /// What a header child reads through ``ZTronHeaderGeometryReader`` (or `ZTronScrollGeometry.header`).

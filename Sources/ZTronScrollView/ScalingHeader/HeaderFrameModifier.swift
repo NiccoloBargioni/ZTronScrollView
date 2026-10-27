@@ -173,7 +173,11 @@ struct HeaderSlotLayout: Layout {
         if live.size?.isFit == true, w > 0, let first = subviews.first {
             let n = first.sizeThatFits(ProposedViewSize(width: w, height: nil)).height
             natural = n
-            MainActor.assumeIsolated { reporter.measured(n, width: w) }
+            // Only the main thread's layout reports. SwiftUI also lays this out on its async render thread
+            // (`com.apple.SwiftUI.AsyncRenderer`, animation frames): `assumeIsolated` trapped there (seam lab, a `.fit`
+            // header's animated content change in the band, 27.0), and those frames lay out the presented state, while
+            // the main thread's layout of the same update measures the model one.
+            if Thread.isMainThread { MainActor.assumeIsolated { reporter.measured(n, width: w) } }
         }
         let container = slot.flatMap { $0.isFinite ? max(0, $0 - live.bottomInset) : nil }
         return HeaderMath.liveHeight(width: w, containerHeight: container, natural: natural, live)
@@ -221,9 +225,13 @@ nonisolated struct HeaderFallbackFrame: ViewModifier, Animatable {
             .fixedSize(horizontal: false, vertical: true)
             .onPreferenceChange(HeaderRestNaturalKey.self) { r in
                 guard let r, r.size.width > 0 else { return }
-                // The same update: the state's `R` follows the layout's (a rotation's commit then holds both, the
-                // content's inset moves with the header).
-                MainActor.assumeIsolated { state.unanimated { state.setHeaderNatural(r.size.height) } }
+                // The same update: the state's `R` follows the layout's (a rotation's commit then holds both, the content's
+                // inset moves with the header). A header content change animated by the app: in its own transaction (the
+                // frame IS the stack's ideal height here, so it already follows that animation; review d16: the inset
+                // landed at once, unanimated, 150 pt).
+                MainActor.assumeIsolated {
+                    state.adoptHeaderNatural(r.size.height, measuredInTurn: state.headerTurn, unanimated: true)
+                }
             }
     }
 }
@@ -247,7 +255,8 @@ struct HeaderFallbackPlan: Equatable {
 
     init(_ live: HeaderLiveInput) {
         let h = max(live.stateHeight, Self.minimumHeight)
-        guard let m = live.metrics, live.layoutDriven, let size = live.size else {
+        // A banner (no vertical axis) too: its `p` and stretch are the state's, 0 unless zoomed content pans (D15).
+        guard let m = live.metrics, let size = live.size else {
             minHeight = h; maxHeight = h
             return
         }
@@ -298,7 +307,9 @@ private struct HeaderRestNaturalKey: PreferenceKey {
 /// opened a 36.9 pt gap between the header and the content mid-rotation, 0.1 pt with it; the forced 15–16 lane with
 /// `compositingGroup()` for both groups rotates rigidly (27.0 forced: `.aspectRatio` at rest |seam| ≤ 0.1 pt, `.fixed` half
 /// collapsed ≤ 0.1 pt, lateral ≤ 0.3 pt). The same cost argument as the content's applies (offscreen only under an
-/// ancestor's compositing effect); the header is small next to the content.
+/// ancestor's compositing effect); the header is small next to the content. Like the content's, the 15–16 group isolates
+/// blend modes: a header child's `.blendMode` composites within the header and does not reach the content scrolled under
+/// it (17+ `geometryGroup()` does not isolate). SPEC S10 "15–16 layer groups".
 struct HeaderLayerGroup: ViewModifier {
     let useGeometryGroup: Bool
 
@@ -358,10 +369,11 @@ struct HeaderBackgroundView: View {
             case let .ambientBlur(radius)?:
                 // Filled with the content's own aspect ratio (its ideal size), centred, cropped to the frame, then blurred
                 // with opaque edges (no clear halo at the frame's edges).
+                // Its readers are cold (`ztronColdReaders`): a snapshot per cold change, never per frame.
                 Color.clear
-                    .overlay(copy.scaledToFill())
+                    .overlay(copy.environment(\.ztronColdReaders, true).scaledToFill())
                     .clipped()
-                    .blur(radius: max(0, radius.isFinite ? radius : 0), opaque: true)
+                    .blur(radius: ZTronHeaderBackground.blurRadius(radius), opaque: true)
             case let .frostedGlass(radius)?:
                 Rectangle().fill(ZTronHeaderBackground.material(radius: radius))
             case let .color(color)?:

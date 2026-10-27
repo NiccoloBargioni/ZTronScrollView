@@ -187,6 +187,14 @@ public final class ZTronScrollState {
     var headerMeasurements = 0
     /// A `snapHeader(to:)` made before the header metrics exist, applied unanimated by the first `setHeaderMetrics`.
     var pendingHeaderSnap: ZTronHeaderSnapTarget?
+    /// `.fit`: the transaction of the latest update that reached the header's content (`HeaderHost`'s `.transaction`
+    /// reader) and the run-loop turn it was seen in (`headerTurn`). A re-measurement made in the same turn is adopted in
+    /// it, so the content's inset and the header's frame move in the change's own animation (review d16: an animated
+    /// content change landed the new `R` in one unanimated frame, a 150 pt jump of the whole content).
+    var headerContentTransaction: (transaction: Transaction, turn: Int)?
+    /// Advanced once per run-loop turn that saw a header transaction (a measurement compares turns, never times).
+    var headerTurn = 0
+    var headerTurnAdvanceScheduled = false
     private var headerOverride: HeaderMetrics??
     /// A deceleration ended in this flush: `.afterFinishAccelerating` looks at the rest once the flush is over.
     private var headerSettlePending = false
@@ -541,8 +549,13 @@ public final class ZTronScrollState {
     }
 
     /// Where content sits on an axis where it is smaller than the viewport (design M2 section 5). Not observed.
-    /// Centered once zooming is enabled (SPEC S6), the native top-leading default otherwise.
-    var contentAlignment: UnitPoint { alignmentAnchor ?? (isZoomEnabled ? .center : .topLeading) }
+    /// Centered once zooming is enabled (SPEC S6), the native top-leading default otherwise. With a scaling header the
+    /// vertical alignment is the top (SPEC S10 Placement): the content starts at the header's bottom edge, so content that
+    /// fits never leaves a gap below the header (review d16: centred content sat 119 pt below it, at rest and pulled).
+    var contentAlignment: UnitPoint {
+        let a = alignmentAnchor ?? (isZoomEnabled ? .center : .topLeading)
+        return headerSpec == nil ? a : UnitPoint(x: a.x, y: 0)
+    }
 
     /// Solver geometry for `metrics` (adjusted insets included).
     func makeZoomGeometry(_ m: ScrollMetrics? = nil) -> ZoomGeometry {

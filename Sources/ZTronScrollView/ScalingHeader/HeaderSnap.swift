@@ -46,7 +46,17 @@ extension ZTronScrollState {
             return
         }
         pendingHeaderSnap = nil
-        let y = HeaderMath.offset(for: target, m: header) - HeaderMath.base(s.metrics)
+        var o = HeaderMath.offset(for: target, m: header)
+        if o <= 0 {
+            // An expanded target (`.expanded`, `.progress(0)`, `.height(R)`): at or above rest the header is already
+            // expanded (the rest of a refresh hold at `o′ = −hold`), so a resting view does not move (review d16: the
+            // target `o′ = 0` scrolled the content up by the hold and closed the refresh indicator's gap). From inside the
+            // band (or while moving) the content goes to its top rest, the hold's gap included.
+            let current = HeaderMath.headerOffset(offset: s.presentationOffset, zoom: s.presentationZoom, metrics: s.metrics)
+            if current <= 0, s.phase == .idle { return }
+            o = min(o, -s.metrics.refreshHold.top)
+        }
+        let y = o - HeaderMath.base(s.metrics)
         let clamped = makeZoomGeometry(s.metrics).y.bounds(at: s.presentationZoom).clamped(y)
         setContentOffset(CGPoint(x: s.presentationOffset.x, y: clamped), animated: animated)
     }

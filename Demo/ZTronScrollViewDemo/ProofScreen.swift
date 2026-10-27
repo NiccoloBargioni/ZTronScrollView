@@ -39,6 +39,8 @@ struct ProofScreen: View {
     @State private var state = ZTronScrollState()
     @State private var snapshot: [String: Int] = [:]
     @State private var stateInfo = ""
+    /// "settled …" once `Reset` zeroed the counters after a quiet period (the UI tests wait for it).
+    @State private var settle = ""
 
     private var path: String {
         ZTronAvailability.forcedFallbacks.isEmpty ? "preferred" : "forcedFallback"
@@ -51,7 +53,12 @@ struct ProofScreen: View {
             readers
             Text(path).font(.caption2).accessibilityIdentifier("path").accessibilityValue(path)
             counters
-            Text(stateInfo).font(.caption2).accessibilityIdentifier("stateInfo").accessibilityValue(stateInfo)
+            // Fixed frames: the texts written by Reset and Snapshot never change the layout (a VStack that grows moves the
+            // scroll view, a layout pass that evaluates the content's transform effect, review d16).
+            Text(stateInfo).font(.caption2).frame(width: 360, height: 30)
+                .accessibilityIdentifier("stateInfo").accessibilityValue(stateInfo)
+            Text(settle).font(.caption2).frame(width: 360, height: 14)
+                .accessibilityIdentifier("settle").accessibilityValue(settle)
         }
         .padding(8)
     }
@@ -115,10 +122,28 @@ extension ProofScreen {
         state.stopScrollingAndZooming()
         state.setContentOffset(.zero, animated: false)
         state.setZoomScale(1, animated: false)
-        // Readers and the transform update on the next render; zero the counters after they settle.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+        settle = ""
+        // Readers and the transform update on the next render; zero the counters once the screen is quiet: no render
+        // counter moved for 0.5 s (at most 3 s, so continuous per-frame work still shows in the next window). A fixed
+        // 0.3 s delay counted layout passes that land later under host load (a late launch layout evaluates the
+        // transform effect twice: review d16, 5 of 8 runs at load 300-700).
+        settleCounters(start: Date(), quietSince: Date(), last: -1)
+    }
+
+    private func settleCounters(start: Date, quietSince: Date, last: Int) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             #if DEBUG
-            ZTronRenderCounters.reset()
+            let keys = ["transform.effect", "transformHost.body", "clock.tick", "content.body", "reader.zoom", "reader.offset"]
+            let n = keys.reduce(0) { $0 + ZTronRenderCounters.value($1) }
+            let now = Date()
+            let quiet = n == last ? quietSince : now
+            if now.timeIntervalSince(quiet) >= 0.5 || now.timeIntervalSince(start) >= 3 {
+                let absorbed = ZTronRenderCounters.value("transform.effect")
+                ZTronRenderCounters.reset()
+                settle = String(format: "settled after %.1f s, absorbed effect %d", now.timeIntervalSince(start), absorbed)
+            } else {
+                settleCounters(start: start, quietSince: quiet, last: n)
+            }
             #endif
         }
     }

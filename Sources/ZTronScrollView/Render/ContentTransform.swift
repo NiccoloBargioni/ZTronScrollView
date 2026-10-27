@@ -176,6 +176,8 @@ enum ResizeJumpMonitor {
 struct TransformHost: ViewModifier {
     let state: ZTronScrollState
     let axes: Axis.Set
+    /// The view has a scaling header (`withScalingHeader`): the 15–16 content group is only for it (`ContentLayerGroup`).
+    var hasHeader = false
     @Environment(\.displayScale) private var displayScale
     @StateObject private var relay = ChannelRelay()
 
@@ -200,7 +202,7 @@ struct TransformHost: ViewModifier {
         // A leaf modifier change on the placeholder: content bodies are not re-evaluated.
         let blocked = (storage.phase == .decelerating || storage.phase == .animating) && !storage.isTracking || storage.isDragging
         return content
-            .modifier(ContentLayerGroup(useGeometryGroup: state.usesGeometryGroup))
+            .modifier(ContentLayerGroup(useGeometryGroup: state.usesGeometryGroup, hasHeader: hasHeader))
             .allowsHitTesting(!blocked)
             .disabled(blocked)
             .modifier(ContentTransform(offset: offset, scale: scale, insets: metrics.adjustedContentInset,
@@ -228,16 +230,42 @@ struct TransformHost: ViewModifier {
 /// an ancestor effect the content then fades as one image, as a `UIScrollView`'s does, instead of leaf by leaf. Without the
 /// group the 15–16 content would tear in every rotation, which the seamless-header requirement rules out. Device check on
 /// a real 15/16 (Instruments, offscreen passes while scrolling under an opacity transition) remains open.
+///
+/// A compositing group also changes what is drawn (review d16): blend modes inside the content composite inside the group
+/// and no longer reach what is behind the scroll view (a `.blendMode(.multiply)` row over the scroll view's background
+/// draws unblended), and an opacity applied above it fades the content as one image. So on 15–16 the group is applied
+/// only to a view that has a scaling header at its first render (the seam requirement is the header's); a view without
+/// one draws exactly as before (and as a native `ScrollView`), its rotation unchanged. The choice is latched at the first
+/// render (`GroupLatch`): installing or removing the header later never changes the content's identity (a 15–16 header
+/// installed later rotates with the pre-group tearing; one removed later keeps the group). SPEC S10 "15–16 layer groups".
 struct ContentLayerGroup: ViewModifier {
     let useGeometryGroup: Bool
+    let hasHeader: Bool
+    @StateObject private var latch = GroupLatch()
 
     @ViewBuilder
     func body(content: Content) -> some View {
         if useGeometryGroup, #available(iOS 17, *) {
             content.geometryGroup()
-        } else {
+        } else if latch.grouped(hasHeader) {
             content.compositingGroup()
+        } else {
+            content
         }
+    }
+}
+
+/// The 15–16 content group's first-render decision (never published: it never changes after the first body).
+final class GroupLatch: ObservableObject {
+    private var value: Bool?
+
+    func grouped(_ hasHeader: Bool) -> Bool {
+        if let value { return value }
+        value = hasHeader
+        #if DEBUG
+        MainActor.assumeIsolated { ZTronRenderCounters.notes["content.group"] = hasHeader ? "compositing" : "none" }
+        #endif
+        return hasHeader
     }
 }
 

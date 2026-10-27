@@ -22,6 +22,8 @@ for sc in "$@"; do
       capped|refit|uncapped) extra+=(-ZTronHeaderOverflow "$x") ;;
       ambient|glass|color|view) extra+=(-ZTronHeaderBackground "$x") ;;
       marker) extra+=(-ZTronSeamMarker 1) ;;
+      horizontal) extra+=(-ZTronSeamAxis horizontal) ;;   # a horizontal scroll view: the header is a banner (review d16)
+      grow) extra+=(-ZTronSeamFitGrow 1) ;;   # with width + fit: seam.width animates the header's content 16:9 <-> 4:3 (review d16)
       refresh) extra+=(-ZTronSeamRefresh 2.5) ;;
       band) extra+=(-ZTronSeamScrollBand 0.5) ;;
       combo) extra+=(-ZTronSeamScrollBand 0.5 -ZTronSeamWidthThenScroll 0.5) ;;

@@ -12,9 +12,16 @@ final class ProofUITests: XCTestCase {
         return app
     }
 
+    /// Taps Reset and waits until the screen zeroed its counters after a quiet period (`settle`, ProofScreen).
     private func reset(_ app: XCUIApplication) {
         app.buttons["Reset"].tap()
-        Thread.sleep(forTimeInterval: 0.8)
+        let settled = app.staticTexts["settle"]
+        let deadline = Date().addingTimeInterval(6)
+        while Date() < deadline, !((settled.value as? String) ?? "").hasPrefix("settled") {
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        print("SETTLE \((settled.value as? String) ?? "?")")
+        XCTAssertTrue(((settled.value as? String) ?? "").hasPrefix("settled"), "the counters were zeroed")
     }
 
     private func snapshot(_ app: XCUIApplication) -> [String: Int] {

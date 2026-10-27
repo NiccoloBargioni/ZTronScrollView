@@ -140,7 +140,7 @@ struct ScrollContainer<Content: View>: View {
             .modifier(NamedSpaceModifier(name: nested.coordinateSpaceName, useNew: state.usesNamedCoordinateSpace))
             .modifier(HeaderContentReserve(state: state))   // a horizontal view's content lays out below the banner (M8b-3)
             .modifier(ContentLayoutHost(axes: axes, useLayout: state.usesLayoutProtocol))
-            .modifier(TransformHost(state: state, axes: axes))
+            .modifier(TransformHost(state: state, axes: axes, hasHeader: header != nil))
             .modifier(NamedSpaceModifier(name: "ztronScroll.viewport", useNew: state.usesNamedCoordinateSpace))
             .ignoresSafeArea(.all, edges: edges)
             // Scaling header (M8b-3), attached AFTER `.ignoresSafeArea`: SwiftUI places its slot's top edge at the safe-area

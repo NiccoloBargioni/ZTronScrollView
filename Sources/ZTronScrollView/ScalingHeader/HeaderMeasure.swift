@@ -40,6 +40,7 @@ final class HeaderNaturalReporter: ObservableObject {
     var heldOffset: CGFloat = 0
     private var last: CGFloat?
     private var scheduled = false
+    private var turn = 0
 
     func attach(_ state: ZTronScrollState) { self.state = state }
 
@@ -50,13 +51,16 @@ final class HeaderNaturalReporter: ObservableObject {
         state?.headerNaturalLive = (width, height)
         if let last, abs(last - height) <= 0.5 { return }
         last = height
+        // The turn this measurement was taken in: an animated header content change of the same update is adopted in
+        // its own transaction (`adoptHeaderNatural`).
+        turn = state?.headerTurn ?? 0
         guard !scheduled else { return }
         scheduled = true
         RunLoop.main.perform(inModes: [.common]) { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.scheduled = false
-                if let h = self.last { self.state?.setHeaderNatural(h) }
+                if let h = self.last { self.state?.adoptHeaderNatural(h, measuredInTurn: self.turn, unanimated: false) }
             }
         }
     }

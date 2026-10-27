@@ -90,6 +90,8 @@ struct SeamLabScreen: View {
         return s
     }()
     @State private var narrow = false
+    /// `-ZTronSeamFitGrow 1`: `seam.width` toggles the header's content between 16:9 and 4:3 instead (review d16).
+    @State private var tall = false
     @State private var far = false
     @State private var snapped = false
 
@@ -117,7 +119,10 @@ struct SeamLabScreen: View {
                     }
                     .accessibilityIdentifier("seam.scroll")
                     Button {
-                        if SeamLab.widthWithScroll {
+                        if SeamLab.fitGrow {
+                            // A `.fit` re-measure: the header's content changes height in an app animation.
+                            withAnimation(.easeInOut(duration: 1.2)) { tall.toggle() }
+                        } else if SeamLab.widthWithScroll {
                             // One transaction: the size change and the scroll command together.
                             withAnimation(.easeInOut(duration: 1.2)) { narrow.toggle(); toggleScroll(animated: false) }
                         } else {
@@ -164,10 +169,10 @@ extension SeamLabScreen {
     /// The lab's scroll view; with `-ZTronSeamRefresh <s>` a `.system` refresher whose action takes `s` seconds (the
     /// refresh hold: the content rests below the indicator, the header follows it).
     private var scroller: ZTronScrollView<SeamLabContent> {
-        let view = ZTronScrollView(.vertical, state: state) { SeamLabContent() }
+        let view = ZTronScrollView(SeamLab.horizontal ? .horizontal : .vertical, state: state) { SeamLabContent() }
             .scrollIndicators(.hidden)
             .withScalingHeader(size: SeamLab.size, scalingBehavior: SeamLab.behavior, background: SeamLab.background,
-                               overflow: SeamLab.overflow) { _ in SeamLabHeader() }
+                               overflow: SeamLab.overflow) { [tall] _ in SeamLabHeader(tall: tall) }
         guard let seconds = SeamLab.refreshSeconds else { return view }
         // Trigger at 60 pt: the 220 pt drag of testPull crosses it under the rubber band and fires while pulling.
         return view.refresher(style: .system, configuration: ZTronRefreshConfiguration(triggerDistance: 60)) {
@@ -183,6 +188,9 @@ extension SeamLab {
     static var widthThenScroll: Double? { Double(HeaderDemo.argument("-ZTronSeamWidthThenScroll", "")) }
     /// `-ZTronSeamWidthWithScroll 1`: `seam.width` toggles the size and the scroll in ONE `withAnimation`.
     static var widthWithScroll: Bool { HeaderDemo.argument("-ZTronSeamWidthWithScroll", "0") == "1" }
+    /// `-ZTronSeamFitGrow 1` (review d16): `seam.width` animates the `.fit` header's content between 16:9 and 4:3 (a
+    /// re-measure of an animated header content change) instead of the width.
+    static var fitGrow: Bool { HeaderDemo.argument("-ZTronSeamFitGrow", "0") == "1" }
     static var refreshSeconds: Double? {
         Double(HeaderDemo.argument("-ZTronSeamRefresh", "")).map { max(0, $0) }
     }
@@ -226,6 +234,9 @@ extension SeamLab {
 /// The header: pure red filling the live frame. Under `.fit` a 16:9 red view measures W · 9/16 at the proposed width.
 /// With a letterboxing background the red content is a 16:9 box fitted into the frame (the background fills the rest).
 struct SeamLabHeader: View {
+    /// `-ZTronSeamFitGrow 1`: 4:3 instead of 16:9 (`.fit` re-measures a taller header).
+    var tall = false
+
     var body: some View {
         if SeamLab.letterboxed {
             SeamLab.red
@@ -233,7 +244,7 @@ struct SeamLabHeader: View {
                 .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
         } else if SeamLab.isFit {
             SeamLab.red
-                .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                .aspectRatio(tall ? 4.0 / 3.0 : 16.0 / 9.0, contentMode: .fit)
                 .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
                 .background(SeamLab.red)
         } else {
@@ -251,7 +262,13 @@ struct SeamLabContent: View {
                     .frame(height: 60)
             }
         }
-        .frame(maxWidth: .infinity)
+        .frame(minWidth: SeamLab.horizontal ? 2000 : 0, maxWidth: .infinity)
         .background(SeamLab.blue)
     }
+}
+
+extension SeamLab {
+    /// `-ZTronSeamAxis horizontal` (review d16): the lab on a horizontal scroll view (the header is a fixed banner, the
+    /// content 2000 pt wide).
+    static var horizontal: Bool { HeaderDemo.argument("-ZTronSeamAxis", "vertical") == "horizontal" }
 }

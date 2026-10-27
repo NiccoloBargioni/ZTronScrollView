@@ -287,10 +287,15 @@ enum HeaderMath {
     /// The header's live height at a layout size: `h = (1 − p) · R(W, H) + p · min(W, H) + stretch`, with `p` and the
     /// stretch from the state and `R`, `min` from the layout. Equal to the state's `R − c + stretch` at the committed
     /// viewport; inside a resize nothing in it changes at the unanimated commit while the progress is kept (D51).
+    ///
+    /// A banner (a view without the vertical axis) is laid out the same way, so an app-driven animated width change
+    /// interpolates it with the content (review d16: it took the state's height, was laid out at `(W_new, R_old)` in the
+    /// animated pass and re-set to `R_new` by the unanimated commit: a 90 pt one-frame step and 159 pt lateral in the seam
+    /// lab). Its `p` and stretch are 0 except while zoomed content pans vertically (D15). Its overflow container is the
+    /// committed one: a banner's adjusted edges exclude the safe area's top and bottom, the header slot's do not.
     static func liveHeight(width w: CGFloat, containerHeight: CGFloat?, natural: CGFloat?, _ live: HeaderLiveInput) -> CGFloat {
         guard live.metrics != nil else { return 0 }
-        guard live.layoutDriven else { return live.stateHeight }
-        let r = layoutResting(width: w, containerHeight: containerHeight, natural: natural, live)
+        let r = layoutResting(width: w, containerHeight: live.layoutDriven ? containerHeight : nil, natural: natural, live)
         return Swift.max(0, (1 - live.progress) * r.resting + live.progress * r.min + live.stretch)
     }
 
