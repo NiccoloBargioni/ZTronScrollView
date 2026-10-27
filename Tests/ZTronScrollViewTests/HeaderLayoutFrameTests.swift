@@ -154,6 +154,33 @@ struct HeaderLayoutFrameTests {
         }
     }
 
+    /// A system rotation is laid out ONCE, inside UIKit's animation block, and Core Animation interpolates only what changes
+    /// there; a value committed a run-loop turn later lands at once (seam lab, 15 path, `.fit` half collapsed: header and
+    /// content jumped 98 pt at the rotation's start). So the synchronous layout of the new size must already commit the new
+    /// resting height (`.fit`: its measurement at the new width), the header's frame and the state agreeing, with no
+    /// run-loop turn in between.
+    @Test(arguments: OSPath.allCases) func aSizeChangeCommitsTheNewRestingHeightInsideItsLayout(path: OSPath) {
+        for size in Self.sizes {
+            for start in [Start.rest, .half] {
+                let box = Box()
+                let (s, w) = host(path, size: size, start: start, window: CGSize(width: 402, height: 874), box: box)
+                s.endOfTurn()
+                w.frame = CGRect(x: 0, y: 0, width: 874, height: 402)
+                w.rootViewController?.view.setNeedsLayout()
+                w.rootViewController?.view.layoutIfNeeded()
+                let tag = "\(path) \(size) \(start)"
+                let expected: CGFloat
+                if case .fixed = size { expected = 240 } else { expected = 874 * 9 / 16 }
+                let r = s.peek.metrics.header?.resting ?? -1
+                let h = s.headerGeometry?.height ?? -1
+                #expect(abs(r - expected) < 0.5, "\(tag): R \(r) after the synchronous layout (natural \(String(describing: s.headerNatural)))")
+                #expect(abs(box.size.height - h) < 0.5, "\(tag): layout \(box.size.height) vs state \(h)")
+                pump(0.6)
+                unhost(w)
+            }
+        }
+    }
+
     @Test func theFallbackPlan() {
         let m = HeaderMetrics(min: 64, resting: 226.125, behavior: .preserve, width: 402)
         var live = HeaderLiveInput(size: .aspectRatio(16.0 / 9.0, min: 64), metrics: m, progress: 0.5, stretch: 0, stateHeight: 145.0625)

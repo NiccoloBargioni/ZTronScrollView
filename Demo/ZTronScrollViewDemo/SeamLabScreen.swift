@@ -23,6 +23,9 @@ import ZTronScrollView
 // state.scroll(to:) }`) between rest and y = 400 (past the collapse band, the content under the collapsed header), and
 // `seam.snap` toggles `snapHeader(to: .collapsed / .expanded, animated: true)` (the clock path). `-ZTronSeamRefresh <s>`
 // adds a `.system` refresher whose action takes `s` seconds: testPull then measures the refresh hold and its end.
+// `-ZTronSeamScrollBand <f>` makes `seam.scroll` target the point `f` of the way into the collapse band;
+// `-ZTronSeamWidthThenScroll <s>` makes `seam.width` also toggle that scroll `s` seconds into the width animation,
+// `-ZTronSeamWidthWithScroll 1` in the same `withAnimation` as the size change.
 
 enum SeamLab {
     static let red = Color(red: 1, green: 0, blue: 0)
@@ -108,15 +111,24 @@ struct SeamLabScreen: View {
                     }
                     .accessibilityIdentifier("seam.snap")
                     Button {
-                        far.toggle()
-                        let y = far ? 400 : -state.adjustedContentInset.top
-                        withAnimation(.easeInOut(duration: 1.2)) { state.scroll(to: CGPoint(x: 0, y: y)) }
+                        toggleScroll()
                     } label: {
                         Color.white.frame(width: 24, height: 24)
                     }
                     .accessibilityIdentifier("seam.scroll")
                     Button {
-                        withAnimation(.easeInOut(duration: 1.2)) { narrow.toggle() }
+                        if SeamLab.widthWithScroll {
+                            // One transaction: the size change and the scroll command together.
+                            withAnimation(.easeInOut(duration: 1.2)) { narrow.toggle(); toggleScroll(animated: false) }
+                        } else {
+                            withAnimation(.easeInOut(duration: 1.2)) { narrow.toggle() }
+                        }
+                        if let delay = SeamLab.widthThenScroll {
+                            Task { @MainActor in
+                                try? await Task.sleep(nanoseconds: UInt64(max(0, delay) * 1_000_000_000))
+                                toggleScroll()
+                            }
+                        }
                     } label: {
                         Color.white.frame(width: 24, height: 24)
                     }
@@ -132,6 +144,23 @@ struct SeamLabScreen: View {
 }
 
 extension SeamLabScreen {
+    /// `seam.scroll`: a transaction-driven scroll between rest and y = 400, or (`-ZTronSeamScrollBand <f>`) the point `f`
+    /// of the way into the collapse band (the header's bottom stays on the content's top all the way).
+    private func toggleScroll(animated: Bool = true) {
+        far.toggle()
+        let top = -state.adjustedContentInset.top
+        var y: CGFloat = 400
+        if let f = SeamLab.scrollBand, let g = state.headerGeometry {
+            y = top + f * max(0, g.restingHeight - g.minHeight)
+        }
+        let target = CGPoint(x: 0, y: far ? y : top)
+        if animated {
+            withAnimation(.easeInOut(duration: 1.2)) { state.scroll(to: target) }
+        } else {
+            state.scroll(to: target)
+        }
+    }
+
     /// The lab's scroll view; with `-ZTronSeamRefresh <s>` a `.system` refresher whose action takes `s` seconds (the
     /// refresh hold: the content rests below the indicator, the header follows it).
     private var scroller: ZTronScrollView<SeamLabContent> {
@@ -148,6 +177,12 @@ extension SeamLabScreen {
 }
 
 extension SeamLab {
+    static var scrollBand: CGFloat? { Double(HeaderDemo.argument("-ZTronSeamScrollBand", "")).map { CGFloat($0) } }
+    /// `-ZTronSeamWidthThenScroll <s>`: `seam.width` also toggles the scroll `s` seconds later, while the resize is open
+    /// (a scroll command closes it inside its animated transaction: the header's held offset at the close).
+    static var widthThenScroll: Double? { Double(HeaderDemo.argument("-ZTronSeamWidthThenScroll", "")) }
+    /// `-ZTronSeamWidthWithScroll 1`: `seam.width` toggles the size and the scroll in ONE `withAnimation`.
+    static var widthWithScroll: Bool { HeaderDemo.argument("-ZTronSeamWidthWithScroll", "0") == "1" }
     static var refreshSeconds: Double? {
         Double(HeaderDemo.argument("-ZTronSeamRefresh", "")).map { max(0, $0) }
     }
@@ -159,20 +194,33 @@ struct SeamLabInfo: View {
     let state: ZTronScrollState
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.25)) { _ in
-            let g = state.headerGeometry
-            let vp = state.geometry.containerSize
-            let text = String(format: "vp=%.1fx%.1f aci=%.1f/%.1f y=%.2f R=%.3f h=%.3f p=%.4f", vp.width,
-                              vp.height, state.adjustedContentInset.top, state.adjustedContentInset.bottom,
-                              state.contentOffset.y, g?.restingHeight ?? -1, g?.height ?? -1, g?.progress ?? -1)
+            let text = line()
             Text(text).font(.system(size: 6)).foregroundColor(.white)
                 .accessibilityIdentifier("seam.info").accessibilityValue(text)
         }
         .allowsHitTesting(false)
+        #if DEBUG
+        .onAppear { if SeamLab.events { ZTronRenderCounters.eventCapacity = 400 } }
+        #endif
+    }
+
+    private func line() -> String {
+        let g = state.headerGeometry
+        let vp = state.geometry.containerSize
+        var text = String(format: "vp=%.1fx%.1f aci=%.1f/%.1f y=%.2f R=%.3f h=%.3f p=%.4f", vp.width,
+                          vp.height, state.adjustedContentInset.top, state.adjustedContentInset.bottom,
+                          state.contentOffset.y, g?.restingHeight ?? -1, g?.height ?? -1, g?.progress ?? -1)
+        #if DEBUG
+        if SeamLab.events { text += " EVENTS " + ZTronRenderCounters.eventsJoined }
+        #endif
+        return text
     }
 }
 
 extension SeamLab {
-    static var info: Bool { HeaderDemo.argument("-ZTronSeamInfo", "0") == "1" }
+    static var info: Bool { ["1", "2"].contains(HeaderDemo.argument("-ZTronSeamInfo", "0")) }
+    /// `-ZTronSeamInfo 2`: the state's DEBUG event log too (diagnostics).
+    static var events: Bool { HeaderDemo.argument("-ZTronSeamInfo", "0") == "2" }
 }
 
 /// The header: pure red filling the live frame. Under `.fit` a 16:9 red view measures W · 9/16 at the proposed width.

@@ -84,12 +84,20 @@ struct HeaderMeasuringPass: ViewModifier {
     /// Bumped at every (re)arming, so a re-measurement that finds the same size still reports (a preference reports
     /// changes only: the pass was otherwise left on, the header laid out at its ideal height under the live frame).
     @State private var generation = 0
+    /// The committed viewport width of the last measurement (`nil`: none yet).
+    @State private var measuredWidth: CGFloat?
     @StateObject private var relay = ChannelRelay()
 
     func body(content: Content) -> some View {
         if let storage = state.storage as? ChannelStorage { relay.subscribe(to: [.metrics], of: storage) }
         let width = state.storage.metrics.viewportSize.width
-        let pass = active && measuring
+        // A width the header was not measured at arms the pass in THIS body run, the resize commit's own update. A system
+        // rotation is laid out once inside UIKit's animation block: armed through `onChange` (an `@State` write, one more
+        // update) the measurement landed after the never-animated resize had closed, outside the block, so the new
+        // resting height (the header and the content's inset) jumped at the rotation's start (seam lab, forced lane,
+        // `.fit` half collapsed: 98 pt in one frame).
+        let stale = width > 0 && (measuredWidth.map { abs($0 - width) > 0.5 } ?? false)
+        let pass = active && (measuring || stale)
         let state = state
         return content
             .fixedSize(horizontal: false, vertical: pass)
@@ -104,16 +112,20 @@ struct HeaderMeasuringPass: ViewModifier {
             .onPreferenceChange(HeaderNaturalKey.self) { report in
                 guard let size = report?.size else { return }
                 MainActor.assumeIsolated {
+                    #if DEBUG
+                    ZTronRenderCounters.event(String(format: "meas %.1fx%.1f open:%d", size.width, size.height,
+                                                     state.isResizeInFlight ? 1 : 0))
+                    #endif
                     reporter.measured(size.height, width: size.width)
                     // A zero-width pass (the first layout of an overlay outside the safe-area region) is ignored and the
                     // pass stays on: the next layout at the real width reports.
                     if size.width > 0 {
                         measuring = false
+                        measuredWidth = width
                         if state.isResizeInFlight { state.unanimated { state.setHeaderNatural(size.height) } }
                     }
                 }
             }
-            .onChangeCompat(of: width) { _ in arm() }
             .onChangeCompat(of: dynamicType) { _ in arm() }
             .onChangeCompat(of: active) { if $0 { arm() } }
     }

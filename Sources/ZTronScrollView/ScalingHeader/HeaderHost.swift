@@ -76,6 +76,9 @@ extension ZTronScrollState {
     /// `.fit`: the header's measured ideal height at the viewport width (`HeaderMeasure`); a change is a discrete inset
     /// change, never per frame.
     func setHeaderNatural(_ height: CGFloat) {
+        #if DEBUG
+        ZTronRenderCounters.event(String(format: "nat %.1f open:%d", height, isResizeInFlight ? 1 : 0))
+        #endif
         guard height.isFinite, abs(height - (headerNatural ?? -1)) > 0.5 else { return }
         headerNatural = height
         headerNaturalLive = nil   // an older layout record must not override this value
