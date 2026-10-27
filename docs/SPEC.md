@@ -440,7 +440,7 @@ Calibrate the defaults side by side with UIRefreshControl.
 
 A banner-style header laid out as the first thing of the scroll view, above the content. It collapses from its resting height to a
 minimum as the content scrolls up (shrinking from the bottom, its top edge pinned), stays at the minimum while the content scrolls by,
-and reacts to a pull past the top either by moving down with the content at its resting height (`.preserve`, amended 2026-10-26) or by
+and reacts to a pull past the top either by moving down with the content at its resting height (`.preserve`, amended 2026-10-26, D61) or by
 growing with the pull (`.stretch`). The reference (Exyte) reaches the
 underlying UIScrollView through UIKit introspection; that is forbidden here (S2) and this design uses none of it, nor reflection or private
 API: the header is driven by our own offset state through a leaf modifier. (Amendment 2026-10-19 (user): confirmed, no introspection anywhere.)
@@ -456,7 +456,7 @@ extension ZTronScrollView {
         scalingBehavior: ZTronHeaderScalingBehavior = .preserve,
         snap: ZTronHeaderSnap = .disabled,
         fade: ZTronHeaderFade? = nil,
-        background: ZTronHeaderBackground? = nil,         // 2026-10-26 (user): .ambientBlur(radius:) / .frostedGlass(radius:) / .color / .view { }
+        background: ZTronHeaderBackground? = nil,         // D61 (user, 2026-10-26): .ambientBlur(radius:) / .frostedGlass(radius:) / .color / .view { }
         overflow: ZTronHeaderOverflow = .uncapped,        // D59 (user): .uncapped / .capped(fraction:) / .refit
         @ViewBuilder header: @escaping (ZTronHeaderProxy) -> Header) -> Self
 }
@@ -471,7 +471,7 @@ public enum ZTronHeaderOverflow: Equatable, Sendable {   // D59 (user, 2026-10-2
     case capped(fraction: CGFloat)                        // R ≤ fraction · H (fraction in 0…1); min limited the same way
     case refit                                            // .aspectRatio(r) → the aspect fit of r in W × H; .fixed / .fit → ≤ H
 }
-public struct ZTronHeaderBackground {                     // 2026-10-26 (user): fills the live frame behind the header's content
+public struct ZTronHeaderBackground {                     // D61 (user, 2026-10-26): fills the live frame behind the header's content
     public static func ambientBlur(radius: CGFloat = 30) -> Self    // a blurred, scaled-to-fill second instance of the header content
     public static func frostedGlass(radius: CGFloat = 20) -> Self   // backdrop blur: the system Material nearest to radius (approximate)
     public static func color(_ color: Color) -> Self
@@ -570,7 +570,7 @@ positions and progress share one convention (0 = expanded, 1 = collapsed); the r
   its resting height is reserved as part of `adjustedContentInset.top` (`aci.top = safe.top + R + contentInset.top (+ refresh hold)`), the
   content's proposal, size and layout never change while the header collapses or stretches (S4.1), the header is drawn in the viewport
   layer above the content (z-order), and accessibility reads it before the content (sort priority).
-- **Content that fits (amended 2026-10-27, review d16):** with a header, content smaller than the viewport is aligned to the TOP vertically
+- **Content that fits (amended 2026-10-27, review d16; D63, pending user confirmation):** with a header, content smaller than the viewport is aligned to the TOP vertically
   (it starts at the header's bottom edge), whatever `defaultScrollAnchor(_:for: .alignment)` or the zoom default (`.center`) says; the
   horizontal alignment is kept. Centred, it sat `pad` below the header (119 pt for a 300 pt content), at rest and under a pull, against
   "the content starts below it". Decision for the lead / user to confirm; the alternative (the header follows the centred content's top,
@@ -593,7 +593,7 @@ height; `min`; `band = max(0, R − min)`;
 | live height `h` | `R − c` | `R − c + g` |
 | header frame / proposal | `(0, top0 + g, W, h)` / `(W, h)`, clipped | `(0, top0, W, h)` / `(W, h)`, clipped |
 | top edge | `top0 + g`: pinned at `top0` except under a pull, where it moves down with the content | pinned at `top0`, always |
-| pull past the top (`g > 0`) | **(amended 2026-10-26, user)** the header keeps its height `R` and moves down with the content by `g`: its bottom edge stays on the content's top and a gap `g` opens ABOVE it, between `top0` and the header's top (the scroll view's background shows; a refresh indicator lives there) | the header grows by `g` from its bottom edge; a `scaledToFill` child zooms in with the pull; the header's bottom edge stays glued to the content's top (no gap) |
+| pull past the top (`g > 0`) | **(amended 2026-10-26, user, D61)** the header keeps its height `R` and moves down with the content by `g`: its bottom edge stays on the content's top and a gap `g` opens ABOVE it, between `top0` and the header's top (the scroll view's background shows; a refresh indicator lives there) | the header grows by `g` from its bottom edge; a `scaledToFill` child zooms in with the pull; the header's bottom edge stays glued to the content's top (no gap) |
 | scroll up (`0 < o′ ≤ band`) | shrinks from the bottom, top pinned: `h = R − c` | same |
 | past the band | `h = min`; the content scrolls by under it; with `min = 0` it has vanished | same |
 | `progress` / `stretch` | `band > 0 ? c / band : 0` / `0` | same / `g` |
@@ -640,7 +640,7 @@ presented insets (`.stretch`: `top0 + R` with `R`'s interpolation), a `.preserve
 `.stretch` hold, width 402 → 241 pt): the indicator jumped 90 pt (`ΔR`) and 80 pt sideways in one frame, then the header caught up
 over 1.2 s; `.preserve`: 90 pt down (the pull from the presentation offset against the committed insets) and 80 pt sideways.
 
-**Background (2026-10-26, user).** `background: ZTronHeaderBackground? = nil` wraps the header in a container whose background fills the
+**Background (D61, user 2026-10-26).** `background: ZTronHeaderBackground? = nil` wraps the header in a container whose background fills the
 header's live frame, below the header's content and below the fade, clipped with it, hidden from accessibility and hit-testing: so an aspect
 ratio ≤ 1 or a refit / aspect-fit content never leaves blank areas. `.ambientBlur(radius:)` = a blurred, scaled-to-fill second instance of the
 header's own content (its body runs once more per cold change: install, parent rebuild, size change; never per frame; its `@State` is its
@@ -656,7 +656,7 @@ whole subtree is replaced by nothing (`accessibilityRepresentation`, iOS 15), so
 though the ambient copy draws them a second time (`accessibilityHidden` alone left the copy's elements inside a `.contain` container
 exposed); it never takes a touch.
 
-**Seamless edges (2026-10-26, user, mission critical).** In every header animation the header's bottom edge stays on the content's top edge,
+**Seamless edges (D62; requirement 2026-10-26, user, mission critical).** In every header animation the header's bottom edge stays on the content's top edge,
 laterally aligned, with no one-frame jumps: system rotations, app-driven animated resizes (Split View, Stage Manager, `withAnimation` size
 changes), `.fit` re-measures, refresh holds, snaps and `scrollTo`. How (M8b-3; measured in the seam lab, a per-frame analysis of simulator
 screen recordings, `scripts/seam/`):
