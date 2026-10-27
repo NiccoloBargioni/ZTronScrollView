@@ -2,7 +2,7 @@
 """Seam lab analyzer v2.2 (M8b-3 R5): per-frame header/content seam from a simulator screen recording.
 
 usage: python3 -I scripts/seam/analyze.py <rec.mov> [--meta meta.json] [--scale 3] [--out DIR] [--dump i,j,...]
-                                          [--last N] [--quiet]
+                                          [--last N] [--quiet] [--open-gap pull|hold]
 
 The seam lab (`-ZTronScreen seamlab`) draws a pure red header, a pure green 80 pt first row, then 40 rows alternating
 pure yellow / magenta (60 pt), on a pure blue background. Every decoded frame (ffmpeg, passthrough timing, timestamps
@@ -61,6 +61,18 @@ single-frame step of the header's thickness, its bottom edge and the content's t
 rest before to the rest after (1.0 = all in one frame; partial = the rest before had no value, the change is counted
 from the segment's first measured frame), also per 60 Hz interval. Frames are in decode (capture) order; the 17.5
 recorder can write scrambled pts, so t is indicative only (summary.timestampsMonotonic).
+
+--open-gap (D65, optional; the default analysis is unchanged, the option only adds frames.csv columns gapExcess /
+hdrBotDev and summary.openGap): a `.preserve` header with `ZTronHeaderPullBehavior.openGap` stays still under a pull and
+the gap below it EQUALS the pull by design, so the raw seam is not the measure there.
+  pull  the pull is the content top's displacement from the FIRST rest span (ctop_c - ctop0): gapExcess = seam - pull
+        (= ctop0 - hdr_bot_c: about 0 when the header's bottom stays where the content's top rested), hdrBotDev =
+        hdr_bot_c - its first-rest value, hdrDev = the header thickness against its first-rest value (both about 0: the
+        header is still at its rest height). Use it for pulls, refresh holds and their ends without a rotation.
+  hold  the gap is the refresh hold, constant while the header and the content move together (a rotation during the
+        hold): for each segment whose rest before and rest after have the same seam (within 1 pt, the open gap),
+        gapExcess = seam - that seam; segments that open or close the gap are listed, not evaluated.
+  summary.openGap: mode, reference, maxGapExcess (|.|, frame), maxHdrBotDev, maxHdrDev, evaluated frames, per segment.
 Outputs frames.csv, summary.json and worst-*.png (annotated: white = header bottom, cyan = header top, black = content
 top (extrapolated under the header), grey = row boundaries used, orange = lateral edges).
 """
@@ -874,6 +886,78 @@ def num(v):
     return v is not None and not (isinstance(v, float) and math.isnan(v))
 
 
+def open_gap_check(mode, measured, segs):
+    """--open-gap (D65): the gap below a still `.openGap` header against the pull (`pull`) or the hold (`hold`); adds
+    gapExcess / hdrBotDev to the frame rows and returns summary.openGap."""
+    def clear(r, key):
+        return num(r.get(key)) and not (key in ("seam", "ctop_c") and r.get("ctopAmb"))
+
+    def med(rs, key):
+        v = [r[key] for r in rs if clear(r, key)]
+        return float(np.median(v)) if v else None
+
+    bounds = [-1] + [x for a, b in segs for x in (a, b)] + [len(measured)]
+    rests = [measured[bounds[j] + 1: bounds[j + 1]] for j in range(0, len(bounds), 2)]   # rests[k] precedes segs[k]
+    out = {"mode": mode}
+    worst = (0.0, None)
+    if mode == "pull":
+        ref = next((rs for rs in rests if med(rs, "ctop_c") is not None and med(rs, "hdr_bot_c") is not None), None)
+        if ref is None:
+            out["error"] = "no rest span with a content top and a header bottom"
+            return out
+        c0, b0, h0 = med(ref, "ctop_c"), med(ref, "hdr_bot_c"), med(ref, "hdr")
+        out["reference"] = {"frames": [ref[0]["frame"], ref[-1]["frame"]], "ctop_c": c0, "hdr_bot_c": b0, "hdr": h0,
+                            "seam": med(ref, "seam")}
+        dev_b, dev_h, pull_max, n = (0.0, None), (0.0, None), 0.0, 0
+        for r in measured:
+            if clear(r, "hdr_bot_c"):
+                r["hdrBotDev"] = round(r["hdr_bot_c"] - b0, 3)
+                if abs(r["hdrBotDev"]) > abs(dev_b[0]):
+                    dev_b = (r["hdrBotDev"], r["frame"])
+            if h0 is not None and clear(r, "hdr") and abs(r["hdr"] - h0) > abs(dev_h[0]):
+                dev_h = (round(r["hdr"] - h0, 3), r["frame"])
+            if clear(r, "seam") and clear(r, "ctop_c"):
+                pull = r["ctop_c"] - c0
+                r["gapExcess"] = round(r["seam"] - pull, 3)
+                pull_max = max(pull_max, pull)
+                n += 1
+                if abs(r["gapExcess"]) > abs(worst[0]):
+                    worst = (r["gapExcess"], r["frame"])
+        out.update(maxHdrBotDev=dev_b[0], maxHdrBotDevFrame=dev_b[1], maxHdrDev=dev_h[0], maxHdrDevFrame=dev_h[1],
+                   maxPull=round(pull_max, 3), evaluatedFrames=n)
+        per = []
+        for k, (a, b) in enumerate(segs):
+            rs = [r for r in measured[a: b + 1] if num(r.get("gapExcess"))]
+            w = max(rs, key=lambda r: abs(r["gapExcess"]), default=None)
+            per.append({"frames": [measured[a]["frame"], measured[b]["frame"]],
+                        "maxGapExcess": w["gapExcess"] if w else None, "frame": w["frame"] if w else None,
+                        "maxPull": round(max((r["ctop_c"] - c0 for r in rs if clear(r, "ctop_c")), default=0.0), 3)})
+        out["segments"] = per
+    else:
+        per, n = [], 0
+        for k, (a, b) in enumerate(segs):
+            before, after = med(rests[k], "seam"), med(rests[k + 1], "seam") if k + 1 < len(rests) else None
+            item = {"frames": [measured[a]["frame"], measured[b]["frame"]], "seamBefore": before, "seamAfter": after}
+            if before is None or after is None or abs(before - after) > 1.0:
+                item["evaluated"] = False
+                per.append(item)
+                continue
+            w = (0.0, None)
+            for r in measured[a: b + 1]:
+                if clear(r, "seam"):
+                    r["gapExcess"] = round(r["seam"] - before, 3)
+                    n += 1
+                    if abs(r["gapExcess"]) > abs(w[0]):
+                        w = (r["gapExcess"], r["frame"])
+            item.update(evaluated=True, maxGapExcess=w[0], frame=w[1])
+            if abs(w[0]) > abs(worst[0]):
+                worst = w
+            per.append(item)
+        out.update(evaluatedFrames=n, segments=per)
+    out.update(maxGapExcess=worst[0], maxGapExcessFrame=worst[1])
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("video")
@@ -883,6 +967,8 @@ def main():
     ap.add_argument("--dump", default="", help="comma-separated frame indices to save as annotated PNG")
     ap.add_argument("--last", type=int, default=None, help="stop after this frame index (debugging)")
     ap.add_argument("--quiet", action="store_true")
+    ap.add_argument("--open-gap", choices=("pull", "hold"), default=None,
+                    help="D65 .openGap: measure the gap below a still header against the pull (see the docstring)")
     args = ap.parse_args()
     meta = json.load(open(args.meta)) if args.meta else {}
     if not meta:
@@ -1096,6 +1182,8 @@ def main():
         "segments": segments, "restSpans": spans,
         "worst": {},
     }
+    if args.open_gap:
+        summary["openGap"] = open_gap_check(args.open_gap, measured, segs)
     for name in ("gap", "overlap", "offscreen", "lateral"):
         if keep.get(name):
             score, i, a, geo = keep[name]
@@ -1117,7 +1205,9 @@ def main():
             # v2
             "family", "orient", "lines", "angleSpread", "angleWorst", "ctopSrc", "ctopK", "ctopAmb", "ctopSplit",
             "ctopCands", "rowResid", "hdr_l_c", "hdr_r_c", "cnt_l_c", "cnt_r_c", "latL", "latR", "latMis",
-            "latMisMin", "hdrStep"]
+            "latMisMin", "hdrStep",
+            # --open-gap (D65)
+            "gapExcess", "hdrBotDev"]
     with open(os.path.join(out, "frames.csv"), "w", newline="") as f:
         wr = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
         wr.writeheader()
@@ -1144,6 +1234,9 @@ def main():
                                                          "maxGapMinContentOffscreen")}),
               "hdrJump", json.dumps(seg["hdrJump"]), "hdrBotJump", json.dumps(seg["hdrBotJump"]),
               "contentTopJump", json.dumps(seg["contentTopJump"]))
+    if "openGap" in summary:
+        og = summary["openGap"]
+        print("openGap", json.dumps({k: og[k] for k in og if k != "segments"}))
 
 
 if __name__ == "__main__":

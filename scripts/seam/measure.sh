@@ -6,6 +6,7 @@
 #   e.g. scripts/seam/measure.sh 7190…60FA rotate out/aspect-rest -- -ZTronHeaderSize aspect -ZTronSeamStart rest
 # env: ZS_SEAM_DD     derived-data path (default: <repo>/.dd/<udid>; one xcodebuild per path)
 #      ZS_SEAM_TIMEOUT seconds before the test run is killed as hung (default 1500)
+#      ZS_SEAM_ANALYZE_ARGS extra analyze.py arguments (default none; e.g. "--open-gap pull", D65)
 # Output in <out-dir>: rec.mov (the recording), meta.json, test.log, frames.csv, summary.json, worst-*.png.
 set -u
 root="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -82,4 +83,4 @@ wait "$rec" 2>/dev/null
 for _ in $(seq 1 50); do ffprobe -v error "$out/rec.mov" >/dev/null 2>&1 && break; sleep 0.2; done
 [ "$rc" -eq 0 ] || echo "warning: the test run exited $rc (measuring the recording anyway)" >&2
 
-python3 -I "$root/scripts/seam/analyze.py" "$out/rec.mov" --meta "$out/meta.json" --out "$out"
+python3 -I "$root/scripts/seam/analyze.py" "$out/rec.mov" --meta "$out/meta.json" --out "$out" ${ZS_SEAM_ANALYZE_ARGS:-}

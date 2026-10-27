@@ -441,7 +441,8 @@ Calibrate the defaults side by side with UIRefreshControl.
 
 A banner-style header laid out as the first thing of the scroll view, above the content. It collapses from its resting height to a
 minimum as the content scrolls up (shrinking from the bottom, its top edge pinned), stays at the minimum while the content scrolls by,
-and reacts to a pull past the top either by moving down with the content at its resting height (`.preserve`, amended 2026-10-26, D61) or by
+and reacts to a pull past the top either by keeping its resting height (`.preserve`: by default it stays still and the gap opens below
+it, or with `ZTronHeaderPullBehavior.followContent` it moves down with the content, amended 2026-10-26 D61 and 2026-10-27 D65) or by
 growing with the pull (`.stretch`). The reference (Exyte) reaches the
 underlying UIScrollView through UIKit introspection; that is forbidden here (S2) and this design uses none of it, nor reflection or private
 API: the header is driven by our own offset state through a leaf modifier. (Amendment 2026-10-19 (user): confirmed, no introspection anywhere.)
@@ -460,6 +461,13 @@ extension ZTronScrollView {
         background: ZTronHeaderBackground? = nil,         // D61 (user, 2026-10-26): .ambientBlur(radius:) / .frostedGlass(radius:) / .color / .view { }
         overflow: ZTronHeaderOverflow = .uncapped,        // D59 (user): .uncapped / .capped(fraction:) / .refit
         @ViewBuilder header: @escaping (ZTronHeaderProxy) -> Header) -> Self
+    /// D65 (user, 2026-10-27): where a `.preserve` header's pull gap opens, for this view (wins over the twin; any order
+    /// with `withScalingHeader`).
+    public func scalingHeaderPullBehavior(_ behavior: ZTronHeaderPullBehavior) -> Self
+}
+extension View {
+    /// D65: the environment twin, for every ZTronScrollView below (the innermost twin wins; the member wins over it).
+    public func ztronScalingHeaderPullBehavior(_ behavior: ZTronHeaderPullBehavior) -> some View
 }
 public enum ZTronHeaderSize: Equatable, Sendable {
     case fixed(min: CGFloat = 0, max: CGFloat)     // resting height = max, collapses to min; no measurement
@@ -467,6 +475,10 @@ public enum ZTronHeaderSize: Equatable, Sendable {
     case fit(min: CGFloat = 0)                     // resting height = the header's ideal height at the scroll view's width (measured)
 }
 public enum ZTronHeaderScalingBehavior: Sendable { case preserve, stretch }
+public enum ZTronHeaderPullBehavior: Hashable, Sendable {  // D65 (user, 2026-10-27): the pull of a .preserve header
+    case openGap                                          // default: the header stays still, the gap (and refresh indicator) opens below it
+    case followContent                                    // D61: the header moves down with the content, the gap opens above it
+}
 public enum ZTronHeaderOverflow: Equatable, Sendable {   // D59 (user, 2026-10-25): a resting height taller than the container
     case uncapped                                         // the size's own R (default); the content may start below the screen
     case capped(fraction: CGFloat)                        // R ≤ fraction · H (fraction in 0…1); min limited the same way
@@ -585,21 +597,30 @@ positions and progress share one convention (0 = expanded, 1 = collapsed); the r
   vertical view.
 - `W` = the viewport width on every axis configuration.
 
-**Geometry (amended; exact rules).** `top0 = safe.top` (the header's top edge, fixed except for the `.preserve` pull below); `R` resting
+**Geometry (amended; exact rules).** `top0 = safe.top` (the header's top edge, fixed except for the `.preserve` `.followContent` pull below); `R` resting
 height; `min`; `band = max(0, R − min)`;
 `o′` = the header-relative offset = content offset + `aci.top` **excluding** the refresh hold, so rest is `o′ = 0`, a pull past the top is
 `o′ < 0` and scrolling up is `o′ > 0` (the pan's rubber band already applies to `o′`, which gives the pull its feel); `c = clamp(o′, 0, band)`
 (collapse travel); `g = max(0, −o′)` (overflow).
 
-| | `.preserve` | `.stretch` |
-|---|---|---|
-| live height `h` | `R − c` | `R − c + g` |
-| header frame / proposal | `(0, top0 + g, W, h)` / `(W, h)`, clipped | `(0, top0, W, h)` / `(W, h)`, clipped |
-| top edge | `top0 + g`: pinned at `top0` except under a pull, where it moves down with the content | pinned at `top0`, always |
-| pull past the top (`g > 0`) | **(amended 2026-10-26, user, D61)** the header keeps its height `R` and moves down with the content by `g`: its bottom edge stays on the content's top and a gap `g` opens ABOVE it, between `top0` and the header's top (the scroll view's background shows; a refresh indicator lives there) | the header grows by `g` from its bottom edge; a `scaledToFill` child zooms in with the pull; the header's bottom edge stays glued to the content's top (no gap) |
-| scroll up (`0 < o′ ≤ band`) | shrinks from the bottom, top pinned: `h = R − c` | same |
-| past the band | `h = min`; the content scrolls by under it; with `min = 0` it has vanished | same |
-| `progress` / `stretch` | `band > 0 ? c / band : 0` / `0` | same / `g` |
+| | `.preserve` `.openGap` (default, D65) | `.preserve` `.followContent` (D61) | `.stretch` |
+|---|---|---|---|
+| live height `h` | `R − c` | `R − c` | `R − c + g` |
+| header frame / proposal | `(0, top0, W, h)` / `(W, h)`, clipped | `(0, top0 + g, W, h)` / `(W, h)`, clipped | `(0, top0, W, h)` / `(W, h)`, clipped |
+| top edge | pinned at `top0`, always | `top0 + g`: pinned at `top0` except under a pull, where it moves down with the content | pinned at `top0`, always |
+| pull past the top (`g > 0`) | **(amended 2026-10-27, user, D65; the pre-D61 rule)** the header stays still at its resting place and height `R`; the content pulls away and a gap `g` opens BETWEEN the header's bottom edge and the content's top (the scroll view's background shows; a refresh indicator lives there) | **(amended 2026-10-26, user, D61)** the header keeps its height `R` and moves down with the content by `g`: its bottom edge stays on the content's top and a gap `g` opens ABOVE it, between `top0` and the header's top (the scroll view's background shows; a refresh indicator lives there) | the header grows by `g` from its bottom edge; a `scaledToFill` child zooms in with the pull; the header's bottom edge stays glued to the content's top (no gap) |
+| scroll up (`0 < o′ ≤ band`) | shrinks from the bottom, top pinned: `h = R − c` | same | same |
+| past the band | `h = min`; the content scrolls by under it; with `min = 0` it has vanished | same | same |
+| `progress` / `stretch` | `band > 0 ? c / band : 0` / `0` | same / `0` | same / `g` |
+
+- **Pull behavior (D65, user 2026-10-27).** `ZTronHeaderPullBehavior` picks the `.preserve` column: the member
+  `scalingHeaderPullBehavior(_:)` on the scroll view, else the innermost environment twin `ztronScalingHeaderPullBehavior(_:)` above it,
+  else `.openGap`. `.stretch` ignores it; so does a banner (a view without the vertical axis), which keeps the `.followContent`
+  translation (only D15's zoomed vertical pan can pull it). It is part of the header's resolved metrics: a change is a cold
+  configuration change (no content body runs; the header builder runs once, as for any re-evaluation of the container); during a live
+  pull the header takes the new mode's place in that update (in the change's animation, if it has one). With `.openGap` the header's
+  live input does not change under a pull at all (only the content's transform moves); the background and the fade follow the header's
+  frame in both modes. `ZTronHeaderGeometry` is the same in both modes (`height` `R − c`, `stretch` 0).
 
 - The header is **clipped** to its frame and **proposed its live height**: an `.overlay(alignment: .bottom…)` inside it is laid out against
   the live frame, so it sticks to the moving bottom edge during both collapse and stretch (the "sticky overlay") and reads the live height
@@ -633,13 +654,16 @@ snapping off, `.stretch` still grows; DEBUG warning when both bounds were given 
 
 **Refresh with the header (amended).** Only S9's API. The indicator placement follows from the live header height: with `.stretch` the
 hold `H` stretches the header by `H` and the indicator floats over the stretched band (overlay placement whatever `overlay:` says, because
-there is no gap); with `.preserve` the indicator sits in the gap above the header, `[top0, top0 + pull]` (height `H` while refreshing; the
-header moved down by `H` with the content, amended 2026-10-26 by the user). Load-more at the bottom is unaffected by the header.
+there is no gap); with `.preserve` the indicator sits in the gap: with `.openGap` (D65, the default) below the still header, at the plain
+base `aci.top − hold` (the resting header's bottom edge, plus `contentInset.top`), `[top0 + R, top0 + R + pull]`, placement as the
+refresher says; with `.followContent` (D61) above the header, `[top0, top0 + pull]` (height `H` while refreshing; the header moved down by
+`H` with the content, amended 2026-10-26 by the user). Load-more at the bottom is unaffected by the header.
 **(Amended 2026-10-27, M8b-s6.)** During an app-driven animated resize while refreshing, the indicator is drawn at the presented
 geometry: its placement is computed in the committed geometry (the resize commit is unanimated) with the pull taken from the target,
 and a render-time transform (`RefreshResizeEffect`, a `GeometryEffect`) moves it by the presented − committed difference at the drawn
 viewport size (`ResizeMath.presented`, as the content's transform): centred in the drawn width, the edge's base moved with the
-presented insets (`.stretch`: `top0 + R` with `R`'s interpolation), a `.preserve` header's `top0` kept. Measured before (seam lab,
+presented insets (`.stretch`: `top0 + R` with `R`'s interpolation; `.preserve` `.openGap`: the plain base, with the insets), a
+`.preserve` `.followContent` header's `top0` kept. Measured before (seam lab,
 `.stretch` hold, width 402 → 241 pt): the indicator jumped 90 pt (`ΔR`) and 80 pt sideways in one frame, then the header caught up
 over 1.2 s; `.preserve`: 90 pt down (the pull from the presentation offset against the committed insets) and 80 pt sideways.
 

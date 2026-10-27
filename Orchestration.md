@@ -404,7 +404,8 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
   resize commit. Code: `ScalingHeader/HeaderTypes.swift`, `HeaderMath.swift`; tests `HeaderMathTests`, `HeaderResizeTests`.
 - D61 (2026-10-26, user, M8b seamless header; numbered 2026-10-27) `.preserve` reverses A1: under a pull past the top the header
   moves down with the content at its resting height (no gap between header and content; the gap, and a `.preserve` refresh
-  indicator, open above it). `withScalingHeader(…, background: ZTronHeaderBackground? = nil)` wraps the header content in a container
+  indicator, open above it). Since D65 this pull is the opt-in `ZTronHeaderPullBehavior.followContent`; the default `.openGap`
+  is A1's still header again. `withScalingHeader(…, background: ZTronHeaderBackground? = nil)` wraps the header content in a container
   that fills the live frame in every animation: `.ambientBlur(radius:)` (a blurred, scaled-to-fill second instance of the header; its
   body runs per cold change, its readers are cold), `.frostedGlass(radius:)` (the system Material closest to the radius, approximate),
   `.color(_:)`, `.view { }`. Code: `ScalingHeader/HeaderTypes.swift`, `HeaderFrameModifier.swift`; SPEC S10.
@@ -436,6 +437,28 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
   can be taller than the region above the keyboard (landscape `.capped(0.5)`: 191 pt over 178 pt): it collapses as the content
   scrolls. Code: `Render/ViewportSpaces.swift`, `ZTronScrollView.swift`, `ScalingHeader/HeaderMath.swift`; tests `HeaderKeyboardTests`,
   `HeaderMathTests`; seam lab `kbreal` / `kbrotate`; SPEC S10 "Overflow".
+- D65 (2026-10-27, user: "I would like the scaling header (open gap / follow content) to become a viewmodifier that defaults to
+  .openGap") The pull of a `.preserve` scaling header is a setting, `public enum ZTronHeaderPullBehavior: Hashable, Sendable {
+  case openGap, followContent }`, default `.openGap`: the environment twin `View.ztronScalingHeaderPullBehavior(_:)` (every
+  `ZTronScrollView` below it; it travels in `ztronScrollConfig.headerPull`, the innermost twin wins) and the member
+  `ZTronScrollView.scalingHeaderPullBehavior(_:)` (wins; order-independent with `withScalingHeader`, which stays member-only).
+  `.openGap` restores the pre-D61 math (bd6ee6a^): the header stays still at its resting place and height (translation 0), the
+  gap opens between its bottom edge and the content's top (`HeaderMath.gapBelow`, pre-D61 `contentGap`), the `.preserve` top
+  refresh indicator sits there at the plain base `aci.top − hold` (`refreshTop` nil; it follows the inset in a resize,
+  `RefreshResizeEffect` `baseFollowsInset`), `obscuredDelta` is `h − R` (0 under a pull: the indicators' track starts at the
+  still header's bottom). `.followContent` is D61 unchanged. `.stretch` ignores the setting; a banner (no vertical axis) is
+  unaffected (it keeps D61's translation, reachable only through D15's zoomed vertical pan). Mechanism: the container's body,
+  which already reads `envConfig` for the other config twins (a View body, not a modifier returning bare content), resolves
+  member, else twin, else `.openGap` into `HeaderSizing.pull` → `HeaderMetrics.pull`, so a change is a cold spec change
+  (`headerSpecChanged()` through `onChangeCompat(of: sizing)`): no content body runs (the header builder runs once, as for any
+  container re-evaluation, R7), and during a live pull the header takes the new mode's place in that update (animated if the
+  change is). Both header paths read `HeaderLiveInput.translation` (16+ `HeaderSlotLayout` placement, 15/16 `HeaderTranslation`);
+  with `.openGap` it is always 0, so the live input under a pull differs from the rest's in `o′` only (no per-frame cost, D62
+  bit-stability untouched); background and fade are inside the framed stack in both modes. Code: `ScalingHeader/HeaderTypes.swift`,
+  `HeaderMath.swift`, `HeaderSpec.swift`, `ScalingHeaderAPI.swift`, `Modifiers/ScrollConfigTwins.swift`, `ZTronScrollView.swift`;
+  tests `HeaderMathTests`, `HeaderInsetConsumerTests`, `HeaderLayoutFrameTests`, `HeaderPullBehaviorTests`, `HeaderUITests`
+  (`testProfileOpenGapHeaderStaysStillUnderAPull`; the D61 test runs with `-ZTronHeaderPull followContent`); demo
+  `-ZTronHeaderPull`, seam lab `-ZTronSeamPull` (`opengap` / `follow`, `analyze.py --open-gap pull|hold`); SPEC S10.
 - D16 (user, 2026-10-18) Physics and the post-rotation re-centering are generated and tested by **Fable 5.1**
   (builder agents with model fable). Re-centering ports ZTronMapKit's normalized-centre discipline
   (ContentGeometry: capture before resize, restore = centre × newContentSize − newViewport/2, clamp, centre smaller

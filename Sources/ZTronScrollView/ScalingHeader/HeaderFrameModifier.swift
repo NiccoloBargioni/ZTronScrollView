@@ -14,8 +14,9 @@ import SwiftUI
 /// resolves it; 16+: `HeaderSlotLayout`, 15 / forced: `HeaderFallbackFrame`), and `p`, the stretch and the `.preserve`
 /// translation come from the state (the translation is the pull with `ZTronHeaderPullBehavior.followContent`, D61, and
 /// always 0 with the default `.openGap`, D65: that header stays still and the gap opens below it, by the content's own
-/// transform; the background and the fade are inside the framed stack, so they follow the frame in both modes). An animated resize then interpolates the header with the content; the unanimated
-/// resize commit changes nothing in the header while the progress is kept (D51).
+/// transform; the background and the fade are inside the framed stack, so they follow the frame in both modes). An
+/// animated resize then interpolates the header with the content; the unanimated resize commit changes nothing in the
+/// header while the progress is kept (D51).
 struct HeaderFrameModifier: ViewModifier {
     let state: ZTronScrollState
     let size: ZTronHeaderSize

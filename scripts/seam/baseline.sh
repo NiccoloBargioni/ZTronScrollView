@@ -10,7 +10,9 @@
 #              scroll command 0.5 s into the width animation closes the open resize inside its transaction), together
 #              (band + -ZTronSeamWidthWithScroll 1: the size change and the scroll in one withAnimation), height<digits> (with width:
 #              -ZTronSeamAnimateHeight 0.<digits>, the scroll view's height animates top-pinned instead of its width; height04 = 0.4), hold (-ZTronSeamHold 1: a held refresh from launch, white probe indicator),
-#              sticky (-ZTronSeamSticky 1: a white bar in a bottom-aligned overlay of the header); e.g. fixed-rest-preserve-rotate, aspect-half-preserve-width,
+#              sticky (-ZTronSeamSticky 1: a white bar in a bottom-aligned overlay of the header), opengap | follow (D65,
+#              -ZTronSeamPull openGap | followContent: where a .preserve pull's gap opens; analyze with --open-gap for opengap
+#              pulls, see analyze.py); e.g. fixed-rest-preserve-rotate, aspect-half-preserve-width,
 #              aspect-rest-preserve-rotate-capped-forced, fixed-rest-preserve-pull; each lands in <out-root>/<scenario>/.
 # env: ZS_SEAM_DD (derived data, see measure.sh), ZS_SEAM_INSET (adds -ZTronSeamInset <pt>).
 root="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -23,6 +25,8 @@ for sc in "$@"; do
       forced) extra+=(--forced) ;;
       capped|refit|uncapped|capped[0-9]*) extra+=(-ZTronHeaderOverflow "$x") ;;   # capped25 = .capped(fraction: 0.25) (D64)
       ambient|glass|color|view) extra+=(-ZTronHeaderBackground "$x") ;;
+      opengap) extra+=(-ZTronSeamPull openGap) ;;          # D65: the .preserve pull opens the gap below the still header (the default)
+      follow) extra+=(-ZTronSeamPull followContent) ;;     # D65: the .preserve header follows the content (D61), the gap above it
       marker) extra+=(-ZTronSeamMarker 1) ;;
       horizontal) extra+=(-ZTronSeamAxis horizontal) ;;   # a horizontal scroll view: the header is a banner (review d16)
       grow) extra+=(-ZTronSeamFitGrow 1) ;;   # with width + fit: seam.width animates the header's content 16:9 <-> 4:3 (review d16)
@@ -46,7 +50,12 @@ for sc in "$@"; do
     esac
   done
   [ -n "${ZS_SEAM_INSET:-}" ] && extra+=(-ZTronSeamInset "$ZS_SEAM_INSET")
+  # D65: an .openGap pull is measured against the pull, a rotation / resize during its hold against the hold's gap.
+  analyze=""
+  if [ "$behavior" = "preserve" ] && [[ "-$rest-" == *-opengap-* ]]; then
+    case "$test" in pull) analyze="--open-gap pull" ;; rotate|width) [[ "-$rest-" == *-hold-* ]] && analyze="--open-gap hold" ;; esac
+  fi
   echo "=== $sc"
-  "$root/scripts/seam/measure.sh" "$udid" "$test" "$out/$sc" -- -ZTronHeaderSize "$size" -ZTronSeamStart "$start" \
-    -ZTronHeaderBehavior "$behavior" "${extra[@]}" 2>&1 | grep -E '^\{|^segment|Executed|TEST (SUCCEEDED|FAILED)|hung|warning: the test'
+  ZS_SEAM_ANALYZE_ARGS="$analyze" "$root/scripts/seam/measure.sh" "$udid" "$test" "$out/$sc" -- -ZTronHeaderSize "$size" -ZTronSeamStart "$start" \
+    -ZTronHeaderBehavior "$behavior" "${extra[@]}" 2>&1 | grep -E '^\{|^segment|^openGap|Executed|TEST (SUCCEEDED|FAILED)|hung|warning: the test'
 done
