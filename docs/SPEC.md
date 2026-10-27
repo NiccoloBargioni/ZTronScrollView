@@ -659,7 +659,12 @@ screen recordings, `scripts/seam/`):
   modifiers), so the state's `R` (the content's inset) and the layout's agree in the same commit. An app-driven animated resize therefore
   interpolates the header with the content. While a resize is open `p`, the stretch and the `.preserve` translation are the resize intent's
   anchor, bit-stable across the resize's unanimated commit (any changed value, even one ulp, re-sets the frame without animation and the
-  whole in-flight change jumps).
+  whole in-flight change jumps). **(Amended 2026-10-27, M8b-s6.)** The slot respects the safe areas the content adjusts for at the top AND the
+  bottom (it ignores only the side edges), so its proposed height `H` IS the overflow container, from the same layout pass; no committed
+  inset enters the layout. It reached the bottom and subtracted the committed bottom inset before: a top-pinned animated height change
+  moves the scroll view's bottom off the home indicator (bottom inset 34 → 0 at the commit), so the animated pass resolved an engaged
+  `.capped` / `.refit` limit against `H − 34` and the commit re-set the frame (seam lab, `capped`, height to 0.4: 70 pt in one frame on 27.0,
+  a 17 pt overlap on 17.5; unit test `HeaderHeightResizeTests`).
 - **The header offset is animatable data.** Outside a resize, `p`, the stretch, the translation and `h` are derived per frame from the header
   offset `o′`, which is the animatable data of the header's layout (16+ the slot `Layout`, 15 the frame and translation modifiers). A
   transaction-driven scroll (`withAnimation { state.scroll(to:) }`, `scrollTo` with a SwiftUI animation, a SwiftUI-animated refresh reset)
