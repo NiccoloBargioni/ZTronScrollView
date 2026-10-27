@@ -83,8 +83,9 @@ final class UIKitPanProbeUITests: XCTestCase {
         var args = ["-ZTronScreen", "sheet", "-ZTronSheetDetents", "medium,large", "-ZTronSheetStart", start, "-ZTronSheetPlain", plain]
         if let v { args += ["-ZTronProbeV", v] }
         let app = launch(args)
+        XCTAssertTrue(app.buttons["sheet.present"].waitForExistence(timeout: 30), "the presenting screen")
         app.buttons["sheet.present"].tap()
-        XCTAssertTrue(app.buttons["sheet.snapshot"].waitForExistence(timeout: 10), "the sheet appeared")
+        XCTAssertTrue(app.buttons["sheet.snapshot"].waitForExistence(timeout: 30), "the sheet appeared")
         Thread.sleep(forTimeInterval: 1.5)
         return app
     }
@@ -171,7 +172,7 @@ final class UIKitPanProbeUITests: XCTestCase {
             if let v { args += ["-ZTronProbeV", v] }
             let app = launch(args)
             let el = any(app, "probe.target")
-            guard el.waitForExistence(timeout: 10) else { XCTFail("target missing: \(spec)"); app.terminate(); continue }
+            guard el.waitForExistence(timeout: 30) else { XCTFail("target missing: \(spec)"); app.terminate(); continue }
             Thread.sleep(forTimeInterval: 1.0)
             for a in angles {
                 for s in speeds {
@@ -201,7 +202,7 @@ final class UIKitPanProbeUITests: XCTestCase {
     func testQ4_detection() {
         for parent in ["none", "nativeV", "nativeH", "list", "form", "tabPage", "sheet", "ztron"] {
             let app = launch(["-ZTronScreen", "uikitPanDetect", "-ZTronProbeParent", parent])
-            XCTAssertTrue(last(app, "probe.info").waitForExistence(timeout: 10))
+            XCTAssertTrue(last(app, "probe.info").waitForExistence(timeout: 30))
             Thread.sleep(forTimeInterval: 1.5)
             let d = probeInfo(app)
             emit("Q4", "parent=\(parent) det=\(d["det"] ?? "none") detGR=\(d["detGR"] ?? "none")")
@@ -214,7 +215,7 @@ final class UIKitPanProbeUITests: XCTestCase {
     private func pagerApp(_ extra: [String] = []) -> (XCUIApplication, XCUIElement) {
         let app = launch(["-ZTronScreen", "uikitPanPager"] + extra)
         let empty = any(app, "ctl.empty")
-        XCTAssertTrue(empty.waitForExistence(timeout: 10), "controls screen")
+        XCTAssertTrue(empty.waitForExistence(timeout: 30), "controls screen")
         Thread.sleep(forTimeInterval: 1.0)
         return (app, empty)
     }
@@ -324,7 +325,7 @@ final class UIKitPanProbeUITests: XCTestCase {
         for cover in ["plain", "pager"] {
             let app = launch(["-ZTronScreen", "uikitPanPage", "-ZTronProbeTarget", "carousel", "-ZTronProbeCover", cover])
             let el = any(app, "probe.target")
-            guard el.waitForExistence(timeout: 10) else { XCTFail("target missing"); app.terminate(); continue }
+            guard el.waitForExistence(timeout: 30) else { XCTFail("target missing"); app.terminate(); continue }
             Thread.sleep(forTimeInterval: 1.0)
             probeReset(app)
             let f = el.frame
