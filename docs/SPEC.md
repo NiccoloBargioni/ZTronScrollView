@@ -632,6 +632,13 @@ snapping off, `.stretch` still grows; DEBUG warning when both bounds were given 
 hold `H` stretches the header by `H` and the indicator floats over the stretched band (overlay placement whatever `overlay:` says, because
 there is no gap); with `.preserve` the indicator sits in the gap above the header, `[top0, top0 + pull]` (height `H` while refreshing; the
 header moved down by `H` with the content, amended 2026-10-26 by the user). Load-more at the bottom is unaffected by the header.
+**(Amended 2026-10-27, M8b-s6.)** During an app-driven animated resize while refreshing, the indicator is drawn at the presented
+geometry: its placement is computed in the committed geometry (the resize commit is unanimated) with the pull taken from the target,
+and a render-time transform (`RefreshResizeEffect`, a `GeometryEffect`) moves it by the presented − committed difference at the drawn
+viewport size (`ResizeMath.presented`, as the content's transform): centred in the drawn width, the edge's base moved with the
+presented insets (`.stretch`: `top0 + R` with `R`'s interpolation), a `.preserve` header's `top0` kept. Measured before (seam lab,
+`.stretch` hold, width 402 → 241 pt): the indicator jumped 90 pt (`ΔR`) and 80 pt sideways in one frame, then the header caught up
+over 1.2 s; `.preserve`: 90 pt down (the pull from the presentation offset against the committed insets) and 80 pt sideways.
 
 **Background (2026-10-26, user).** `background: ZTronHeaderBackground? = nil` wraps the header in a container whose background fills the
 header's live frame, below the header's content and below the fade, clipped with it, hidden from accessibility and hit-testing: so an aspect

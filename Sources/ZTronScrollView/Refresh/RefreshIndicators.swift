@@ -255,13 +255,23 @@ struct RefreshEdgeIndicator: View {
     var body: some View {
         ChromeLeaf(state, channels: [.offset, .metrics]) { sample in
             let m = sample.metrics
-            let pull = RefreshMath.signedPull(edge: edge, offset: sample.offset, zoom: sample.zoom, metrics: m,
+            // While an app-driven animated resize is open (M8b-s6), `m` is the committed geometry and the content is drawn
+            // at the presented one (`ResizeMath` at the drawn size): the pull comes from the target (realised at the
+            // committed geometry, an untracked read) instead of the presentation offset (drawn against the presented
+            // insets: measured that against the committed ones, it jumped by the inset change), and `RefreshResizeEffect`
+            // moves the placement to the presented geometry at the drawn size.
+            let open = m.resize.isOpen
+            let target = open ? state.peek : nil
+            let pull = RefreshMath.signedPull(edge: edge, offset: target?.targetOffset ?? sample.offset,
+                                              zoom: target?.targetZoom ?? sample.zoom, metrics: m,
                                               alignment: state.contentAlignment)
             let (base, overlay) = RefreshIndicatorMath.base(edge: edge, metrics: m, overlay: spec.overlay)
             indicator.modifier(RefreshPlacementEffect(
                 pull: pull, edge: edge, style: spec.style, overlay: overlay, length: spec.configuration.indicatorHeight,
                 refreshing: refresh.mode == .refreshing || (retract == .spinner && !overlay), refresh: refresh, retract: retract,
                 viewport: m.viewportSize, base: base))
+            .modifier(RefreshResizeEffect(commit: m.resize, edge: edge,
+                                          baseFollowsInset: edge != .top || HeaderMath.refreshTop(m)?.overlay != false))
         }
     }
 
@@ -331,6 +341,47 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .clipShape(RefreshClip(rect: placement?.clip ?? .zero))
+    }
+}
+
+/// The indicator during an open app-driven animated resize (Split View, Stage Manager, a `withAnimation` size change;
+/// M8b-s6): `RefreshPlacementEffect` places it in the COMMITTED geometry (the resize commit is unanimated), while the
+/// viewport and the content are drawn at the presented one, interpolated by the drawn size exactly as the content's
+/// transform does (`ResizeMath.presented`). This effect moves the placement by the difference at the drawn size, a
+/// render-time transform: centred across the edge in the drawn width / height, the edge's base moved with the presented
+/// insets (a `.stretch` header's `top0 + R` with them: `aci.top` moves by `ΔR`), a `.preserve` header's base (`top0`, the
+/// safe-area top) kept. Measured before (seam lab, `.stretch` hold, width 402 → 241 pt): the indicator jumped 90 pt (`ΔR`)
+/// and 80 pt sideways in one frame at the commit, then the header and the viewport caught up over the animation.
+/// Identity outside an open resize.
+nonisolated struct RefreshResizeEffect: GeometryEffect {
+    let commit: ResizeCommit
+    let edge: Edge
+    /// Whether the edge's base is the adjusted inset (no header, `.stretch`, the end edges) or stays (`.preserve`: `top0`).
+    let baseFollowsInset: Bool
+
+    func effectValue(size: CGSize) -> ProjectionTransform {
+        let d = Self.delta(commit: commit, edge: edge, baseFollowsInset: baseFollowsInset, size: size)
+        return ProjectionTransform(CGAffineTransform(translationX: d.x, y: d.y))
+    }
+
+    /// The presented placement minus the committed one at the drawn size (pure, testable).
+    static func delta(commit: ResizeCommit, edge: Edge, baseFollowsInset: Bool, size: CGSize) -> CGPoint {
+        let cur = commit.current
+        guard commit.isOpen, cur.viewport.width > 0, cur.viewport.height > 0, size.width > 0, size.height > 0
+        else { return .zero }
+        let p = ResizeMath.presented(commit, size: size)
+        let dw = size.width - cur.viewport.width, dh = size.height - cur.viewport.height
+        let top = p.insets.top - cur.insets.top, bottom = p.insets.bottom - cur.insets.bottom
+        let leading = p.insets.leading - cur.insets.leading, trailing = p.insets.trailing - cur.insets.trailing
+        let follow: CGFloat = baseFollowsInset ? 1 : 0
+        let d: CGPoint
+        switch edge {
+        case .top: d = CGPoint(x: (dw + leading - trailing) / 2, y: top * follow)
+        case .bottom: d = CGPoint(x: (dw + leading - trailing) / 2, y: dh - bottom * follow)
+        case .leading: d = CGPoint(x: leading * follow, y: (dh + top - bottom) / 2)
+        case .trailing: d = CGPoint(x: dw - trailing * follow, y: (dh + top - bottom) / 2)
+        }
+        return CGPoint(x: d.x.isFinite ? d.x : 0, y: d.y.isFinite ? d.y : 0)
     }
 }
 
