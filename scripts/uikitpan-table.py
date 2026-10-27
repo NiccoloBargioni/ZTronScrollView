@@ -38,6 +38,9 @@ def rows_by_q(paths):
 
 
 def table(head, rows):
+    if not rows:
+        print("(no rows)\n")
+        return
     print("| " + " | ".join(head) + " |")
     print("|" + "---|" * len(head))
     for r in rows:

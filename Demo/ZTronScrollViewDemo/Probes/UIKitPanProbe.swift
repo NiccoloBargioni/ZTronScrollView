@@ -434,7 +434,8 @@ final class ProbePanDriver: NSObject, UIGestureRecognizerDelegate {
         }
     }
 
-    /// V `ctl` (Q7): V off, and the pan waits for a recognizer on a `UIControl` (UISlider's own pan on 26+) to fail.
+    /// V `ctl` (Q7): V off, the pan waits for a recognizer on a `UIControl` (UISlider's own pan on 26+) to fail, and it never
+    /// receives a touch whose hit view is a UISlider / UISwitch (`shouldReceive`).
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldRequireFailureOf other: UIGestureRecognizer) -> Bool {
         guard ProbeArgs.v == "ctl", other.view is UIControl else { return false }
         count("requireFailure.control")
@@ -445,6 +446,12 @@ final class ProbePanDriver: NSObject, UIGestureRecognizerDelegate {
     /// Window route: the touch began inside the viewport rect and UIKit's hit view contains the anchor (`desc`, the design's
     /// rule) or shares the anchor's view-controller root view (`root`). Both answers are counted; `-ZTronProbeReceive` picks.
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        // V `ctl`: a drag that starts on a control whose value follows the finger stays the control's (17.5's UISlider has no recognizer
+        // to wait for).
+        if ProbeArgs.v == "ctl", touch.view is UISlider || touch.view is UISwitch {
+            count("receive.control")
+            return false
+        }
         guard let anchor else { return true }
         guard CGRect(origin: .zero, size: model.viewport).contains(touch.location(in: anchor)) else {
             count("receive.noRect")
