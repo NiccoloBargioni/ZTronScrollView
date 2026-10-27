@@ -11,10 +11,12 @@ final class LabelModel: ObservableObject { @Published var label = "a" }
 
 @MainActor
 func host<V: View>(_ view: V) -> UIWindow {
+    ScrollViewWindows.retireFinished()
     let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 200, height: 200))
     window.rootViewController = UIHostingController(rootView: view)
     window.makeKeyAndVisible()
     pump(0.1)
+    ScrollViewWindows.keepIfScrolling(window)
     return window
 }
 

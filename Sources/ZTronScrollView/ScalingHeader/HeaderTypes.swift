@@ -30,7 +30,7 @@ public enum ZTronHeaderSize: Equatable, Sendable {
 
 /// What the resting height does when it does not fit the scroll view's container: the viewport below the safe area the
 /// content adjusts for, `W × H` (e.g. a full-width 16:9 banner in landscape: 874 / (16/9) = 491 pt on a 381 pt tall
-/// container, so the content starts below the screen). User decision 2026-10-25 (D52).
+/// container, so the content starts below the screen). User decision 2026-10-25 (D59).
 public enum ZTronHeaderOverflow: Equatable, Sendable {
     /// The size's own resting height, even when it is taller than the container (the content then starts below it).
     /// The default.

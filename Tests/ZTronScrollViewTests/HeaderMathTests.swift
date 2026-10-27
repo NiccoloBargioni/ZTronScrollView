@@ -234,7 +234,7 @@ import Testing
         #expect(HeaderMath.keepProgress(offsetY: 0, old: Self.metrics(nil), new: new) == nil, "install: the plain inset rule")
     }
 
-    /// D52 (user, 2026-10-25): the overflow policy. A full-width 16:9 banner in landscape (874 pt wide, a 381 pt tall
+    /// D59 (user, 2026-10-25): the overflow policy. A full-width 16:9 banner in landscape (874 pt wide, a 381 pt tall
     /// container below the 21 pt bottom safe area) is 491.625 pt uncapped.
     @Test func theOverflowPolicyLimitsTheRestingHeightAndMin() {
         func r(_ size: ZTronHeaderSize, _ policy: ZTronHeaderOverflow, natural: CGFloat? = nil) -> HeaderMetrics? {
