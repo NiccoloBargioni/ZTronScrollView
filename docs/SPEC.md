@@ -663,9 +663,17 @@ screen recordings, `scripts/seam/`):
   offscreen only under a compositing effect applied above it, an ancestor's opacity < 1 or blend mode, exactly when UIKit's group opacity
   renders a `UIScrollView`'s subtree offscreen too; it adds no rasterization, filter or mask, unit-tested). Neither group runs a content or
   header body, and both are fixed at state creation, so the identity never changes. Open: the offscreen cost on a real 15/16 device.
-- **The resting height of `.fit`** is adopted in the viewport commit of the same update (see Natural height).
+- **The resting height of `.fit`** is adopted in the viewport commit of the same update (see Natural height). On 15–16 the measuring pass
+  arms in the commit's own update when the committed width is not the one it last measured at, so a rotation's measurement joins the open
+  resize inside UIKit's animation block (armed one update later through `onChange`, it landed after the never-animated resize had closed:
+  header and content jumped 98 pt at the rotation's start, forced lane).
 - The scroll view clips at its own frame; a `.preserve` gap and the safe areas outside that frame show what is behind the scroll view.
-- Known limit: on the 15 path a `.fit` header inside the band keeps a commit-time step on an app-driven resize (its `R` is the state's there).
+- Known limit: on the 15 path a `.fit` header inside the band keeps a commit-time step on an app-driven resize (its `R` is the state's there;
+  forced lane: 45 pt at half collapse). Rotations are seamless there.
+- Known limit (open, M8b-s4): a scroll command that overlaps an open animated resize is not seamless. Issued while the resize animates, the
+  command ends the resize (M5 intervention) and the content takes the committed geometry at once while the header keeps interpolating
+  (seam lab: 26 pt gap, 48 pt lateral); issued in the size change's own `withAnimation`, the command is dropped by the resize but its target
+  moved the header offset `o′` in that animated transaction, so the header lands at its final frame at once (45 pt).
 
 **Snapping (kept; convention amended).** Only inside the band; positions as collapse progress (0 expanded, 1 collapsed; default `[0, 1]`).
 `.immediately` resolves the release target to the nearest position, velocity-aware, through the normal target pipeline after the user's
