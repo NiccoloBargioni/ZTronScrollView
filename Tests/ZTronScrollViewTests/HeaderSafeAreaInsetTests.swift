@@ -78,18 +78,23 @@ struct HeaderSafeAreaInsetTests {
     /// 0.8 pt per 60 Hz frame at the curve's steepest), landing at the new rest. The animation runs on the render clock,
     /// the samples on `pump(1/60)`, a wall-clock spin that overruns under host load: several frames drawn between two
     /// samples gave steps of 2.3-2.7 pt next to 0.8 pt ones on a continuous curve (a raw `< 2` per sample failed about
-    /// half of the 27.0 runs). So a step is judged against the 60 Hz frames that elapsed between its two samples (2 pt
-    /// per frame), and no single step may carry half of the whole change (the seam lab's PASS rule; the unanimated write
+    /// half of the 27.0 runs). A sample right after a stall can also still show the frame that was in flight when it
+    /// began, and the next one catches up (27.0 at load: 5.6 pt over a 26-frame stall, then 16.8 pt in one frame, both
+    /// on the easeInOut curve). So a step is judged against the 60 Hz frames of its own interval and the one before it
+    /// (1 pt per frame: 2 pt for two one-frame intervals, the former bound), and a step with no stall around it (both
+    /// intervals within 3 frames) may not carry half of the whole change (the seam lab's PASS rule; the unanimated write
     /// this suite guards against moved all of it in one frame).
     func expectDrawnWithTheCurve(_ r: (before: CGFloat, after: CGFloat, drawn: [CGFloat], seen: [TimeInterval],
                                        r: (CGFloat, CGFloat), top: CGFloat, container: CGFloat), _ label: String) {
         let steps = zip(r.drawn.dropFirst(), r.drawn).map { abs($0 - $1) }
         let frames = zip(r.seen.dropFirst(), r.seen).map { max(1, ($0 - $1) * 60) }
-        let perFrame = zip(steps, frames).map { $0 / $1 }
+        let window = frames.indices.map { frames[$0] + ($0 > 0 ? frames[$0 - 1] : 1) }
+        let perFrame = zip(steps, window).map { $0 / $1 }
         let change = abs(r.after - r.before)
+        let unstalled = steps.indices.filter { window[$0] <= 3 }.map { steps[$0] }
         #expect(r.drawn.count > 30, "\(label): drawn \(r.drawn)")
-        #expect((perFrame.max() ?? 0) < 2, "\(label): worst step per frame \(perFrame.max() ?? 0), steps \(steps), frames \(frames)")
-        #expect((steps.max() ?? 0) < 0.5 * change, "\(label): worst step \(steps.max() ?? 0) of \(change) in \(r.drawn)")
+        #expect((perFrame.max() ?? 0) < 1, "\(label): worst step per frame \(perFrame.max() ?? 0), steps \(steps), frames \(frames)")
+        #expect((unstalled.max() ?? 0) < 0.5 * change, "\(label): worst step \(unstalled.max() ?? 0) of \(change) in \(r.drawn)")
         #expect(abs((r.drawn.last ?? 0) - r.after) < 0.5, "\(label): lands at \(r.drawn.last ?? .nan) vs \(r.after)")
     }
 
