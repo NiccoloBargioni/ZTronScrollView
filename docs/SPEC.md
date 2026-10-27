@@ -706,7 +706,13 @@ screen recordings, `scripts/seam/`):
   (t < 0). The content size, insets and header geometry are extrapolated along the same line. Clamped, the content sat at
   the end geometry while the header overshot (seam lab, `.spring(response: 0.55, dampingFraction: 0.5)`: 14.5 pt seam and
   13 pt lateral on 27.0, 11 pt capped) or froze at the snapshot while the header kept moving (retarget 0.5 s into a 1.2 s
-  change: 23 pt). The default `.spring()` overshoots about 1 % and stayed under 1 pt. Unit tests `ResizeExtrapolationTests`.
+  change: 23 pt). The default `.spring()` overshoots about 1 % and stayed under 1 pt. Exact while the drawn values lie on
+  one line with the size (a toggle back, a single-axis change with `R` linear between the ends); a retarget to a third
+  size off that line follows the second commit's line. Measured after (M8b-s6 close; 27.0 / 17.5 / forced): the bouncy
+  spring width change 0.33 / 0.5 / 0.33 pt seam, lateral ≤ 0.33; capped height 0.5 / 0.5 pt (forced: F6); retarget
+  0.33 pt on all three (capped forced: F6). With `.refit` at 0.25 of the height the frame is shorter than `R` and clips
+  the header: the "header" step of 26.7 pt in one frame (hJ 0.85–0.89 against a 31 pt net change) is the bouncy frame's
+  own velocity, header and clip moving together, seam ≤ 0.5. Unit tests `ResizeExtrapolationTests`.
 - **Safe-area steps (amended 2026-10-27, M8b-s6 close).** SwiftUI re-evaluates the safe area of the scroll view's animated
   frame in stages, outside the app's transaction. Measured on a bottom-pinned height change (a banner or search field
   inserted above the scroll view; its top leaves the top safe area): the animated layout reports the new height with the
@@ -720,9 +726,14 @@ screen recordings, `scripts/seam/`):
   content 62 pt below the header on 27.0, 59 pt on 17.5, closing over the 1.2 s animation; a `.stretch` refresh indicator
   with it). SwiftUI draws a step either before it reports it (the first frame above, 27.0 and 17.5) or one frame after (17.5:
   the bottom extension at the end, reported while the frame is still drawn at 303.85 pt); the state tells them apart from
-  the effect's recent drawn sizes (`ZTronScrollState.stepDrawn`, a linear prediction with and without the step), and the
-  undrawn frame keeps the track before the step (`ResizeCommit.stepFallback`; without it a capped header's content sat
-  4.7 pt above it for that frame). Unit tests `ResizeSafeAreaStepTests`.
+  the effect's recent drawn sizes (`ZTronScrollState.stepDrawn`, a linear prediction with and without the step; a step no
+  larger than twice the recent per-frame motion, the reverse change's 3–4 pt bottom steps, counts as drawn: as undrawn
+  they reached 1.17 pt), and the undrawn frame keeps the track before the step (`ResizeCommit.stepFallback`; without it a
+  capped header's content sat 4.7 pt above it for that frame). Measured after (M8b-s6 close; 27.0 / 17.5 / forced,
+  bottom-pinned height to 0.4, both directions): uncapped 0.33 / 0.33 / 0.33 pt, capped at rest and half collapsed
+  ≤ 0.5 pt on 27.0 and 17.5 (forced: F6), `.refit` at 0.25 ≤ 0.5 pt; height and width together ≤ 0.5 pt, lateral ≤ 0.3;
+  `.stretch` hold indicator within 1.2 pt of its rest place (was 59 pt on 17.5), `.preserve` 0.67. Unit tests
+  `ResizeSafeAreaStepTests`.
 - **The resting height of `.fit`** is adopted in the viewport commit of the same update (see Natural height). On 15–16 the measuring pass
   arms in the commit's own update when the committed width is not the one it last measured at, so a rotation's measurement joins the open
   resize inside UIKit's animation block (armed one update later through `onChange`, it landed after the never-animated resize had closed:

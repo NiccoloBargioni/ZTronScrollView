@@ -105,3 +105,45 @@ Tests (M8b-s6):
 - `HeaderUITests` + `ResizeUITests` + `ProofUITests` + `RefreshUITests`: 43/43 on 27.0 preferred and 17.5; 27.0 forced 42/43
   (`ProofUITests.testWithAnimationScroll` content.body 1 once; that screen has no header or refresher; ProofUITests forced
   × 3 iterations: 18/18).
+Verifier defects (independent verifier on e0ae900, three break probes; all pre-existing mechanisms, fixed):
+- vbottom (high): a bottom-pinned animated height change (the scroll view's top leaves the top safe area) put the content
+  62 pt below the header (27.0; 59 pt on 17.5), closing over the animation; a `.stretch` hold indicator with it. Root cause
+  (DEBUG event trace of the effect's drawn sizes, `-ZTronSeamInfo 2`): SwiftUI reports the change in stages. The animated
+  layout reports the new height with the OLD top inset (874 → 373.3 pt, top 62, bottom 34 → 0); the first animated frame
+  drops the 62 pt top extension at once (drawn size 874 → 812) and reports top 62 → 0; the bottom extension comes back as a
+  step at the end; the reverse change brings the bottom one back in 3–4 pt steps over its last frames and the top one at
+  its end. The second report was committed as a new transition from the drawn snapshot, which kept the old top inset under a
+  frame that had lost it. Fix: a viewport change that only moves the safe-area extension (`isSafeAreaStep`: size minus the
+  insets on the ignored edges unchanged) shifts the open transition (`ResizeMath.shifted`: same progress, both ends moved);
+  a step reported before it is drawn (17.5, the end step: reported at 303.85, drawn at 337.67 one frame later) keeps the
+  undrawn frame on the old track (`ResizeCommit.stepFallback`, decided by `ZTronScrollState.stepDrawn` from the probe's
+  last three drawn sizes; steps no larger than twice the per-frame motion count as drawn).
+- vspring (high): `ResizeMath.progress` clamped `t` to [0, 1] while SwiftUI's spring overshoots: content at the end geometry
+  under an overshooting header (14.5 pt seam, 13 pt lateral). Fix: `t` is not clamped; content size, insets and header
+  geometry are extrapolated along the commit's line.
+- vretarget (medium): the same clamp froze the content at the second commit's snapshot while SwiftUI's additive
+  composition kept moving the header past it (23 pt). Fixed by the same change (t < 0).
+- Lab (committed): `-ZTronSeamBottomPinned 1`, `-ZTronSeamBoth 1`, `-ZTronSeamSpring 1`, `-ZTronSeamRetarget <s>`,
+  `-ZTronSeamLandscape 1`; `baseline.sh` extras `vbottom`, `vboth`, `vspring`, `vretarget` (0.5 s), `vland`, `info`
+  (diagnostics: `-ZTronSeamInfo 2`); `SeamLabUITests.testWidth` prints the info line after each step.
+- Unit tests: `ResizeExtrapolationTests` (overshoot and retarget keep the content on the header bottom, `progress`
+  unclamped), `ResizeSafeAreaStepTests` (the staged reports through the state, uncapped and capped, both paths; the
+  undrawn-step fallback; `stepDrawn` on the measured size sequences; a real resize is not a step).
+- SPEC S10 "Seamless edges": bullets "The resize curve" and "Safe-area steps"; API doc: F6 lands at the commit (the start of
+  the resize), not at its end (verifier note).
+Seam lab after (27bb9f4; table and recordings in the session scratchpad `close/final-table.md`, `close/seam/F/{27,17,27f}`;
+`|seam|` / lateral pt): 29 scenarios × 3 lanes, 71 PASS. New probes on 27.0 / 17.5: vbottom uncapped 0.33 / 0.33 (was 62.2 /
+59.2), capped rest 0.33 / 0.33 (53.5 / 59.2), capped half 0.33 / 0.5, refit 0.25 0.5 / 0.33; vspring width 0.33 lat 0.17 /
+0.5 lat 0.32 (14.5 lat 13.2 / 14.0 lat 12.2), capped 0.5 / 0.5 (11.3 / 11.2), half capped 0.5 / 0.5 (6.0 / 5.7); vretarget
+capped 0.33 / 0.33 (23.2 / 22.0), width 0.33 / 0.33; vboth 0.33 / 0.5, vland 0.33 / 0.5; hJ / cJ ≤ 0.14 everywhere except
+refit 0.25 + spring (hJ 0.85–0.89: the frame is shorter than `R` and clips the header, the 26.7 pt one-frame "header" step is
+the bouncy frame's own velocity; seam ≤ 0.5, raw frames checked). Hold probes (vbottom, buttons excluded): `.stretch`
+indicator within 1.08 / 1.17 pt (was 26.6 / 59.0), `.preserve` 0.67 / 0.33. Forced: uncapped vbottom 0.33, vspring width
+0.33, vretarget width 0.33, holds the same; every capped / refit row is F6 (70 / 35 / 31 pt, unchanged; vland 115 pt).
+Regressions (width rest / half, capped / refit height, `.fit` grow, horizontal, rotations, pull-refresh, snap, scroll band,
+stretch, holds): unchanged, ≤ 0.67 pt on all lanes except F6 rows.
+Tests (verifier defects, 27bb9f4 + docs): unit `ZTronScrollViewTests` 27.0: 755 tests in 70 suites green, 1 known issue (F6), 0
+feedback-loop warnings; 17.5: 755 tests, 1 issue = the known `ChromeLeafTests` global-counter flake (open item 3), the suite
+green alone (13 tests). `HeaderUITests` + `ResizeUITests` + `ProofUITests` + `RefreshUITests`: 43/43 on 27.0 preferred and
+on 17.5.
+Open (verifier defects): none of the three remains on 16+; on the 15 path the capped / refit rows of the new probes are F6.
