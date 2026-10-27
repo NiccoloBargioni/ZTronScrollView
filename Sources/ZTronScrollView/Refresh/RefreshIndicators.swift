@@ -56,7 +56,10 @@ enum RefreshIndicatorMath {
         if overlay {
             // Floats over the content: slides in from outside the base with the pull, sits at L when refreshing.
             center = -L / 2 + (refreshing ? L : min(p, L))
-            clipEnd = max(0, along - b)
+            // To the viewport's far edge, and never shorter than the indicator: a base beyond the viewport (a `.stretch`
+            // band below the landscape screen) keeps the indicator, off-screen, where a rotation's interpolation finds it
+            // (open item 18). Past the far edge the container's clip bounds the drawing anyway.
+            clipEnd = max(0, along - b, center + L / 2)
             opacity = refreshing ? 1 : Double(L > 0 ? min(1, p / L) : 1)
         } else {
             clipEnd = p
@@ -311,16 +314,18 @@ struct RefreshEdgeIndicator: View {
 /// Every other frame (a finger, a release on the clock) just evaluates it with the pull of that frame.
 ///
 /// The indicator box (the clip's size, the indicator at its place inside it, `.clipped()`) is its own layer group
-/// (`HeaderLayerGroup`: 17+ `geometryGroup()`, 15–16 `compositingGroup()`), moved to the clip's place by a render-time
-/// translation (`RefreshClipOrigin`). Open item 18: placed in the viewport's frame (a `.position` and a mask path),
-/// SwiftUI drew no layer for the indicator while its place was outside the viewport (`RefreshIndicatorLayerTests`). In a
-/// system rotation that takes the gap below the screen (a refresh hold under a header taller than the landscape viewport:
-/// an uncapped 16:9 `.preserve` `.openGap` or `.stretch` header) the indicator vanished on the way out and, on the way
-/// back, appeared at once at its final place, over the header Core Animation was still shrinking (seam lab: 5-6 of 32-34
-/// rotation frames drawn, up to 79 pt off the gap). A laid-out clip box or the translation alone changed nothing
-/// (spikes); with the group the layer stays below the screen and Core Animation interpolates it with the content's and the
-/// header's groups (17.5: in the gap in every frame it is on the screen, centre within 0.25 pt). Like theirs, the 15–16
-/// group keeps a custom indicator's blend modes inside it.
+/// (`HeaderLayerGroup`: 17+ `geometryGroup()`, 15–16 `compositingGroup()`), laid out at the clip's place. Open item 18:
+/// without the group (the indicator `.position`ed in the viewport's frame under a mask path) SwiftUI drew no layer for the
+/// indicator while its place was outside the viewport (`RefreshIndicatorLayerTests`). In a system rotation that takes the
+/// gap below the screen (a refresh hold under a header taller than the landscape viewport: an uncapped 16:9 `.preserve`
+/// `.openGap` or `.stretch` header) the indicator vanished on the way out and, on the way back, appeared at once at its
+/// final place, over the header Core Animation was still shrinking (seam lab: 5-6 of 32-34 rotation frames drawn, up to
+/// 79 pt off the gap). A laid-out clip box alone changed nothing (spike); as a group it keeps its layer below the screen and
+/// Core Animation interpolates it with the content's and the header's groups. The box stays laid out (`.position`), not
+/// moved by a render-time translation: a placement change the leaf makes in an animated transaction (a `withAnimation`
+/// resize) must animate as layout does (a translation landed at once, 88 pt off the gap at the start of a narrowing).
+/// An overlay's clip is never shorter than the indicator (`RefreshIndicatorMath.placement`), so a `.stretch` base below the
+/// screen keeps it too. Like the content's and the header's, the 15–16 group keeps a custom indicator's blend modes inside it.
 private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
     var pull: CGFloat
     let edge: Edge
@@ -347,31 +352,22 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
         #if DEBUG
         let _ = RefreshTrace.leaf(edge: edge, pull: pull, refresh: refresh, retract: retract, placement: placement)
         #endif
-        let clip = placement?.clip ?? .zero
         ZStack(alignment: .topLeading) {
             if let placement {
-                content
-                    .frame(width: placement.frame.width, height: placement.frame.height)
-                    .opacity(placement.opacity)
-                    .position(x: placement.frame.midX - clip.minX, y: placement.frame.midY - clip.minY)
+                let clip = placement.clip
+                ZStack(alignment: .topLeading) {
+                    content
+                        .frame(width: placement.frame.width, height: placement.frame.height)
+                        .opacity(placement.opacity)
+                        .position(x: placement.frame.midX - clip.minX, y: placement.frame.midY - clip.minY)
+                }
+                .frame(width: max(0, clip.width), height: max(0, clip.height), alignment: .topLeading)
+                .clipped()
+                .modifier(HeaderLayerGroup(useGeometryGroup: useGeometryGroup))
+                .position(x: clip.midX, y: clip.midY)
             }
         }
-        .frame(width: max(0, clip.width), height: max(0, clip.height), alignment: .topLeading)
-        .clipped()
-        .modifier(HeaderLayerGroup(useGeometryGroup: useGeometryGroup))
-        .modifier(RefreshClipOrigin(origin: clip.origin))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-}
-
-/// Moves the indicator box, laid out at the viewport's origin, to its clip's place (a render-time translation, as the
-/// content's offset; `RefreshPlacementEffect`).
-private nonisolated struct RefreshClipOrigin: GeometryEffect {
-    let origin: CGPoint
-
-    func effectValue(size _: CGSize) -> ProjectionTransform {
-        ProjectionTransform(CGAffineTransform(translationX: origin.x.isFinite ? origin.x : 0,
-                                              y: origin.y.isFinite ? origin.y : 0))
     }
 }
 

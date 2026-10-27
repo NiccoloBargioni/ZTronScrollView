@@ -58,6 +58,11 @@ struct RefreshIndicatorTests {
         #expect(rest == nil, "an overlay at rest is outside its base")
         let bottom = place(.bottom, .system, overlay: true, refreshing: true)!
         #expect(bottom.frame == CGRect(x: 0, y: 706, width: 400, height: 60))
+        // Open item 18: a base beyond the viewport (a `.stretch` band below the landscape screen) keeps the indicator
+        // there, its clip never shorter than it (was nil: no layer for a rotation to interpolate).
+        let below = place(.top, .default, overlay: true, refreshing: true, drag: 1, pull: 0, header: 900)!
+        #expect(below.frame == CGRect(x: 0, y: 950, width: 400, height: 60) && below.clip == below.frame)
+        #expect(place(.top, .default, overlay: true, pull: 0, header: 900) == nil, "at rest still outside its base")
     }
 
     @Test func noPullNoIndicatorAndAHoldKeepsItWhereTheGapIs() {
