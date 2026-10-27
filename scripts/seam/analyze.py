@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Seam lab analyzer v2 (M8b-3 R5): per-frame header/content seam from a simulator screen recording.
+"""Seam lab analyzer v2.2 (M8b-3 R5): per-frame header/content seam from a simulator screen recording.
 
 usage: python3 -I scripts/seam/analyze.py <rec.mov> [--meta meta.json] [--scale 3] [--out DIR] [--dump i,j,...]
                                           [--last N] [--quiet]
@@ -34,7 +34,10 @@ the coverage profile across it. n's sign: continuity; else green before yellow; 
                row 4 (content y 320..380) pure cyan instead of yellow: its edges magenta->cyan (320) and cyan->magenta
                (380) fix the content top outright (ctopSrc = marker), e.g. under a collapsed header whose content is
                scrolled under it (the rows alone fix it modulo 120 pt only, and the green row may be clipped away
-               above the header's top). Torn content (the 27.0 rotation draws the green
+               above the header's top). A collapsed header's content legitimately runs UNDER it (D51 keeps the visible
+               centre in a rotation: 198 pt in the aspect-collapsed landscape rest, checked by eye on the pixels), so
+               there the overlap is geometry, not a seam: judge such a recording by its jumps (hJ / cJ) and its rest
+               overlap against D51's. Torn content (the 27.0 rotation draws the green
                row at its old place and the next rows at their new one, over it or apart from it): the green edge
                nearest the header's bottom edge sets the content top (what meets the header) and ctopSplit = 1 says the
                content's own edges disagree (> 2 pt, a blue->yellow edge off the rows included).

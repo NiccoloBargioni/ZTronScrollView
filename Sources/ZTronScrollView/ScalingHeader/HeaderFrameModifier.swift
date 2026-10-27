@@ -296,7 +296,8 @@ private struct HeaderRestNaturalKey: PreferenceKey {
 /// Decision 2026-10-27 (15–16: `compositingGroup()` over nothing, as for the content, `ContentLayerGroup`): the seam lab's
 /// control without this group (17.5, an uncapped `.aspectRatio` header at rest, taller than the landscape viewport, rotation)
 /// opened a 36.9 pt gap between the header and the content mid-rotation, 0.1 pt with it; the forced 15–16 lane with
-/// `compositingGroup()` rotates rigidly. The same cost argument as the content's applies (offscreen only under an
+/// `compositingGroup()` for both groups rotates rigidly (27.0 forced: `.aspectRatio` at rest |seam| ≤ 0.1 pt, `.fixed` half
+/// collapsed ≤ 0.1 pt, lateral ≤ 0.3 pt). The same cost argument as the content's applies (offscreen only under an
 /// ancestor's compositing effect); the header is small next to the content.
 struct HeaderLayerGroup: ViewModifier {
     let useGeometryGroup: Bool

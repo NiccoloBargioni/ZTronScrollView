@@ -7,7 +7,9 @@ import UIKit
 /// `HeaderFallbackFrame` on 15 / forced): `(1 − p) · R(W, H) + p · min + stretch` at the proposed size with the overflow
 /// policy (D52) applied by the layout exactly as by the state, equal to the state's live height once committed (also when
 /// the resting height exceeds the viewport, a landscape 16:9 header), the header stack proposed the live frame; the
-/// `.preserve` translation; the background; the content's rigid layer group.
+/// `.preserve` translation; the background; the content's rigid layer group. The background's accessibility (hidden, the
+/// header's controls exposed once) needs a live accessibility tree, which a unit-test host does not build: it is
+/// `HeaderUITests.testAmbientBackgroundIsHiddenAndNeverRunsPerFrame`.
 @MainActor
 @Suite(.serialized)
 struct HeaderLayoutFrameTests {
@@ -290,42 +292,6 @@ struct HeaderLayoutFrameTests {
         #expect(offenders.isEmpty, "\(path): \(offenders)")
     }
 
-    /// The background is hidden from accessibility: the header's own controls are exposed exactly once with every
-    /// background, the ambient copy (a second instance of the same content, with the same identifiers) included. Walks
-    /// the hosted window's accessibility tree through the public UIAccessibility container API.
-    @Test(arguments: OSPath.allCases) func theHeadersControlsAreExposedExactlyOnceWithEveryBackground(path: OSPath) {
-        struct Header: View {
-            var body: some View {
-                ZStack(alignment: .bottomLeading) {
-                    Color.orange.aspectRatio(1, contentMode: .fit)
-                    VStack {
-                        Text("Title").accessibilityIdentifier("hdr.title")
-                        Button("Play") {}.accessibilityIdentifier("hdr.button")
-                    }
-                    .accessibilityElement(children: .contain)
-                }
-            }
-        }
-        let backgrounds: [(String, ZTronHeaderBackground?)] = [
-            ("none", nil), ("ambient", .ambientBlur(radius: 12)), ("glass", .frostedGlass(radius: 20)),
-            ("color", .color(.blue)), ("view", .view { Text("Behind").accessibilityIdentifier("hdr.behind") }),
-        ]
-        for (name, background) in backgrounds {
-            let s = makeState(path)
-            let w = withOSPath(path) {
-                window(ZTronScrollView(.vertical, state: s) { Color.gray.frame(height: 2000) }
-                    .withScalingHeader(size: .fixed(min: 64, max: 240), background: background) { _ in Header() },
-                       size: CGSize(width: 402, height: 874))
-            }
-            pump(0.2)
-            let ids = accessibilityIdentifiers(in: w)
-            #expect(ids.filter { $0 == "hdr.button" }.count == 1, "\(path) \(name): one header button (\(ids))")
-            #expect(ids.filter { $0 == "hdr.title" }.count == 1, "\(path) \(name): one header title (\(ids))")
-            #expect(!ids.contains("hdr.behind"), "\(path) \(name): the background view is hidden (\(ids))")
-            unhost(w)
-        }
-    }
-
     /// The header offset `o′` is the header layout's animatable data (16+ `HeaderSlotLayout`, 15 `HeaderFallbackFrame` /
     /// `HeaderTranslation`): an interpolated `o′` re-derives the progress, stretch, translation and height exactly as the
     /// leaf derives them from a target at that `o′` (pull, band, its edges, past it); while a resize is open
@@ -373,14 +339,16 @@ struct HeaderLayoutFrameTests {
         }
         defer { unhost(w) }
         let bodies = counts.bodies
+        let collapsedBottom = HeaderMath.top0(s.peek.metrics) + 64
         func run(_ label: String, _ motion: () -> Void) {
             var inBand = 0, worst: CGFloat = 0, samples = 0
             motion()
             for _ in 0..<60 {
                 pump(1.0 / 60)
                 guard let drawn = s.probe.pending?.offset else { continue }
-                // The content's drawn top in the window is −y (the viewport is the window here).
-                let seam = box.minY + box.size.height + drawn.y
+                // The content's drawn top in the window is −y (the viewport is the window here); past the band the
+                // content scrolls on under the collapsed header, whose bottom edge stays at `top0 + min`.
+                let seam = box.minY + box.size.height - max(-drawn.y, collapsedBottom)
                 worst = max(worst, abs(seam))
                 samples += 1
                 if box.size.height > 64.5, box.size.height < 239.5 { inBand += 1 }
@@ -458,30 +426,5 @@ struct HeaderLayoutFrameTests {
         }
         #expect(header.bodies == bodies, "\(path): no header body (\(header.bodies - bodies))")
         #expect(header.ids.count == 1, "\(path): the header's identity (its @State) survives")
-    }
-
-    /// Every accessibility element's identifier under `root` (UIKit's container API: `accessibilityElements`, else
-    /// `accessibilityElementCount` / `accessibilityElement(at:)`, plus subviews; each object visited once).
-    private func accessibilityIdentifiers(in root: NSObject) -> [String] {
-        var out: [String] = []
-        var seen = Set<ObjectIdentifier>()
-        func visit(_ o: NSObject, _ depth: Int) {
-            guard depth < 64, seen.insert(ObjectIdentifier(o)).inserted else { return }
-            if o.isAccessibilityElement, let id = (o as? UIAccessibilityIdentification)?.accessibilityIdentifier,
-               !id.isEmpty {
-                out.append(id)
-            }
-            var children: [NSObject] = []
-            if let els = o.accessibilityElements as? [NSObject] {
-                children = els
-            } else {
-                let n = o.accessibilityElementCount()
-                if n != NSNotFound, n > 0 { children = (0..<n).compactMap { o.accessibilityElement(at: $0) as? NSObject } }
-            }
-            if let v = o as? UIView { children += v.subviews }
-            for c in children { visit(c, depth + 1) }
-        }
-        visit(root, 0)
-        return out
     }
 }
