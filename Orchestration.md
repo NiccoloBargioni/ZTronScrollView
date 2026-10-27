@@ -413,6 +413,21 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
   viewport is top-aligned vertically (horizontal alignment kept), whatever `defaultScrollAnchor(_:for: .alignment)` or the zoom
   default says, so it starts at the header's bottom edge (centred, it sat 119 pt below the header). One computed
   `ZTronScrollState.contentAlignment` feeds ContentTransform, ResizeMath and RefreshMath. SPEC S6 / S10 "Content that fits".
+- D64 (2026-10-27, lead; clarifies D59, whose container is "below the adjusted safe area of each orientation") The overflow
+  container excludes the keyboard: the `.capped` fraction, `.refit`'s `H`, the `.fixed` / `.fit` limit and the `min` limit are resolved
+  against the region between the safe areas WITHOUT the keyboard's part of the bottom one, so the system keyboard never changes `R`
+  or `min` and there is no header animation to match (before: landscape `.capped(0.5)` R 191 -> 89 with the keyboard up; its
+  dismissal animated the header's slot in the keyboard's animation, which never reaches the container's `.transaction` hook, while
+  the content's inset landed at once: an 85-95 pt gap closing over ~30 frames, 27.0). The content's adjusted inset still includes
+  the keyboard (it scrolls above it; S8 unchanged); app-provided safe areas (`.safeAreaInset`, bars) still count (their animated
+  path is drawn in the turn's animation since eebb2a4). Mechanism: the header's slot also ignores the `.keyboard` region on the
+  bottom edge; a cold zero-height probe on the container's bottom edge ignores the same region, so its height is the keyboard's
+  extension above the keyboard-free safe area (`ScrollMetrics.keyboardExtension`, 0 without a keyboard), recorded from its own
+  layout pass on 16+ (`KeyboardProbeLayout`: a geometry action of its own reached the state after the viewport's on 27.0) and
+  carried by the viewport preference on 15 / forced; `HeaderMath.containerHeight` gives it back. With an engaged limit the header
+  can be taller than the region above the keyboard (landscape `.capped(0.5)`: 191 pt over 178 pt): it collapses as the content
+  scrolls. Code: `Render/ViewportSpaces.swift`, `ZTronScrollView.swift`, `ScalingHeader/HeaderMath.swift`; tests `HeaderKeyboardTests`,
+  `HeaderMathTests`; seam lab `kbreal` / `kbrotate`; SPEC S10 "Overflow".
 - D16 (user, 2026-10-18) Physics and the post-rotation re-centering are generated and tested by **Fable 5.1**
   (builder agents with model fable). Re-centering ports ZTronMapKit's normalized-centre discipline
   (ContentGeometry: capture before resize, restore = centre × newContentSize − newViewport/2, clamp, centre smaller

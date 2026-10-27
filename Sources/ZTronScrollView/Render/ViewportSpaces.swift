@@ -125,6 +125,11 @@ struct KeyboardProbeLayout: Layout {
         for v in subviews { v.place(at: bounds.origin, proposal: ProposedViewSize(bounds.size)) }
         guard Thread.isMainThread else { return }
         let h = bounds.height
-        MainActor.assumeIsolated { state.setKeyboardExtension(h) }
+        MainActor.assumeIsolated {
+            #if DEBUG
+            ZTronRenderCounters.increment("viewport.keyboardProbe")   // cold: never while scrolling (ScalingHeaderHostedTests)
+            #endif
+            state.setKeyboardExtension(h)
+        }
     }
 }

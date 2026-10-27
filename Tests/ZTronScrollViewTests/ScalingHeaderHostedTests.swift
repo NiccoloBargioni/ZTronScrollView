@@ -100,7 +100,12 @@ struct ScalingHeaderHostedTests {
     @Test(arguments: OSPath.allCases) func collapseAndStretchRunNoContentOrHeaderBodyAndOneFramePerFrame(path: OSPath) {
         let s = makeState(path)
         let counts = BodyCount(), header = HeaderCounts()
+        ZTronRenderCounters.reset()
         let w = withOSPath(path) { window(profile(s, counts: counts, header: header)) }
+        if path == .preferred {
+            #expect(ZTronRenderCounters.value("viewport.keyboardProbe") >= 1, "the keyboard probe (16+) is laid out at install")
+        }
+        #expect(s.peek.metrics.keyboardExtension == 0, "no keyboard: the probe's extension is 0")
         let m = try! #require(s.peek.metrics.header)
         #expect(m.resting == 240 && m.band == 176)
         #expect(s.adjustedContentInset.top == HeaderMath.top0(s.peek.metrics) + 240, "the resting height is reserved")
@@ -119,6 +124,7 @@ struct ScalingHeaderHostedTests {
         let path = collapse + stretch
         #expect(counts.bodies == contentBodies, "content.body 0")
         #expect(ZTronRenderCounters.value("header.builder") == 0, "the builder never runs while scrolling")
+        #expect(ZTronRenderCounters.value("viewport.keyboardProbe") == 0, "the keyboard probe (D64) is cold: no layout while scrolling")
         #expect(ZTronRenderCounters.value("header.frame") == path.count, "one frame-leaf body per drawn frame")
         #expect(header.n("b") == before["b"], "(b) a child without a reader never runs")
         #expect(header.n("c") - (before["c"] ?? 0) == transitions(path, m, { $0 }), "(c) once per distinct geometry")
@@ -134,6 +140,7 @@ struct ScalingHeaderHostedTests {
         pump(0.6)
         #expect(ZTronRenderCounters.value("header.frame") == 1, "one frame-leaf body per transaction")
         #expect(ZTronRenderCounters.value("header.builder") == 0 && counts.bodies == contentBodies)
+        #expect(ZTronRenderCounters.value("viewport.keyboardProbe") == 0)
         #expect(abs(oPrime(s) - 100) < 0.5)
         // A discrete inset change (metrics) re-lays out the header, it never re-runs the builder.
         ZTronRenderCounters.reset()

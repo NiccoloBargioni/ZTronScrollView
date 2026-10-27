@@ -9,8 +9,8 @@ import ZTronScrollView
 // fit = .fit(min: 64) over a 16:9 red view), `-ZTronHeaderBehavior preserve|stretch`,
 // `-ZTronSeamStart rest|half|collapsed` (half = snapHeader(.progress(0.5), animated: false) before the first layout,
 // collapsed = snapHeader(.collapsed)), `-ZTronSeamInset <pt>` (contentInset.top: the analyzer's control, a known gap
-// between the header's bottom and the content's top), `-ZTronHeaderOverflow uncapped|capped|refit` (D59; capped =
-// .capped(fraction: 0.5)), `-ZTronHeaderBackground ambient|glass|color|view` (ZTronHeaderBackground: with ambient, color
+// between the header's bottom and the content's top), `-ZTronHeaderOverflow uncapped|capped|capped<digits>|refit` (D59;
+// capped = .capped(fraction: 0.5), capped25 = .capped(fraction: 0.25)), `-ZTronHeaderBackground ambient|glass|color|view` (ZTronHeaderBackground: with ambient, color
 // and view the red content is a 16:9 box fitted into the frame and the background, red too, fills the rest of the live
 // frame, so the analyzer measures the BACKGROUND's edges wherever the frame is not 16:9; glass keeps the filling content,
 // a material is not a pure color), `-ZTronSeamMarker 1` (row 4, content y 320..380, pure cyan instead of yellow: a
@@ -65,10 +65,14 @@ enum SeamLab {
     static var inset: CGFloat { CGFloat(Double(HeaderDemo.argument("-ZTronSeamInset", "0")) ?? 0) }
 
     static var overflow: ZTronHeaderOverflow {
-        switch HeaderDemo.argument("-ZTronHeaderOverflow", "uncapped") {
+        let arg = HeaderDemo.argument("-ZTronHeaderOverflow", "uncapped")
+        switch arg {
         case "capped": return .capped(fraction: 0.5)
         case "refit": return .refit
-        default: return .uncapped
+        default:
+            // `capped<digits>` (D64): `.capped(fraction: 0.<digits>)`, e.g. capped25 = 0.25 (engaged in portrait).
+            if arg.hasPrefix("capped"), let f = Double("0." + arg.dropFirst(6)) { return .capped(fraction: CGFloat(f)) }
+            return .uncapped
         }
     }
 

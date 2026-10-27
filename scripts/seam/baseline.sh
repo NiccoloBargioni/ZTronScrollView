@@ -21,7 +21,7 @@ for sc in "$@"; do
   for x in ${rest//-/ }; do
     case "$x" in
       forced) extra+=(--forced) ;;
-      capped|refit|uncapped) extra+=(-ZTronHeaderOverflow "$x") ;;
+      capped|refit|uncapped|capped[0-9]*) extra+=(-ZTronHeaderOverflow "$x") ;;   # capped25 = .capped(fraction: 0.25) (D64)
       ambient|glass|color|view) extra+=(-ZTronHeaderBackground "$x") ;;
       marker) extra+=(-ZTronSeamMarker 1) ;;
       horizontal) extra+=(-ZTronSeamAxis horizontal) ;;   # a horizontal scroll view: the header is a banner (review d16)

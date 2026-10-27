@@ -125,7 +125,8 @@ Requirements:
 - **Viewport (outer view):**
   - Fills the proposal.
   - Owns the gestures (`.contentShape(Rectangle())`), clipping of both drawing and hit-testing, the overlays (indicators, refresh indicators, scaling header), and the frame-clock driver.
-  - Observes its size and safe-area insets, keyboard included.
+  - Observes its size and safe-area insets, keyboard included (and, for the scaling header's overflow container, how far the keyboard
+    reaches above the keyboard-free safe area: a cold probe, D64).
   - Gestures use this untransformed coordinate space, never the transformed content's.
 - **Content layout:**
   - Viewport-sized. Like ScrollView, it proposes `nil` on scrollable axes and the viewport length on the others, and places the content at the origin.
@@ -545,8 +546,10 @@ reader scopes; children without a reader never update because of scrolling.
   *(kept)*; re-measured on width, Dynamic Type and (16+) header content changes, each a discrete inset change. Prefer `.fixed` /
   `.aspectRatio` when the height is known.
 - `min` defaults to 0 (the header can collapse to nothing). `min ≥ resting` → fixed-height header ("Degenerate range").
-- **Overflow (D59, user 2026-10-25; amended 2026-10-26).** The *container* is `W × H` with `H` = the viewport height minus the adjusted
-  safe-area top and bottom (the region the content adjusts for). A resting height taller than `H` (a full-width 16:9 banner in
+- **Overflow (D59, user 2026-10-25; amended 2026-10-26; D64 2026-10-27).** The *container* is `W × H` with `H` = the viewport height minus
+  the adjusted safe-area top and bottom (the region the content adjusts for), the keyboard excluded (D64): the keyboard's part of the
+  bottom safe area is not part of `H`, so showing, hiding or resizing the keyboard never changes `R` or `min`, while the content's adjusted
+  inset still includes it (S8); app-provided safe areas (`.safeAreaInset`, bars) count. A resting height taller than `H` (a full-width 16:9 banner in
   landscape: `750 / (16/9) ≈ 422 pt` on a 381 pt container) follows `overflow:`. `.uncapped` (default) keeps the size's own `R`: the
   content starts below the screen until the user scrolls (expected, not a seam). `.capped(fraction:)` limits `R` (and `min`) to
   `fraction · H`. `.refit` refits: `.aspectRatio(r)` becomes the aspect fit of `r` inside `W × H` (`R = min(W / r, H)`), `.fixed` and `.fit`
@@ -667,7 +670,8 @@ screen recordings, `scripts/seam/`):
   interpolates the header with the content. While a resize is open `p`, the stretch and the `.preserve` translation are the resize intent's
   anchor, bit-stable across the resize's unanimated commit (any changed value, even one ulp, re-sets the frame without animation and the
   whole in-flight change jumps). **(Amended 2026-10-27, M8b-s6.)** The slot respects the safe areas the content adjusts for at the top AND the
-  bottom (it ignores only the side edges), so its proposed height `H` IS the overflow container, from the same layout pass; no committed
+  bottom (it ignores only the side edges, and the keyboard's region on the bottom edge, D64: the state learns that region's height from a
+  cold probe, `ScrollMetrics.keyboardExtension`), so its proposed height `H` IS the overflow container, from the same layout pass; no committed
   inset enters the layout. It reached the bottom and subtracted the committed bottom inset before: a top-pinned animated height change
   moves the scroll view's bottom off the home indicator (bottom inset 34 → 0 at the commit), so the animated pass resolved an engaged
   `.capped` / `.refit` limit against `H − 34` and the commit re-set the frame (seam lab, `capped`, height to 0.4: 70 pt in one frame on 27.0,
