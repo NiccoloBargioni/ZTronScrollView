@@ -120,7 +120,7 @@ struct HeaderFrameModifier: ViewModifier {
 
 /// 15 / forced: the `.preserve` translation, animated with the header offset like `HeaderFallbackFrame` (both interpolate
 /// the same `o′` in the same transaction).
-struct HeaderTranslation: ViewModifier, Animatable {
+nonisolated struct HeaderTranslation: ViewModifier, Animatable {
     var live: HeaderLiveInput
 
     var animatableData: CGFloat {
@@ -128,7 +128,7 @@ struct HeaderTranslation: ViewModifier, Animatable {
         set { live = live.at(offset: newValue) }
     }
 
-    func body(content: Content) -> some View {
+    @MainActor func body(content: Content) -> some View {
         content.offset(y: live.translation)
     }
 }
@@ -190,7 +190,7 @@ struct HeaderSlotLayout: Layout {
 ///   the state's height (`.fixed` and a limited `R` do not depend on the width; documented: a `.fit` inside the band keeps
 ///   a commit-time step on an app-driven resize on this path).
 /// The final `fixedSize(vertical:)` frees the box from the overlay's height (a landscape 16:9 header is taller than it).
-struct HeaderFallbackFrame: ViewModifier, Animatable {
+nonisolated struct HeaderFallbackFrame: ViewModifier, Animatable {
     var live: HeaderLiveInput
     let state: ZTronScrollState
 
@@ -200,7 +200,7 @@ struct HeaderFallbackFrame: ViewModifier, Animatable {
         set { live = live.at(offset: newValue) }
     }
 
-    func body(content: Content) -> some View {
+    @MainActor func body(content: Content) -> some View {
         let plan = HeaderFallbackPlan(live)
         let state = state
         return content
