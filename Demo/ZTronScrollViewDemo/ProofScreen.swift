@@ -39,8 +39,9 @@ struct ProofScreen: View {
     @State private var state = ZTronScrollState()
     @State private var snapshot: [String: Int] = [:]
     @State private var stateInfo = ""
-    /// "settled …" once `Reset` zeroed the counters after a quiet period (the UI tests wait for it).
-    @State private var settle = ""
+    /// "settled …" once `Reset` zeroed the counters after a quiet period (the UI tests wait for it). Held in `@State` as a
+    /// reference, so this view does not observe it: only `SettleLabel` re-renders when it changes.
+    @State private var settle = SettleStatus()
 
     private var path: String {
         ZTronAvailability.forcedFallbacks.isEmpty ? "preferred" : "forcedFallback"
@@ -57,8 +58,7 @@ struct ProofScreen: View {
             // scroll view, a layout pass that evaluates the content's transform effect, review d16).
             Text(stateInfo).font(.caption2).frame(width: 360, height: 30)
                 .accessibilityIdentifier("stateInfo").accessibilityValue(stateInfo)
-            Text(settle).font(.caption2).frame(width: 360, height: 14)
-                .accessibilityIdentifier("settle").accessibilityValue(settle)
+            SettleLabel(status: settle)
         }
         .padding(8)
     }
@@ -107,6 +107,23 @@ struct ProofScreen: View {
     }
 }
 
+/// The quiet-period status `Reset` writes (`ProofScreen`). Its own model and leaf: the write lands right after the counters
+/// are zeroed, and as a `ProofScreen` state it re-evaluated the screen's body inside the counted window. That parent update
+/// re-ran `ProofContent`'s body in 30-90 % of the forced 27.0 runs of `testWithAnimationScroll` (content.body 1 before the
+/// scroll began; the scroll itself never ran it): SwiftUI's first comparison of the content's type after launch (D43; a
+/// native `ScrollView` in the same place re-ran it in 6 of 6 runs).
+final class SettleStatus: ObservableObject {
+    @Published var text = ""
+}
+
+struct SettleLabel: View {
+    @ObservedObject var status: SettleStatus
+    var body: some View {
+        Text(status.text).font(.caption2).frame(width: 360, height: 14)
+            .accessibilityIdentifier("settle").accessibilityValue(status.text)
+    }
+}
+
 struct CounterRow: View {
     let key: String
     let value: Int
@@ -122,7 +139,7 @@ extension ProofScreen {
         state.stopScrollingAndZooming()
         state.setContentOffset(.zero, animated: false)
         state.setZoomScale(1, animated: false)
-        settle = ""
+        settle.text = ""
         // Readers and the transform update on the next render; zero the counters once the screen is quiet: no render
         // counter moved for 0.5 s (at most 3 s, so continuous per-frame work still shows in the next window). A fixed
         // 0.3 s delay counted layout passes that land later under host load (a late launch layout evaluates the
@@ -140,7 +157,7 @@ extension ProofScreen {
             if now.timeIntervalSince(quiet) >= 0.5 || now.timeIntervalSince(start) >= 3 {
                 let absorbed = ZTronRenderCounters.value("transform.effect")
                 ZTronRenderCounters.reset()
-                settle = String(format: "settled after %.1f s, absorbed effect %d", now.timeIntervalSince(start), absorbed)
+                settle.text = String(format: "settled after %.1f s, absorbed effect %d", now.timeIntervalSince(start), absorbed)
             } else {
                 settleCounters(start: start, quietSince: quiet, last: n)
             }
