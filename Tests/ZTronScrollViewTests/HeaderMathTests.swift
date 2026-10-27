@@ -183,17 +183,17 @@ import Testing
                                                      containerHeight: container, overflow: overflow).metrics else {
                     Issue.record("unresolved \(size)"); continue
                 }
-                // The overlay is proposed the viewport below the safe-area top; the layout subtracts the bottom inset.
-                let proposedHeight = viewport.height - safe.top
+                // The slot is proposed the region between the safe areas (M8b-s6): its height is the container.
+                let proposedHeight = viewport.height - safe.top - safe.bottom
                 for p in [0, 0.25, 1] as [CGFloat] {
                     let live = HeaderLiveInput(size: size, overflow: overflow,
                                                metrics: HeaderMetrics(min: 1, resting: 2, behavior: .preserve, width: 1),
-                                               progress: p, bottomInset: safe.bottom, committedContainer: 1)
-                    let r = HeaderMath.layoutResting(width: viewport.width, containerHeight: proposedHeight - safe.bottom,
+                                               progress: p, committedContainer: 1)
+                    let r = HeaderMath.layoutResting(width: viewport.width, containerHeight: proposedHeight,
                                                      natural: natural, live)
                     #expect(r.resting == state.resting && r.min == min(state.min, state.resting),
                             "\(size) \(overflow) \(viewport): layout \(r) vs state \(state.resting) / \(state.min)")
-                    let h = HeaderMath.liveHeight(width: viewport.width, containerHeight: proposedHeight - safe.bottom,
+                    let h = HeaderMath.liveHeight(width: viewport.width, containerHeight: proposedHeight,
                                                   natural: natural, live)
                     #expect(abs(h - (state.resting - p * state.band)) < 1e-9, "\(size) \(overflow) \(viewport) p \(p): h \(h)")
                 }

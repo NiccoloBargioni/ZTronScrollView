@@ -29,9 +29,6 @@ struct HeaderLiveInput: Equatable {
     /// The state's height (`R − c + stretch`): a banner of a view without the vertical axis keeps it (its content reserve
     /// is state-driven too).
     var stateHeight: CGFloat = 0
-    /// The adjusted safe-area bottom (0 when the content does not adjust for it): the overflow container is the proposed
-    /// height minus it (the header's overlay is proposed the viewport below the safe-area top).
-    var bottomInset: CGFloat = 0
     /// The container height the committed metrics were resolved against (`HeaderMath.containerHeight`).
     var committedContainer: CGFloat = 0
     /// `.fit`: the committed natural height (the 15 path tells a limited `R` from the natural one).
@@ -268,7 +265,7 @@ enum HeaderMath {
     // MARK: Layout-driven live frame (M8b-3 seamless header)
 
     /// The resting height and minimum at a LAYOUT size: the proposed width `w` and the overflow container (`containerHeight`,
-    /// the proposed height below the safe-area top minus the adjusted safe-area bottom; `nil`: the committed one). The same
+    /// the slot's proposed height, the region between the adjusted safe areas; `nil`: the committed one). The same
     /// `resolve` as the state's (size, D59 overflow policy, `min ≥ R` rule), so at the committed viewport the layout and
     /// the state agree exactly. `.fit` at the committed width and container keeps the committed `R`: a header content
     /// change moves the header and the content together, in the state's commit (which adopts the measurement).

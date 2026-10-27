@@ -25,7 +25,9 @@ import ZTronScrollView
 // adds a `.system` refresher whose action takes `s` seconds: testPull then measures the refresh hold and its end.
 // `-ZTronSeamScrollBand <f>` makes `seam.scroll` target the point `f` of the way into the collapse band;
 // `-ZTronSeamWidthThenScroll <s>` makes `seam.width` also toggle that scroll `s` seconds into the width animation,
-// `-ZTronSeamWidthWithScroll 1` in the same `withAnimation` as the size change.
+// `-ZTronSeamWidthWithScroll 1` in the same `withAnimation` as the size change. `-ZTronSeamAnimateHeight <f>` (review d16,
+// M8b-s6): `seam.width` animates the scroll view's HEIGHT to `f` of the safe area's instead, top-pinned (its bottom leaves
+// the home indicator: the bottom safe-area inset goes 34 -> 0 with the change; with `capped` / `refit` the limit engages).
 
 enum SeamLab {
     static let red = Color(red: 1, green: 0, blue: 0)
@@ -102,8 +104,9 @@ struct SeamLabScreen: View {
                 // edges it touches and reserves the safe area in adjustedContentInset (top0 = the safe-area top).
                 scroller
                     .background(SeamLab.blue)
-                    .frame(width: narrow ? g.size.width * 0.6 : g.size.width, height: g.size.height)
-                    .frame(maxWidth: .infinity)
+                    .frame(width: narrow && SeamLab.heightFactor == nil ? g.size.width * 0.6 : g.size.width,
+                           height: g.size.height * (narrow ? SeamLab.heightFactor ?? 1 : 1))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 HStack(spacing: 4) {
                     Button {
                         snapped.toggle()
@@ -191,6 +194,9 @@ extension SeamLab {
     /// `-ZTronSeamFitGrow 1` (review d16): `seam.width` animates the `.fit` header's content between 16:9 and 4:3 (a
     /// re-measure of an animated header content change) instead of the width.
     static var fitGrow: Bool { HeaderDemo.argument("-ZTronSeamFitGrow", "0") == "1" }
+    /// `-ZTronSeamAnimateHeight <f>` (review d16, M8b-s6): `seam.width` animates the scroll view's height to `f` of the
+    /// safe area's (top-pinned) instead of its width.
+    static var heightFactor: CGFloat? { Double(HeaderDemo.argument("-ZTronSeamAnimateHeight", "")).map { CGFloat($0) } }
     static var refreshSeconds: Double? {
         Double(HeaderDemo.argument("-ZTronSeamRefresh", "")).map { max(0, $0) }
     }

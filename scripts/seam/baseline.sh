@@ -8,7 +8,8 @@
 #              a refresher whose action holds 2.5 s, with pull: the refresh hold and its end), band (-ZTronSeamScrollBand 0.5:
 #              seam.scroll stops half way into the band), combo (band + -ZTronSeamWidthThenScroll 0.5, with width: a
 #              scroll command 0.5 s into the width animation closes the open resize inside its transaction), together
-#              (band + -ZTronSeamWidthWithScroll 1: the size change and the scroll in one withAnimation); e.g. fixed-rest-preserve-rotate, aspect-half-preserve-width,
+#              (band + -ZTronSeamWidthWithScroll 1: the size change and the scroll in one withAnimation), height<digits> (with width:
+#              -ZTronSeamAnimateHeight 0.<digits>, the scroll view's height animates top-pinned instead of its width; height04 = 0.4); e.g. fixed-rest-preserve-rotate, aspect-half-preserve-width,
 #              aspect-rest-preserve-rotate-capped-forced, fixed-rest-preserve-pull; each lands in <out-root>/<scenario>/.
 # env: ZS_SEAM_DD (derived data, see measure.sh), ZS_SEAM_INSET (adds -ZTronSeamInset <pt>).
 root="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -24,6 +25,7 @@ for sc in "$@"; do
       marker) extra+=(-ZTronSeamMarker 1) ;;
       horizontal) extra+=(-ZTronSeamAxis horizontal) ;;   # a horizontal scroll view: the header is a banner (review d16)
       grow) extra+=(-ZTronSeamFitGrow 1) ;;   # with width + fit: seam.width animates the header's content 16:9 <-> 4:3 (review d16)
+      height[0-9]*) extra+=(-ZTronSeamAnimateHeight "0.${x#height0}") ;;   # with width: seam.width animates the HEIGHT to 0.<digits> (height04 = 0.4, height025 = 0.25), top-pinned (M8b-s6)
       refresh) extra+=(-ZTronSeamRefresh 2.5) ;;
       band) extra+=(-ZTronSeamScrollBand 0.5) ;;
       combo) extra+=(-ZTronSeamScrollBand 0.5 -ZTronSeamWidthThenScroll 0.5) ;;

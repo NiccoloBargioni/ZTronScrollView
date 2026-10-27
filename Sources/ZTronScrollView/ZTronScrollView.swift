@@ -145,9 +145,13 @@ struct ScrollContainer<Content: View>: View {
             .ignoresSafeArea(.all, edges: edges)
             // Scaling header (M8b-3), attached AFTER `.ignoresSafeArea`: SwiftUI places its slot's top edge at the safe-area
             // top in the same layout pass as the container size (no state, so a rotation or an animated resize moves it with
-            // the content); the other edges are ignored again (full width, and the overflow container reaches the bottom).
+            // the content); the side edges are ignored again (full width). The bottom safe area is NOT ignored: the slot
+            // is the region between the safe areas, so its height IS the overflow container (D59) of that same layout pass.
+            // A committed bottom inset subtracted from a slot that reached the bottom was stale in the animated pass of a
+            // resize that moves the scroll view's bottom off the home indicator (top-pinned height change: the inset goes
+            // 34 -> 0 at the commit), so an engaged `.capped` / `.refit` limit was re-set by the commit (M8b-s6: 70 pt).
             .overlay(alignment: .top) {
-                HeaderOverlay(spec: header, state: state).ignoresSafeArea(.all, edges: edges.subtracting(.top))
+                HeaderOverlay(spec: header, state: state).ignoresSafeArea(.all, edges: edges.subtracting([.top, .bottom]))
             }
             // Above the header (z-order contract), in the viewport's own frame again, so their metric coordinates hold.
             .overlay(RefreshOverlay(state: state, pan: coordinator, axes: axes, member: config.refreshers)

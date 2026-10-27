@@ -111,7 +111,6 @@ struct HeaderFrameModifier: ViewModifier {
         let h = max(0, header.resting - p * header.band + stretch)
         return HeaderLiveInput(size: size, overflow: overflow, metrics: header, progress: p, stretch: stretch,
                                translation: translation, stateHeight: h,
-                               bottomInset: edges.contains(.bottom) ? max(0, m.safeAreaInsets.bottom) : 0,
                                committedContainer: HeaderMath.containerHeight(viewport: m.viewportSize, safe: m.safeAreaInsets,
                                                                               adjusted: edges),
                                offset: offset, followsOffset: follows)
@@ -133,11 +132,12 @@ nonisolated struct HeaderTranslation: ViewModifier, Animatable {
     }
 }
 
-/// 16+: the header's SLOT, the overlay below the safe-area top (`W × H`). It takes the whole proposal (so its size never
-/// depends on its own result: a parent that proposes a child its own size again gets the same answer) and places the
-/// header at its top (moved down by the `.preserve` translation) with the live frame `(W, h(W, H))`
-/// (`HeaderMath.liveHeight`; `H` minus the adjusted safe-area bottom is the overflow container, exactly the state's). The
-/// header stack is proposed the live frame (sticky overlays, the background). `.fit` measures the ideal height at `W` here
+/// 16+: the header's SLOT, the overlay between the safe areas the content adjusts for (`W × H`). It takes the whole
+/// proposal (so its size never depends on its own result: a parent that proposes a child its own size again gets the same
+/// answer) and places the header at its top (moved down by the `.preserve` translation) with the live frame `(W, h(W, H))`
+/// (`HeaderMath.liveHeight`; `H` IS the overflow container, the state's `HeaderMath.containerHeight`, from the same layout
+/// pass: no committed inset enters it, so a resize that changes the bottom safe area resolves the limit in its animated
+/// pass, M8b-s6). The header stack is proposed the live frame (sticky overlays, the background). `.fit` measures the ideal height at `W` here
 /// and records it synchronously, so the viewport commit of the same update adopts it. Only the header is hit-tested (a
 /// layout has no area of its own). Its animatable data is the header offset `o′` (`HeaderLiveInput.offset`).
 @available(iOS 16, *)
@@ -179,7 +179,7 @@ struct HeaderSlotLayout: Layout {
             // the main thread's layout of the same update measures the model one.
             if Thread.isMainThread { MainActor.assumeIsolated { reporter.measured(n, width: w) } }
         }
-        let container = slot.flatMap { $0.isFinite ? max(0, $0 - live.bottomInset) : nil }
+        let container = slot.flatMap { $0.isFinite ? max(0, $0) : nil }
         return HeaderMath.liveHeight(width: w, containerHeight: container, natural: natural, live)
     }
 }
