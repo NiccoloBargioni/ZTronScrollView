@@ -458,6 +458,7 @@ struct ResizeScreen: View {
         note += " slow{" + (ZTronRenderCounters.notes["transform.slow"] ?? "") + "}"
         note += " clamped{" + (ZTronRenderCounters.notes["transform.clampedAtRest"] ?? "") + "}"
         note += " events{" + ZTronRenderCounters.eventsJoined + "}"   // DEBUG event log (resize ordering probe)
+        note += " ovpChanged=\(counters["contentOverlay.place.changed"] ?? 0) ovpLast{" + (ZTronRenderCounters.notes["contentOverlay.place.last"] ?? "") + "}"
         #endif
         let r = ResizeProbe.centre(state)
         let o = state.contentOffset, i = state.adjustedContentInset

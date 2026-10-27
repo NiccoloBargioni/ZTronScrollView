@@ -74,7 +74,19 @@ struct ContentOverlayLayout: Layout {
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         #if DEBUG
-        if Thread.isMainThread { MainActor.assumeIsolated { ZTronRenderCounters.increment("contentOverlay.place") } }
+        // `contentOverlay.place.changed`: placements whose bounds or proposal differ from the last one (the parent laid
+        // the content out again) as opposed to a subview's invalidation; the last pair in the notes. A probe for the open
+        // per-frame placements of a pinch after a rotation round trip under host load (core check of M8b-s6).
+        if Thread.isMainThread {
+            let key = "\(bounds) \(proposal.width ?? -1)x\(proposal.height ?? -1)"
+            MainActor.assumeIsolated {
+                ZTronRenderCounters.increment("contentOverlay.place")
+                if ZTronRenderCounters.notes["contentOverlay.place.last"] != key {
+                    ZTronRenderCounters.increment("contentOverlay.place.changed")
+                    ZTronRenderCounters.notes["contentOverlay.place.last"] = key
+                }
+            }
+        }
         #endif
         for sub in subviews {
             let r = ContentOverlayMath.resolve(sub[ContentOverlayPlacementKey.self], content: bounds.size) { p in

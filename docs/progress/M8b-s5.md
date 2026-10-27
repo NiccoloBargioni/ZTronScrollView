@@ -147,3 +147,57 @@ feedback-loop warnings; 17.5: 755 tests, 1 issue = the known `ChromeLeafTests` g
 green alone (13 tests). `HeaderUITests` + `ResizeUITests` + `ProofUITests` + `RefreshUITests`: 43/43 on 27.0 preferred and
 on 17.5.
 Open (verifier defects): none of the three remains on 16+; on the 15 path the capped / refit rows of the new probes are F6.
+
+### Core check fixes · 2026-10-27 · Opus 5.5 fixer (independent core check of 810d101)
+Scratch: session scratchpad `core/fx/` (PROGRESS log `core/PROGRESS.md`, seam recordings `core/fx/seam/{27,17,27f}/<scenario>/`).
+1. Retarget near the drawn size (high): root cause as reported. A retarget commit starts from the drawn snapshot, its chord
+   can have almost no viewport delta, and the unclamped `t` (−175 hosted) extrapolated every field that is off the old track
+   (bottom inset to 3555 pt, a capped `R`). Fix (the review's outer-track design, plus a range bound):
+   `ResizeCommit.outer` = the old commit's track at the drawn size (`ResizeMath.slope`: its own `outer` outside its span or on a
+   sub-pixel chord), set in `applyViewport` when a retarget arrives while the open transition is still drawn in motion, shifted
+   with a safe-area step (also kept in `StepFallback`), cleared in `syncCommit`. `ResizeMath.presented` (and `resolve` through
+   it): outside the commit's own span, from the nearer end along the old slope, every field kept within the four snapshots'
+   range (`bounded`; without it the bottom inset went to −12.8 pt: that end is the new model value, off the drawn track);
+   `progress` clamps a track no longer than `ContentTransform.pixelTolerance`. Unit `ResizeRetargetTests` (state path,
+   SwiftUI's additive easeInOut simulated): without a header worst offset error 4.7–15.5 pt (810d101: 194–654; main's clamp:
+   10.9–15.5), presented bottom inset within [0, 34] (810d101: −1305…3555), worst one-frame step ≤ 12.7 pt (the retarget's
+   first in-span frame: the chord's residual); capped seam 25.2 pt (810d101: 448–516; clamp 45.6), 14.7 pt for drawn + 60
+   (66; 21.8); toggle back exact at 0.05–0.9 s; chained retargets bounded; sub-pixel track. Lab (`baseline.sh` extras
+   `near1`, `near60`): 27.0 near1 gap 45.3 (810d101: 247.8), near60 overlap 16.3 (98.8); 17.5 29.3 (240.5) / 18.2; forced:
+   F6 dominates (70 pt). The residual 15–45 pt is the chord model inside the span (main's level); removing it needs the two
+   animations' progress separately (time-based or additive tracks).
+2. Animated safe-area change under an engaged limit (medium): confirmed (hosted: the content drawn at its new rest in the
+   first frame, the header's slot animated). The report reaches the state after the animated layout pass, outside the
+   transaction; the container's `.transaction` hook had seen the animation in the same turn (`txAnim:true`). Fix: the
+   inset-only branch of `applyViewport` writes metrics and offset inside `withAnimation(positionDriver.animationInTurn)` when
+   the header's resting height changes (`PositionDriver.animationInTurn`, read without consuming); otherwise as before.
+   Unit `HeaderSafeAreaInsetTests` (hosted, `.capped(0.25)`, 150 pt inset, both paths): the drawn offset moves over > 30
+   frames in steps < 2 pt and lands at rest (before: one frame); unanimated stays one frame. Lab `kbfake-land-capped`: 27.0
+   gap 0.0 / overlap 0.3 (was 74.8), 17.5 0.0 / 0.3 (75.0), forced 0.0 / 0.3. System keyboard (`-ZTronSeamKeyboard 1`):
+   `txAnim:false` on show and hide in every instrumented run, so this fix does not touch it. Open (pre-existing, found
+   here): without `-ZTronSeamInfo` (whose twice-a-second readout changes the timing), the system keyboard's DISMISSAL animates
+   the header's slot while the content lands at once: a 85–88 pt gap closing over ~30 frames on this branch (3 runs), 92.5–94.8
+   on HEAD d2425d6 (2 runs, A/B); with the info readout, a joint one-frame jump (0 pt, 4 runs, as in the review). The keyboard's
+   animation never reaches the container's `.transaction` hook, so fix 2 cannot follow it.
+3. Per-frame overlay placements after a rotation round trip (high): reproduced, NOT fixed, root cause not found. Reproducer:
+   duty-cycle the demo app (`core/fx/throttle.sh <udid> 50|80 20|15`: SIGSTOP / SIGCONT) while the host is loaded (350–900).
+   Failing iterations all pass through a "variant A" rotation (pre-pinch `ovh 6, ovp 10`: one more container evaluation per
+   rotation than the usual `ovh 4, ovp 6`); at HEAD d2425d6 3 of 4 variant-A iterations failed (ovp delta 51, 54, 55). Every
+   iteration without variant A passed (over 70, on HEAD, the fix build and 9b13637); low host load, even with a 250 ms stop,
+   never produced variant A.
+   Refuted: the M8b-s6 type layout of `ResizeCommit` (moved behind one reference, `ResizeCommit.tracks`: the fix build still
+   failed 2 of 2 variant-A iterations, ovp 42 / 50). Attribution to 749e0b9 is weak: this test's state path is identical in
+   9b13637 and 749e0b9 (rotation never animated, resize closed at once, `step:false`, same event log), and exact variant A was
+   seen once before 749e0b9 (main, passed) against 9 failures after. Kept: `ResizeCommit.tracks` (the commit copied into the
+   effect stays its old size plus a pointer, no new padding; `ResizeCommitLayoutTests`) and a DEBUG probe
+   (`contentOverlay.place.changed`, readout `ovpChanged` / `ovpLast`: placements whose bounds or proposal changed). Next: catch a
+   variant-A failure with the probe (parent re-layout or subview invalidation?) and run main under the same load.
+Seam lab regressions (27.0 / 17.5 / forced, `|seam|` gap / overlap pt): vspring 0.5/0.5, 0.5/0.3, F6 70; vretarget 0.3/0.3,
+0.3/0.3, F6 70/48.7; vbottom 0.3/0.3, 0.3/0.3, F6 70.5; width 0.3/0.3 lat 0.2, 0.2/0.5 lat 0.3, 0.3/0.3; capped height 0.4
+0.2/0.3, 0.5/0.3, F6 70; rotate capped 0.0/0.2, 0.0/0.3, 0.0/0.2; rotate half 0.2/0.2 on all three. hJ / cJ ≤ 0.13 except
+F6 rows. Unchanged from the close table.
+Lab additions (committed): `-ZTronSeamRetargetNear <pt>`, `-ZTronSeamNoHeader 1`, `-ZTronSeamStartY <y>`,
+`-ZTronSeamFakeKeyboard <pt>`, `-ZTronSeamKeyboard 1`; `baseline.sh` extras `near<digits>`, `kbfake`.
+Tests (eebb2a4 + probe and docs): unit `ZTronScrollViewTests` 765 tests in 73 suites green on 27.0 and on 17.5 (1 known
+issue: F6 on the forced lane), 0 feedback-loop warnings; `ContentOverlayUITests` + `HeaderUITests` + `ResizeUITests` +
+`ProofUITests` + `RefreshUITests`: 47/47 on 27.0 preferred and on 17.5 (host load low: no variant A, see 3).

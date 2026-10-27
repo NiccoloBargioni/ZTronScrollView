@@ -29,11 +29,9 @@ struct ResizeCommit: Equatable, Sendable {
     /// The point of the unobscured rect that is preserved (center unless `defaultScrollAnchor(for: .sizeChanges)`).
     var focus = UnitPoint.center
     /// `stepFallback` and `outer` (M8b-s6), rare: behind one immutable reference, nil unless one is set, so the commit's
-    /// inline value (copied into the transform effect on every evaluation and compared by SwiftUI) keeps the layout it had
-    /// before them plus one pointer, with no new padding. Stored inline, they nearly doubled it and put 7 padding bytes
-    /// after `isOpen`; with that layout the content overlay's `Layout` was placed on every frame of a pinch after a
-    /// rotation round trip (27.0 preferred under load: 51–67 placements, bound 2; ContentOverlayUITests). Inferred
-    /// mechanism: SwiftUI's byte compare of a value whose comparison layout is not ready yet (D43).
+    /// inline value (copied into the transform effect on every evaluation, and compared by SwiftUI) keeps the layout it
+    /// had before them plus one pointer: stored inline they nearly doubled it (four more snapshots) and added 7 padding
+    /// bytes after `isOpen` (D43: library values handed to SwiftUI should have no new inner padding).
     private var tracks: Tracks?
     /// True from the commit until `closeResize()`; the effect clamps while open.
     var isOpen = false

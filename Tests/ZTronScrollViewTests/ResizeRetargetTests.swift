@@ -251,11 +251,8 @@ struct ResizeRetargetTests {
 
 /// Core check of M8b-s6: the commit is copied into the transform effect (and the refresh indicator's resize effect) on
 /// every evaluation and compared by SwiftUI. The M8b-s6 tracks (`stepFallback`, `outer`) are rare and sit behind one
-/// immutable reference, so its inline layout is the one before them plus one pointer, with nothing after `isOpen`. Inline,
-/// they nearly doubled the value and put 7 padding bytes after `isOpen`; with that layout a pinch after a rotation round
-/// trip placed the content overlay's `Layout` on every frame on 27.0 under load (ContentOverlayUITests, counter-scaled
-/// marker: 51–67 placements against a bound of 2; reproduced by duty-cycling the app process; D43's byte compare of a
-/// value whose comparison layout is not ready is the inferred mechanism).
+/// immutable reference, so its inline layout is the one before them plus one pointer, with nothing after `isOpen` (D43:
+/// no new inner padding in a value SwiftUI compares).
 @Suite
 struct ResizeCommitLayoutTests {
     @Test func theTracksAreOnePointerAndNothingFollowsIsOpen() {
