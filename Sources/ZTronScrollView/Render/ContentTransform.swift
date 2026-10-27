@@ -219,8 +219,9 @@ struct TransformHost: ViewModifier {
 /// creation (R6), so the identity never changes.
 ///
 /// 17+: `geometryGroup()`, which isolates geometry only (no compositing semantics, no offscreen pass).
-/// 15–16: `compositingGroup()`, the only iOS 13 modifier that ends the push-down at a layer boundary (measured on the
-/// forced lane: the same rigid rotation). Chosen over nothing, given the open question of its cost: a compositing group
+/// 15–16 (decision 2026-10-27, also for the header's group, `HeaderLayerGroup`): `compositingGroup()`, the only iOS 13
+/// modifier that ends the push-down at a layer boundary (measured on the forced lane: the same rigid rotation; without a
+/// group the baseline content tore, up to 94 pt off the header). Chosen over nothing, given the open question of its cost: a compositing group
 /// renders offscreen only for a compositing effect applied ABOVE it (an ancestor's opacity < 1 or blend mode), exactly
 /// when UIKit's default group opacity (`allowsGroupOpacity`) renders a `UIScrollView`'s subtree offscreen too; with none,
 /// it is a plain container layer (no rasterization, filter or mask: checked on the forced path's layer tree). Under such

@@ -11,7 +11,7 @@ import SwiftUI
 /// animation: its slot's top edge is placed by SwiftUI (the overlay is attached after the container's `.ignoresSafeArea`,
 /// so it starts at the safe-area top), its height is `(1 − p) · R(W, H) + p · min + stretch` with `W × H` the proposed
 /// size and `R(W, H)` resolved in the same layout pass as the container (size and overflow policy, exactly as the state
-/// resolves it; 16+: `HeaderFrameLayout`, 15 / forced: `HeaderFallbackFrame`), and `p`, the stretch and the `.preserve`
+/// resolves it; 16+: `HeaderSlotLayout`, 15 / forced: `HeaderFallbackFrame`), and `p`, the stretch and the `.preserve`
 /// translation come from the state. An animated resize then interpolates the header with the content; the unanimated
 /// resize commit changes nothing in the header while the progress is kept (D51).
 struct HeaderFrameModifier: ViewModifier {
@@ -289,9 +289,15 @@ private struct HeaderRestNaturalKey: PreferenceKey {
     static func reduce(value: inout HeaderRestNatural?, nextValue: () -> HeaderRestNatural?) { value = nextValue() ?? value }
 }
 
-/// The header's own layer group (17+ `geometryGroup()`, 15–16 `compositingGroup()`; see `ContentLayerGroup` for the
-/// choice): its clip and frame are one layer subtree that Core Animation interpolates by itself in a system rotation,
-/// inside the container's clip. A `let` flag fixed at state creation (R6).
+/// The header's own layer group (17+ `geometryGroup()`, 15–16 `compositingGroup()`): its clip and frame are one layer
+/// subtree that Core Animation interpolates by itself in a system rotation, inside the container's clip. A `let` flag fixed
+/// at state creation (R6).
+///
+/// Decision 2026-10-27 (15–16: `compositingGroup()` over nothing, as for the content, `ContentLayerGroup`): the seam lab's
+/// control without this group (17.5, an uncapped `.aspectRatio` header at rest, taller than the landscape viewport, rotation)
+/// opened a 36.9 pt gap between the header and the content mid-rotation, 0.1 pt with it; the forced 15–16 lane with
+/// `compositingGroup()` rotates rigidly. The same cost argument as the content's applies (offscreen only under an
+/// ancestor's compositing effect); the header is small next to the content.
 struct HeaderLayerGroup: ViewModifier {
     let useGeometryGroup: Bool
 

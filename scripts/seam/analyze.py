@@ -411,7 +411,8 @@ class Analyzer:
         P, D, A, B = edge_points(L)
         isp = lambda X, vals: np.isin(X, vals)  # noqa: E731
         stripe = ((A == GREEN) & (B == YELLOW)) | ((A == YELLOW) & (B == GREEN)) | \
-                 ((A == YELLOW) & (B == MAGENTA)) | ((A == MAGENTA) & (B == YELLOW))
+                 ((A == YELLOW) & (B == MAGENTA)) | ((A == MAGENTA) & (B == YELLOW)) | \
+                 ((A == MAGENTA) & (B == CYAN)) | ((A == CYAN) & (B == MAGENTA))
         recent = self.prev_n is not None and index - self.prev_n_frame <= 30
         prior = math.atan2(self.prev_n[1], self.prev_n[0]) if recent else None
         if stripe.sum() >= 60:
@@ -797,15 +798,15 @@ class Analyzer:
         fwd = du > 0
         F = np.where(fwd, A, B)
         G = np.where(fwd, B, A)
-        side_x = (BLUE, GREEN, YELLOW, MAGENTA)
+        side_x = (BLUE, GREEN, YELLOW, MAGENTA, CYAN)
         edges = {}
         specs = {"HL": (np.isin(F, side_x) & (G == RED), (side_x, (RED,))),
                  "HR": ((F == RED) & np.isin(G, side_x), ((RED,), side_x))}
         # The content's lateral edges from the rows' ends (the 27.0 rotation draws the green row at its old width under
         # the new rows); the green row's only when no row end is visible.
-        rows_ym = np.isin(F, (YELLOW, MAGENTA)) | np.isin(G, (YELLOW, MAGENTA))
+        rows_ym = np.isin(F, (YELLOW, MAGENTA, CYAN)) | np.isin(G, (YELLOW, MAGENTA, CYAN))
         if (uish & rows_ym & ((F == BLUE) | (G == BLUE))).sum() >= 20:
-            cset = (YELLOW, MAGENTA)
+            cset = (YELLOW, MAGENTA, CYAN)
         else:
             cset = (GREEN,)
         specs["CL"] = ((F == BLUE) & np.isin(G, cset), ((BLUE,), cset))

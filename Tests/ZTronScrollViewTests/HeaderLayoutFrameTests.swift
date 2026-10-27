@@ -3,7 +3,7 @@ import Testing
 import UIKit
 @testable import ZTronScrollView
 
-/// M8b-3 seamless header (seam spike A, integrated): the header's frame comes from layout (`HeaderFrameLayout` on 16+,
+/// M8b-3 seamless header (seam spike A, integrated): the header's frame comes from layout (`HeaderSlotLayout` on 16+,
 /// `HeaderFallbackFrame` on 15 / forced): `(1 − p) · R(W, H) + p · min + stretch` at the proposed size with the overflow
 /// policy (D52) applied by the layout exactly as by the state, equal to the state's live height once committed (also when
 /// the resting height exceeds the viewport, a landscape 16:9 header), the header stack proposed the live frame; the
@@ -324,6 +324,140 @@ struct HeaderLayoutFrameTests {
             #expect(!ids.contains("hdr.behind"), "\(path) \(name): the background view is hidden (\(ids))")
             unhost(w)
         }
+    }
+
+    /// The header offset `o′` is the header layout's animatable data (16+ `HeaderSlotLayout`, 15 `HeaderFallbackFrame` /
+    /// `HeaderTranslation`): an interpolated `o′` re-derives the progress, stretch, translation and height exactly as the
+    /// leaf derives them from a target at that `o′` (pull, band, its edges, past it); while a resize is open
+    /// (`followsOffset` false) only `offset` moves, so the resize intent's anchor stays bit-stable.
+    @Test func theLiveInputAtAnOffsetIsTheLeafsDerivation() {
+        for behavior in [ZTronHeaderScalingBehavior.preserve, .stretch] {
+            var m = ScrollMetrics()
+            m.viewportSize = CGSize(width: 402, height: 874)
+            m.safeAreaInsets = EdgeInsets(top: 62, leading: 0, bottom: 34, trailing: 0)
+            m.header = HeaderMetrics(min: 64, resting: 240, behavior: behavior, width: 402)
+            m.adjustedContentInset = EdgeInsets(top: 302, leading: 0, bottom: 34, trailing: 0)
+            func leaf(_ o: CGFloat) -> HeaderLiveInput {
+                HeaderFrameModifier.liveInput(size: .fixed(min: 64, max: 240), overflow: .uncapped, metrics: m,
+                                              edges: .vertical, target: CGPoint(x: 0, y: o - 302), zoom: 1)
+            }
+            let start = leaf(0)
+            #expect(start.followsOffset && start.offset == 0)
+            for o in [-80, -10, 0, 30, 88, 175.5, 176, 250] as [CGFloat] {
+                let a = start.at(offset: o), b = leaf(o)
+                #expect(a == b, "\(behavior) o′ \(o): \(a) vs \(b)")
+            }
+            let pulled = start.at(offset: -80)
+            let translation: CGFloat = behavior == .preserve ? 80 : 0, height: CGFloat = behavior == .stretch ? 320 : 240
+            #expect(pulled.translation == translation && pulled.stateHeight == height, "\(behavior): \(pulled)")
+            var held = leaf(88)
+            held.followsOffset = false
+            let moved = held.at(offset: 10)
+            #expect(moved.offset == 10 && moved.progress == held.progress && moved.stateHeight == held.stateHeight
+                        && moved.translation == held.translation && moved.stretch == held.stretch, "held: only o′ moves")
+        }
+    }
+
+    /// A transaction-driven scroll through the band and back (`withAnimation { scroll(to:) }`) and an animated snap both
+    /// ways (the clock path): in every sampled frame the header's bottom edge is on the drawn content's top, frames inside
+    /// the band included (the layout's frame used to jump to the final height while the content interpolated, the header
+    /// up to 132 pt off the content mid-band, seam lab); no content body runs.
+    @Test(arguments: OSPath.allCases) func aTransactionDrivenScrollKeepsTheHeaderOnTheContent(path: OSPath) {
+        let box = Box()
+        let s = makeState(path)
+        let counts = BodyCount()
+        let w = withOSPath(path) {
+            window(ZTronScrollView(.vertical, state: s) { StatefulContent(counts: counts) }
+                .withScalingHeader(size: .fixed(min: 64, max: 240)) { _ in Probe(box: box) },
+                   size: CGSize(width: 402, height: 874))
+        }
+        defer { unhost(w) }
+        let bodies = counts.bodies
+        func run(_ label: String, _ motion: () -> Void) {
+            var inBand = 0, worst: CGFloat = 0, samples = 0
+            motion()
+            for _ in 0..<60 {
+                pump(1.0 / 60)
+                guard let drawn = s.probe.pending?.offset else { continue }
+                // The content's drawn top in the window is −y (the viewport is the window here).
+                let seam = box.minY + box.size.height + drawn.y
+                worst = max(worst, abs(seam))
+                samples += 1
+                if box.size.height > 64.5, box.size.height < 239.5 { inBand += 1 }
+            }
+            pump(0.3)
+            #expect(worst < 1, "\(path) \(label): header bottom vs drawn content top, worst \(worst) over \(samples)")
+            #expect(inBand >= 3, "\(path) \(label): sampled frames inside the band (\(inBand) of \(samples))")
+        }
+        let base = HeaderMath.base(s.peek.metrics)
+        run("scroll to o′ 300") { withAnimation(.linear(duration: 0.5)) { s.scroll(to: CGPoint(x: 0, y: 300 - base)) } }
+        #expect(abs(box.size.height - 64) < 0.5, "\(path): collapsed at the end (\(box.size.height))")
+        run("scroll back to rest") { withAnimation(.linear(duration: 0.5)) { s.scroll(to: CGPoint(x: 0, y: -base)) } }
+        #expect(abs(box.size.height - 240) < 0.5, "\(path): at rest at the end (\(box.size.height))")
+        run("snap collapsed") { s.snapHeader(to: .collapsed, animated: true) }
+        run("snap expanded") { s.snapHeader(to: .expanded, animated: true) }
+        #expect(counts.bodies == bodies, "\(path): no content body")
+    }
+
+    /// The background fills the header's live frame in every state (it is the background of the stack the leaf frames):
+    /// the `.preserve` translation, the `.stretch` growth, collapse, past the band and after a resize.
+    @Test(arguments: OSPath.allCases, [ZTronHeaderScalingBehavior.preserve, .stretch])
+    func theBackgroundFollowsTheLiveFrame(path: OSPath, behavior: ZTronHeaderScalingBehavior) {
+        let box = Box(), bg = Box()
+        let s = makeState(path)
+        let w = withOSPath(path) {
+            window(ZTronScrollView(.vertical, state: s) { Color.green.frame(height: 4000) }
+                .withScalingHeader(size: .aspectRatio(16.0 / 9.0, min: 64), scalingBehavior: behavior,
+                                   background: .view { Probe(box: bg) }) { _ in Probe(box: box) },
+                   size: CGSize(width: 402, height: 874))
+        }
+        defer { unhost(w) }
+        func check(_ label: String) {
+            #expect(abs(bg.size.width - box.size.width) < 0.5 && abs(bg.size.height - box.size.height) < 0.5
+                        && abs(bg.minY - box.minY) < 0.5,
+                    "\(path) \(behavior) \(label): background \(bg.size) at \(bg.minY), header \(box.size) at \(box.minY)")
+        }
+        check("rest")
+        for o in [-60, 50, 400, 0] as [CGFloat] {
+            s.track(offset: CGPoint(x: 0, y: o - HeaderMath.base(s.peek.metrics)), zoom: 1)
+            pump(0.1)
+            check("o′ \(o)")
+            if o == -60 {
+                let top0 = HeaderMath.top0(s.peek.metrics)
+                #expect(abs(bg.minY - (behavior == .preserve ? top0 + 60 : top0)) < 0.5, "\(path) \(behavior): pull")
+            }
+        }
+        s.endOfTurn()
+        w.frame = CGRect(x: 0, y: 0, width: 874, height: 402)
+        pump(0.8)
+        check("landscape")
+        #expect(abs(bg.size.width - 874) < 0.5, "\(path) \(behavior): the background spans the new width (\(bg.size))")
+    }
+
+    /// The header's layer group keeps the header's identity: its `@State` survives resizes, scrolling and collapse, and
+    /// its body never re-runs for them (the content's group is `theRigidGroupKeepsIdentityAndAddsNoOffscreenPass`).
+    @Test(arguments: OSPath.allCases) func theHeaderGroupKeepsTheHeadersIdentity(path: OSPath) {
+        let s = makeState(path)
+        let header = BodyCount()
+        let w = withOSPath(path) {
+            window(ZTronScrollView(.vertical, state: s) { Color.green.frame(height: 4000) }
+                .withScalingHeader(size: .aspectRatio(16.0 / 9.0, min: 64)) { _ in StatefulContent(counts: header) },
+                   size: CGSize(width: 402, height: 874))
+        }
+        defer { unhost(w) }
+        let bodies = header.bodies
+        #expect(header.ids.count == 1)
+        for o in [100, 300, -40, 0] as [CGFloat] {
+            s.track(offset: CGPoint(x: 0, y: o - HeaderMath.base(s.peek.metrics)), zoom: 1)
+            pump(0.05)
+        }
+        s.endOfTurn()
+        for size in [CGSize(width: 874, height: 402), CGSize(width: 600, height: 874), CGSize(width: 402, height: 874)] {
+            w.frame = CGRect(origin: .zero, size: size)
+            pump(0.5)
+        }
+        #expect(header.bodies == bodies, "\(path): no header body (\(header.bodies - bodies))")
+        #expect(header.ids.count == 1, "\(path): the header's identity (its @State) survives")
     }
 
     /// Every accessibility element's identifier under `root` (UIKit's container API: `accessibilityElements`, else

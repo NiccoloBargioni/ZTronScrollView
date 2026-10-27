@@ -4,7 +4,7 @@ import SwiftUI
 /// measured directly (never from the height on screen, which would feed back) and reported to the state, where a change
 /// is a discrete inset change. Always applied with the same structure (`active` only switches the work off), so a `size`
 /// change at runtime keeps the header's identity.
-/// - 16+: the frame layout (`HeaderFrameLayout`) asks the header for its ideal size at the proposed width while placing it
+/// - 16+: the frame layout (`HeaderSlotLayout`) asks the header for its ideal size at the proposed width while placing it
 ///   at the live height and records it synchronously (`headerNaturalLive`); header content changes are seen on the next
 ///   layout pass. Nothing to do here.
 /// - 15 (and forced): a measuring pass at the first layout and on width / Dynamic Type changes: the header is laid out at

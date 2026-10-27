@@ -605,10 +605,14 @@ height; `min`; `band = max(0, R − min)`;
   forces bounce on its edge (S9).
 
 **Natural height (`.fit`) (kept, adapted).** Measure the ideal height directly, never from the height on screen (which would feed back): on
-16+ a `Layout` asks the single header instance for its ideal size while placing it at the live height; on 15 the host runs one measuring
-layout pass (the header at its ideal height, cropped to the live frame, so nothing visible changes) at the first layout and on width or
-Dynamic Type change, and caches the result; 15 cannot see header *content* changes (documented gap; use `.aspectRatio`/`.fixed`, or change
-the header's identity). Never a hidden second copy. A new resting height is a discrete inset change (S7), never per frame.
+16+ the header's slot `Layout` asks the single header instance for its ideal size at the proposed width while placing it at the live height;
+on 15 the host runs one measuring layout pass (the header at its ideal height, cropped to the live frame, so nothing visible changes) at the
+first layout and on width or Dynamic Type change, and at rest the header's frame IS its ideal height; 15 cannot see header *content*
+changes inside the band (documented gap; use `.aspectRatio`/`.fixed`, or change the header's identity). Never a hidden second copy for the
+measurement (the `.ambientBlur` background is a drawing, not a measurement). A new resting height is a discrete inset change (S7), never
+per frame. **(Amended 2026-10-26, seamless edges.)** The measurement taken inside a layout pass is recorded synchronously and adopted by the
+viewport commit of the SAME update (a rotation, an animated resize), so the content's inset and the header's layout height change in the
+same transaction; a measurement outside a resize (a header content change) is delivered at the next main run-loop iteration as before.
 
 **Zero height, degenerate range (kept).** `min` 0 → the header compresses to zero at full collapse and is hidden from hit-testing and
 accessibility; a header made only of flexible views has (nearly) no natural height under `.fit` (DEBUG warning naming the fix: `.fixed`,
@@ -633,22 +637,35 @@ though the ambient copy draws them a second time (`accessibilityHidden` alone le
 exposed); it never takes a touch.
 
 **Seamless edges (2026-10-26, user, mission critical).** In every header animation the header's bottom edge stays on the content's top edge,
-laterally aligned, with no one-frame jumps: system rotations, app-driven animated resizes, `.fit` re-measures, refresh holds, snaps and
-`scrollTo`. The header's geometry comes from layout (its slot's top edge from the safe area, `R(W, H)` with the size and the overflow policy
-resolved in the same layout pass as the container, `.fit`'s measurement adopted by the viewport commit of the same update); the content and
-the header are each one layer group (`geometryGroup` 17+, `compositingGroup` 15–16) so Core Animation moves them rigidly in a rotation.
-Why each piece is needed (seam lab, per-frame analysis of simulator recordings, M8b-3):
-- A system rotation is laid out once at the final size; Core Animation interpolates every layer change made inside UIKit's rotation block.
-  Without a layer group SwiftUI pushes the content transform down to the leaf layers, so rows entering, leaving or rebuilt land at once
-  (the content tears, up to 94 pt off the header). With the groups the content and the header move rigidly: ≤ 0.5 pt on 27.0, 17.5 and the
-  forced 15–16 path. The 15–16 fallback is `compositingGroup()` because it is the only iOS 13 modifier that ends the push-down at a layer
-  boundary; without it the forced path tore (lateral misalignment up to ~300 pt mid-rotation). It adds no rasterization, filter or mask
-  (unit test); its offscreen cost on a real 15/16 device is unmeasured (open).
-- An app-driven animated resize interpolates layout: the header's height is a layout result of the animated size (`R(W, H)`), so it
-  interpolates with the content; the progress, stretch and translation are the resize intent's anchor while the resize is open (bit-stable
-  across the unanimated commit: a changed value would re-set the frame without animation).
-- Readers and the scroll view's clip: the scroll view clips at its own frame; a `.preserve` gap and the safe areas outside that frame show
-  what is behind the scroll view.
+laterally aligned, with no one-frame jumps: system rotations, app-driven animated resizes (Split View, Stage Manager, `withAnimation` size
+changes), `.fit` re-measures, refresh holds, snaps and `scrollTo`. How (M8b-3; measured in the seam lab, a per-frame analysis of simulator
+screen recordings, `scripts/seam/`):
+- **Geometry from layout.** The header's slot is an overlay attached after the container's `.ignoresSafeArea`, so SwiftUI places its top
+  edge at the safe-area top in the same layout pass as the container; its height is `h = (1 − p) · R(W, H) + p · min + stretch` with
+  `W × H` the proposed size and `R(W, H)` resolved by the layout with the same size and overflow policy as the state (16+ a `Layout`, 15 iOS 13
+  modifiers), so the state's `R` (the content's inset) and the layout's agree in the same commit. An app-driven animated resize therefore
+  interpolates the header with the content. While a resize is open `p`, the stretch and the `.preserve` translation are the resize intent's
+  anchor, bit-stable across the resize's unanimated commit (any changed value, even one ulp, re-sets the frame without animation and the
+  whole in-flight change jumps).
+- **The header offset is animatable data.** Outside a resize, `p`, the stretch, the translation and `h` are derived per frame from the header
+  offset `o′`, which is the animatable data of the header's layout (16+ the slot `Layout`, 15 the frame and translation modifiers). A
+  transaction-driven scroll (`withAnimation { state.scroll(to:) }`, `scrollTo` with a SwiftUI animation, a SwiftUI-animated refresh reset)
+  interpolates `o′` in the same transaction as the content's offset, so every frame has the header at the interpolated content position,
+  across the band's edges (interpolating the height instead left the header up to 132 pt off the content mid-band). Clock-driven motion
+  (fling, `.uikit` animations, `snapHeader(to:animated:)`, the refresh hold's lift) writes the target every frame and the header leaf follows it.
+- **Rigid layer groups for rotations.** A system rotation is laid out ONCE at the final size and Core Animation interpolates every layer change
+  made inside UIKit's rotation block. Without a group SwiftUI pushes the content transform down to the leaf layers, so rows that enter, leave
+  or are rebuilt land at once while the visible ones interpolate: the content tears and leaves the header (up to 94 pt covered). The content
+  (between the content and its transform) and the header (its clip and frame) are therefore each ONE layer group, and Core Animation moves them
+  rigidly and together: `geometryGroup()` on 17+ (isolates geometry only); `compositingGroup()` on 15–16 for BOTH groups, the only iOS 13
+  modifier that ends the push-down at a layer boundary (decision 2026-10-27: compositing group over nothing; without the header group a
+  37 pt gap opened in a rest `.aspectRatio` rotation, without the content group the content tears as above; a compositing group renders
+  offscreen only under a compositing effect applied above it, an ancestor's opacity < 1 or blend mode, exactly when UIKit's group opacity
+  renders a `UIScrollView`'s subtree offscreen too; it adds no rasterization, filter or mask, unit-tested). Neither group runs a content or
+  header body, and both are fixed at state creation, so the identity never changes. Open: the offscreen cost on a real 15/16 device.
+- **The resting height of `.fit`** is adopted in the viewport commit of the same update (see Natural height).
+- The scroll view clips at its own frame; a `.preserve` gap and the safe areas outside that frame show what is behind the scroll view.
+- Known limit: on the 15 path a `.fit` header inside the band keeps a commit-time step on an app-driven resize (its `R` is the state's there).
 
 **Snapping (kept; convention amended).** Only inside the band; positions as collapse progress (0 expanded, 1 collapsed; default `[0, 1]`).
 `.immediately` resolves the release target to the nearest position, velocity-aware, through the normal target pipeline after the user's

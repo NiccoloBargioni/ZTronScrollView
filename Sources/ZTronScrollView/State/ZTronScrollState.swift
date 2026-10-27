@@ -178,7 +178,7 @@ public final class ZTronScrollState {
     var headerSpec: HeaderSizing?
     var headerNatural: CGFloat?
     /// The latest `.fit` measurement and the width it was taken at, recorded synchronously by the header's layout pass
-    /// (16+ `HeaderFrameLayout`, 15 the measuring pass): a viewport commit at that width adopts it in the same update, so
+    /// (16+ `HeaderSlotLayout`, 15 the measuring pass): a viewport commit at that width adopts it in the same update, so
     /// the state's `R` and the layout's agree in the commit (a rotation or an animated resize moves both together).
     var headerNaturalLive: (width: CGFloat, height: CGFloat)?
     /// A viewport resize commit is open (the 15-path `.fit` measuring pass joins it in the same update).
