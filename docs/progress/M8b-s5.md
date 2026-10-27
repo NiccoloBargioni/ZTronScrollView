@@ -201,3 +201,43 @@ Lab additions (committed): `-ZTronSeamRetargetNear <pt>`, `-ZTronSeamNoHeader 1`
 Tests (eebb2a4 + probe and docs): unit `ZTronScrollViewTests` 765 tests in 73 suites green on 27.0 and on 17.5 (1 known
 issue: F6 on the forced lane), 0 feedback-loop warnings; `ContentOverlayUITests` + `HeaderUITests` + `ResizeUITests` +
 `ProofUITests` + `RefreshUITests`: 47/47 on 27.0 preferred and on 17.5 (host load low: no variant A, see 3).
+
+### Overlay placement fix (open item 17) · 2026-10-27 · Opus 5.5 (branch `claude/overlay-place-fix` from 79a5896)
+Finding 3 above, root-caused and fixed. Scratch: session scratchpad `fin/ovl/` (PROGRESS `fin/PROGRESS.md`, tag `[ovl]`).
+- Pre-existing: main 9e60063 (+ the probe, uncommitted) under the same throttle and load failed the same way (variant A
+  in 3 of 16 iterations, 2 failed: pinch `ovp` delta 45 / 47); 79a5896 failed 6 of 8 variant-A iterations (13 run).
+- A subview invalidation, not a parent re-layout: in every failing pinch `ovpChanged` stayed put (bounds and proposal
+  unchanged) while `ovp` grew by one per frame. Not Observation: SwiftUI 27.0 does not track an observable read inside
+  `placeSubviews` (hosted probe), and the counter-scale leaf never ran inside a placement; `ocs` only tracks the frames.
+- Root cause: `TransformHost` (whose body runs on every scroll and zoom frame) applied `.allowsHitTesting(!blocked)
+  .disabled(blocked)` inline. `.disabled(_:)` is an environment *transform* (a closure), so each frame handed the content a
+  new environment transform; when SwiftUI does not diff it away, every control in the content (the demo banner's
+  bordered `Button`) is laid out again on every frame, and the overlay `Layout` holding it is placed (and measures its
+  `.ideal` overlays) on every frame. Hosted it is deterministic: a bordered `Button` in the content and one in an overlay,
+  20 motion frames: content control 20 layouts, overlay control 40, host 20 (preferred; forced: host 0, controls the
+  same), 2 of 2 processes on 27.0. Moving the two modifiers into a leaf with one `Bool` input: 0 (also 0 with
+  `.environment(\.isEnabled, value)`, a value write; inline `.disabled` alone churned in one process of two). In the demo
+  the churn shows only after a "variant A" rotation (one more container evaluation per rotation under host load, then
+  `ovp 10` before the pinch: the extra placements were the same churn); why SwiftUI diffs the transform away otherwise is
+  internal (inferred: its per-type comparison state, cf. D43).
+- Fix: `ContentInteractionGate(blocked:)` (Render/ContentTransform.swift), the content's twin of `HeaderInteractionGate`:
+  its body runs only when `blocked` flips (motion start / end: the test's bound of 2). Regression unit test
+  `ContentOverlayTests.motionFramesDoNotLayOutControlsAgain` (both paths).
+- Throttled `testCounterScaledMarkerKeepsItsScreenSize` (`throttle.sh` 80/15 ms, host load 200–890; variant A = pre-pinch
+  `ovh 6, ovp 10`; "xeval" = `ovh >= 6`, the extra container evaluation per rotation, which the fix does not change):
+
+  | build (27.0 preferred) | iterations | xeval | variant A | failed |
+  |---|---|---|---|---|
+  | main 9e60063 + probe | 16 | 5 | 3 | 2 (all variant A, `ovp` +45 / +47) |
+  | 79a5896 | 13 | 10 | 8 | 6 (all variant A, `ovp` +26…+66) |
+  | fix | 28 | 11 | 0 | 0 (pinch `ovp` +2 in all 28) |
+  | fix, 17.5 | 16 | 0 | 0 | 0 (2 infra: kAX / terminate) |
+
+  On the unfixed builds xeval without the extra placements (`ovh 6, ovp 6/8`) passed; with the fix every xeval rotation
+  stays at `ovp 6`: the extra rotation placements were the same churn. 17.5 never showed xeval, and the hosted
+  regression test passes on 17.5 without the fix (2 of 2 processes): 17.5 diffs the per-frame transform away.
+Tests (fix): unit `ZTronScrollViewTests` 766 tests / 73 suites on 27.0: 1 known issue (F6), 1 load flake
+(`HeaderSafeAreaInsetTests.anAnimatedSafeAreaChange…` preferred, one step 2.21 > 2 at load 890; alone 2 of 2 green),
+0 feedback-loop warnings; `ContentOverlayUITests` + `ProofUITests` + `HeaderUITests` 20/20 on 27.0 preferred
+(unthrottled); `ContentOverlayUITests` ×6 throttled on 27.0: 23/24 (1 launch infra: "Failed to tap Snapshot"); ×2 on 17.5:
+4/6 (2 infra).

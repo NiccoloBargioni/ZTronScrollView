@@ -215,7 +215,7 @@ struct TransformHost: ViewModifier {
 /// host's per-frame evaluations. Applied inline in that body, `.disabled(blocked)` was a new environment transform on
 /// every frame of a scroll or zoom: every control in the content was laid out again on every frame, and a control in a
 /// content-integral overlay placed the overlay `Layout` (and measured its `.ideal` overlays) on every frame (27.0 under
-/// host load: 42–67 placements in a pinch, bound 2; hosted on 27.0 and 17.5: one per frame; open item 16). One `Bool`, no
+/// host load: 42–67 placements in a pinch, bound 2; hosted on 27.0: one per frame; 17.5: none; open item 17). One `Bool`, no
 /// padding: equal and byte-identical while unchanged (D43). The header's controls have their own gate on `.phase`
 /// (`HeaderInteractionGate`).
 struct ContentInteractionGate: ViewModifier {
