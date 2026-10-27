@@ -28,6 +28,10 @@ import ZTronScrollView
 // `-ZTronSeamWidthWithScroll 1` in the same `withAnimation` as the size change. `-ZTronSeamAnimateHeight <f>` (review d16,
 // M8b-s6): `seam.width` animates the scroll view's HEIGHT to `f` of the safe area's instead, top-pinned (its bottom leaves
 // the home indicator: the bottom safe-area inset goes 34 -> 0 with the change; with `capped` / `refit` the limit engages).
+// White probes (pure white, labelled "other" by the analyzer; scripts/seam/probe.py tracks them against the header's
+// bottom edge): `-ZTronSeamSticky 1` puts a 120 x 16 pt bar in an `.overlay(alignment: .bottom)` of the header content (a
+// sticky overlay); `-ZTronSeamHold 1` installs a refresher whose indicator is a 20 x 20 pt square and begins refreshing
+// (no action) 0.8 s after launch, so every later stimulus runs during a refresh hold (M8b-s6).
 
 enum SeamLab {
     static let red = Color(red: 1, green: 0, blue: 0)
@@ -148,6 +152,11 @@ struct SeamLabScreen: View {
         }
         .background(SeamLab.blue.ignoresSafeArea())
         .overlay(alignment: .topLeading) { if SeamLab.info { SeamLabInfo(state: state) } }
+        .task {
+            guard SeamLab.hold else { return }
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            state.beginRefreshing()
+        }
     }
 }
 
@@ -176,6 +185,12 @@ extension SeamLabScreen {
             .scrollIndicators(.hidden)
             .withScalingHeader(size: SeamLab.size, scalingBehavior: SeamLab.behavior, background: SeamLab.background,
                                overflow: SeamLab.overflow) { [tall] _ in SeamLabHeader(tall: tall) }
+        if SeamLab.hold {
+            // A held refresh with a white probe as its indicator (centred in the indicator's frame).
+            return view.refresher(refreshView: { _ in Color.white.frame(width: 20, height: 20) }) {
+                try? await Task.sleep(nanoseconds: 1_000_000_000_000)
+            }
+        }
         guard let seconds = SeamLab.refreshSeconds else { return view }
         // Trigger at 60 pt: the 220 pt drag of testPull crosses it under the rubber band and fires while pulling.
         return view.refresher(style: .system, configuration: ZTronRefreshConfiguration(triggerDistance: 60)) {
@@ -197,6 +212,10 @@ extension SeamLab {
     /// `-ZTronSeamAnimateHeight <f>` (review d16, M8b-s6): `seam.width` animates the scroll view's height to `f` of the
     /// safe area's (top-pinned) instead of its width.
     static var heightFactor: CGFloat? { Double(HeaderDemo.argument("-ZTronSeamAnimateHeight", "")).map { CGFloat($0) } }
+    /// `-ZTronSeamHold 1`: a held refresh (white probe indicator) from 0.8 s after launch.
+    static var hold: Bool { HeaderDemo.argument("-ZTronSeamHold", "0") == "1" }
+    /// `-ZTronSeamSticky 1`: a white bar in a bottom-aligned overlay of the header content (a sticky overlay).
+    static var sticky: Bool { HeaderDemo.argument("-ZTronSeamSticky", "0") == "1" }
     static var refreshSeconds: Double? {
         Double(HeaderDemo.argument("-ZTronSeamRefresh", "")).map { max(0, $0) }
     }
@@ -244,6 +263,14 @@ struct SeamLabHeader: View {
     var tall = false
 
     var body: some View {
+        if SeamLab.sticky {
+            content.overlay(alignment: .bottom) { Color.white.frame(width: 120, height: 16) }
+        } else {
+            content
+        }
+    }
+
+    @ViewBuilder private var content: some View {
         if SeamLab.letterboxed {
             SeamLab.red
                 .aspectRatio(16.0 / 9.0, contentMode: .fit)

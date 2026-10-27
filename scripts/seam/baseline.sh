@@ -9,7 +9,8 @@
 #              seam.scroll stops half way into the band), combo (band + -ZTronSeamWidthThenScroll 0.5, with width: a
 #              scroll command 0.5 s into the width animation closes the open resize inside its transaction), together
 #              (band + -ZTronSeamWidthWithScroll 1: the size change and the scroll in one withAnimation), height<digits> (with width:
-#              -ZTronSeamAnimateHeight 0.<digits>, the scroll view's height animates top-pinned instead of its width; height04 = 0.4); e.g. fixed-rest-preserve-rotate, aspect-half-preserve-width,
+#              -ZTronSeamAnimateHeight 0.<digits>, the scroll view's height animates top-pinned instead of its width; height04 = 0.4), hold (-ZTronSeamHold 1: a held refresh from launch, white probe indicator),
+#              sticky (-ZTronSeamSticky 1: a white bar in a bottom-aligned overlay of the header); e.g. fixed-rest-preserve-rotate, aspect-half-preserve-width,
 #              aspect-rest-preserve-rotate-capped-forced, fixed-rest-preserve-pull; each lands in <out-root>/<scenario>/.
 # env: ZS_SEAM_DD (derived data, see measure.sh), ZS_SEAM_INSET (adds -ZTronSeamInset <pt>).
 root="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -27,6 +28,8 @@ for sc in "$@"; do
       grow) extra+=(-ZTronSeamFitGrow 1) ;;   # with width + fit: seam.width animates the header's content 16:9 <-> 4:3 (review d16)
       height[0-9]*) extra+=(-ZTronSeamAnimateHeight "0.${x#height0}") ;;   # with width: seam.width animates the HEIGHT to 0.<digits> (height04 = 0.4, height025 = 0.25), top-pinned (M8b-s6)
       refresh) extra+=(-ZTronSeamRefresh 2.5) ;;
+      hold) extra+=(-ZTronSeamHold 1) ;;       # a held refresh from 0.8 s (white 20 pt probe indicator; scripts/seam/probe.py) (M8b-s6)
+      sticky) extra+=(-ZTronSeamSticky 1) ;;   # a white 120 x 16 pt bar in an .overlay(alignment: .bottom) of the header (probe.py) (M8b-s6)
       band) extra+=(-ZTronSeamScrollBand 0.5) ;;
       combo) extra+=(-ZTronSeamScrollBand 0.5 -ZTronSeamWidthThenScroll 0.5) ;;
       together) extra+=(-ZTronSeamScrollBand 0.5 -ZTronSeamWidthWithScroll 1) ;;
