@@ -288,8 +288,9 @@ final class UIKitPanProbeUITests: XCTestCase {
                 drag(app, from: center(s), by: CGVector(dx: 80, dy: 0), velocity: .slow, hold: 0.2)
             }
             row("toggleTap") {
+                // The switch sits at the trailing end of the row (a tap on the label does not toggle on 26+).
                 let t = app.switches["ctl.toggle"].firstMatch
-                (t.exists ? t : any(app, "ctl.toggle")).tap()
+                (t.exists ? t : any(app, "ctl.toggle")).coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
             }
             row("wheelDrag") { drag(app, from: center(any(app, "ctl.wheel")), by: CGVector(dx: 0, dy: -60), velocity: .slow, hold: 0.2) }
             row("stepperTap") {

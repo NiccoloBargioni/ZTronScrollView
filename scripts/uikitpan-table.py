@@ -125,24 +125,33 @@ def simple(rows, keys):
 
 
 def q7(rows):
-    def ok(r):
-        b, xs, ys = r.get("uikitpan.began", "0"), f(r, "controls.x.span"), f(r, "controls.y.span")
+    """Control values are per launch (cumulative over its rows): a row's effect is its change from the previous row."""
+    def ok(r, p):
+        xs, ys = f(r, "controls.x.span"), f(r, "controls.y.span")
         still = xs <= 0.5 and ys <= 0.5
+        d = lambda k: r.get(k) != p.get(k)
         n = r["row"]
-        if n == "buttonTap": return r.get("ctlB") == "1" and still
-        if n == "buttonDrag": return r.get("ctlB") == "0" and xs > 0.5
-        if n == "sliderDrag": return r.get("ctlS") != "0.50" and xs <= 0.5
-        if n == "toggleTap": return r.get("ctlT") == "1" and still
-        if n == "wheelDrag": return r.get("ctlW") != "10" and ys <= 0.5
-        if n == "stepperTap": return r.get("ctlSt") == "1" and still
-        if n == "segmentTap": return r.get("ctlSeg") == "1" and still
+        if n == "buttonTap": return d("ctlB") and still
+        if n == "buttonDrag": return not d("ctlB") and xs > 0.5
+        if n == "sliderDrag": return d("ctlS") and xs <= 0.5
+        if n == "toggleTap": return d("ctlT") and still
+        if n == "wheelDrag": return d("ctlW") and ys <= 0.5
+        if n == "stepperTap": return d("ctlSt") and still
+        if n == "segmentTap": return d("ctlSeg") and still
         if n == "emptyDrag": return xs > 0.5
         if n == "textTapType": return r.get("ctlX") == "a" and still
-        return b == "0" and still  # bars, header, disabled
-    out = [[r["lane"], r["v"], r["row"], r.get("ctlB"), r.get("ctlS"), r.get("ctlT"), r.get("ctlX"), r.get("ctlW"), r.get("ctlSt"),
-            r.get("ctlSeg"), r.get("controls.x.span"), r.get("controls.y.span"), r.get("uikitpan.began", "0"),
-            "PASS" if ok(r) else "FAIL"] for r in rows]
-    table(["lane", "V", "row", "taps", "slider", "toggle", "text", "wheel", "stepper", "seg", "x span", "y span", "began", "verdict"], out)
+        return r.get("uikitpan.began", "0") == "0" and still  # bars, header, disabled
+    out, prev = [], {}
+    for r in rows:
+        key = (r["lane"], r["v"])
+        p = prev.get(key, {"ctlB": "0", "ctlS": "0.50", "ctlT": "0", "ctlW": "10", "ctlSt": "0", "ctlSeg": "0"})
+        if r["row"].startswith("disabled"):
+            p = {"ctlB": "0", "ctlS": "0.50", "ctlT": "0", "ctlW": "10", "ctlSt": "0", "ctlSeg": "0"}
+        changed = " ".join(k[3:] for k in ("ctlB", "ctlS", "ctlT", "ctlW", "ctlSt", "ctlSeg") if r.get(k) != p.get(k)) or "-"
+        out.append([r["lane"], r["v"], r["row"], changed, r.get("ctlX"), r.get("controls.x.span"), r.get("controls.y.span"),
+                    r.get("uikitpan.began", "0"), "PASS" if ok(r, p) else "FAIL"])
+        prev[key] = r
+    table(["lane", "V", "row", "controls changed", "text", "x span", "y span", "pan began", "verdict"], out)
 
 
 def q9(rows):
