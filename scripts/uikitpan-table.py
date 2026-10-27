@@ -148,7 +148,7 @@ def q7(rows):
     for r in rows:
         key = (r["lane"], r["v"])
         p = prev.get(key, {"ctlB": "0", "ctlS": "0.50", "ctlT": "0", "ctlW": "10", "ctlSt": "0", "ctlSeg": "0"})
-        if r["row"].startswith("disabled"):
+        if r["row"].startswith("disabled") or r["row"] == "buttonTap":  # a new launch
             p = {"ctlB": "0", "ctlS": "0.50", "ctlT": "0", "ctlW": "10", "ctlSt": "0", "ctlSeg": "0"}
         changed = " ".join(k[3:] for k in ("ctlB", "ctlS", "ctlT", "ctlW", "ctlSt", "ctlSeg") if r.get(k) != p.get(k)) or "-"
         out.append([r["lane"], r["v"], r["row"], changed, r.get("ctlX"), r.get("controls.x.span"), r.get("controls.y.span"),
@@ -229,6 +229,9 @@ def summary(allrows):
                 row.append(f"{len(ok)}/{len(vr)}" + (f" (double {both})" if both else "") + (" ≠ " + ",".join(miss) if miss else ""))
             out.append(row)
     table(["lane", "iOS", "target", "V on", "V off", "V axis"], out)
+    if g("Q3e"):
+        print("### Q3e / Q3f (N boundary sweep: UIKit's own nested scroll views, and the probe with a 45° / 60° boundary)\n")
+        sweep(g("Q3e"))
     print("### Q4 (`bounds(of: .scrollView(axis:))` inside a ZTron viewport: S any, V vertical, H horizontal)\n")
     rs = g("Q4")
     parents = []
