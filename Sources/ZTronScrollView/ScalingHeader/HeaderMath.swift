@@ -56,7 +56,7 @@ enum HeaderMath {
                 warning = "withScalingHeader: .fit measured a resting height of \(resting): the header has no ideal height (only flexible views). Use .fixed, .aspectRatio or .frame(idealHeight:)"
             }
         }
-        // The overflow policy (D52): the size's resting height and `min`, limited by the container.
+        // The overflow policy (D59): the size's resting height and `min`, limited by the container.
         if containerHeight > 0, containerHeight.isFinite {
             let limit: CGFloat
             switch overflow {

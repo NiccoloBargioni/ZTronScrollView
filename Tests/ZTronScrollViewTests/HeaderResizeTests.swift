@@ -105,7 +105,7 @@ struct HeaderResizeTests {
         #expect(s.headerGeometry?.stretch == 0 && s.headerGeometry?.progress == 0)
     }
 
-    /// D52: the overflow policy is resolved against the container of each orientation, inside the same commit, and the
+    /// D59: the overflow policy is resolved against the container of each orientation, inside the same commit, and the
     /// progress is kept.
     @Test(arguments: OSPath.allCases) func theOverflowPolicyFollowsTheContainerAcrossARotation(path: OSPath) {
         let (s, clock) = make(path, size: .aspectRatio(16.0 / 9.0, min: 64), overflow: .capped(fraction: 0.6))
