@@ -702,7 +702,9 @@ screen recordings, `scripts/seam/`):
 - **The resting height of `.fit`** is adopted in the viewport commit of the same update (see Natural height). On 15–16 the measuring pass
   arms in the commit's own update when the committed width is not the one it last measured at, so a rotation's measurement joins the open
   resize inside UIKit's animation block (armed one update later through `onChange`, it landed after the never-animated resize had closed:
-  header and content jumped 98 pt at the rotation's start, forced lane).
+  header and content jumped 98 pt at the rotation's start, forced lane). The pass lays the live header content out at its ideal height
+  (`fixedSize(vertical:)`) for that one update; it is never drawn (M8b-s6, forced lane, `.fit` half collapsed, rotation: a white bar in an
+  `.overlay(alignment: .bottom)` of the header stays within 0.5 pt of the header's bottom edge in every frame, `scripts/seam/probe.py`).
 - The scroll view clips at its own frame; a `.preserve` gap and the safe areas outside that frame show what is behind the scroll view.
 - Known limit: on the 15 path a `.fit` header inside the band keeps a commit-time step on an app-driven resize (its `R` is the state's there;
   forced lane: 45 pt at half collapse). Rotations are seamless there.

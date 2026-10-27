@@ -22,6 +22,11 @@ func unhost(_ window: UIWindow?) {
 /// every later window there printed "Observation tracking feedback loop detected" (threshold 40), even a `Color.clear`
 /// one. Kept objects never free their address; windows without a `UIScrollView` record no counted invalidation.
 ///
+/// The same holds for the window's `UITransitionView` (M8b-s6): a window that is not screen-sized (a landscape 874 × 402
+/// test window on the portrait test device, a resized one) gets its layout invalidated twice through `_UICornerProvider`
+/// (logged with `UIObservationTrackingLoggingEnabled`), so the header suites' windows warned after ~20 of them (75 lines in
+/// the five header suites at 795bf1a, 292 in the full run). `unhost` keeps such a window too, with its transition views.
+///
 /// A kept window is retired (hidden, root controller dropped, so its content stops rendering) by `unhost` or by the
 /// first `host()` of a later test: every test that hosts a `UIScrollView` is synchronous, so it has finished by then.
 @MainActor
@@ -60,8 +65,10 @@ enum ScrollViewWindows {
     /// `window` is kept.
     @discardableResult
     static func retire(_ window: UIWindow) -> Bool {
-        guard keepIfScrolling(window) else { return false }
-        for view in allScrollViews(in: window) where !isKept(view) { kept.append(view) }
+        guard keepIfScrolling(window) || keepTransitionViews(of: window) else { return false }
+        for view in allScrollViews(in: window) as [UIView] + allTransitionViews(in: window) where !isKept(view) {
+            kept.append(view)
+        }
         live.removeAll { $0.window === window }
         window.isHidden = true
         window.rootViewController = nil
@@ -71,6 +78,23 @@ enum ScrollViewWindows {
     private static func allScrollViews(in view: UIView) -> [UIScrollView] {
         var found = view.subviews.flatMap(allScrollViews(in:))
         if let scrollView = view as? UIScrollView { found.insert(scrollView, at: 0) }
+        return found
+    }
+
+    /// Keeps `window` and its transition views allocated (iOS 26+); whether it holds one.
+    private static func keepTransitionViews(of window: UIWindow) -> Bool {
+        guard isNeeded else { return false }
+        let views = allTransitionViews(in: window)
+        guard !views.isEmpty else { return false }
+        if !isKept(window) { kept.append(window) }
+        for view in views where !isKept(view) { kept.append(view) }
+        return true
+    }
+
+    /// UIKit's `UITransitionView`s in the hierarchy (matched by class name: test support only, never library code).
+    private static func allTransitionViews(in view: UIView) -> [UIView] {
+        var found = view.subviews.flatMap(allTransitionViews(in:))
+        if NSStringFromClass(type(of: view)) == "UITransitionView" { found.insert(view, at: 0) }
         return found
     }
 }
