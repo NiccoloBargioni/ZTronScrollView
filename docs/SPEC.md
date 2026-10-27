@@ -466,6 +466,17 @@ public enum ZTronHeaderSize: Equatable, Sendable {
     case fit(min: CGFloat = 0)                     // resting height = the header's ideal height at the scroll view's width (measured)
 }
 public enum ZTronHeaderScalingBehavior: Sendable { case preserve, stretch }
+public enum ZTronHeaderOverflow: Equatable, Sendable {   // D52 (user, 2026-10-25): a resting height taller than the container
+    case uncapped                                         // the size's own R (default); the content may start below the screen
+    case capped(fraction: CGFloat)                        // R ≤ fraction · H (fraction in 0…1); min limited the same way
+    case refit                                            // .aspectRatio(r) → the aspect fit of r in W × H; .fixed / .fit → ≤ H
+}
+public struct ZTronHeaderBackground {                     // 2026-10-26 (user): fills the live frame behind the header's content
+    public static func ambientBlur(radius: CGFloat = 30) -> Self    // a blurred, scaled-to-fill second instance of the header content
+    public static func frostedGlass(radius: CGFloat = 20) -> Self   // backdrop blur: the system Material nearest to radius (approximate)
+    public static func color(_ color: Color) -> Self
+    public static func view<V: View>(@ViewBuilder _ content: () -> V) -> Self   // type-erased, built once per cold change
+}
 public struct ZTronHeaderSnap: Equatable, Sendable {
     public static let disabled: Self
     public static func immediately(at positions: [CGFloat] = [0, 1]) -> Self            // positions are collapse progress: 0 expanded, 1 collapsed
@@ -534,6 +545,13 @@ reader scopes; children without a reader never update because of scrolling.
   *(kept)*; re-measured on width, Dynamic Type and (16+) header content changes, each a discrete inset change. Prefer `.fixed` /
   `.aspectRatio` when the height is known.
 - `min` defaults to 0 (the header can collapse to nothing). `min ≥ resting` → fixed-height header ("Degenerate range").
+- **Overflow (D52, user 2026-10-25; amended 2026-10-26).** The *container* is `W × H` with `H` = the viewport height minus the adjusted
+  safe-area top and bottom (the region the content adjusts for). A resting height taller than `H` (a full-width 16:9 banner in
+  landscape: `750 / (16/9) ≈ 422 pt` on a 381 pt container) follows `overflow:`. `.uncapped` (default) keeps the size's own `R`: the
+  content starts below the screen until the user scrolls (expected, not a seam). `.capped(fraction:)` limits `R` (and `min`) to
+  `fraction · H`. `.refit` refits: `.aspectRatio(r)` becomes the aspect fit of `r` inside `W × H` (`R = min(W / r, H)`), `.fixed` and `.fit`
+  are limited to `H`, `min` the same way. The state (insets, band, progress) and the header's layout resolve `R(W, H)` with the same size
+  and policy from the same `W × H`, so they agree in the same commit (a rotation or an animated resize moves both together).
 
 **Removed API (amendment: replaced, never duplicated).** `pullToRefresh`, `pullToLoadMore` → `refresher(…)` / `ztronRefresher` /
 `.refreshable` (S9); `scrollViewDidReachBottom` → `onZTronScrollReachEdge(.bottom)` (S9); `hideScrollIndicators` → `showsIndicators: false`
@@ -559,7 +577,8 @@ positions and progress share one convention (0 = expanded, 1 = collapsed); the r
   vertical view.
 - `W` = the viewport width on every axis configuration.
 
-**Geometry (amended; exact rules).** `top0 = safe.top` (the header's top edge, fixed); `R` resting height; `min`; `band = max(0, R − min)`;
+**Geometry (amended; exact rules).** `top0 = safe.top` (the header's top edge, fixed except for the `.preserve` pull below); `R` resting
+height; `min`; `band = max(0, R − min)`;
 `o′` = the header-relative offset = content offset + `aci.top` **excluding** the refresh hold, so rest is `o′ = 0`, a pull past the top is
 `o′ < 0` and scrolling up is `o′ > 0` (the pan's rubber band already applies to `o′`, which gives the pull its feel); `c = clamp(o′, 0, band)`
 (collapse travel); `g = max(0, −o′)` (overflow).
@@ -604,15 +623,32 @@ header moved down by `H` with the content, amended 2026-10-26 by the user). Load
 **Background (2026-10-26, user).** `background: ZTronHeaderBackground? = nil` wraps the header in a container whose background fills the
 header's live frame, below the header's content and below the fade, clipped with it, hidden from accessibility and hit-testing: so an aspect
 ratio ≤ 1 or a refit / aspect-fit content never leaves blank areas. `.ambientBlur(radius:)` = a blurred, scaled-to-fill second instance of the
-header's own content (its body runs once more per cold change, never per frame); `.frostedGlass(radius:)` = a backdrop blur with the system
-`Material` nearest to `radius` (approximate); `.color(Color)`; `.view { … }` (type-erased). It follows the live frame in every animation
-(collapse, `.stretch` growth, the `.preserve` translation, resizes, rotations) by layout.
+header's own content (its body runs once more per cold change: install, parent rebuild, size change; never per frame; its `@State` is its
+own; filled with the content's own aspect ratio, cropped to the frame, blurred with opaque edges); `.frostedGlass(radius:)` = a backdrop
+blur with the system `Material` nearest to `radius` (about 6 pt ultraThin, 12 thin, 20 regular, 30 thick, 40 ultraThick: the radius is
+APPROXIMATE, it only picks the nearest material, iOS 15+); `.color(Color)`; `.view { … }` (type-erased). It follows the live frame in
+every animation (collapse, `.stretch` growth, the `.preserve` translation, resizes, rotations) by layout. Accessibility: the background's
+whole subtree is replaced by nothing (`accessibilityRepresentation`, iOS 15), so the header's controls are exposed exactly once even
+though the ambient copy draws them a second time (`accessibilityHidden` alone left the copy's elements inside a `.contain` container
+exposed); it never takes a touch.
 
 **Seamless edges (2026-10-26, user, mission critical).** In every header animation the header's bottom edge stays on the content's top edge,
 laterally aligned, with no one-frame jumps: system rotations, app-driven animated resizes, `.fit` re-measures, refresh holds, snaps and
 `scrollTo`. The header's geometry comes from layout (its slot's top edge from the safe area, `R(W, H)` with the size and the overflow policy
 resolved in the same layout pass as the container, `.fit`'s measurement adopted by the viewport commit of the same update); the content and
 the header are each one layer group (`geometryGroup` 17+, `compositingGroup` 15–16) so Core Animation moves them rigidly in a rotation.
+Why each piece is needed (seam lab, per-frame analysis of simulator recordings, M8b-3):
+- A system rotation is laid out once at the final size; Core Animation interpolates every layer change made inside UIKit's rotation block.
+  Without a layer group SwiftUI pushes the content transform down to the leaf layers, so rows entering, leaving or rebuilt land at once
+  (the content tears, up to 94 pt off the header). With the groups the content and the header move rigidly: ≤ 0.5 pt on 27.0, 17.5 and the
+  forced 15–16 path. The 15–16 fallback is `compositingGroup()` because it is the only iOS 13 modifier that ends the push-down at a layer
+  boundary; without it the forced path tore (lateral misalignment up to ~300 pt mid-rotation). It adds no rasterization, filter or mask
+  (unit test); its offscreen cost on a real 15/16 device is unmeasured (open).
+- An app-driven animated resize interpolates layout: the header's height is a layout result of the animated size (`R(W, H)`), so it
+  interpolates with the content; the progress, stretch and translation are the resize intent's anchor while the resize is open (bit-stable
+  across the unanimated commit: a changed value would re-set the frame without animation).
+- Readers and the scroll view's clip: the scroll view clips at its own frame; a `.preserve` gap and the safe areas outside that frame show
+  what is behind the scroll view.
 
 **Snapping (kept; convention amended).** Only inside the band; positions as collapse progress (0 expanded, 1 collapsed; default `[0, 1]`).
 `.immediately` resolves the release target to the nearest position, velocity-aware, through the normal target pipeline after the user's

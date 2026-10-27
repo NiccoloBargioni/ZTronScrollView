@@ -30,7 +30,11 @@ the coverage profile across it. n's sign: continuity; else green before yellow; 
                greenclip: the green row's far edge facing the background with no other content edge visible, which in
                this lab is the viewport's clip cutting the row (it is always followed by the yellow row), so the
                content top is not derivable from the pixels; ambiguous frames stay out of the
-               maxima (summary maxOverlapAmbiguous reports them apart). Torn content (the 27.0 rotation draws the green
+               maxima (summary maxOverlapAmbiguous reports them apart). v2.2: with `-ZTronSeamMarker 1` the lab draws
+               row 4 (content y 320..380) pure cyan instead of yellow: its edges magenta->cyan (320) and cyan->magenta
+               (380) fix the content top outright (ctopSrc = marker), e.g. under a collapsed header whose content is
+               scrolled under it (the rows alone fix it modulo 120 pt only, and the green row may be clipped away
+               above the header's top). Torn content (the 27.0 rotation draws the green
                row at its old place and the next rows at their new one, over it or apart from it): the green edge
                nearest the header's bottom edge sets the content top (what meets the header) and ctopSplit = 1 says the
                content's own edges disagree (> 2 pt, a blue->yellow edge off the rows included).
@@ -81,16 +85,19 @@ MIN_LINE_PT = 8.0        # shorter lines are not used
 SPLIT_PT = 2.0
 AMBIG_PT = 30.0
 
-OTHER, RED, GREEN, BLUE, YELLOW, MAGENTA, BLACK = range(7)
-NAMES = "?RGBYMK"
+OTHER, RED, GREEN, BLUE, YELLOW, MAGENTA, BLACK, CYAN = range(8)
+NAMES = "?RGBYMKC"
 SHIFTS = ((0, 3), (3, 0), (2, 2), (2, -2))      # (dy, dx): pixel pairs 3 px apart
 NORMALISH = 0.9                                  # |step . normal| for a pair to cross a line along that normal
-CONTENT_SET = (GREEN, YELLOW, MAGENTA)
-BELOW_HDR = (GREEN, YELLOW, MAGENTA, BLUE)
+CONTENT_SET = (GREEN, YELLOW, MAGENTA, CYAN)
+BELOW_HDR = (GREEN, YELLOW, MAGENTA, BLUE, CYAN)
+# v2.2: the optional marker row (`-ZTronSeamMarker 1`): row 4 cyan, content y 320..380.
+MARKER_TOP_PT = GREEN_PT + ROW_PT * 4
+MARKER_FAR_PT = MARKER_TOP_PT + ROW_PT
 # Content edges along n: green->yellow (content y 80), yellow->magenta / magenta->yellow (80 + 60k), blue->green (the
 # green row's top facing the background), green->blue (its far edge facing the background: a row drawn apart from the
 # next one, as the 27.0 rotation does), blue->yellow (a yellow row's top facing the background: the same).
-CONTENT_KINDS = ("GY", "YM", "MY", "BG", "GB", "BY")
+CONTENT_KINDS = ("GY", "YM", "MY", "BG", "GB", "BY", "MC", "CM")
 
 
 def probe(path):
@@ -142,6 +149,11 @@ def label(a):
     red = dilate(L == RED, 2)
     L[(L == YELLOW) & red & dilate(L == GREEN, 2)] = OTHER
     L[(L == MAGENTA) & red & dilate(L == BLUE, 2)] = OTHER
+    # v2.2 marker: cyan; a cyan/magenta edge blends towards blue (a thin line along the marker's edges).
+    cyan = gh & bh & rl
+    if cyan.any():
+        L[cyan] = CYAN
+        L[(L == BLUE) & dilate(cyan, 2) & dilate(L == MAGENTA, 2)] = OTHER
     return L
 
 
@@ -472,7 +484,8 @@ class Analyzer:
         # Lines parallel to the band.
         fam_lines = {}
         for kind, a_l, b_l in (("GY", GREEN, YELLOW), ("YM", YELLOW, MAGENTA), ("MY", MAGENTA, YELLOW),
-                               ("BG", BLUE, GREEN), ("GB", GREEN, BLUE), ("BY", BLUE, YELLOW)):
+                               ("BG", BLUE, GREEN), ("GB", GREEN, BLUE), ("BY", BLUE, YELLOW),
+                               ("MC", MAGENTA, CYAN), ("CM", CYAN, MAGENTA)):
             sel = nish & (F == a_l) & (G == b_l)
             fam_lines[kind] = [l for l in find_lines(kind, P[sel], n) if l.length / sc >= MIN_LINE_PT]
         sel = nish & (F == RED) & isp(G, BELOW_HDR)
@@ -532,6 +545,7 @@ class Analyzer:
         # Positions.
         sets = {"GY": ((GREEN,), (YELLOW,)), "YM": ((YELLOW,), (MAGENTA,)), "MY": ((MAGENTA,), (YELLOW,)),
                 "BG": ((BLUE,), (GREEN,)), "GB": ((GREEN,), (BLUE,)), "BY": ((BLUE,), (YELLOW,)),
+                "MC": ((MAGENTA,), (CYAN,)), "CM": ((CYAN,), (MAGENTA,)),
                 "HB": ((RED,), BELOW_HDR), "HT": (BELOW_HDR, (RED,))}
         for l in allv:
             self.place(L, l, n, u, *sets[l.kind])
@@ -677,6 +691,12 @@ class Analyzer:
         if fam["GB"]:
             l = max(fam["GB"], key=lambda x: x.length)
             anchors.append(("greenfar", l.s / sc - GREEN_PT, l.s / sc))
+        if fam["MC"]:
+            l = max(fam["MC"], key=lambda x: x.length)
+            anchors.append(("marker", l.s / sc - MARKER_TOP_PT, l.s / sc))
+        if fam["CM"]:
+            l = max(fam["CM"], key=lambda x: x.length)
+            anchors.append(("marker", l.s / sc - MARKER_FAR_PT, l.s / sc))
         ct, src, k_used, amb = float("nan"), None, None, 0
         # v2.1: the green row's far edge facing the background with no other content edge anywhere (no green -> yellow,
         # no background -> green, no row boundary, no yellow top facing the background) is the VIEWPORT's clip, not the
@@ -753,7 +773,7 @@ class Analyzer:
         nb = int(band.sum())
         if nb == 0:
             return True
-        bad = int(np.isin(lab3[band], (YELLOW, MAGENTA, BLUE)).sum())
+        bad = int(np.isin(lab3[band], (YELLOW, MAGENTA, BLUE, CYAN)).sum())
         return bad <= max(10, 0.03 * nb)
 
     def predict(self):

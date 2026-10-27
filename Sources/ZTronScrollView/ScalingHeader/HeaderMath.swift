@@ -36,8 +36,32 @@ struct HeaderLiveInput: Equatable {
     var committedContainer: CGFloat = 0
     /// `.fit`: the committed natural height (the 15 path tells a limited `R` from the natural one).
     var natural: CGFloat?
+    /// The header offset `o′` the progress, stretch, translation and state height were derived from, and whether they
+    /// follow it. `o′` is the animatable data of the header's layout (16+ `HeaderSlotLayout`, 15 `HeaderFallbackFrame` /
+    /// `HeaderTranslation`): a transaction-driven scroll (`withAnimation { scroll(to:) }`, a `scrollTo` under a SwiftUI
+    /// animation) interpolates `o′` with the content's offset, and every frame re-derives the rest exactly as the state
+    /// does at that `o′`, so the header stays on the content's top across the band's edges (interpolating the height
+    /// itself left the header up to 132 pt off the content while the content crossed the band, seam lab). While a resize
+    /// is open they do not follow it (the intent's anchor) and `offset` holds the last followed value: the animatable
+    /// data does not change at the resize commit.
+    var offset: CGFloat = 0
+    var followsOffset = false
 
     var layoutDriven: Bool { metrics?.vertical == true }
+
+    /// The same input at the header offset `o` (an animation frame): re-derived as `HeaderFrameModifier.liveInput` does
+    /// when it follows the offset; only `offset` changes otherwise.
+    func at(offset o: CGFloat) -> HeaderLiveInput {
+        var c = self
+        c.offset = o
+        guard followsOffset, let m = metrics else { return c }
+        let g = HeaderMath.geometry(o: o, m: m)
+        c.progress = g.progress
+        c.stretch = g.stretch
+        c.translation = HeaderMath.translation(o: o, m: m)
+        c.stateHeight = Swift.max(0, m.resting - g.progress * m.band + g.stretch)
+        return c
+    }
 }
 
 /// Where the header was when a resize captured its intent.

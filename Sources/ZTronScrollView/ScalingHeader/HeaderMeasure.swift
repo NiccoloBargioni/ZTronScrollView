@@ -35,6 +35,9 @@ struct HeaderMeasure: ViewModifier {
 @MainActor
 final class HeaderNaturalReporter: ObservableObject {
     private weak var state: ZTronScrollState?
+    /// The frame leaf's last followed header offset (`HeaderLiveInput.offset`), held while a resize is open. Plain storage
+    /// (never published): the leaf's body writes it.
+    var heldOffset: CGFloat = 0
     private var last: CGFloat?
     private var scheduled = false
 

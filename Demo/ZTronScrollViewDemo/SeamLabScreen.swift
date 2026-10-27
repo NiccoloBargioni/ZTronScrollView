@@ -13,10 +13,15 @@ import ZTronScrollView
 // .capped(fraction: 0.5)), `-ZTronHeaderBackground ambient|glass|color|view` (ZTronHeaderBackground: with ambient, color
 // and view the red content is a 16:9 box fitted into the frame and the background, red too, fills the rest of the live
 // frame, so the analyzer measures the BACKGROUND's edges wherever the frame is not 16:9; glass keeps the filling content,
-// a material is not a pure color).
+// a material is not a pure color), `-ZTronSeamMarker 1` (row 4, content y 320..380, pure cyan instead of yellow: a
+// marker at a known content y that fixes the content's top when the green row is scrolled under a collapsed header;
+// analyzer v2.2).
 // The white square at the bottom-trailing corner (`seam.width`) animates the scroll view's width between full and 60 %
 // of the screen (easeInOut 1.2 s), centered: an app-driven animated viewport resize. SeamLabUITests.testPull drags the
 // content down from its middle and holds (the `.preserve` header moves down with it, the `.stretch` one grows).
+// Left of it, `seam.scroll` toggles a transaction-driven scroll (`withAnimation(.easeInOut(duration: 1.2)) {
+// state.scroll(to:) }`) between rest and y = 400 (past the collapse band, the content under the collapsed header), and
+// `seam.snap` toggles `snapHeader(to: .collapsed / .expanded, animated: true)` (the clock path).
 
 enum SeamLab {
     static let red = Color(red: 1, green: 0, blue: 0)
@@ -24,6 +29,7 @@ enum SeamLab {
     static let blue = Color(red: 0, green: 0, blue: 1)
     static let yellow = Color(red: 1, green: 1, blue: 0)
     static let magenta = Color(red: 1, green: 0, blue: 1)
+    static let cyan = Color(red: 0, green: 1, blue: 1)
 
     static var size: ZTronHeaderSize {
         switch HeaderDemo.argument("-ZTronHeaderSize", "fixed") {
@@ -52,6 +58,8 @@ enum SeamLab {
         }
     }
 
+    static var marker: Bool { HeaderDemo.argument("-ZTronSeamMarker", "0") == "1" }
+
     static var backgroundName: String { HeaderDemo.argument("-ZTronHeaderBackground", "none") }
 
     static var background: ZTronHeaderBackground? {
@@ -78,6 +86,8 @@ struct SeamLabScreen: View {
         return s
     }()
     @State private var narrow = false
+    @State private var far = false
+    @State private var snapped = false
 
     var body: some View {
         GeometryReader { g in
@@ -91,12 +101,29 @@ struct SeamLabScreen: View {
                     .background(SeamLab.blue)
                     .frame(width: narrow ? g.size.width * 0.6 : g.size.width, height: g.size.height)
                     .frame(maxWidth: .infinity)
-                Button {
-                    withAnimation(.easeInOut(duration: 1.2)) { narrow.toggle() }
-                } label: {
-                    Color.white.frame(width: 24, height: 24)
+                HStack(spacing: 4) {
+                    Button {
+                        snapped.toggle()
+                        state.snapHeader(to: snapped ? .collapsed : .expanded, animated: true)
+                    } label: {
+                        Color.white.frame(width: 24, height: 24)
+                    }
+                    .accessibilityIdentifier("seam.snap")
+                    Button {
+                        far.toggle()
+                        let y = far ? 400 : -state.adjustedContentInset.top
+                        withAnimation(.easeInOut(duration: 1.2)) { state.scroll(to: CGPoint(x: 0, y: y)) }
+                    } label: {
+                        Color.white.frame(width: 24, height: 24)
+                    }
+                    .accessibilityIdentifier("seam.scroll")
+                    Button {
+                        withAnimation(.easeInOut(duration: 1.2)) { narrow.toggle() }
+                    } label: {
+                        Color.white.frame(width: 24, height: 24)
+                    }
+                    .accessibilityIdentifier("seam.width")
                 }
-                .accessibilityIdentifier("seam.width")
                 .padding(.trailing, 4)
                 .padding(.bottom, 4)
             }
@@ -152,7 +179,8 @@ struct SeamLabContent: View {
         VStack(spacing: 0) {
             SeamLab.green.frame(height: 80)
             ForEach(0..<40, id: \.self) { i in
-                (i % 2 == 0 ? SeamLab.yellow : SeamLab.magenta).frame(height: 60)
+                (i == 4 && SeamLab.marker ? SeamLab.cyan : i % 2 == 0 ? SeamLab.yellow : SeamLab.magenta)
+                    .frame(height: 60)
             }
         }
         .frame(maxWidth: .infinity)

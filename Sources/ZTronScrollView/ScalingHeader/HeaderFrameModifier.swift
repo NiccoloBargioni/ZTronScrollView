@@ -30,11 +30,11 @@ struct HeaderFrameModifier: ViewModifier {
         // `HeaderFallbackFrame`. The branch is a `let` flag fixed at state creation (R6): the identity never changes.
         if state.usesLayoutProtocol, #available(iOS 16, *) {
             HeaderSlotLayout(live: live, reporter: reporter) {
-                Self.chrome(content, live: live, visible: visible, group: group)
+                Self.chrome(content, visible: visible, group: group)
             }
         } else {
-            Self.chrome(content.modifier(HeaderFallbackFrame(live: live, state: state)), live: live, visible: visible,
-                        group: group)
+            Self.chrome(content.modifier(HeaderFallbackFrame(live: live, state: state)), visible: visible, group: group)
+                .modifier(HeaderTranslation(live: live))
                 // The slot: the header at the top of the whole overlay. Without it a header exactly as tall as the
                 // region between the safe areas was placed against the bottom safe area (34 pt low; measured).
                 .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .top)
@@ -56,13 +56,15 @@ struct HeaderFrameModifier: ViewModifier {
         let zoom = metrics.header?.vertical == false ? storage.targetZoom : 1
         var live = Self.liveInput(size: size, overflow: overflow, metrics: metrics,
                                   edges: state.contentInsetAdjustmentBehavior.edges(for: state.scrollAxes),
-                                  target: storage.targetOffset, zoom: zoom)
+                                  target: storage.targetOffset, zoom: zoom, held: reporter.heldOffset)
+        if live.followsOffset { reporter.heldOffset = live.offset }
         live.natural = state.headerNatural
         return live
     }
 
-    /// What the framed header carries on every path: its own clip, its layer group, the gates and the translation.
-    static func chrome<V: View>(_ framed: V, live: HeaderLiveInput, visible: Bool, group: Bool) -> some View {
+    /// What the framed header carries on every path: its own clip, its layer group and the gates. The `.preserve`
+    /// translation is the layout's (16+ placement, 15 `HeaderTranslation`), animated with the header offset.
+    static func chrome<V: View>(_ framed: V, visible: Bool, group: Bool) -> some View {
         framed
             .clipped()
             // The header's own clip in its own layer group: Core Animation then interpolates it as the header's frame, not
@@ -71,8 +73,6 @@ struct HeaderFrameModifier: ViewModifier {
             .modifier(HeaderLayerGroup(useGeometryGroup: group))
             .allowsHitTesting(visible)
             .accessibilityHidden(!visible)
-            // `.preserve` under a pull: the header moves down with the content (render-time; the gap opens above it).
-            .offset(y: live.translation)
     }
 
     /// The state's half of the live frame. Bit-stability is the point: the animated layout pass of an app-driven resize lays
@@ -83,10 +83,14 @@ struct HeaderFrameModifier: ViewModifier {
     ///   same target offset), not re-derived from the realised target (ulps apart);
     /// - no pixel snap of the offset here (the intent is captured unsnapped): at rest the header's edge and the content's
     ///   snapped top can differ by a sub-pixel amount instead.
+    /// - otherwise they follow the header offset `o′` (`HeaderLiveInput.offset`, the layout's animatable data), so a
+    ///   transaction-driven scroll re-derives them per frame from the interpolated `o′`; `held` is the last followed `o′`,
+    ///   kept as the animatable data while a resize is open.
     static func liveInput(size: ZTronHeaderSize, overflow: ZTronHeaderOverflow, metrics m: ScrollMetrics, edges: Edge.Set,
-                          target: CGPoint, zoom: CGFloat) -> HeaderLiveInput {
+                          target: CGPoint, zoom: CGFloat, held: CGFloat = 0) -> HeaderLiveInput {
         guard let header = m.header else { return HeaderLiveInput(size: size, overflow: overflow, metrics: nil) }
         var p: CGFloat = 0, stretch: CGFloat = 0, translation: CGFloat = 0
+        var offset = held, follows = false
         if header.vertical, m.resize.isOpen, let anchor = m.resize.intent?.header {
             switch anchor {
             case let .top(x):
@@ -101,26 +105,50 @@ struct HeaderFrameModifier: ViewModifier {
             p = g.progress
             stretch = g.stretch
             translation = HeaderMath.translation(o: o, m: header)
+            offset = o
+            follows = true
         }
         let h = max(0, header.resting - p * header.band + stretch)
         return HeaderLiveInput(size: size, overflow: overflow, metrics: header, progress: p, stretch: stretch,
                                translation: translation, stateHeight: h,
                                bottomInset: edges.contains(.bottom) ? max(0, m.safeAreaInsets.bottom) : 0,
                                committedContainer: HeaderMath.containerHeight(viewport: m.viewportSize, safe: m.safeAreaInsets,
-                                                                              adjusted: edges))
+                                                                              adjusted: edges),
+                               offset: offset, followsOffset: follows)
+    }
+}
+
+/// 15 / forced: the `.preserve` translation, animated with the header offset like `HeaderFallbackFrame` (both interpolate
+/// the same `o′` in the same transaction).
+struct HeaderTranslation: ViewModifier, Animatable {
+    var live: HeaderLiveInput
+
+    var animatableData: CGFloat {
+        get { live.offset }
+        set { live = live.at(offset: newValue) }
+    }
+
+    func body(content: Content) -> some View {
+        content.offset(y: live.translation)
     }
 }
 
 /// 16+: the header's SLOT, the overlay below the safe-area top (`W × H`). It takes the whole proposal (so its size never
 /// depends on its own result: a parent that proposes a child its own size again gets the same answer) and places the
-/// header at its top with the live frame `(W, h(W, H))` (`HeaderMath.liveHeight`; `H` minus the adjusted safe-area bottom
-/// is the overflow container, exactly the state's). The header stack is proposed the live frame (sticky overlays, the
-/// background). `.fit` measures the ideal height at `W` here and records it synchronously, so the viewport commit of the
-/// same update adopts it. Only the header is hit-tested (a layout has no area of its own).
+/// header at its top (moved down by the `.preserve` translation) with the live frame `(W, h(W, H))`
+/// (`HeaderMath.liveHeight`; `H` minus the adjusted safe-area bottom is the overflow container, exactly the state's). The
+/// header stack is proposed the live frame (sticky overlays, the background). `.fit` measures the ideal height at `W` here
+/// and records it synchronously, so the viewport commit of the same update adopts it. Only the header is hit-tested (a
+/// layout has no area of its own). Its animatable data is the header offset `o′` (`HeaderLiveInput.offset`).
 @available(iOS 16, *)
 struct HeaderSlotLayout: Layout {
-    let live: HeaderLiveInput
+    var live: HeaderLiveInput
     let reporter: HeaderNaturalReporter
+
+    var animatableData: CGFloat {
+        get { live.offset }
+        set { live = live.at(offset: newValue) }
+    }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let w = width(proposal)
@@ -131,7 +159,7 @@ struct HeaderSlotLayout: Layout {
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         let h = height(at: bounds.width, slot: bounds.height, subviews)
-        subviews.first?.place(at: CGPoint(x: bounds.midX, y: bounds.minY), anchor: .top,
+        subviews.first?.place(at: CGPoint(x: bounds.midX, y: bounds.minY + live.translation), anchor: .top,
                               proposal: ProposedViewSize(width: bounds.width, height: h))
     }
 
@@ -162,9 +190,15 @@ struct HeaderSlotLayout: Layout {
 ///   the state's height (`.fixed` and a limited `R` do not depend on the width; documented: a `.fit` inside the band keeps
 ///   a commit-time step on an app-driven resize on this path).
 /// The final `fixedSize(vertical:)` frees the box from the overlay's height (a landscape 16:9 header is taller than it).
-struct HeaderFallbackFrame: ViewModifier {
-    let live: HeaderLiveInput
+struct HeaderFallbackFrame: ViewModifier, Animatable {
+    var live: HeaderLiveInput
     let state: ZTronScrollState
+
+    /// The header offset `o′` (see `HeaderLiveInput.offset`): a transaction-driven scroll re-runs this body per frame.
+    var animatableData: CGFloat {
+        get { live.offset }
+        set { live = live.at(offset: newValue) }
+    }
 
     func body(content: Content) -> some View {
         let plan = HeaderFallbackPlan(live)

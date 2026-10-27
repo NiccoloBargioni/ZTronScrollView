@@ -65,6 +65,37 @@ final class SeamLabUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 2.0)
     }
 
+    /// A transaction-driven scroll (`withAnimation { state.scroll(to:) }`, easeInOut 1.2 s) from rest to y = 400 (through
+    /// the collapse band and past it), then back to rest.
+    func testScroll() {
+        let app = launch()
+        let button = app.buttons["seam.scroll"]
+        XCTAssertTrue(button.waitForExistence(timeout: 10))
+        Thread.sleep(forTimeInterval: 1.5)
+        print("SEAMLAB mark far \(Date().timeIntervalSince1970)")
+        button.tap()
+        Thread.sleep(forTimeInterval: 2.5)
+        info(app, "far")
+        print("SEAMLAB mark rest \(Date().timeIntervalSince1970)")
+        button.tap()
+        Thread.sleep(forTimeInterval: 2.5)
+        info(app, "rest")
+    }
+
+    /// `snapHeader(to: .collapsed, animated: true)`, then `.expanded` (the clock path).
+    func testSnap() {
+        let app = launch()
+        let button = app.buttons["seam.snap"]
+        XCTAssertTrue(button.waitForExistence(timeout: 10))
+        Thread.sleep(forTimeInterval: 1.5)
+        print("SEAMLAB mark collapse \(Date().timeIntervalSince1970)")
+        button.tap()
+        Thread.sleep(forTimeInterval: 2.0)
+        print("SEAMLAB mark expand \(Date().timeIntervalSince1970)")
+        button.tap()
+        Thread.sleep(forTimeInterval: 2.0)
+    }
+
     /// Full width, 60 % (animated 1.2 s), full width again.
     func testWidth() {
         let app = launch()
