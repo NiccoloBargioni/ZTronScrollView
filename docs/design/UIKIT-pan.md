@@ -1,4 +1,4 @@
-# UIKIT-pan · An opt-in recognizing UIKit pan for two approved scenarios (D60; design, answers recorded; next: spike U1)
+# UIKIT-pan · An opt-in recognizing UIKit pan for two approved scenarios (D60; design, answers recorded; U1 done in UIKITPAN-s1; next: U2)
 
 **Decision (user, 2026-10-27).** A UIKit pan recognizer is approved for exactly two scenarios, both with 100 % test coverage:
 - **N**: a `ZTronScrollView` inside SwiftUI's own vertical `ScrollView` on iOS 26+. This is Open item 13(a): today the page never scrolls
@@ -96,7 +96,13 @@ The core is given those raw inputs. It never uses `env.bouncesX` / `bouncesY`: `
 1× zoomer would take every drag.
 
 The dominant axis comes from the translation when its length is ≥ 8 pt, otherwise from `velocity(in:)`, because the first call can come at
-0–1 pt (ZTRONPAGES note B). The boundary is 45°, and a tie goes to the other axis. Precedence, first match wins:
+0–1 pt (ZTRONPAGES note B). The boundary is 45°, and a tie goes to the other axis. It is one constant on every OS and speed (C2, user
+2026-10-28). In N this is a documented deviation from native, whose nested boundary moves with OS and speed (UIKITPAN-s1 Q3 / Q3e). Inside
+the band, native hands the drag to the inner scroll view and a ZTron view hands it to the page:
+- **horizontal ZTron view:** drags of 50–70° from horizontal on 26.x and 50° on 27.0, mostly fast ones (slow drags match native);
+- **vertical ZTron view:** drags of 10–40° from horizontal on 26.x and 30–40° on 27.0 (below 30° native moves nothing on 27.0).
+
+Precedence, first match wins:
 1. **Decline everything** if the view is disabled, if it yields to the sheet, if `\.isEnabled` is false, or if the observer has counted ≥ 2
    touches in this sequence (see "Second finger").
 2. **Participant of a one-axis container** (nested ZTron view, `env.hasArbiter`): accept a drag more than the container's tolerance (30°)
@@ -341,6 +347,8 @@ There is no force flag for this path: lanes opt in through the demo screens, as 
 >   - installed by D31's anchor and window route on 15–17, present only while S applies, with `shouldReceive` requiring
 >     `anchor.isDescendant(of: touch.view)`;
 >   - the D31 observer on every OS while the path is active, also named.
+> - **Deviation (N).** One 45° axis boundary on every OS. Native's nested boundary moves with OS and speed, so drags of 50–70° on a
+>   horizontal view and of 10–40° on a vertical view go to the page, where native gives them to the inner scroll view (§2).
 > - **Flags.** None for this path. `-ZTronForceAllFallbacks` leaves it on.
 > - **Gates.** 100 % kind-0 regions, lines and functions over the lane union, plus the widened scope gate.
 > - **Still forbidden:** `UIScrollView`, `UIHostingController`, matching recognizers by class or private name, our own superview or class
@@ -383,3 +391,6 @@ The user accepted every recommendation and added the opt-in gate (§3).
 6. **UIKit in demo probes** for U1, and the CLAUDE.md wording (§7): accepted.
 7. **Merge order:** land D34/D37 (confirmed) before U3: accepted. D40 and SHEET-s3's D47 (unconfirmed) had no recommendation and stay
    open. They edit the same `GestureAttach` switch, so they block U3, not U1 or U2.
+8. **C2, the same-axis boundary in N (after U1, user 2026-10-28):** one 45° rule on every OS, with the band documented as a deviation
+   from native (§2, §7). Per-OS constants (80° on 26.x, 60° on 27.0) were not taken, and neither option reproduces native's speed
+   dependence. Axis rule step 4 never applies: V ctl gives "exactly one moves" for a same-axis view.
