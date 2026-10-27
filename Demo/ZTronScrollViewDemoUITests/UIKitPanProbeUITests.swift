@@ -220,7 +220,7 @@ final class UIKitPanProbeUITests: XCTestCase {
     }
 
     private func q5Line(_ d: [String: String]) -> String {
-        let keys = ["fsb", "fsbV", "fsbSrc", "fsbXY", "bt", "lift", "maxT", "controls.x.span", "controls.y.span"]
+        let keys = ["fsb", "fsbD", "fsbV", "fsbSrc", "fsbXY", "bt", "btD", "lift", "maxT", "controls.x.span", "controls.y.span"]
         return keys.map { "\($0)=\(d[$0] ?? "-")" }.joined(separator: " ") + " " + counters(d) + " pinch=\(d["c.probe.pinch"] ?? "0")"
     }
 
@@ -242,13 +242,13 @@ final class UIKitPanProbeUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 0.8)
         emit("Q5", "row=twoFingerTap \(q5Line(probeInfo(app)))")
         app.terminate()
-        (app, empty) = pagerApp(["-ZTronProbeResetAfter", "3"])
-        for s in [150.0, 2500.0] {
+        (app, empty) = pagerApp(["-ZTronProbeResetAfter", "1"])
+        for s in [150.0, 600.0, 2500.0] {
             probeReset(app)
             let f = empty.frame
             drag(app, from: CGPoint(x: f.midX, y: f.midY), by: vector(0, 160), velocity: velocity(s))
             Thread.sleep(forTimeInterval: 0.8)
-            emit("Q5", "row=resetAfter3 speed=\(Int(s)) \(q5Line(probeInfo(app)))")
+            emit("Q5", "row=resetAfter1 speed=\(Int(s)) \(q5Line(probeInfo(app)))")
         }
         app.terminate()
     }
@@ -308,6 +308,7 @@ final class UIKitPanProbeUITests: XCTestCase {
         }
         for (name, extra) in [("disabledRaw", ["-ZTronProbeDisabled"]), ("disabledEnv", ["-ZTronProbeDisabled", "-ZTronProbeEnvEnabled"])] {
             let (app, empty) = pagerApp(extra)
+            Thread.sleep(forTimeInterval: 0.5)
             probeReset(app)
             let f = empty.frame
             drag(app, from: CGPoint(x: f.midX, y: f.midY), by: vector(0, 150), velocity: velocity(600))

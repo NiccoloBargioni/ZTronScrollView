@@ -55,9 +55,11 @@ def vertical(q, rows, pager):
         ok = same and (xs <= 0.5 or not pager)
         verdict = "base" if r["variant"] == "none" else ("PASS" if ok else "FAIL")
         top = f"{r.get('topMin')}..{r.get('topMax')}"
+        recv = "/".join(r.get(f"uikitpan.pager.receive.{k}", "0") for k in ("desc.yes", "desc.no", "root.yes", "root.no"))
         out.append([r["lane"], r["variant"], r["row"], r.get("det"), r.get("gone"), top, f"{xs:.1f}",
-                    r.get("uikitpan.shouldBegin.no", "0"), r.get("uikitpan.began", "0"), verdict])
-    table(["lane", "variant", "row", "det after", "dismissed", "top min..max", "pager x span", "shouldBegin no", "began", "verdict"], out)
+                    r.get("uikitpan.pager.shouldBegin.no", "0"), r.get("uikitpan.began", "0"), recv, verdict])
+    table(["lane", "variant", "row", "det after", "dismissed", "top min..max", "pager x span", "pager shouldBegin no", "began",
+           "window receive desc y/n, root y/n", "verdict"], out)
 
 
 def q2(rows):
@@ -134,9 +136,9 @@ def q9(rows):
     for r in rows:
         ok = f(r, "carousel.x.span", 99) == 0 and r.get("uikitpan.carousel.began", "0") == "0"
         out.append([r["lane"], r["cover"], r.get("carousel.x.span"), r.get("uikitpan.carousel.began", "0"),
-                    r.get("uikitpan.carousel.receive.yes", "0") + "/" + r.get("uikitpan.carousel.receive.noView", "0"),
+                    "/".join(r.get(f"uikitpan.carousel.receive.{k}", "0") for k in ("desc.yes", "desc.no", "root.yes", "root.no")),
                     r.get("uikitpan.pager.began", "0"), "PASS" if ok else "FAIL"])
-    table(["lane", "cover", "carousel x span", "carousel began", "window receive yes/noView", "pager began", "verdict"], out)
+    table(["lane", "cover", "carousel x span", "carousel began", "window receive desc yes/no, root yes/no", "pager began", "verdict"], out)
 
 
 def main():
@@ -153,9 +155,10 @@ def main():
         elif q == "Q4":
             simple(r, ["parent", "det", "detGR"])
         elif q == "Q5":
-            simple(r, ["row", "deg", "speed", "fsb", "fsbV", "fsbSrc", "fsbXY", "bt", "lift", "maxT", "uikitpan.axis.h", "uikitpan.axis.v",
+            simple(r, ["row", "deg", "speed", "fsb", "fsbD", "fsbV", "fsbSrc", "fsbXY", "bt", "btD", "lift", "maxT", "uikitpan.axis.h", "uikitpan.axis.v",
                        "uikitpan.began", "uikitpan.ended", "uikitpan.cancelled", "uikitpan.cancelled.sync", "uikitpan.cancelled.async",
-                       "uikitpan.reset", "uikitpan.secondFinger", "uikitpan.shouldBegin.yes", "uikitpan.shouldBegin.no", "pinch"])
+                       "uikitpan.reset", "uikitpan.reset.state0", "uikitpan.reset.state1", "uikitpan.reset.state2", "uikitpan.secondFinger",
+                       "uikitpan.secondFinger.end", "uikitpan.shouldBegin.yes", "uikitpan.shouldBegin.no", "pinch"])
         elif q == "Q7":
             q7(r)
         elif q == "Q9":

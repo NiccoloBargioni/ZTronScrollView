@@ -27,6 +27,9 @@ enum ProbeArgs {
     }
     static var resetAfter: Int? { value("-ZTronProbeResetAfter").flatMap(Int.init) }
     static var envEnabled: Bool { flag("-ZTronProbeEnvEnabled") }
+    /// Window route: `desc` = the design's `anchor.isDescendant(of: touch.view)` only; `root` (default) also accepts a hit view
+    /// under the same view-controller root view as the anchor (measured: on 17.5 the hit view can be a sibling platform view).
+    static var receiveRule: String { value("-ZTronProbeReceive") ?? "root" }
 }
 
 @MainActor func probeCount(_ key: String) {
@@ -120,6 +123,8 @@ final class ProbeHub {
     private var moved = 0
     private var firstShouldBegin: String?
     private var beganAt: String?
+    /// Window location of the sequence's first touch (Q5: finger travel at the first `shouldBegin` and at `.began`).
+    var downAt: CGPoint?
     var notes: [String: String] = [:]
 
     // Per-frame channels: current value, range, and frames in which the page and some target both moved.
@@ -189,8 +194,9 @@ final class ProbeHub {
     }
 
     /// Q5: the first `shouldBegin` of a sequence (translation and velocity lengths) and the translation at `.began`.
-    func noteShouldBegin(_ t: CGPoint, _ v: CGPoint, source: String) {
+    func noteShouldBegin(_ t: CGPoint, _ v: CGPoint, source: String, at loc: CGPoint) {
         guard firstShouldBegin == nil else { return }
+        if let d = downAt { notes["fsbD"] = String(format: "%.1f", hypot(loc.x - d.x, loc.y - d.y)) }
         firstShouldBegin = String(format: "%.1f", hypot(t.x, t.y))
         notes["fsb"] = firstShouldBegin
         notes["fsbV"] = String(format: "%.0f", hypot(v.x, v.y))
@@ -198,8 +204,9 @@ final class ProbeHub {
         notes["fsbXY"] = String(format: "%.1f,%.1f", t.x, t.y)
     }
 
-    func noteBegan(_ t: CGPoint) {
+    func noteBegan(_ t: CGPoint, at loc: CGPoint) {
         guard beganAt == nil else { return }
+        if let d = downAt { notes["btD"] = String(format: "%.1f", hypot(loc.x - d.x, loc.y - d.y)) }
         beganAt = String(format: "%.1f", hypot(t.x, t.y))
         notes["bt"] = beganAt
     }
@@ -283,6 +290,7 @@ final class ProbeObserver: UIGestureRecognizer, UIGestureRecognizerDelegate {
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
         super.touchesBegan(touches, with: event)
+        if active.isEmpty { ProbeHub.shared.downAt = touches.first?.location(in: nil) }
         for t in touches { active.insert(ObjectIdentifier(t)) }
         probeCount("probe.obs.began")
         ProbeHub.shared.touchDown(count: active.count)
@@ -376,7 +384,7 @@ final class ProbePanDriver: NSObject, UIGestureRecognizerDelegate {
     func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
         guard let p = g as? UIPanGestureRecognizer else { return false }
         let (a, src) = axis(of: p)
-        ProbeHub.shared.noteShouldBegin(p.translation(in: p.view), p.velocity(in: p.view), source: src)
+        ProbeHub.shared.noteShouldBegin(p.translation(in: p.view), p.velocity(in: p.view), source: src, at: p.location(in: nil))
         count(src == "t" ? "decide.trans" : "decide.vel")
         let ok: Bool
         if ProbeHub.shared.secondFinger || !envEnabled {
@@ -416,14 +424,30 @@ final class ProbePanDriver: NSObject, UIGestureRecognizerDelegate {
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldRequireFailureOf other: UIGestureRecognizer) -> Bool { false }
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool { false }
 
-    /// Window route: the touch began inside the viewport rect and UIKit's hit view contains the anchor.
+    /// Window route: the touch began inside the viewport rect and UIKit's hit view contains the anchor (`desc`, the design's
+    /// rule) or shares the anchor's view-controller root view (`root`). Both answers are counted; `-ZTronProbeReceive` picks.
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         guard let anchor else { return true }
-        let inRect = CGRect(origin: .zero, size: model.viewport).contains(touch.location(in: anchor))
-        let inView = touch.view.map { anchor.isDescendant(of: $0) } ?? false
-        let ok = inRect && inView
-        count(ok ? "receive.yes" : inRect ? "receive.noView" : "receive.noRect")
+        guard CGRect(origin: .zero, size: model.viewport).contains(touch.location(in: anchor)) else {
+            count("receive.noRect")
+            return false
+        }
+        let tv = touch.view
+        let desc = tv.map { anchor.isDescendant(of: $0) } ?? false
+        let root = tv.map { Self.controllerRoot(of: anchor) === Self.controllerRoot(of: $0) } ?? false
+        count(desc ? "receive.desc.yes" : "receive.desc.no")
+        count(root ? "receive.root.yes" : "receive.root.no")
+        ProbeHub.shared.notes["tv.\(name)"] = tv.map { String(String(describing: type(of: $0)).prefix(30)) } ?? "nil"
+        let ok = ProbeArgs.receiveRule == "desc" ? desc : desc || root
+        count(ok ? "receive.yes" : "receive.no")
         return ok
+    }
+
+    /// The root view of the nearest view controller above `v` (its hosting controller's view, a sheet's, a navigation controller's).
+    static func controllerRoot(of v: UIView) -> UIView {
+        var c = v
+        while !(c.next is UIViewController), let s = c.superview { c = s }
+        return c
     }
 
     func action(_ g: UIPanGestureRecognizer) {
@@ -433,7 +457,7 @@ final class ProbePanDriver: NSObject, UIGestureRecognizerDelegate {
         case .began:
             count("began")
             active = true; changes = 0
-            hub.noteBegan(t)
+            hub.noteBegan(t, at: g.location(in: nil))
             model.start = model.off
             if isInner {
                 moves = model.canFollow(t)
