@@ -124,17 +124,25 @@ final class PresentationBox: @unchecked Sendable {
     private let lock = NSLock()
     private var _pending: (offset: CGPoint, zoom: CGFloat, size: CGSize)?
     private var _frames = 0
+    private var _sizes: [CGSize] = []
 
     var pending: (offset: CGPoint, zoom: CGFloat, size: CGSize)? {
         get { lock.lock(); defer { lock.unlock() }; return _pending }
         set { lock.lock(); defer { lock.unlock() }; _pending = newValue }
     }
     var frames: Int { lock.lock(); defer { lock.unlock() }; return _frames }
+    /// The last three distinct sizes the effect was evaluated at, oldest first (the last one is `pending`'s): the
+    /// drawn size's recent motion (a safe-area step tells whether it is drawn yet, `ZTronScrollState.stepDrawn`).
+    var recentSizes: [CGSize] { lock.lock(); defer { lock.unlock() }; return _sizes }
 
     func record(_ offset: CGPoint, _ zoom: CGFloat, size: CGSize = .zero) {
         lock.lock(); defer { lock.unlock() }
         _pending = (offset, zoom, size)
         _frames += 1
+        if _sizes.last != size {
+            _sizes.append(size)
+            if _sizes.count > 3 { _sizes.removeFirst() }
+        }
     }
 }
 

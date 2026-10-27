@@ -470,7 +470,7 @@ public final class ZTronScrollState {
                                          header: HeaderMath.resizeGeometry(m))
         m.resize.current = snap
         m.resize.header = m.headerObscured
-        if !open { m.resize.previous = snap }
+        if !open { m.resize.previous = snap; m.resize.stepFallback = nil }
     }
 
     /// Measured, unscaled content size (cold, `!=`-guarded by the storage). A change with the viewport unchanged follows
@@ -904,8 +904,19 @@ public final class ZTronScrollState {
             var c = ResizeCommit()
             syncCommit(&m, open: false)
             c.current = m.resize.current
-            // A safe-area step keeps the open commit's progress, its track shifted by the step (`isSafeAreaStep`).
-            c.previous = step ? ResizeMath.shifted(commitOld.previous, from: commitOld.current, to: c.current) : cap
+            if step {
+                // A safe-area step keeps the open commit's progress, its track shifted by the step (`isSafeAreaStep`).
+                // When the frame that is drawn now still lacks the step (`stepDrawn`), that size keeps the old track.
+                let was = ResizeMath.track(commitOld, size: probe.pending?.size ?? .zero)
+                c.previous = ResizeMath.shifted(was.previous, from: was.current, to: c.current)
+                let d = CGSize(width: c.current.viewport.width - was.current.viewport.width,
+                               height: c.current.viewport.height - was.current.viewport.height)
+                if let p = probe.pending, !Self.stepDrawn(recent: probe.recentSizes, step: d) {
+                    c.stepFallback = .init(size: p.size, previous: was.previous, current: was.current)
+                }
+            } else {
+                c.previous = cap
+            }
             c.header = m.headerObscured
             c.focus = focus
             c.isOpen = true
@@ -957,6 +968,23 @@ public final class ZTronScrollState {
         }
         let a = inner(old), b = inner(new)
         return abs(a.width - b.width) <= 0.5 && abs(a.height - b.height) <= 0.5
+    }
+
+    /// Whether the last drawn size (`recent.last`) already holds a safe-area step of `step` points. SwiftUI draws a step
+    /// either before it reports it (the first animated frame of a bottom-pinned height change: the drawn size 874 -> 812
+    /// is evaluated, then the top inset 62 -> 0 is reported, 27.0 and 17.5) or one frame after (the bottom inset
+    /// coming back at the end, 17.5: reported while the frame is still drawn at 303.85, drawn at 337.67 the next frame).
+    /// Decided on the axis of the step: the last size is compared with the one the recent motion predicts (linear),
+    /// with and without the step.
+    static func stepDrawn(recent: [CGSize], step: CGSize) -> Bool {
+        guard let last = recent.last, recent.count >= 2 else { return true }
+        let horizontal = abs(step.width) > abs(step.height)
+        let v = recent.map { horizontal ? $0.width : $0.height }
+        let d = horizontal ? step.width : step.height
+        let n = v.count
+        let predicted = n >= 3 ? 2 * v[n - 2] - v[n - 3] : v[n - 2]
+        let x = horizontal ? last.width : last.height
+        return abs(x - (predicted + d)) < abs(x - predicted)
     }
 
     /// One clock tick of the resize watch: while the probed container size differs from the committed viewport the

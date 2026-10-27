@@ -23,7 +23,7 @@ extension ZTronScrollView {
     /// Known limits (SPEC S10 "Seamless edges", "Natural height", "15–16 layer groups"):
     /// - iOS 15–16: on an app-driven animated resize (Split View, Stage Manager, a `withAnimation` size change), a `.fit`
     ///   header inside the collapse band and an overflow-limited resting height (`.capped` / `.refit` while the limit sets
-    ///   it) land at the resize's end in one frame; rotations are seamless. A `.fit` header's content change inside the
+    ///   it) land in one frame when the resize is committed, at its start; rotations are seamless. A `.fit` header's content change inside the
     ///   band is not re-measured.
     /// - iOS 15–16: the header and the content are each drawn as one compositing group, so a blend mode inside one does
     ///   not reach the other or what is behind the scroll view.

@@ -62,6 +62,40 @@ struct ResizeSafeAreaStepTests {
         #expect(abs(contentTop(s, height: 345.3) - r1) < 1e-6, "\(tag): after the end step \(contentTop(s, height: 345.3))")
     }
 
+    /// 17.5 reports the bottom inset coming back at the end while the frame is still drawn without it (drawn at 303.85,
+    /// then at 337.67 the next frame): that size keeps the track before the step (`ResizeCommit.stepFallback`), the
+    /// next one is on the shifted track. Without the fallback the undrawn frame extrapolated past the end (t 1.07): a
+    /// capped header's content 4.7 pt above it for one frame (seam lab, 17.5).
+    @Test(arguments: OSPath.allCases)
+    func aStepReportedBeforeItIsDrawnKeepsTheUndrawnFrameOnItsTrack(path: OSPath) {
+        let s = make(path, overflow: .capped(fraction: 0.5))
+        let r0 = s.peek.metrics.header?.resting ?? -1
+        s.setViewport(Self.vp(373.3, top: 62, bottom: 0))
+        s.setViewport(Self.vp(311.3, top: 0, bottom: 0))
+        let r1 = s.peek.metrics.header?.resting ?? -1
+        // The last frames of the animation, drawn without the bottom extension.
+        for h in [CGFloat(313.0), 312.07, 311.52] { s.probe.record(s.peek.targetOffset, 1, size: CGSize(width: 402, height: h)) }
+        s.setViewport(Self.vp(345.3, top: 0, bottom: 34))
+        #expect(s.peek.metrics.resize.stepFallback?.size.height == 311.52)
+        let u = (311.52 - 812) / (311.3 - 812)
+        let undrawn = contentTop(s, height: 311.52), header = r0 + (r1 - r0) * u
+        #expect(abs(undrawn - header) < 1e-6, "undrawn step frame: content top \(undrawn) vs header bottom \(header)")
+        #expect(abs(contentTop(s, height: 345.3) - r1) < 1e-6, "drawn step: \(contentTop(s, height: 345.3)) vs \(r1)")
+    }
+
+    @Test func whetherTheLastDrawnSizeHoldsTheStep() {
+        func sz(_ h: [CGFloat]) -> [CGSize] { h.map { CGSize(width: 402, height: $0) } }
+        // 27.0, first animated frame: drawn 874 -> 811.82, then the top inset 62 -> 0 is reported (drawn).
+        #expect(ZTronScrollState.stepDrawn(recent: sz([874, 811.82]), step: CGSize(width: 0, height: -62)))
+        // 17.5, end of the change: 304.39 -> 303.85, then the bottom inset 0 -> 34.1 (not drawn yet).
+        #expect(!ZTronScrollState.stepDrawn(recent: sz([305.1, 304.39, 303.85]), step: CGSize(width: 0, height: 34.1)))
+        // 17.5, reverse: 3.9 pt bottom steps while the frame moves 8.6 pt per frame (not drawn yet), and the top
+        // extension at the end (drawn).
+        #expect(!ZTronScrollState.stepDrawn(recent: sz([717.9, 726.53, 735.12]), step: CGSize(width: 0, height: 3.9)))
+        #expect(ZTronScrollState.stepDrawn(recent: sz([789.93, 791.71, 851.85]), step: CGSize(width: 0, height: 59.7)))
+        #expect(ZTronScrollState.stepDrawn(recent: sz([874]), step: CGSize(width: 0, height: -62)), "no motion known: drawn")
+    }
+
     /// The reverse change: the extended frame grows back to the full height, the top extension returns as a step at the
     /// end (811.8 -> 874, top 0 -> 62): the content is at the extension plus the header at once.
     @Test(arguments: OSPath.allCases)

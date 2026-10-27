@@ -148,13 +148,23 @@ enum ResizeMath {
         return (r, s, pad)
     }
 
+    /// The (previous, current) track `size` is drawn on: the commit's, or at a safe-area step's undrawn size the track
+    /// before the step (`ResizeCommit.stepFallback`).
+    static func track(_ commit: ResizeCommit, size: CGSize) -> (previous: ResizeCommit.Snapshot, current: ResizeCommit.Snapshot) {
+        if let f = commit.stepFallback, abs(size.width - f.size.width) < 1e-3, abs(size.height - f.size.height) < 1e-3 {
+            return (f.previous, f.current)
+        }
+        return (commit.previous, commit.current)
+    }
+
     /// The geometry actually drawn at `size` under `commit` (interpolated content size and insets).
     static func presented(_ commit: ResizeCommit, size: CGSize) -> ResizeCommit.Snapshot {
-        let t = progress(size: size, from: commit.previous.viewport, to: commit.current.viewport)
+        let (prev, cur) = track(commit, size: size)
+        let t = progress(size: size, from: prev.viewport, to: cur.viewport)
         return ResizeCommit.Snapshot(viewport: size,
-                                     contentSize: lerp(commit.previous.contentSize, commit.current.contentSize, t),
-                                     insets: lerp(commit.previous.insets, commit.current.insets, t),
-                                     header: HeaderResize.lerp(commit.previous.header, commit.current.header, t))
+                                     contentSize: lerp(prev.contentSize, cur.contentSize, t),
+                                     insets: lerp(prev.insets, cur.insets, t),
+                                     header: HeaderResize.lerp(prev.header, cur.header, t))
     }
 
     /// `s` moved by the model change `from` -> `to` (every field). An UNANIMATED change of the model while a transition is
@@ -182,10 +192,10 @@ enum ResizeMath {
     static func resolve(size: CGSize, offset: CGPoint, scale: CGFloat, insetsAnimated: EdgeInsets, commit: ResizeCommit,
                         limits: ZoomLimits, alignment: UnitPoint, paging: Axis.Set)
         -> (offset: CGPoint, scale: CGFloat, pad: CGPoint) {
-        let cur = commit.current, prev = commit.previous
+        let (prev, cur) = track(commit, size: size)
         let t = progress(size: size, from: prev.viewport, to: cur.viewport)
         let content = lerp(prev.contentSize, cur.contentSize, t)
-        let insets = plus(lerp(prev.insets, cur.insets, t), insetsAnimated, minus: cur.insets)
+        let insets = plus(lerp(prev.insets, cur.insets, t), insetsAnimated, minus: commit.current.insets)
         let intent = commit.intent
             ?? self.intent(offset: offset, scale: scale, in: cur, header: commit.header, focus: commit.focus, alignment: alignment)
         let r = realize(intent, viewport: size, content: content, insets: insets, header: commit.header, focus: commit.focus,

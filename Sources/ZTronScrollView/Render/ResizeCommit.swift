@@ -30,4 +30,13 @@ struct ResizeCommit: Equatable, Sendable {
     var focus = UnitPoint.center
     /// True from the commit until `closeResize()`; the effect clamps while open.
     var isOpen = false
+    /// A safe-area step committed before it is drawn (`ZTronScrollState.stepDrawn`): at exactly `size`, the drawn size of
+    /// the frame that still lacks the step, the track before the step is drawn (`ResizeMath.track`).
+    var stepFallback: StepFallback?
+
+    struct StepFallback: Equatable, Sendable {
+        var size: CGSize
+        var previous: Snapshot
+        var current: Snapshot
+    }
 }
