@@ -5,7 +5,7 @@ import UIKit
 
 /// M8b-3 seamless header (seam spike A, integrated): the header's frame comes from layout (`HeaderSlotLayout` on 16+,
 /// `HeaderFallbackFrame` on 15 / forced): `(1 − p) · R(W, H) + p · min + stretch` at the proposed size with the overflow
-/// policy (D52) applied by the layout exactly as by the state, equal to the state's live height once committed (also when
+/// policy (D59) applied by the layout exactly as by the state, equal to the state's live height once committed (also when
 /// the resting height exceeds the viewport, a landscape 16:9 header), the header stack proposed the live frame; the
 /// `.preserve` translation; the background; the content's rigid layer group. The background's accessibility (hidden, the
 /// header's controls exposed once) needs a live accessibility tree, which a unit-test host does not build: it is

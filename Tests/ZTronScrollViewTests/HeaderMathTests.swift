@@ -170,7 +170,7 @@ import Testing
         #expect(HeaderMath.refreshTop(Self.metrics(nil)) == nil)
     }
 
-    /// The layout resolves `R(W, H)` with the same size and overflow policy as the state (D52), so the committed resting
+    /// The layout resolves `R(W, H)` with the same size and overflow policy as the state (D59), so the committed resting
     /// height and the layout's agree exactly at the committed viewport, and `liveHeight` equals the state's `R − c + s`.
     @Test(arguments: [ZTronHeaderOverflow.uncapped, .capped(fraction: 0.5), .refit])
     func theLayoutAndTheStateResolveTheSameRestingHeight(overflow: ZTronHeaderOverflow) {

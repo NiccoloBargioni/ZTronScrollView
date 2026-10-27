@@ -18,7 +18,7 @@ struct HeaderResize: Equatable, Sendable {
 struct HeaderLiveInput: Equatable {
     /// The container's size spec (`nil`: none, the committed `R` is used).
     var size: ZTronHeaderSize?
-    /// The overflow policy (D52), applied by the layout to its own `W × H` exactly as the state applies it.
+    /// The overflow policy (D59), applied by the layout to its own `W × H` exactly as the state applies it.
     var overflow: ZTronHeaderOverflow = .uncapped
     /// The committed metrics (`nil`: unresolved, the header is not drawn).
     var metrics: HeaderMetrics?
@@ -269,7 +269,7 @@ enum HeaderMath {
 
     /// The resting height and minimum at a LAYOUT size: the proposed width `w` and the overflow container (`containerHeight`,
     /// the proposed height below the safe-area top minus the adjusted safe-area bottom; `nil`: the committed one). The same
-    /// `resolve` as the state's (size, D52 overflow policy, `min ≥ R` rule), so at the committed viewport the layout and
+    /// `resolve` as the state's (size, D59 overflow policy, `min ≥ R` rule), so at the committed viewport the layout and
     /// the state agree exactly. `.fit` at the committed width and container keeps the committed `R`: a header content
     /// change moves the header and the content together, in the state's commit (which adopts the measurement).
     static func layoutResting(width w: CGFloat, containerHeight: CGFloat?, natural: CGFloat?,

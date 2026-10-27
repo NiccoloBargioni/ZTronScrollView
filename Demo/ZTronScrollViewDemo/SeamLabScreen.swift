@@ -9,7 +9,7 @@ import ZTronScrollView
 // fit = .fit(min: 64) over a 16:9 red view), `-ZTronHeaderBehavior preserve|stretch`,
 // `-ZTronSeamStart rest|half|collapsed` (half = snapHeader(.progress(0.5), animated: false) before the first layout,
 // collapsed = snapHeader(.collapsed)), `-ZTronSeamInset <pt>` (contentInset.top: the analyzer's control, a known gap
-// between the header's bottom and the content's top), `-ZTronHeaderOverflow uncapped|capped|refit` (D52; capped =
+// between the header's bottom and the content's top), `-ZTronHeaderOverflow uncapped|capped|refit` (D59; capped =
 // .capped(fraction: 0.5)), `-ZTronHeaderBackground ambient|glass|color|view` (ZTronHeaderBackground: with ambient, color
 // and view the red content is a 16:9 box fitted into the frame and the background, red too, fills the rest of the live
 // frame, so the analyzer measures the BACKGROUND's edges wherever the frame is not 16:9; glass keeps the filling content,

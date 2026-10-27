@@ -457,7 +457,7 @@ extension ZTronScrollView {
         snap: ZTronHeaderSnap = .disabled,
         fade: ZTronHeaderFade? = nil,
         background: ZTronHeaderBackground? = nil,         // 2026-10-26 (user): .ambientBlur(radius:) / .frostedGlass(radius:) / .color / .view { }
-        overflow: ZTronHeaderOverflow = .uncapped,        // D52 (user): .uncapped / .capped(fraction:) / .refit
+        overflow: ZTronHeaderOverflow = .uncapped,        // D59 (user): .uncapped / .capped(fraction:) / .refit
         @ViewBuilder header: @escaping (ZTronHeaderProxy) -> Header) -> Self
 }
 public enum ZTronHeaderSize: Equatable, Sendable {
@@ -466,7 +466,7 @@ public enum ZTronHeaderSize: Equatable, Sendable {
     case fit(min: CGFloat = 0)                     // resting height = the header's ideal height at the scroll view's width (measured)
 }
 public enum ZTronHeaderScalingBehavior: Sendable { case preserve, stretch }
-public enum ZTronHeaderOverflow: Equatable, Sendable {   // D52 (user, 2026-10-25): a resting height taller than the container
+public enum ZTronHeaderOverflow: Equatable, Sendable {   // D59 (user, 2026-10-25): a resting height taller than the container
     case uncapped                                         // the size's own R (default); the content may start below the screen
     case capped(fraction: CGFloat)                        // R ≤ fraction · H (fraction in 0…1); min limited the same way
     case refit                                            // .aspectRatio(r) → the aspect fit of r in W × H; .fixed / .fit → ≤ H
@@ -545,7 +545,7 @@ reader scopes; children without a reader never update because of scrolling.
   *(kept)*; re-measured on width, Dynamic Type and (16+) header content changes, each a discrete inset change. Prefer `.fixed` /
   `.aspectRatio` when the height is known.
 - `min` defaults to 0 (the header can collapse to nothing). `min ≥ resting` → fixed-height header ("Degenerate range").
-- **Overflow (D52, user 2026-10-25; amended 2026-10-26).** The *container* is `W × H` with `H` = the viewport height minus the adjusted
+- **Overflow (D59, user 2026-10-25; amended 2026-10-26).** The *container* is `W × H` with `H` = the viewport height minus the adjusted
   safe-area top and bottom (the region the content adjusts for). A resting height taller than `H` (a full-width 16:9 banner in
   landscape: `750 / (16/9) ≈ 422 pt` on a 381 pt container) follows `overflow:`. `.uncapped` (default) keeps the size's own `R`: the
   content starts below the screen until the user scrolls (expected, not a seam). `.capped(fraction:)` limits `R` (and `min`) to
