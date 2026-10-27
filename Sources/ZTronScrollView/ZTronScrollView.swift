@@ -126,7 +126,10 @@ struct ScrollContainer<Content: View>: View {
         // Scaling header (M8b-3): a cold write, resolved against the viewport width at the next layout (so the first
         // layout already reserves the resting height); a change after that is applied by `headerSpecChanged()` below.
         let header = config.header
-        state.headerSpec = header?.sizing
+        // D65: the pull behavior, member else environment twin else `.openGap` (as the target behavior above: this body
+        // already depends on `envConfig`); it rides on the cold spec, so a change goes through `headerSpecChanged()`.
+        let sizing = header?.sizing(pull: config.headerPull ?? envConfig.headerPull ?? .openGap)
+        state.headerSpec = sizing
         return content
             // Content-integral overlays (M6b): laid out from the content's own size, inside both content spaces and under
             // the transform; twins below members. Always applied (an empty list draws nothing).
@@ -182,6 +185,6 @@ struct ScrollContainer<Content: View>: View {
             .onDisappear { proxyScope?.detach(state) }
             .onChangeCompat(of: effectiveLimits) { state.zoomLimits = $0 }
             .onAppear { state.headerSpecChanged() }
-            .onChangeCompat(of: header?.sizing) { _ in state.headerSpecChanged() }
+            .onChangeCompat(of: sizing) { _ in state.headerSpecChanged() }
     }
 }

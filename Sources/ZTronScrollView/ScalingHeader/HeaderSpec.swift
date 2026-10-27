@@ -12,7 +12,11 @@ struct HeaderSpec {
     var overflow: ZTronHeaderOverflow = .uncapped
     var builder: (ZTronHeaderProxy) -> AnyView
 
-    var sizing: HeaderSizing { HeaderSizing(size: size, behavior: behavior, snap: snap, overflow: overflow) }
+    /// The state's cold values with the resolved pull behavior (D65: the member, else the environment, else `.openGap`;
+    /// resolved by the container, which reads both).
+    func sizing(pull: ZTronHeaderPullBehavior) -> HeaderSizing {
+        HeaderSizing(size: size, behavior: behavior, snap: snap, overflow: overflow, pull: pull)
+    }
 }
 
 /// The cold values the state needs to resolve and snap the header (`ZTronScrollState.headerSpec`).
@@ -21,12 +25,15 @@ struct HeaderSizing: Equatable {
     var behavior: ZTronHeaderScalingBehavior
     var snap: ZTronHeaderSnap
     var overflow: ZTronHeaderOverflow = .uncapped
+    /// D65: where a `.preserve` header's pull gap opens (carried into `HeaderMetrics.pull`). A change is a cold spec change
+    /// (`headerSpecChanged()`), like a behavior change.
+    var pull: ZTronHeaderPullBehavior = .openGap
 
     /// `HeaderMath.metrics` plus its DEBUG warnings (cold: the state's commits, never the layout path); `nil` while the
     /// width is unknown or `.fit` unmeasured.
     @MainActor func resolve(width: CGFloat, natural: CGFloat?, vertical: Bool, containerHeight: CGFloat) -> HeaderMetrics? {
-        let metrics = HeaderMath.metrics(size: size, width: width, natural: natural, behavior: behavior, vertical: vertical,
-                                         containerHeight: containerHeight, overflow: overflow)
+        let metrics = HeaderMath.metrics(size: size, width: width, natural: natural, behavior: behavior, pull: pull,
+                                         vertical: vertical, containerHeight: containerHeight, overflow: overflow)
         #if DEBUG
         if let warning = HeaderMath.warning(size: size, width: width, natural: natural, containerHeight: containerHeight,
                                             overflow: overflow) {

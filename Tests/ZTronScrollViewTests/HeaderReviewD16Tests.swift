@@ -202,14 +202,16 @@ struct HeaderReviewD16Tests {
 
     // MARK: 5. Content that fits, aligned by `defaultScrollAnchor(_:for: .alignment)` (the default of a zoomable view: .center)
 
-    @Test(arguments: OSPath.allCases, [ZTronHeaderScalingBehavior.preserve, .stretch])
-    func shortAlignedContentKeepsTheHeaderOnTheContent(path: OSPath, behavior: ZTronHeaderScalingBehavior) {
+    @Test(arguments: OSPath.allCases, HeaderPullCase.allCases)
+    func shortAlignedContentKeepsTheHeaderOnTheContent(path: OSPath, mode: HeaderPullCase) {
         let log = Log(), content = Log()
         let s = makeState(path)
+        let behavior = mode.behavior
         let w = withOSPath(path) {
             window(ZTronScrollView(.vertical, state: s) { Color.green.frame(height: 300).overlay(LogProbe(log: content)) }
                 .defaultScrollAnchor(.center, for: .alignment)
-                .withScalingHeader(size: .fixed(min: 64, max: 240), scalingBehavior: behavior) { _ in LogProbe(log: log) })
+                .withScalingHeader(size: .fixed(min: 64, max: 240), scalingBehavior: behavior) { _ in LogProbe(log: log) }
+                .scalingHeaderPullBehavior(mode.pull))
         }
         defer { unhost(w) }
         pump(0.3)
@@ -218,18 +220,20 @@ struct HeaderReviewD16Tests {
         let top0 = HeaderMath.top0(m)
         let pull = RefreshMath.signedPull(edge: .top, offset: s.peek.presentationOffset, zoom: 1, metrics: m,
                                           alignment: s.contentAlignment)
-        let tag = "\(path) \(behavior)"
+        let tag = "\(path) \(mode)"
         #expect(abs(pull) < 0.5, "\(tag): the refresher sees no pull at rest (\(pull))")
         #expect(g?.stretch == 0, "\(tag): stretch at rest \(String(describing: g?.stretch))")
         #expect(abs(log.last.height - 240) < 0.5 && abs(log.minY - top0) < 0.5,
                 "\(tag): the header at rest is \(log.last.height) tall at y \(log.minY) (top0 \(top0)); content top \(-s.peek.presentationOffset.y)")
-        // User decision 2026-10-26: no gap between the header's bottom and the content's top, at rest and under a pull.
+        // No gap between the header's bottom and the content's top at rest; under a pull none with `.followContent` (D61)
+        // or `.stretch`, the pull itself with `.openGap` (D65: the header stays still).
         let gapAtRest = content.minY - (log.minY + log.last.height)
         s.track(offset: CGPoint(x: 0, y: s.peek.presentationOffset.y - 50), zoom: 1)
         pump(0.1)
         let gapPulled = content.minY - (log.minY + log.last.height)
-        #expect(abs(gapAtRest) < 0.5 && abs(gapPulled) < 0.5,
-                "\(tag): gap between the header's bottom and the content's top: \(gapAtRest) at rest, \(gapPulled) under a 50 pt pull")
+        let expected: CGFloat = mode == .openGap ? 50 : 0
+        #expect(abs(gapAtRest) < 0.5 && abs(gapPulled - expected) < 0.5,
+                "\(tag): gap between the header's bottom and the content's top: \(gapAtRest) at rest, \(gapPulled) under a 50 pt pull (expected \(expected))")
     }
 
     // MARK: 6. `snapHeader(to: .expanded)` during a refresh hold

@@ -12,7 +12,9 @@ import SwiftUI
 /// so it starts at the safe-area top), its height is `(1 − p) · R(W, H) + p · min + stretch` with `W × H` the proposed
 /// size and `R(W, H)` resolved in the same layout pass as the container (size and overflow policy, exactly as the state
 /// resolves it; 16+: `HeaderSlotLayout`, 15 / forced: `HeaderFallbackFrame`), and `p`, the stretch and the `.preserve`
-/// translation come from the state. An animated resize then interpolates the header with the content; the unanimated
+/// translation come from the state (the translation is the pull with `ZTronHeaderPullBehavior.followContent`, D61, and
+/// always 0 with the default `.openGap`, D65: that header stays still and the gap opens below it, by the content's own
+/// transform; the background and the fade are inside the framed stack, so they follow the frame in both modes). An animated resize then interpolates the header with the content; the unanimated
 /// resize commit changes nothing in the header while the progress is kept (D51).
 struct HeaderFrameModifier: ViewModifier {
     let state: ZTronScrollState
@@ -94,8 +96,8 @@ struct HeaderFrameModifier: ViewModifier {
         if header.vertical, m.resize.isOpen, let anchor = m.resize.intent?.header {
             switch anchor {
             case let .top(x):
-                let g = max(0, -x)
-                if header.behavior == .stretch { stretch = g } else { translation = g }
+                if header.behavior == .stretch { stretch = max(0, -x) }
+                translation = HeaderMath.translation(o: x, m: header)     // 0 with `.openGap` (D65)
             case let .progress(q): p = q
             case .collapsed: p = header.band > 0 ? 1 : 0
             }
@@ -117,8 +119,8 @@ struct HeaderFrameModifier: ViewModifier {
     }
 }
 
-/// 15 / forced: the `.preserve` translation, animated with the header offset like `HeaderFallbackFrame` (both interpolate
-/// the same `o′` in the same transaction).
+/// 15 / forced: the `.preserve` `.followContent` translation (0 with `.openGap`, D65), animated with the header offset like
+/// `HeaderFallbackFrame` (both interpolate the same `o′` in the same transaction).
 nonisolated struct HeaderTranslation: ViewModifier, Animatable {
     var live: HeaderLiveInput
 
@@ -134,7 +136,8 @@ nonisolated struct HeaderTranslation: ViewModifier, Animatable {
 
 /// 16+: the header's SLOT, the overlay between the safe areas the content adjusts for (`W × H`). It takes the whole
 /// proposal (so its size never depends on its own result: a parent that proposes a child its own size again gets the same
-/// answer) and places the header at its top (moved down by the `.preserve` translation) with the live frame `(W, h(W, H))`
+/// answer) and places the header at its top (moved down by the `.preserve` `.followContent` translation; `.openGap` keeps
+/// it at the top, D65) with the live frame `(W, h(W, H))`
 /// (`HeaderMath.liveHeight`; `H` IS the overflow container, the state's `HeaderMath.containerHeight`, from the same layout
 /// pass: no committed inset enters it, so a resize that changes the bottom safe area resolves the limit in its animated
 /// pass, M8b-s6). The header stack is proposed the live frame (sticky overlays, the background). `.fit` measures the ideal height at `W` here

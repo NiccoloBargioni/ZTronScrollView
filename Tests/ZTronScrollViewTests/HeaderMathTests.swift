@@ -6,6 +6,8 @@ import Testing
 @MainActor @Suite struct HeaderMathTests {
     static let profile = HeaderMetrics(min: 64, resting: 240, behavior: .preserve, width: 402)
     static var banner: HeaderMetrics { var m = profile; m.behavior = .stretch; return m }
+    /// D61's `.preserve` (the header moves down with the content), opt-in since D65.
+    static var following: HeaderMetrics { var m = profile; m.pull = .followContent; return m }
 
     /// Metrics of a vertical 402 × 874 viewport with a 62 pt safe top, the header reserved on top, optional hold / inset.
     static func metrics(_ header: HeaderMetrics?, hold: CGFloat = 0, contentInset: CGFloat = 0) -> ScrollMetrics {
@@ -20,10 +22,13 @@ import Testing
         return m
     }
 
-    @Test(arguments: [ZTronHeaderScalingBehavior.preserve, .stretch])
-    func theTableAcrossTheBand(behavior: ZTronHeaderScalingBehavior) {
+    @Test(arguments: [ZTronHeaderScalingBehavior.preserve, .stretch], [ZTronHeaderPullBehavior.openGap, .followContent])
+    func theTableAcrossTheBand(behavior: ZTronHeaderScalingBehavior, pull: ZTronHeaderPullBehavior) {
         var h = Self.profile
         h.behavior = behavior
+        h.pull = pull
+        #expect(Self.profile.pull == .openGap, "D65: the default is .openGap")
+        let follows = behavior == .preserve && pull == .followContent
         let band = h.band
         #expect(band == 176)
         let m = Self.metrics(h)
@@ -38,16 +43,19 @@ import Testing
             #expect(g.progress == c / band)
             #expect(g.stretch == (behavior == .stretch ? gap : 0))
             #expect(g.minHeight == 64 && g.restingHeight == 240 && g.width == 402)
-            // Content top in the viewport: aci.top − o′; the header's top edge top0 + translation (user decision
-            // 2026-10-26: `.preserve` moves down with a pull, the gap opens ABOVE it), its bottom edge that + h.
+            // Content top in the viewport: aci.top − o′; the header's top edge top0 + translation (`.preserve`
+            // `.followContent`, D61: it moves down with a pull, the gap opens ABOVE it; `.openGap`, D65: it stays, the gap
+            // opens BELOW it), its bottom edge that + h.
             let contentTop = m.adjustedContentInset.top - o
             #expect(contentTop == top0 + 240 + gap - (o > 0 ? o : 0))
             let translation = HeaderMath.translation(o: o, m: h)
-            #expect(translation == (behavior == .preserve ? gap : 0), "preserve translates by the pull, stretch is pinned")
+            #expect(translation == (follows ? gap : 0), "\(behavior) \(pull): only .followContent translates by the pull")
             #expect(HeaderMath.gapAbove(o: o, m: h) == translation, "the gap above the header is the translation")
+            let below = HeaderMath.gapBelow(o: o, m: h)
+            #expect(below == (behavior == .preserve && pull == .openGap ? gap : 0), "\(behavior) \(pull): the gap below")
             let gapBelow = contentTop - (top0 + translation + g.height)
             if o <= 0 {
-                #expect(gapBelow == 0, "both behaviors keep the header's bottom on the content's top under a pull")
+                #expect(gapBelow == below, "\(behavior) \(pull) o′ \(o): the content's top is the header's bottom + gapBelow")
             } else if o <= band {
                 #expect(gapBelow == 0, "collapse: the header bottom is glued to the content top")
             } else {
@@ -153,18 +161,25 @@ import Testing
         }
         #expect(delta(0) == 0 && delta(100) == -100 && delta(500) == -176 && delta(-40) == 40)
         #expect(HeaderMath.obscuredDelta(offset: .zero, zoom: 1, metrics: Self.metrics(nil)) == 0)
-        // `.preserve` (user decision 2026-10-26): the header keeps R and moves down by the pull: its bottom edge is 40 pt
-        // lower too.
-        let p = Self.metrics(Self.profile)
-        #expect(HeaderMath.obscuredDelta(offset: CGPoint(x: 0, y: -40 - HeaderMath.base(p)), zoom: 1, metrics: p) == 40)
+        // `.preserve` `.followContent` (D61): the header keeps R and moves down by the pull: its bottom edge is 40 pt lower
+        // too. `.openGap` (D65, the default; pre-D61 `h − R`): it stays still, its bottom edge too.
+        let f = Self.metrics(Self.following)
+        #expect(HeaderMath.obscuredDelta(offset: CGPoint(x: 0, y: -40 - HeaderMath.base(f)), zoom: 1, metrics: f) == 40)
+        let o = Self.metrics(Self.profile)
+        #expect(HeaderMath.obscuredDelta(offset: CGPoint(x: 0, y: -40 - HeaderMath.base(o)), zoom: 1, metrics: o) == 0)
+        for p in [f, o] {
+            #expect(HeaderMath.obscuredDelta(offset: CGPoint(x: 0, y: 100 - HeaderMath.base(p)), zoom: 1, metrics: p) == -100,
+                    "collapse is the same in both modes")
+        }
     }
 
-    /// User decision 2026-10-26 (reverses A1): under a pull `.preserve` translates by `g` with its height `R`; the refresh
-    /// base is the slot's top (`top0`), the gap `[top0, top0 + g]` above the header; `.stretch` keeps `top0 + R`, overlay.
-    @Test func aPreservedHeaderTranslatesWithThePull() {
-        let h = Self.profile
+    /// D61 (`.followContent`): under a pull `.preserve` translates by `g` with its height `R`; the refresh base is the
+    /// slot's top (`top0`), the gap `[top0, top0 + g]` above the header; `.stretch` keeps `top0 + R`, overlay.
+    @Test func aFollowingHeaderTranslatesWithThePull() {
+        let h = Self.following
         for g in [0, 1, 30, 120] as [CGFloat] {
             #expect(HeaderMath.translation(o: -g, m: h) == g && HeaderMath.height(o: -g, m: h) == 240)
+            #expect(HeaderMath.gapAbove(o: -g, m: h) == g && HeaderMath.gapBelow(o: -g, m: h) == 0)
             #expect(HeaderMath.translation(o: -g, m: Self.banner) == 0 && HeaderMath.height(o: -g, m: Self.banner) == 240 + g)
         }
         #expect(HeaderMath.translation(o: 50, m: h) == 0, "no translation while collapsing")
@@ -174,6 +189,60 @@ import Testing
         let stretch = HeaderMath.refreshTop(Self.metrics(Self.banner, hold: 60))
         #expect(stretch?.base == 302 && stretch?.overlay == true, "over the stretched band")
         #expect(HeaderMath.refreshTop(Self.metrics(nil)) == nil)
+    }
+
+    /// D65 (`.openGap`, the default; the pre-D61 math): under a pull the `.preserve` header stays still at its resting
+    /// place and height (translation 0), the gap `g` opens between its bottom edge and the content's top, and the refresh
+    /// base is the plain one (`refreshTop` nil: `aci.top − hold`, the resting header's bottom edge). `.stretch` ignores the
+    /// setting, and so does a banner (D65: unaffected, it keeps the translation).
+    @Test func anOpenGapHeaderStaysStillUnderAPull() {
+        let h = Self.profile
+        #expect(h.pull == .openGap)
+        for g in [0, 1, 30, 120] as [CGFloat] {
+            #expect(HeaderMath.translation(o: -g, m: h) == 0 && HeaderMath.gapAbove(o: -g, m: h) == 0)
+            #expect(HeaderMath.gapBelow(o: -g, m: h) == g && HeaderMath.height(o: -g, m: h) == 240)
+            #expect(HeaderMath.geometry(o: -g, m: h).stretch == 0)
+        }
+        #expect(HeaderMath.gapBelow(o: 50, m: h) == 0 && HeaderMath.gapBelow(o: .nan, m: h) == 0)
+        let m = Self.metrics(h, hold: 60)
+        #expect(HeaderMath.refreshTop(m) == nil, "the plain base")
+        let (base, overlay) = RefreshIndicatorMath.base(edge: .top, metrics: m, overlay: false)
+        #expect(base.top == 302 && !overlay, "aci.top − hold = top0 + R: the resting header's bottom edge")
+        #expect(RefreshIndicatorMath.base(edge: .top, metrics: m, overlay: true).1, "placement as the refresher says")
+        // `.stretch` is the same in both modes.
+        for pull in [ZTronHeaderPullBehavior.openGap, .followContent] {
+            var s = Self.banner
+            s.pull = pull
+            #expect(HeaderMath.translation(o: -40, m: s) == 0 && HeaderMath.gapBelow(o: -40, m: s) == 0
+                        && HeaderMath.height(o: -40, m: s) == 280)
+            let top = HeaderMath.refreshTop(Self.metrics(s, hold: 60))
+            #expect(top?.base == 302 && top?.overlay == true)
+        }
+        // A banner (no vertical axis) keeps the translation in both modes (only zoomed content that pans pulls it, D15).
+        for pull in [ZTronHeaderPullBehavior.openGap, .followContent] {
+            var b = Self.profile
+            b.vertical = false
+            b.pull = pull
+            #expect(HeaderMath.translation(o: -40, m: b) == 40 && HeaderMath.gapBelow(o: -40, m: b) == 0, "\(pull)")
+        }
+    }
+
+    /// The pull behavior rides on the resolved metrics (cold): `metrics(…, pull:)` and `HeaderSizing.resolve` carry it,
+    /// the default is `.openGap`, and nothing else in the metrics depends on it.
+    @Test func thePullBehaviorIsPartOfTheResolvedMetrics() {
+        let a = HeaderMath.metrics(size: .fixed(min: 64, max: 240), width: 402, natural: nil)
+        let b = HeaderMath.metrics(size: .fixed(min: 64, max: 240), width: 402, natural: nil, pull: .followContent)
+        #expect(a?.pull == .openGap && b?.pull == .followContent && a != b)
+        var c = b
+        c?.pull = .openGap
+        #expect(a == c, "only the pull differs")
+        let sizing = HeaderSizing(size: .fixed(min: 64, max: 240), behavior: .preserve, snap: .disabled)
+        #expect(sizing.pull == .openGap)
+        var following = sizing
+        following.pull = .followContent
+        #expect(following != sizing)
+        #expect(following.resolve(width: 402, natural: nil, vertical: true, containerHeight: 778)?.pull == .followContent)
+        #expect(sizing.resolve(width: 402, natural: nil, vertical: true, containerHeight: 778)?.pull == .openGap)
     }
 
     /// The layout resolves `R(W, H)` with the same size and overflow policy as the state (D59), so the committed resting

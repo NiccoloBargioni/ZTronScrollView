@@ -22,7 +22,8 @@ struct HeaderLiveInput: Equatable {
     var overflow: ZTronHeaderOverflow = .uncapped
     /// The committed metrics (`nil`: unresolved, the header is not drawn).
     var metrics: HeaderMetrics?
-    /// Collapse progress, `.stretch` growth and `.preserve` translation (both `g` under a pull).
+    /// Collapse progress, `.stretch` growth and the `.preserve` translation (`g` under a pull with
+    /// `ZTronHeaderPullBehavior.followContent`, D61; always 0 with `.openGap`, D65: the field then never changes).
     var progress: CGFloat = 0
     var stretch: CGFloat = 0
     var translation: CGFloat = 0
@@ -76,16 +77,19 @@ enum HeaderResizeAnchor: Equatable, Sendable {
 /// offset + `adjustedContentInset.top` − the refresh hold: rest is 0, a pull past the top is negative, scrolling up
 /// positive), `c = clamp(o′, 0, band)` the collapse travel and `g = max(0, −o′)` the overflow.
 ///
-/// | | `.preserve` | `.stretch` |
-/// |---|---|---|
-/// | top edge | `top0 + g` (moves down with the content) | `top0` (pinned) |
-/// | height `h` | `R − c` | `R − c + g` |
-/// | bottom edge | `top0 + g + R − c` | `top0 + R − c + g` |
-/// | gap above the header (`gapAbove`) | `g`: `[top0, top0 + g]`, the refresh indicator's slot | 0 (the indicator floats over the band) |
-/// | content top (viewport y) | `aci.top − hold − o′ = top0 + ci.top + R − c + g` = the bottom edge (+ `ci.top`) | same |
+/// | | `.preserve` `.openGap` (D65, default) | `.preserve` `.followContent` (D61) | `.stretch` |
+/// |---|---|---|---|
+/// | top edge | `top0` (still) | `top0 + g` (moves down with the content) | `top0` (pinned) |
+/// | height `h` | `R − c` | `R − c` | `R − c + g` |
+/// | bottom edge | `top0 + R − c` | `top0 + g + R − c` | `top0 + R − c + g` |
+/// | gap above the header (`gapAbove`, the translation) | 0 | `g`: `[top0, top0 + g]`, the refresh indicator's slot | 0 |
+/// | gap below the header (`gapBelow`) | `g`: `[top0 + R, top0 + R + g]`, the refresh indicator's slot | 0 | 0 (the indicator floats over the band) |
+/// | content top (viewport y) | `aci.top − hold − o′ = top0 + ci.top + R − c + g` | same | same |
 ///
-/// So the header's bottom edge is the content's top edge on both sides of rest (a developer `contentInset.top` adds a
-/// constant gap); past the band the content scrolls under the collapsed header.
+/// So the header's bottom edge is the content's top edge on both sides of rest except under an `.openGap` pull, where the
+/// gap `g` lies between them (a developer `contentInset.top` adds a constant gap); past the band the content scrolls under
+/// the collapsed header. A banner (no vertical axis) translates like `.followContent` whatever the pull behavior says (D65:
+/// banners are unaffected; only zoomed content that pans vertically can pull one, D15).
 enum HeaderMath {
     /// The metrics `size` resolves to at `width` (the viewport width); `nil` while the width is unknown or `.fit` is
     /// unmeasured. `containerHeight` (the viewport below the adjusted safe area, `HeaderMath.containerHeight`) limits the
@@ -93,8 +97,9 @@ enum HeaderMath {
     /// calls it on every pass (`layoutResting`); the DEBUG diagnostics of a degenerate size are `warning(…)`, which only
     /// the state's cold resolve (`HeaderSizing.resolve`) asks for.
     static func metrics(size: ZTronHeaderSize, width: CGFloat, natural: CGFloat?,
-                        behavior: ZTronHeaderScalingBehavior = .preserve, vertical: Bool = true,
-                        containerHeight: CGFloat = 0, overflow: ZTronHeaderOverflow = .uncapped) -> HeaderMetrics? {
+                        behavior: ZTronHeaderScalingBehavior = .preserve, pull: ZTronHeaderPullBehavior = .openGap,
+                        vertical: Bool = true, containerHeight: CGFloat = 0,
+                        overflow: ZTronHeaderOverflow = .uncapped) -> HeaderMetrics? {
         var minimum = max(0, size.minimum.isFinite ? size.minimum : 0)
         var resting: CGFloat
         switch size {
@@ -121,7 +126,7 @@ enum HeaderMath {
         // `min ≥ R`: a fixed-height header of height `min` (band 0, progress 0, no snapping; `.stretch` still grows).
         if minimum >= resting { resting = minimum }
         let w = width.isFinite ? Swift.max(0, width) : 0
-        return HeaderMetrics(min: minimum, resting: resting, behavior: behavior, width: w, vertical: vertical)
+        return HeaderMetrics(min: minimum, resting: resting, behavior: behavior, pull: pull, width: w, vertical: vertical)
     }
 
     #if DEBUG
@@ -164,15 +169,29 @@ enum HeaderMath {
     /// The live height at `o′`.
     static func height(o oPrime: CGFloat, m: HeaderMetrics) -> CGFloat { geometry(o: oPrime, m: m).height }
 
-    /// The gap a pull opens ABOVE the header, between `top0` and the header's top edge (user decision 2026-10-26):
-    /// `.preserve` `max(0, −o′)` (the header moves down with the content by that much), `.stretch` 0 (its top is pinned).
-    /// Also the header's translation. There is never a gap between the header's bottom and the content's top.
-    static func gapAbove(o oPrime: CGFloat, m: HeaderMetrics) -> CGFloat {
-        m.behavior == .preserve ? max(0, -(oPrime.isFinite ? oPrime : 0)) : 0
+    /// Whether a pull moves the header down with the content: `.preserve` with `ZTronHeaderPullBehavior.followContent`
+    /// (D61), and a `.preserve` banner whatever the setting (D65: banners are unaffected by it). `.stretch` never moves.
+    static func followsContent(_ m: HeaderMetrics) -> Bool {
+        m.behavior == .preserve && (m.pull == .followContent || !m.vertical)
     }
 
-    /// The header's top edge below `top0` at `o′` (the `.preserve` translation, `gapAbove`).
+    /// The gap a pull opens ABOVE the header, between `top0` and the header's top edge: `max(0, −o′)` when the header
+    /// follows the content (`followsContent`: it moves down by that much, D61), else 0 (`.openGap` keeps it still, D65;
+    /// `.stretch` pins its top). Also the header's translation.
+    static func gapAbove(o oPrime: CGFloat, m: HeaderMetrics) -> CGFloat {
+        followsContent(m) ? max(0, -(oPrime.isFinite ? oPrime : 0)) : 0
+    }
+
+    /// The header's top edge below `top0` at `o′` (the `.preserve` `.followContent` translation, `gapAbove`; 0 with
+    /// `.openGap`, so that header's live input never changes under a pull).
     static func translation(o oPrime: CGFloat, m: HeaderMetrics) -> CGFloat { gapAbove(o: oPrime, m: m) }
+
+    /// The gap a pull opens BETWEEN the header's bottom edge and the content's top (pre-D61 `contentGap`, restored by D65):
+    /// `max(0, −o′)` for a `.preserve` header that stays still (`.openGap`), else 0 (`.followContent` moves the header with
+    /// the content, `.stretch` grows into the gap).
+    static func gapBelow(o oPrime: CGFloat, m: HeaderMetrics) -> CGFloat {
+        m.behavior == .preserve && !followsContent(m) ? max(0, -(oPrime.isFinite ? oPrime : 0)) : 0
+    }
 
     /// The `o′` of collapse progress `p` (ONE convention: 0 expanded, 1 collapsed).
     static func snapOffset(progress p: CGFloat, m: HeaderMetrics) -> CGFloat {
@@ -244,19 +263,22 @@ enum HeaderMath {
 
     /// The top refresh indicator's base with a vertical header (SPEC S10 "Refresh with the header"): `.stretch` → the top
     /// of the band it grows into (`top0 + R`), overlay placement forced (there is no gap: the indicator floats over the
-    /// stretched band); `.preserve` → `top0`, the gap `[top0, top0 + pull]` a pull opens above the header that moves down
-    /// with the content (user decision 2026-10-26), placement as the refresher says. `nil` without a vertical header.
+    /// stretched band); `.preserve` `.followContent` → `top0`, the gap `[top0, top0 + pull]` a pull opens above the header
+    /// that moves down with the content (D61), placement as the refresher says. `nil` (the plain base, `aci.top − hold`,
+    /// which follows the adjusted inset in a resize) without a vertical header and for `.preserve` `.openGap` (D65): the
+    /// header stays still and the gap `[top0 + ci.top + R, … + pull]` opens below it, exactly where the plain base is.
     static func refreshTop(_ m: ScrollMetrics) -> (base: CGFloat, overlay: Bool)? {
         guard let header = m.header, header.vertical else { return nil }
         switch header.behavior {
         case .stretch: return (top0(m) + header.resting, true)
-        case .preserve: return (top0(m), false)
+        case .preserve: return header.pull == .followContent ? (top0(m), false) : nil
         }
     }
 
     /// How far the live header's bottom edge is from where the resting header's would be (`top0 + R`), `h + translation −
-    /// R` (negative while collapsed, the pull `g` under a pull for both behaviors): the unobscured top edge is
-    /// `adjustedContentInset.top + delta` (indicators, `scrollTo`, the resize centre).
+    /// R` (negative while collapsed; under a pull `g` for `.stretch` and `.preserve` `.followContent`, 0 for `.preserve`
+    /// `.openGap`, whose header stays still: D65, pre-D61 `h − R`): the unobscured top edge is `adjustedContentInset.top +
+    /// delta` (indicators, `scrollTo`, the resize centre).
     static func obscuredDelta(offset: CGPoint, zoom: CGFloat, metrics m: ScrollMetrics) -> CGFloat {
         guard let header = m.header else { return 0 }
         let o = headerOffset(offset: offset, zoom: zoom, metrics: m)

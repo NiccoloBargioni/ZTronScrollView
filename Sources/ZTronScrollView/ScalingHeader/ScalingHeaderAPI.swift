@@ -8,17 +8,20 @@ extension ZTronScrollView {
     /// The header precedes the content: its resting height is reserved in `adjustedContentInset.top` (the content starts
     /// below it, also on a horizontal scroll view, where it is a fixed banner), it is drawn above the content with its top
     /// edge pinned below the safe area, and it collapses to `min` by shrinking from the bottom as the content scrolls up.
-    /// A pull past the top moves it down with the content under `.preserve` (a gap opens above it) and grows it under
-    /// `.stretch` (only when the vertical axis can bounce: scrollable content, `scrollBounceBehavior(.always)` or a
-    /// refresher). Its bottom edge stays on the content's top edge in collapse, pulls, refresh holds, snaps, `scrollTo`,
-    /// rotations and app-driven animated resizes, with the known limits below. Content shorter than the viewport is
-    /// top-aligned under the header.
+    /// A pull past the top keeps it at its resting height under `.preserve` and grows it under `.stretch` (only when the
+    /// vertical axis can bounce: scrollable content, `scrollBounceBehavior(.always)` or a refresher). Where a `.preserve`
+    /// header's gap opens is ``ZTronHeaderPullBehavior`` (``scalingHeaderPullBehavior(_:)``, or
+    /// `View.ztronScalingHeaderPullBehavior(_:)` above the scroll view): `.openGap` (the default) keeps the header still and
+    /// the gap opens between its bottom edge and the content; `.followContent` moves the header down with the content and
+    /// the gap opens above it. Its bottom edge stays on the content's top edge in collapse, pulls (except an `.openGap`
+    /// pull, whose gap is the point), refresh holds, snaps, `scrollTo`, rotations and app-driven animated resizes, with the
+    /// known limits below. Content shorter than the viewport is top-aligned under the header.
     ///
     /// The builder runs once per cold change (install, a parent rebuild), never while scrolling: it receives a
     /// ``ZTronHeaderProxy`` and its children read the live geometry through ``ZTronHeaderGeometryReader``. No body in the
     /// header runs because it collapses or stretches; its subtree is laid out again at the live frame (a layout pass) every
     /// frame of a collapse. Refresh is S9's `refresher(…)` (with `.stretch` the indicator floats over the stretched band,
-    /// with `.preserve` it sits in the gap above the header).
+    /// with `.preserve` it sits in the gap: below the header with `.openGap`, above it with `.followContent`).
     ///
     /// Known limits (SPEC S10 "Seamless edges", "Natural height", "15–16 layer groups"):
     /// - iOS 15–16: on an app-driven animated resize (Split View, Stage Manager, a `withAnimation` size change), a `.fit`
@@ -51,6 +54,19 @@ extension ZTronScrollView {
         var copy = self
         copy.config.header = HeaderSpec(size: size, behavior: scalingBehavior, snap: snap, fade: fade, background: background,
                                         overflow: overflow, builder: { AnyView(header($0)) })
+        return copy
+    }
+
+    /// Where the gap a pull past the top opens with this view's `.preserve` scaling header (D65): `.openGap` (the default)
+    /// keeps the header still at its resting place and the gap, with the top refresh indicator, opens between the header's
+    /// bottom edge and the content's top; `.followContent` moves the header down with the content and opens them above it.
+    /// `.stretch` ignores it, and so does a banner (no vertical axis). Wins over the environment twin
+    /// `View.ztronScalingHeaderPullBehavior(_:)`; independent of the order of `withScalingHeader` (it survives a later call
+    /// that replaces the header). A change is a cold configuration change (no content or header body runs); during a live
+    /// pull the header takes the new mode's place in that frame (in the change's animation, if it has one).
+    public func scalingHeaderPullBehavior(_ behavior: ZTronHeaderPullBehavior) -> Self {
+        var copy = self
+        copy.config.headerPull = behavior
         return copy
     }
 }

@@ -89,10 +89,12 @@ enum RefreshIndicatorMath {
 
 extension RefreshIndicatorMath {
     /// The edge bases (`adjustedContentInset − refreshHold`) and whether the indicator floats over the content. With a
-    /// vertical scaling header (M8b-3, `HeaderMath.refreshTop`): under `.preserve` the header moves down with the pull and
-    /// the gap opens ABOVE it, so the base is the header slot's top (`top0`, the gap `[top0, top0 + pull]`; user decision
-    /// 2026-10-26); under `.stretch` there is no gap, so the top indicator floats over the stretched band (`top0 + R`),
-    /// overlay placement whatever `overlay:` says (SPEC S10 "Refresh with the header").
+    /// vertical scaling header (M8b-3, `HeaderMath.refreshTop`): under `.preserve` `.openGap` (D65, the default) the header
+    /// stays still and the gap opens below it, which is the plain base (the resting header's bottom edge); under
+    /// `.preserve` `.followContent` the header moves down with the pull and the gap opens ABOVE it, so the base is the
+    /// header slot's top (`top0`, the gap `[top0, top0 + pull]`; D61); under `.stretch` there is no gap, so the top
+    /// indicator floats over the stretched band (`top0 + R`), overlay placement whatever `overlay:` says (SPEC S10 "Refresh
+    /// with the header").
     static func base(edge: Edge, metrics m: ScrollMetrics, overlay: Bool) -> (EdgeInsets, Bool) {
         let aci = m.adjustedContentInset, hold = m.refreshHold
         var base = EdgeInsets(top: aci.top - hold.top, leading: aci.leading - hold.leading,
@@ -349,14 +351,15 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
 /// viewport and the content are drawn at the presented one, interpolated by the drawn size exactly as the content's
 /// transform does (`ResizeMath.presented`). This effect moves the placement by the difference at the drawn size, a
 /// render-time transform: centred across the edge in the drawn width / height, the edge's base moved with the presented
-/// insets (a `.stretch` header's `top0 + R` with them: `aci.top` moves by `ΔR`), a `.preserve` header's base (`top0`, the
-/// safe-area top) kept. Measured before (seam lab, `.stretch` hold, width 402 → 241 pt): the indicator jumped 90 pt (`ΔR`)
+/// insets (a `.stretch` header's `top0 + R` with them: `aci.top` moves by `ΔR`; a `.preserve` `.openGap` header's plain
+/// base too, D65), a `.preserve` `.followContent` header's base (`top0`, the safe-area top) kept. Measured before (seam lab, `.stretch` hold, width 402 → 241 pt): the indicator jumped 90 pt (`ΔR`)
 /// and 80 pt sideways in one frame at the commit, then the header and the viewport caught up over the animation.
 /// Identity outside an open resize.
 nonisolated struct RefreshResizeEffect: GeometryEffect {
     let commit: ResizeCommit
     let edge: Edge
-    /// Whether the edge's base is the adjusted inset (no header, `.stretch`, the end edges) or stays (`.preserve`: `top0`).
+    /// Whether the edge's base is the adjusted inset (no header, `.stretch`, `.preserve` `.openGap`, the end edges) or stays
+    /// (`.preserve` `.followContent`: `top0`).
     let baseFollowsInset: Bool
 
     func effectValue(size: CGSize) -> ProjectionTransform {

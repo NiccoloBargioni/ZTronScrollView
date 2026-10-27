@@ -213,34 +213,50 @@ struct HeaderLayoutFrameTests {
                 ".fit at the committed width and container keeps the committed R")
     }
 
-    /// User decision 2026-10-26: a `.preserve` header under a pull keeps its height and moves down by the pull; its bottom
-    /// edge is the content's top; `.stretch` grows with its top pinned. Both paths, through the real container.
-    @Test(arguments: OSPath.allCases, [ZTronHeaderScalingBehavior.preserve, .stretch])
-    func aPullMovesThePreservedHeaderAndGrowsTheStretchedOne(path: OSPath, behavior: ZTronHeaderScalingBehavior) {
+    /// Under a pull (layout = state, through the real container, both paths): a `.preserve` `.openGap` header (D65, the
+    /// default) stays at `top0` with its height and the content's top is its bottom edge + the pull; a `.preserve`
+    /// `.followContent` header (D61) keeps its height and moves down by the pull, its bottom edge on the content's top;
+    /// `.stretch` grows with its top pinned. The layout's frame is the state's (`top0 + translation`, `h`) in every case.
+    @Test(arguments: OSPath.allCases, HeaderPullCase.allCases)
+    func aPullKeepsOrMovesThePreservedHeaderAndGrowsTheStretchedOne(path: OSPath, mode: HeaderPullCase) {
         let box = Box()
         let s = makeState(path)
         let counts = BodyCount()
         let w = withOSPath(path) {
             window(ZTronScrollView(.vertical, state: s) { StatefulContent(counts: counts) }
-                .withScalingHeader(size: .fixed(min: 64, max: 240), scalingBehavior: behavior) { _ in Probe(box: box) },
+                .withScalingHeader(size: .fixed(min: 64, max: 240), scalingBehavior: mode.behavior) { _ in Probe(box: box) }
+                .scalingHeaderPullBehavior(mode.pull),
                    size: CGSize(width: 402, height: 874))
         }
         defer { unhost(w) }
+        #expect(s.peek.metrics.header?.pull == mode.pull)
         let bodies = counts.bodies
         for g in [30, 90, 0] as [CGFloat] {
             s.track(offset: CGPoint(x: 0, y: -g - HeaderMath.base(s.peek.metrics)), zoom: 1)
             pump(0.1)
-            let top0 = HeaderMath.top0(s.peek.metrics)
+            let m = s.peek.metrics
+            let top0 = HeaderMath.top0(m)
             let contentTop = -s.peek.presentationOffset.y
-            switch behavior {
-            case .preserve:
+            switch mode {
+            case .openGap:
+                #expect(abs(box.minY - top0) < 0.5 && abs(box.size.height - 240) < 0.5,
+                        "\(path) g \(g): still (\(box.minY)), height R (\(box.size.height))")
+                #expect(abs(contentTop - (box.minY + box.size.height) - g) < 0.5,
+                        "\(path) g \(g): the gap below the header is the pull (\(contentTop - box.minY - box.size.height))")
+            case .followContent:
                 #expect(abs(box.minY - (top0 + g)) < 0.5 && abs(box.size.height - 240) < 0.5,
                         "\(path) g \(g): moved down by the pull (\(box.minY)), height R (\(box.size.height))")
+                #expect(abs(box.minY + box.size.height - contentTop) < 0.5, "\(path) g \(g): bottom edge on the content's top")
             case .stretch:
                 #expect(abs(box.minY - top0) < 0.5 && abs(box.size.height - (240 + g)) < 0.5,
                         "\(path) g \(g): top pinned (\(box.minY)), grown (\(box.size.height))")
+                #expect(abs(box.minY + box.size.height - contentTop) < 0.5, "\(path) g \(g): bottom edge on the content's top")
             }
-            #expect(abs(box.minY + box.size.height - contentTop) < 0.5, "\(path) g \(g): bottom edge on the content's top")
+            // Layout = state: the frame the state describes at this offset.
+            let header = m.header!
+            let o = HeaderMath.headerOffset(offset: s.peek.presentationOffset, zoom: 1, metrics: m)
+            #expect(abs(box.minY - (top0 + HeaderMath.translation(o: o, m: header))) < 0.5
+                        && abs(box.size.height - HeaderMath.height(o: o, m: header)) < 0.5, "\(path) \(mode) g \(g): layout = state")
         }
         #expect(counts.bodies == bodies, "no content body under a pull")
     }
@@ -324,11 +340,12 @@ struct HeaderLayoutFrameTests {
     /// leaf derives them from a target at that `o′` (pull, band, its edges, past it); while a resize is open
     /// (`followsOffset` false) only `offset` moves, so the resize intent's anchor stays bit-stable.
     @Test func theLiveInputAtAnOffsetIsTheLeafsDerivation() {
-        for behavior in [ZTronHeaderScalingBehavior.preserve, .stretch] {
+        for mode in HeaderPullCase.allCases {
+            let behavior = mode.behavior
             var m = ScrollMetrics()
             m.viewportSize = CGSize(width: 402, height: 874)
             m.safeAreaInsets = EdgeInsets(top: 62, leading: 0, bottom: 34, trailing: 0)
-            m.header = HeaderMetrics(min: 64, resting: 240, behavior: behavior, width: 402)
+            m.header = HeaderMetrics(min: 64, resting: 240, behavior: behavior, pull: mode.pull, width: 402)
             m.adjustedContentInset = EdgeInsets(top: 302, leading: 0, bottom: 34, trailing: 0)
             func leaf(_ o: CGFloat) -> HeaderLiveInput {
                 HeaderFrameModifier.liveInput(size: .fixed(min: 64, max: 240), overflow: .uncapped, metrics: m,
@@ -341,8 +358,14 @@ struct HeaderLayoutFrameTests {
                 #expect(a == b, "\(behavior) o′ \(o): \(a) vs \(b)")
             }
             let pulled = start.at(offset: -80)
-            let translation: CGFloat = behavior == .preserve ? 80 : 0, height: CGFloat = behavior == .stretch ? 320 : 240
-            #expect(pulled.translation == translation && pulled.stateHeight == height, "\(behavior): \(pulled)")
+            let translation: CGFloat = mode == .followContent ? 80 : 0, height: CGFloat = behavior == .stretch ? 320 : 240
+            #expect(pulled.translation == translation && pulled.stateHeight == height, "\(mode): \(pulled)")
+            if mode == .openGap {
+                // D65: the `.openGap` header's live input is the rest's under any pull (only `o′` moves): no new layout work.
+                var rest = start
+                rest.offset = -80
+                #expect(pulled == rest, "openGap: a pull changes only o′")
+            }
             var held = leaf(88)
             held.followsOffset = false
             let moved = held.at(offset: 10)
@@ -395,15 +418,18 @@ struct HeaderLayoutFrameTests {
     }
 
     /// The background fills the header's live frame in every state (it is the background of the stack the leaf frames):
-    /// the `.preserve` translation, the `.stretch` growth, collapse, past the band and after a resize.
-    @Test(arguments: OSPath.allCases, [ZTronHeaderScalingBehavior.preserve, .stretch])
-    func theBackgroundFollowsTheLiveFrame(path: OSPath, behavior: ZTronHeaderScalingBehavior) {
+    /// the `.preserve` pull in both modes (still with `.openGap`, translated with `.followContent`), the `.stretch` growth,
+    /// collapse, past the band and after a resize.
+    @Test(arguments: OSPath.allCases, HeaderPullCase.allCases)
+    func theBackgroundFollowsTheLiveFrame(path: OSPath, mode: HeaderPullCase) {
         let box = Box(), bg = Box()
         let s = makeState(path)
+        let behavior = mode.behavior
         let w = withOSPath(path) {
             window(ZTronScrollView(.vertical, state: s) { Color.green.frame(height: 4000) }
                 .withScalingHeader(size: .aspectRatio(16.0 / 9.0, min: 64), scalingBehavior: behavior,
-                                   background: .view { Probe(box: bg) }) { _ in Probe(box: box) },
+                                   background: .view { Probe(box: bg) }) { _ in Probe(box: box) }
+                .ztronScalingHeaderPullBehavior(mode.pull),
                    size: CGSize(width: 402, height: 874))
         }
         defer { unhost(w) }
@@ -419,7 +445,7 @@ struct HeaderLayoutFrameTests {
             check("o′ \(o)")
             if o == -60 {
                 let top0 = HeaderMath.top0(s.peek.metrics)
-                #expect(abs(bg.minY - (behavior == .preserve ? top0 + 60 : top0)) < 0.5, "\(path) \(behavior): pull")
+                #expect(abs(bg.minY - (mode == .followContent ? top0 + 60 : top0)) < 0.5, "\(path) \(mode): pull")
             }
         }
         s.endOfTurn()

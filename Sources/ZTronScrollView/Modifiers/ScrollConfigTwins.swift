@@ -21,6 +21,9 @@ struct ScrollViewConfig {
     var contentOverlays: [ContentOverlayDecl] = []
     /// The scaling header (M8b-3): member only (`withScalingHeader`; a header is per view, no twin). A later call replaces it.
     var header: HeaderSpec?
+    /// D65: where a `.preserve` header's pull gap opens: the member `scalingHeaderPullBehavior(_:)`, or on the environment
+    /// the twin `ztronScalingHeaderPullBehavior(_:)` (the innermost twin wins); `nil`: not set (`.openGap`).
+    var headerPull: ZTronHeaderPullBehavior?
 }
 
 private struct ScrollConfigKey: EnvironmentKey {
@@ -50,6 +53,17 @@ extension ZTronScrollView {
 // MARK: Twins (S8-2b)
 
 extension View {
+    /// Where the gap a pull past the top opens with a `.preserve` scaling header, for every `ZTronScrollView` below this
+    /// view (D65; the member ``ZTronScrollView/scalingHeaderPullBehavior(_:)`` wins when both are set, the innermost twin
+    /// wins over an outer one). `.openGap` (the default) keeps the header still and opens the gap, with the top refresh
+    /// indicator, between its bottom edge and the content; `.followContent` moves the header down with the content and
+    /// opens them above it. `.stretch` headers and banners ignore it. A change is a cold configuration change: no content
+    /// or header body runs; during a live pull the header takes the new mode's place in that frame. SwiftUI has no
+    /// counterpart, so this twin writes the library's value only.
+    public func ztronScalingHeaderPullBehavior(_ behavior: ZTronHeaderPullBehavior) -> some View {
+        transformEnvironment(\.ztronScrollConfig) { $0.headerPull = behavior }
+    }
+
     /// Environment twin of ``ZTronScrollView/scrollTargetBehavior(_:)`` (the member wins when both are set). On iOS 17+
     /// it also applies SwiftUI's `scrollTargetBehavior(_:)` (`.paging` as SwiftUI's own, a custom behavior bridged), so a
     /// native `ScrollView` below follows the same behavior.

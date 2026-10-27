@@ -3,8 +3,9 @@ import SwiftUI
 // Scaling header (SPEC S10, amendment 2026-10-19; design M8b §2): the public value types. The header is installed with
 // `ZTronScrollView.withScalingHeader(size:scalingBehavior:snap:fade:background:overflow:header:)`, precedes the content
 // (its resting height is reserved in `adjustedContentInset.top`), collapses by shrinking from the bottom with its top edge
-// pinned and reacts to a pull past the top with `.preserve` (it moves down with the content: a gap opens above it) or
-// `.stretch` (it grows with the pull, its top edge pinned).
+// pinned and reacts to a pull past the top with `.preserve` (it keeps its resting height; where the gap opens is the
+// `ZTronHeaderPullBehavior`, D65: below it by default, or above it when it follows the content) or `.stretch` (it grows with
+// the pull, its top edge pinned).
 
 /// How tall the header rests and how far it collapses.
 public enum ZTronHeaderSize: Equatable, Sendable {
@@ -42,12 +43,26 @@ public enum ZTronHeaderOverflow: Equatable, Sendable {
     case refit
 }
 
-/// The reaction to a pull past the top: `.preserve` keeps the header at its resting height and moves it down with the
-/// content (a gap opens ABOVE the header, between the safe-area top and the header's top edge, where a refresh indicator
-/// sits; user decision 2026-10-26), `.stretch` grows the header from its bottom edge with the (rubber-banded) pull, its
-/// top edge pinned (a refresh indicator floats over the stretched band).
+/// The reaction to a pull past the top: `.preserve` keeps the header at its resting height (where the gap a pull opens
+/// goes, and the refresh indicator with it, is ``ZTronHeaderPullBehavior``: below the header by default, above it when the
+/// header follows the content), `.stretch` grows the header from its bottom edge with the (rubber-banded) pull, its top
+/// edge pinned (a refresh indicator floats over the stretched band).
 public enum ZTronHeaderScalingBehavior: Sendable {
     case preserve, stretch
+}
+
+/// Where the gap a pull past the top opens with a `.preserve` scaling header (D65, user 2026-10-27). Set it for every
+/// `ZTronScrollView` below a view with `View.ztronScalingHeaderPullBehavior(_:)`, or on one scroll view with
+/// `ZTronScrollView.scalingHeaderPullBehavior(_:)` (the member wins). `.stretch` ignores it (the header grows, there is no
+/// gap), and so does a banner (a header on a scroll view without the vertical axis).
+public enum ZTronHeaderPullBehavior: Hashable, Sendable {
+    /// The default. The header stays still at its resting place and height; the content pulls away from it, so the gap
+    /// opens BETWEEN the header's bottom edge and the content's top, and a top refresh indicator sits in that gap (its
+    /// base is the resting header's bottom edge, `adjustedContentInset.top` minus the refresh hold).
+    case openGap
+    /// The header moves down with the content at its resting height (its bottom edge stays on the content's top); the gap,
+    /// and a top refresh indicator, open ABOVE it, between the safe-area top and the header's top edge (D61).
+    case followContent
 }
 
 /// Snapping inside the collapse band. Positions are collapse progress: 0 expanded, 1 collapsed (the reference's inverse
@@ -145,8 +160,8 @@ public struct ZTronHeaderGeometry: Equatable, Sendable {
     public var progress: CGFloat
     /// The live height, stretch included.
     public var height: CGFloat
-    /// ≥ 0: how much `.stretch` grew the header past its resting height; always 0 under `.preserve` (a pull moves a
-    /// preserved header down by that amount instead).
+    /// ≥ 0: how much `.stretch` grew the header past its resting height; always 0 under `.preserve` (a pull opens a gap
+    /// below a preserved header, or moves it down by that amount with `ZTronHeaderPullBehavior.followContent`).
     public var stretch: CGFloat
     public var minHeight: CGFloat
     /// The resolved resting height (the reference's `maxHeight`).
@@ -183,6 +198,9 @@ struct HeaderMetrics: Equatable, Sendable {
     var min: CGFloat
     var resting: CGFloat
     var behavior: ZTronHeaderScalingBehavior
+    /// D65: where a `.preserve` header's pull gap opens (`HeaderMath.gapAbove` / `gapBelow`); `.stretch` and banners ignore
+    /// it. Resolved from the member, else the environment, else `.openGap` (a cold change, like `behavior`).
+    var pull: ZTronHeaderPullBehavior = .openGap
     /// The scroll view's (viewport) width the size was resolved at.
     var width: CGFloat
     /// The vertical offset drives the header (`axes` contain `.vertical`). Off: a fixed banner, except while zoomed content

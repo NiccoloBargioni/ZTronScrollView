@@ -31,7 +31,7 @@ struct RefreshResizeEffectTests {
     @Test func aPreservedHeadersBaseStaysAndAClosedCommitIsIdentity() {
         let c = Self.commit()
         let start = RefreshResizeEffect.delta(commit: c, edge: .top, baseFollowsInset: false, size: c.previous.viewport)
-        #expect(start.y == 0 && abs(start.x - 80.5) < 1e-9, ".preserve: top0 kept, centred in the drawn width: \(start)")
+        #expect(start.y == 0 && abs(start.x - 80.5) < 1e-9, ".preserve .followContent: top0 kept, centred in the drawn width: \(start)")
         #expect(RefreshResizeEffect.delta(commit: Self.commit(open: false), edge: .top, baseFollowsInset: true,
                                           size: CGSize(width: 402, height: 874)) == .zero)
         #expect(RefreshResizeEffect.delta(commit: c, edge: .top, baseFollowsInset: true, size: .zero) == .zero)
