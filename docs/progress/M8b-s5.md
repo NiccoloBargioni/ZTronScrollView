@@ -59,3 +59,43 @@ Tests:
   (was 90 / 90 / 159 pt, hJ 1.00), horizontal rotation, `.fit` grow at rest / half / `.stretch` on three lanes, `.fit`
   and aspect width / rotation regressions, ambient rotation. Table: `scratchpad/seam/final-table.md`, section "Review d16".
 Usage: not measured.
+
+## M8b-s6 (close) · 2026-10-27 · Opus 5.5 closer, branch claude/cool-stonebraker-0015c9 (main already merged)
+Changed:
+- Task 1 (high): root cause confirmed (unit test red before: `.capped(0.5)`, height to 0.4, header laid out at 138.67 =
+  0.5 · (311.33 − 34), then re-set to 155.67 by the commit). The slot subtracted the COMMITTED bottom safe-area inset from a
+  proposal that reached the bottom; a top-pinned height change leaves the home indicator (34 → 0 at the commit). Fix: the header
+  overlay ignores only the side edges (`ZTronScrollView.swift`), so the slot is proposed the region between the safe areas
+  and IS the container (`HeaderSlotLayout`, `HeaderLiveInput.bottomInset` removed). Test `HeaderHeightResizeTests`. Lab:
+  `-ZTronSeamAnimateHeight <f>` ported; `baseline.sh` extra `height<digits>` (height04 = 0.4).
+- Task 2: `HeaderMath.metrics` (pure, the layout path) + `HeaderMath.warning` (`#if DEBUG`, only `HeaderSizing.resolve`).
+- Task 3 (real): during an open app-driven resize the refresh indicator was placed in the committed geometry: `.stretch`
+  hold jumped 90 pt (ΔR) and 80.5 pt sideways in one frame, `.preserve` 90.7 pt down (pull from the presentation offset
+  against the committed insets) and 80.5 sideways. Fix: `RefreshResizeEffect` (GeometryEffect: presented − committed
+  placement at the drawn size, `ResizeMath.presented`) + the pull from the target while the resize is open. Test
+  `RefreshResizeEffectTests`. Lab: `-ZTronSeamHold 1` (held refresh, white probe), `scripts/seam/probe.py`.
+- Task 4: measured, no jump (forced `.fit` half, rotation, `-ZTronSeamSticky 1` bar: within 0.5 pt of the header bottom in
+  every frame; also 27.0 / 17.5 preferred); SPEC S10 notes the pass is never drawn. Nothing to fix.
+- Task 5: honest `withScalingHeader` and `ZTronHeaderBackground` docs (limits list → SPEC S10, ambient second instance:
+  onAppear / task twice, matchedGeometry / focus ids duplicated, "no body per frame" instead of "nothing runs per frame");
+  `.preserve` refresh base = `top0` in `docs/design/M8b-refresh-header.md`.
+- Test support: `unhost` keeps windows with a `UITransitionView` on iOS 26+ (`_UICornerProvider` layout invalidations of
+  non-screen-sized windows never clear in xctest): the guard flagged 75 warnings in the header suites at 795bf1a (pre-existing,
+  from the merge) and 292 in the full run; now 0.
+- SPEC S10: slot between the safe areas, refresh during a resize, F6 numbers + a possible 15-path approach, `.fit` pass.
+Seam lab (analyzer v2.2; `|seam|` / lateral pt, hJ / cJ; scratchpad `close/seam/{27,17,27f,27t3}/<scenario>/`):
+- `aspect-{rest,half}-preserve-width-capped-height04`: 27.0 0.33 / 0.33, hJ 0.026 / 0.028 (was 70 / 35 pt, hJ 0.998);
+  17.5 0.5 / 0.5, hJ 0.029 / 0.034 (was a 17.2 pt overlap). 27.0 forced: 70 / 35 pt hJ 1.0 (F6, documented).
+- `refit-height025` (limit engaged): 27.0 0.33 hJ 0.112, 17.5 0.33 hJ 0.032, forced 31 pt hJ 1.0 (F6).
+- Controls (capped06, refit04 / 06, uncapped04, rest and half): ≤ 0.17 pt, no change, on all three lanes.
+- Width regression `aspect-rest-preserve-width`: 27.0 0.33 lat 0.27 hJ 0.026; 17.5 0.5 lat 0.3; forced 0.33 lat 0.2.
+- Task 3 after (`27t3`): `.stretch` hold probe −21.0 … −20.33 pt from the header bottom, lateral ≤ 0.33 (both width
+  changes); `.preserve` 0.33 / 0.34 pt range; forced the same; `.stretch` hold + capped height04: ≤ 1.2 pt, steps ≤ 0.5;
+  `aspect-rest-{preserve,stretch}-pull-refresh` seam ≤ 0.5. Before: `close/seam/27/aspect-rest-*-width-hold`.
+- Task 4: `fit-half-preserve-rotate-sticky` 27.0 / 17.5 / forced: seam ≤ 0.21, probe ≤ 0.5, steps ≤ 0.21.
+Open:
+1. F6 (15/16 overflow limit on an app-driven resize) stays a documented limit; a cold slot-level `GeometryReader` around the
+   15-path frame leaf (closure on resizes only) could fix it; not done (restructures the 15 header host).
+2. Unchanged: 15-path `.fit` in the band on an app-driven resize; scroll command overlapping a resize (M8b-s4).
+3. `ChromeLeafTests.aScriptedScrollAndZoomRunNoContentBodyAndOneLeafBodyPerFrame` counted 24 leaf bodies instead of 20 once in
+   the 17.5 full run (a global counter shared with parallel suites); green alone and on 27.0.

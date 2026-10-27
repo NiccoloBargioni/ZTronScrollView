@@ -712,7 +712,10 @@ screen recordings, `scripts/seam/`):
   that turns on during the resize) is the state's in the animated pass of an app-driven resize, so it lands at the commit (unit test:
   laid out at 226 pt, re-set to the 155.6 pt limit). iOS 13 layout modifiers have no size proportional to the proposed height
   (`capped(f)` is `f · H`) and a per-frame `GeometryReader` is ruled out (S4.6). Rotations are seamless there (laid out once, inside UIKit's
-  block); the default `.uncapped` is unaffected.
+  block); the default `.uncapped` is unaffected. Measured (M8b-s6, forced lane, top-pinned height change to 0.4 of the screen):
+  `.capped` 70 pt at rest and 35 pt half collapsed, `.refit` (height to 0.25) 31 pt, each in one frame (hJ 1.0); 16+ seamless (≤ 0.5 pt).
+  A cold slot-level `GeometryReader` around the frame leaf (its closure runs on resizes only, not on motion) could give the 15 path
+  `H`; not done (it restructures the 15 header host).
 - Known limit (open, M8b-s4): a scroll command that overlaps an open animated resize is not seamless. Issued while the resize animates, the
   command ends the resize (M5 intervention) and the content takes the committed geometry at once while the header keeps interpolating
   (seam lab: 26 pt gap, 48 pt lateral); issued in the size change's own `withAnimation`, the command is dropped by the resize but its target
