@@ -18,6 +18,19 @@ Follow-up (user answers):
 Open:
 - D40 and SHEET-s3's D47 (§9 Q7): no recommendation; they block U3, not U1 or U2.
 - `origin` re-pin. The app's `sync_with_base_branch` refused because `origin` changed since the app pinned it (now github.com/NiccoloBargioni/ZTronScrollView.git). This branch was fast-forwarded to local main 9e60063 instead.
-Next: 1) U1 spike (Opus), §4; 2) U2 → U3 → U4 → U5, after D40 / SHEET-s3 are decided for U3.
+Follow-up 2 (2026-10-28, after spike U1 = UIKITPAN-s1 on `claude/keen-lichterman-cfa1e6`):
+- Folded U1's C1–C7 into the design, with the user's choices: per-OS cones for N (45° across; 85° on 26.x, 65° on 27.0+ along the page; ties outside) and a narrow S2 allowance (`controllerRoot` walk on the 15–17 window route; `UIControl` / `UISlider` / `UISwitch` checks in the V ctl delegate). §4 is now U1's results; §5 drops U1.
+- Added F1: on the UIKit path the baseline credits the whole first sample (UIKit's translation already excludes its hysteresis).
+- A 3-lens review plus a skeptic confirmed 17 defects, all fixed. The main ones:
+  - the direction vector (finger displacement since the observer's touch-down), because UIKit's translation is bent per axis;
+  - the pan is enabled from the static inputs before the touch, because UIKit binds a touch to the recognizers enabled at its start;
+  - a pure `receives(hitView:location:anchor:)` with window unit tests;
+  - the D31 observer attach in the anchor form;
+  - `.uikitPan` is excluded from `forceAllFallbacks`;
+  - corrected native facts: 50° at 600 pt/s goes to the carousel on every lane, the slow 50° cell splits on 26.5 / 27.0, and on 27.0 only the 30° list cell depends on speed;
+  - new C3 rows: both scenarios, `.inNativeScrollView` without N, the zoomer at 35° / 40°, covered views, first drag after a flip.
+- Open: the user answered C2 twice, 15 s apart: (b) here at 23:21:53Z, and (a), one 45° rule, to the spike session at 23:22:08Z (its commit 0038ea9). §9 item 8 records both and what (a) would change. The design follows (b) until the user confirms.
+- Open: M-4 (D31 R1's rect-only observer on the UIKit path) is documented and printed, not fixed. Fixing it would widen the walk's allowance to the observer.
+Next: 1) the user confirms C2; 2) U2 → U3 → U4 → U5, after D40 / SHEET-s3 are decided for U3.
 Tests: none (design only). The review evidence is in this session's scratchpad (`understand/*.md`, `review.md`), not committed.
 Usage: not measured
