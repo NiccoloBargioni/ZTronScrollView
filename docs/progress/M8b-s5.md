@@ -241,3 +241,72 @@ Tests (fix): unit `ZTronScrollViewTests` 766 tests / 73 suites on 27.0: 1 known 
 0 feedback-loop warnings; `ContentOverlayUITests` + `ProofUITests` + `HeaderUITests` 20/20 on 27.0 preferred
 (unthrottled); `ContentOverlayUITests` ×6 throttled on 27.0: 23/24 (1 launch infra: "Failed to tap Snapshot"); ×2 on 17.5:
 4/6 (2 infra).
+
+### D65 review fixes · 2026-10-27/28 · Opus 5.5 fixer (workflow subagent, branch claude/cool-stonebraker-0015c9 at fb1fe59)
+Three confirmed findings of the D65 review, each reproduced, root-caused, fixed and tested. No new D-number.
+
+**1. Open item 18 (`.openGap` hold indicator in a rotation that takes the gap below the screen).** Reproduced on the seam lab
+(`aspect-rest-preserve-rotate-hold-opengap`, uncapped 16:9, R 491 pt over a 402 pt landscape viewport): on the way to landscape the
+indicator vanished at once; on the way back it was drawn at once at its final portrait place, over the red header Core Animation was
+still shrinking, then drifted into the gap. Before (frames with the gap on the screen / indicator in its gap, centre deviation):
+27.0 6/25 (23.5 pt), 17.5 5/23 (20.4 pt), forced 5/24 (27.2 pt); `.stretch` 17.5 5/23 (30.2 pt), 27.0 6/25 (28.2 pt).
+- Root cause: SwiftUI drew no layer for the indicator while its place was outside the viewport (the hosted layer tree has no
+  marker layer in a landscape window, both paths), so Core Animation had nothing to interpolate. `.stretch`: its overlay placement
+  was nil there (the clip from a base below the screen to the viewport's far edge is empty).
+- Spikes: a laid-out clip box (builder, no change); the box moved by a render-time translation (no change); translation + layer group
+  (rotation fixed, but a `withAnimation` width change during the hold drew the indicator 88 pt above the gap, `.stretch` 41 pt,
+  for the whole narrowing: the leaf's placement change in that transaction is animated only as layout); the translation animatable
+  (no change, hosted mid == end). Kept: the group box laid out with `.position`.
+- Fix (8b5d3ad, 5b32f97, `Refresh/RefreshIndicators.swift`): the indicator box (the clip's size, `.clipped()`) is its own layer group
+  (`HeaderLayerGroup`: 17+ `geometryGroup()`, 15–16 `compositingGroup()`) `.position`ed at the clip's place; `RefreshClip` (mask
+  path) removed; an overlay clip is never shorter than the indicator (`RefreshIndicatorMath.placement`).
+- Tests: `RefreshIndicatorLayerTests` (both paths): `.openGap` and `.stretch` marker layer in place in portrait and below the screen
+  in landscape (fb1fe59 fails the landscape check on both paths); `anAnimatedResizeMovesTheIndicatorWithTheGap` (presentation tree at
+  mid animation part way: fb1fe59 278 pt between 313 and 222, the translation variants 222 = end); `RefreshIndicatorTests` overlay
+  base below the viewport.
+- Docs: Orchestration open item 18 (a) FIXED with the corrected description; SPEC S10 "Refresh with the header" and "15–16 layer
+  groups" (the indicator group's 15–16 blend-mode isolation).
+
+**2. `ProofUITests.testWithAnimationScroll` content.body 1 (forced 27.0, about 1 run in 3 since 952c91a).** Not a library change
+in 9e60063..d2425d6, so no library bisect: main 9e60063's library with the branch's `ProofScreen` / `ProofUITests` (952c91a's
+quiet-period reset) failed 9 of 10 (`ztronscroll-log.m4L2gMJBE0`). A DEBUG event log showed every failure as `RESET | ProofScreen
+body | content body | TAP`: the `settle` write right after the counters were zeroed re-ran `ProofScreen`'s body inside the counted
+window, and that parent update re-ran `ProofContent`'s body; nothing ran after the tap (the scroll itself never re-evaluated the
+content: S4 holds). A native `ScrollView` in the same place re-ran it in 6 of 6 runs (SwiftUI's comparison of a view holding `@State`,
+consistent with D43). Fix (4faa80c, demo only): the settle text lives in `SettleStatus` / `SettleLabel`, held by reference in
+`@State`, so `ProofScreen` does not observe it. The content re-run needs host load (at load ~10 fb1fe59 passed 10/10, also with the
+app duty-cycled), so the test now checks the cause: a DEBUG `screen.body` counter (`ProofScreen`'s own body, shown in an overlay:
+a tenth counter row made `testNoClockTicksAtRest` see a layout pass at rest, 3 of 3) must stay 0 in the counted window. fb1fe59's
+harness with that counter fails 3 of 3 (`screen.body` 1); the fix passes (forced 27.0: `testWithAnimationScroll` 20/20, the suite
+×3 18/18; 27.0 preferred and 17.5 below).
+
+**3. `HeaderSafeAreaInsetTests.anAnimatedSafeAreaChangeMovesTheContentWithTheHeader` worst step < 2 (27.0, about half the runs).**
+`pump(1/60)` is a wall-clock spin that overruns under host load while the animation runs on the render clock, so several frames land
+in one sample. Fix (525c123 + this round's last commit, test only): a step is judged against the 60 Hz frames of its own interval and
+the one before it (1 pt per frame), because a sample right after a stall can still show the frame in flight when it began and the
+next one catches up (a full 27.0 run: 5.6 pt over a 26-frame stall, then 16.8 pt in one frame, both on the easeInOut curve: the
+first version, per own interval only, failed there); a step with no stall around it may not carry half the change. New
+`aStalledSamplerJudgesTheDrawnCurve` (50 ms stalls every 7th sample: raw steps 4.1-4.3 pt, which the former check failed) passes.
+
+Seam lab (fix round, 20 scenarios × 27.0 preferred / 17.5 / 27.0 forced = 60 runs; table and recordings in the session scratchpad
+`pull/fix/final-table.md`, `pull/fix/seam/<lane>/`): 54 PASS; the 6 FAIL are the forced `capped-height04` family at 70 pt, open item
+15 (b), pre-existing (the close table's 70.0 / 70.5; fb1fe59 measured here for the two hold variants: same seam, same indicator
+numbers). Indicator in a rotation during a hold (uncapped 16:9, frames with the gap on the screen / in place, centre deviation):
+
+| scenario | 27.0 | 17.5 | 27.0 forced |
+|---|---|---|---|
+| `.openGap` (fb1fe59) | 6/25, 23.5 pt | 5/23, 20.4 pt | 5/24, 27.2 pt |
+| `.openGap` (fix) | 22/24, 0.33 pt | 21/23, 0.26 pt | 22/24, 0.31 pt |
+| `.stretch` (fb1fe59) | 6/25, 28.2 pt | 5/23, 30.2 pt | - |
+| `.stretch` (fix) | 22/23, 0.26 pt | 22/23, 0.75 pt | 23/25, 0.26 pt |
+| `.followContent`, `.fixed`, `.capped` controls (fix) | all, ≤ 0.83 pt | all, ≤ 1.19 pt | all, ≤ 0.68 pt |
+
+The misses are the probe merging with the lab's white buttons where the gap leaves the screen (frames inspected). Indicator during a
+width resize in a hold (relative to the header's edge): ≤ 0.5 pt in every lane and mode (fb1fe59 0.33 / 0.5). Header / gap / content
+seams of the D65 and regression scenarios (vspring, vretarget, vbottom, width, capped-height04, rotate-capped, kbreal): ≤ 0.7 pt,
+lateral ≤ 0.4 pt, the largest 60 Hz step 0.26 of the change (rotations, as at fb1fe59; forced `capped-height04` family: item 15 (b),
+unchanged).
+Tests: unit `ZTronScrollViewTests` 784 tests / 76 suites green on 27.0 (final) and on 17.5 (at 5b32f97; the later test-only change
+×2 on 17.5), 1 known issue (F6), 0 feedback-loop warnings; `HeaderUITests` + `RefreshUITests` + `ProofUITests` 31/31 on 17.5 and 30/31
+on 27.0 preferred (`RefreshUITests.testRefreshableMapsToTheSystemRefresher` timed out once; ×5 and the suite 14/14 green after);
+`ProofUITests` with the final harness ×2 on 27.0 preferred and 17.5 (12/12 each), ×3 forced (18/18).

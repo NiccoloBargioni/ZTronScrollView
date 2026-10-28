@@ -657,9 +657,13 @@ hold `H` stretches the header by `H` and the indicator floats over the stretched
 there is no gap); with `.preserve` the indicator sits in the gap: with `.openGap` (D65, the default) below the still header, at the plain
 base `aci.top − hold` (the resting header's bottom edge, plus `contentInset.top`), `[top0 + R, top0 + R + pull]`, placement as the
 refresher says; with `.followContent` (D61) above the header, `[top0, top0 + pull]` (height `H` while refreshing; the header moved down by
-`H` with the content, amended 2026-10-26 by the user). Limit (D65, open item 18): a rotation during the hold that leaves the header
-taller than the new viewport (an uncapped 16:9 header in landscape) puts the `.openGap` gap below the screen, and the indicator is not
-drawn during that rotation (as `.stretch`'s, whose band is off-screen too); the header, the gap and the content stay seamless. Load-more at the bottom is unaffected by the header.
+`H` with the content, amended 2026-10-26 by the user). A rotation during the hold that leaves the header
+taller than the new viewport (an uncapped 16:9 header in landscape) puts the `.openGap` gap (and `.stretch`'s band) below the screen;
+the indicator goes there and comes back with it: its box (the clip's size) is its own layer group (17+ `geometryGroup()`, 15–16
+`compositingGroup()`) laid out at the clip's place, so it keeps its layer off-screen and Core Animation interpolates it with the header
+and the content, and an overlay clip is never shorter than the indicator. (Amended 2026-10-27, open item 18: before, SwiftUI drew no
+layer for an indicator whose place was outside the viewport, so it vanished on the way out and, on the way back, was drawn at once at
+its final place over the header still shrinking; the box is laid out, not translated, so a `withAnimation` resize still animates it.) Load-more at the bottom is unaffected by the header.
 **(Amended 2026-10-27, M8b-s6.)** During an app-driven animated resize while refreshing, the indicator is drawn at the presented
 geometry: its placement is computed in the committed geometry (the resize commit is unanimated) with the pull taken from the target,
 and a render-time transform (`RefreshResizeEffect`, a `GeometryEffect`) moves it by the presented − committed difference at the drawn
@@ -724,7 +728,9 @@ screen recordings, `scripts/seam/`):
   view that has a scaling header at its first render (latched: installing or removing the header later never changes the content's
   identity; a header installed later rotates with the pre-group tearing on 15–16, one removed later keeps the group). Documented 15–16
   differences of a header view: a content blend mode does not reach behind the scroll view, a header blend mode does not reach the content
-  scrolled under the header. 17+ `geometryGroup()` has none of these.
+  scrolled under the header. 17+ `geometryGroup()` has none of these. The refresh indicator box is a group too (open item 18, every view
+  with a refresher): on 15–16 a blend mode inside a custom indicator composites within the indicator (it does not reach the content or
+  the header behind an overlay indicator).
 - **Banners (amended 2026-10-27, review d16).** A view without the vertical axis lays its banner out from layout too (`R(W)`, its `p` and
   stretch the state's: 0 unless zoomed content pans, D15; its overflow container the committed one), so an app-driven animated width
   change interpolates it with the content (it took the state's height: laid out at `(W_new, R_old)` in the animated pass and re-set by the

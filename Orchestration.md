@@ -187,13 +187,17 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
    re-laid out every control in the content on every scroll / zoom frame, and with it the overlay `Layout` holding the
    demo banner's `Button`. The gate is now its own leaf (`ContentInteractionGate`, one `Bool`); regression unit test
    `ContentOverlayTests.motionFramesDoNotLayOutControlsAgain`. 17.5 never showed it (hosted or UI).
-18. **D65 `.openGap` limits (2026-10-27)**: (a) a rotation during a refresh hold with a header taller than the new viewport
-   (uncapped 16:9 in landscape, R 491 pt over 402): the gap, and the top indicator in it, end below the screen, and the indicator
-   is not drawn during the rotation (seam lab probe visible in 5-6 of 32 rotation frames on 27.0 / 17.5 / forced; the header /
-   gap / content seam stays within 0.2 pt). `.stretch` (base `top0 + R`) behaves the same since M8b-s6 (verify lane); a header that
-   fits (`.fixed` 240) keeps the indicator in all 32 frames, 0.79 pt from its place; `.followContent` 32/32. Not a mask jump: a
-   laid-out clip box instead of `RefreshClip` changed nothing (spike, not committed). (b) iOS 15/16 runtimes unverified here (the
-   forced lane on 27.0 only), as item 16 (a).
+18. **D65 `.openGap` limits (2026-10-27)**: (a) ~~the hold indicator during a rotation that takes the gap below the screen~~
+   FIXED 2026-10-27 (D65 review fixes, 8b5d3ad + 5b32f97; `docs/progress/M8b-s5.md` "D65 review fixes"). The first text ("not
+   drawn") was wrong: on the way to landscape the indicator vanished at once, and on the way BACK it was drawn at its final
+   portrait place over the header Core Animation was still shrinking (27.0 / 17.5 / forced, 5-8 frames, up to 79 pt off the gap),
+   then drifted into the gap. Root cause: SwiftUI drew no layer for the indicator while its place was outside the viewport (no
+   marker layer in the hosted layer tree, `RefreshIndicatorLayerTests`), so Core Animation had nothing to interpolate; `.stretch`
+   the same (its overlay placement was nil there). The indicator box is now its own layer group (17+ `geometryGroup()`, 15–16
+   `compositingGroup()`), still laid out at the clip's place (a render-time translation, 8b5d3ad, broke `withAnimation` resizes:
+   88 pt), and an overlay clip is never shorter than the indicator. Seam lab, rotation during a hold (uncapped 16:9, frames with
+   the gap on the screen): see the handoff table; width hold unchanged (within 0.5 pt). (b) iOS 15/16 runtimes unverified here
+   (the forced lane on 27.0 only), as item 16 (a).
 
 ## Decisions (keep)
 - D1 Naming map in CLAUDE.md (ZoomScroll → ZTronScroll, `ztronScroll…` modifiers; matches ZTronPages' `ztronPage()`).
@@ -535,3 +539,4 @@ Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (≤ 2 simulators at 
 | 2026-10-27 | Opus 5.5 fixer (M8b-s5, review d16) | 9 review findings (7 fixed, 1 fixed + documented 15–16 difference, 1 documented 15-path limit), async-renderer crash in `HeaderSlotLayout`, seam lab `horizontal` / `grow` options and re-measurements, `HeaderReviewD16Tests` | not measured |
 | 2026-10-27 | Opus 5.5 side session M8b-s6 (lead, ultracode: closer + verifier + fixer, then a core check: reviewer + full suites) | main merged (D52 → D59), the review finding the d16 fixer never received (an animated height change engaging `.capped`: header slot between the safe areas), refresh indicator during resizes, M5 resize progress unclamped + safe-area steps (spring / retarget / bottom-pinned resizes), D61–D63, open item 15, handoff `docs/progress/M8b-s6.md` | not measured |
 | 2026-10-27 | Opus 5.5 workflow subagent (overlay placement root cause) | open item 17: per-frame overlay placements root-caused (the content gate's `.disabled` re-created per frame) and fixed (`ContentInteractionGate`), pre-existing on main; hosted regression test; handoff `docs/progress/M8b-s5.md` "Overlay placement fix" | not measured |
+| 2026-10-28 | Opus 5.5 workflow subagent (D65 review fixes) | open item 18 (a) fixed: the refresh indicator box is a layer group laid out at its clip (rotations that take the gap / `.stretch` band below the screen keep it; a translation variant broke `withAnimation` resizes and was replaced), `.stretch` overlay clip; `ProofUITests` content.body 1 (forced) = the quiet-period harness's own parent update (main's library too, native `ScrollView` 6/6), settle label in its own leaf; `HeaderSafeAreaInsetTests` judged per elapsed frame + stalled-sampler test; seam lab 60 runs (27.0 / 17.5 / forced); handoff `docs/progress/M8b-s5.md` "D65 review fixes" | not measured |
