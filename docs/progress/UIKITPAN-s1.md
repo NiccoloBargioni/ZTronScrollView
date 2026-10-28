@@ -34,7 +34,7 @@ Changed:
     for a cross-axis view.
   - "Matches native" fails only in the boundary band: 50° for the carousel, 40° for the list.
   - Q3e (added) shows that UIKit's own boundary there depends on OS and speed (tables below), so step 4 does not apply. The boundary
-    is a separate axis-rule correction (C2, decided 2026-10-28: one 45° rule).
+    is a separate axis-rule correction (C2).
 - **Q4:** inside a ZTron viewport, only a native `ScrollView` parent is visible: `SV-` vertical, `S-H` horizontal. `List`, `Form`,
   `TabView(.page)`, a sheet and a ZTron outer all read `---`. `onGeometryChange` agrees with a GeometryReader read on 26.5 and 27.0.
 - **Q5 (all lanes):**
@@ -92,7 +92,7 @@ Changed:
   - **Options (user / U2):** (a) one 45° rule, with the band documented as a deviation; (b) per-OS constants from these tables:
     45° across the page's axis, and for a view on the page's axis 80° on 26.x and 60° on 27.0. Speed dependence (fast drags lock to
     the inner view) is not reproduced by either option.
-  - **Decided (user, 2026-10-28): (a).** The band is documented as a deviation in design §2, §7 (SPEC S2 amendment text) and §9 item 8.
+  - **Decided (user, 2026-10-28): (b), per-OS cones 45° / 85° (26.x) / 65° (27.0+), ties outside; supersedes the 2026-10-27 (a) answer.**
 - **C3 (§2, window route).** `anchor.isDescendant(of: touch.view)` rejects the view's own drags on 17.5, in a sheet and on a plain
   screen. UIKit's hit view there is a SwiftUI drawing subview beside the anchor (`CGDrawingView`, `_UIGraphicsView`, `UIView`).
   - The rule that works is OR-ed with it: `controllerRoot(anchor) === controllerRoot(touch.view)`, where `controllerRoot` walks
@@ -266,15 +266,13 @@ movers per angle, slow/fast (P page, T target, - none)
   - The tab-bar drag stays on the probe tab; on 17.5 a drag across it selected the other tab.
 
 Open:
-- C2 is decided (user, 2026-10-28): one 45° rule, the band documented as a deviation (design §2, §7, §9 item 8).
 - V ctl's `UISlider` / `UISwitch` list is a probe choice. A drag starting on any other `UIControl` still pans, as in UIScrollView.
 - Not scriptable in XCUITest: a second finger landing during an active pan. The probe forces the same reset (`-ZTronProbeResetAfter 1`),
   and real second touches came only from pinch and two-finger tap. It is a device check.
 - 15 / 16 runs (window route, dismissal only on 15) are the user's: no runtime on this host.
 - D40 / SHEET-s3 still block U3 only (unchanged).
 
-Next: 1) U2 core with C1, C2 (one 45° constant), C4 and C5 folded into the truth tables; 2) U3 shell with C3 and C6
-(both routes), after the D40 / SHEET-s3 decision; 3) U5 copies the §7 deviation bullet into SPEC S2.
+Next: U2 core per docs/design/UIKIT-pan.md at 9e6d448 (U1 corrections folded in there).
 
 Tests: harness only. `TEST_RUNNER_ZS_UKP=1 scripts/test-demo-ui.sh 'platform=iOS Simulator,id=<udid>'
 -only-testing:ZTronScrollViewDemoUITests/UIKitPanProbeUITests[/testQn_…]`, then `scripts/uikitpan-table.py <dir-of-.ukp> --summary`.
