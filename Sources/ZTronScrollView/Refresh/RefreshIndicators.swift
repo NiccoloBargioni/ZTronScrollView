@@ -11,9 +11,17 @@ import ZTronScrollPhysics
 struct RefreshPlacement: Equatable {
     /// The indicator's frame: `length` along the pull axis, the free viewport width across it.
     var frame: CGRect
-    /// The part of the viewport the indicator may draw in (the gap the pull opened, or everything for an overlay).
+    /// The part of the viewport the indicator may draw in (the gap the pull opened, or everything for an overlay): `box`
+    /// within `region`. Empty (zero length at the base) while the gap is closed or scrolled away.
     var clip: CGRect
     var opacity: Double
+    /// The indicator's layer group (`RefreshPlacementEffect`), clipped to itself. In the gap its far edge is the content's
+    /// edge in every state (open item 19), so the box moves rigidly with the content, also where the gap left the
+    /// viewport; an overlay's box is `clip`.
+    var box: CGRect
+    /// The outer clip around the box: from the edge's base into the viewport (beyond it when the gap is), so nothing shows
+    /// above the base; an overlay's is `box`.
+    var region: CGRect
 
     /// How much of the indicator is inside its clip along the pull axis (`frame ∩ clip`): its visible thickness.
     func visibleLength(vertical: Bool) -> CGFloat {
@@ -27,21 +35,25 @@ struct RefreshPlacement: Equatable {
 /// The design text writes `top0 − …`; with y down the band grows from `top0` toward the content, as `UIRefreshControl`.
 enum RefreshIndicatorMath {
     /// - Parameters:
-    ///   - pull: signed displayed overscroll past the edge, against the bounds without the hold (`RefreshMath.signedPull`).
+    ///   - pull: signed displayed overscroll past the edge, against the bounds without the hold (`RefreshMath.signedPull`):
+    ///     where the content's edge is along `d`.
     ///   - length: the indicator's thickness along the pull axis (`configuration.indicatorHeight`).
+    ///   - hold: the gap a hold keeps open (`RefreshEngine.holdSize`); `nil` = `length`.
     ///   - base: `adjustedContentInset − refreshHold` per edge.
     ///   - header: the live scaling header height counted onto the top base (0 until M8b-3).
-    /// - Returns: `nil` when nothing of the indicator is inside its clip.
+    /// - Returns: `nil` for a degenerate viewport, and for an overlay none of whose indicator is inside its clip. In the
+    ///   gap the placement is kept whatever the pull (open item 19): with the gap closed or scrolled off the viewport the
+    ///   indicator draws nothing (`clip` empty), its box stays on the content's edge.
     static func placement(edge: Edge, style: ZTronRefreshStyle, overlay: Bool, refreshing: Bool, dragPosition: CGFloat,
                           pull: CGFloat, length: CGFloat, viewport: CGSize, base: EdgeInsets,
-                          header: CGFloat = 0) -> RefreshPlacement? {
+                          header: CGFloat = 0, hold: CGFloat? = nil) -> RefreshPlacement? {
         let p = max(0, pull)
         let L = max(0, length)
         let vertical = edge == .top || edge == .bottom
         let along = vertical ? viewport.height : viewport.width
         let crossStart = vertical ? base.leading : base.top
         let crossEnd = vertical ? viewport.width - base.trailing : viewport.height - base.bottom
-        guard crossEnd > crossStart, along > 0 else { return nil }
+        guard crossEnd > crossStart, along > 0, pull.isFinite else { return nil }
         let b: CGFloat
         switch edge {
         case .top: b = base.top + header
@@ -49,44 +61,62 @@ enum RefreshIndicatorMath {
         case .leading: b = base.leading
         case .trailing: b = base.trailing
         }
-        // The centre of the indicator and the end of its clip, along d.
+        // The centre of the indicator, its box, the visible part and the outer clip, along d.
         let center: CGFloat
-        let clipEnd: CGFloat
         let opacity: Double
+        let box: (CGFloat, CGFloat)
+        let visible: (CGFloat, CGFloat)
+        let region: (CGFloat, CGFloat)
         if overlay {
             // Floats over the content: slides in from outside the base with the pull, sits at L when refreshing.
             center = -L / 2 + (refreshing ? L : min(p, L))
             // To the viewport's far edge, and never shorter than the indicator: a base beyond the viewport (a `.stretch`
             // band below the landscape screen) keeps the indicator, off-screen, where a rotation's interpolation finds it
             // (open item 18). Past the far edge the container's clip bounds the drawing anyway.
-            clipEnd = max(0, along - b, center + L / 2)
+            let clipEnd = max(0, along - b, center + L / 2)
             opacity = refreshing ? 1 : Double(L > 0 ? min(1, p / L) : 1)
+            guard clipEnd > 0, center + L / 2 > 0, center - L / 2 < clipEnd else { return nil }
+            box = (0, clipEnd)
+            visible = box
+            region = box
         } else {
-            clipEnd = p
+            // In the gap `[0, pull]`, its far end on the content's edge. Open item 19: the box keeps that far edge
+            // whatever the pull, also where the content covers the base (a hold scrolled away, S7 in a rotation), so its
+            // layer exists and moves rigidly with the content; `region` (from the base on) keeps the drawing to the gap.
+            // The box reaches `max(L, hold)` before the content's edge (the whole gap when it is longer): it holds the
+            // indicator's part before the edge, and the visible gap of any interpolated frame of an animation that
+            // ends at rest (a gap of at most the hold).
+            let s = pull
+            let H = max(0, hold ?? L)
             switch style {
             case .system:
-                center = p / 2                                    // centred in the gap, as UIRefreshControl
+                // Centred in the gap, as UIRefreshControl. With the gap closed (s <= 0, nothing visible) it keeps
+                // going with the content's edge, continuous at 0, until it sits where the hold rests it (H/2 before
+                // the edge) and then moves rigidly with the content: a rotation that brings a scrolled-away hold back
+                // interpolates it at that place.
+                center = s > 0 ? s / 2 : s - min(H, -s) / 2
                 opacity = refreshing ? 1 : Double(max(0, min(1, dragPosition)))
             case .default:
-                center = p - L / 2                                // glued to the content's edge, following the pull 1:1
+                center = s - L / 2                                // glued to the content's edge, following the pull 1:1
                 opacity = 1
             }
+            box = (s - max(s, L, H), s)
+            visible = (0, p)
+            region = (0, max(s, along))
         }
-        guard clipEnd > 0, center + L / 2 > 0, center - L / 2 < clipEnd else { return nil }
         func interval(_ d0: CGFloat, _ d1: CGFloat) -> (CGFloat, CGFloat) {
             switch edge {
             case .top, .leading: return (b + d0, b + d1)
             case .bottom, .trailing: return (along - b - d1, along - b - d0)
             }
         }
-        let f = interval(center - L / 2, center + L / 2)
-        let c = interval(0, clipEnd)
         func rect(_ a: (CGFloat, CGFloat)) -> CGRect {
             vertical
                 ? CGRect(x: crossStart, y: a.0, width: crossEnd - crossStart, height: a.1 - a.0)
                 : CGRect(x: a.0, y: crossStart, width: a.1 - a.0, height: crossEnd - crossStart)
         }
-        return RefreshPlacement(frame: rect(f), clip: rect(c), opacity: opacity)
+        return RefreshPlacement(frame: rect(interval(center - L / 2, center + L / 2)), clip: rect(interval(visible.0, visible.1)),
+                                opacity: opacity, box: rect(interval(box.0, box.1)), region: rect(interval(region.0, region.1)))
     }
 }
 
@@ -273,9 +303,10 @@ struct RefreshEdgeIndicator: View {
             let (base, overlay) = RefreshIndicatorMath.base(edge: edge, metrics: m, overlay: spec.overlay)
             indicator.modifier(RefreshPlacementEffect(
                 pull: pull, edge: edge, style: spec.style, overlay: overlay, length: spec.configuration.indicatorHeight,
+                hold: RefreshEngine.holdSize(edge: edge, config: spec.configuration, overlay: false),
                 refreshing: refresh.mode == .refreshing || (retract == .spinner && !overlay), refresh: refresh, retract: retract,
                 viewport: m.viewportSize, base: base, useGeometryGroup: state.usesGeometryGroup,
-                hasHeader: state.headerSpec != nil || m.header != nil))
+                hasHeader: state.headerSpec != nil || m.header != nil, custom: spec.indicator != nil))
             .modifier(RefreshResizeEffect(commit: m.resize, edge: edge,
                                           baseFollowsInset: edge != .top || HeaderMath.refreshTop(m)?.overlay != false))
         }
@@ -328,12 +359,24 @@ struct RefreshEdgeIndicator: View {
 /// must animate as layout does (a translation landed at once, 88 pt off the gap at the start of a narrowing). An
 /// overlay's clip is never shorter than the indicator (`RefreshIndicatorMath.placement`), so a `.stretch` base below
 /// the screen keeps it too.
+///
+/// Open item 19 (no header): S7 scrolls a top hold's gap above the landscape viewport (the content covers the base), where
+/// the placement was nil, so the indicator left the tree; on the way back it was drawn at once at its final place, over
+/// the content Core Animation was still sliding in (seam lab, 14 frames; 4 more vanished early on the way out). In the gap
+/// the placement is now kept whatever the pull: the box's far edge is the content's edge in every state (it reaches
+/// `max(L, hold)` back from it), so the box moves rigidly with the content and an interpolated frame cannot draw the
+/// indicator past that edge; an outer box, `region`, from the edge's base on, clips the drawing to the gap (nothing above
+/// the base, nothing at all while the gap is closed or scrolled away). Both are layer groups: the box keeps its layer
+/// outside the region and off the viewport, the region off the viewport (a header taller than the landscape viewport puts
+/// the base below it). An overlay's region is its box.
 private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
     var pull: CGFloat
     let edge: Edge
     let style: ZTronRefreshStyle
     let overlay: Bool
     let length: CGFloat
+    /// The gap the hold keeps open (`RefreshEngine.holdSize`): where a `.system` indicator rests against the content.
+    let hold: CGFloat
     let refreshing: Bool
     let refresh: ZTronRefreshState
     let retract: RefreshEngine.RetractLook?
@@ -341,60 +384,78 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
     let base: EdgeInsets
     /// The state's layer-group flag (fixed at its creation): 17+ `geometryGroup()`, 15–16 `compositingGroup()`.
     let useGeometryGroup: Bool
-    /// The view has a scaling header (its spec or its metrics): the 15–16 group is only for it (`RefreshIndicatorGroup`).
+    /// The view has a scaling header (its spec or its metrics): 15–16 group a custom indicator only under it
+    /// (`RefreshIndicatorGroup`).
     let hasHeader: Bool
+    /// The indicator is the app's view (`refresher(refreshView:)`), not the built-in one.
+    let custom: Bool
 
     var animatableData: CGFloat {
         get { pull }
         set { pull = newValue }
     }
 
+    /// 15–16 group the boxes under a scaling header (open item 18) and around the built-in indicator (open item 19); a
+    /// custom indicator without a header stays ungrouped, so its blend modes reach what is behind it (final check of D65).
+    private var fallbackGroup: Bool { hasHeader || !custom }
+
     @MainActor func body(content: Content) -> some View {
         let placement = RefreshIndicatorMath.placement(
             edge: edge, style: style, overlay: overlay, refreshing: refreshing, dragPosition: refresh.dragPosition, pull: pull,
-            length: length, viewport: viewport, base: base)
+            length: length, viewport: viewport, base: base, hold: hold)
         #if DEBUG
         let _ = RefreshTrace.leaf(edge: edge, pull: pull, refresh: refresh, retract: retract, placement: placement)
         #endif
         ZStack(alignment: .topLeading) {
             if let placement {
-                let clip = placement.clip
+                let box = placement.box, region = placement.region
                 ZStack(alignment: .topLeading) {
-                    content
-                        .frame(width: placement.frame.width, height: placement.frame.height)
-                        .opacity(placement.opacity)
-                        .position(x: placement.frame.midX - clip.minX, y: placement.frame.midY - clip.minY)
+                    ZStack(alignment: .topLeading) {
+                        content
+                            .frame(width: placement.frame.width, height: placement.frame.height)
+                            .opacity(placement.opacity)
+                            .position(x: placement.frame.midX - box.minX, y: placement.frame.midY - box.minY)
+                    }
+                    .frame(width: max(0, box.width), height: max(0, box.height), alignment: .topLeading)
+                    .clipped()
+                    .modifier(RefreshIndicatorGroup(useGeometryGroup: useGeometryGroup, fallbackGroup: fallbackGroup))
+                    .position(x: box.midX - region.minX, y: box.midY - region.minY)
                 }
-                .frame(width: max(0, clip.width), height: max(0, clip.height), alignment: .topLeading)
+                .frame(width: max(0, region.width), height: max(0, region.height), alignment: .topLeading)
                 .clipped()
-                .modifier(RefreshIndicatorGroup(useGeometryGroup: useGeometryGroup, hasHeader: hasHeader))
-                .position(x: clip.midX, y: clip.midY)
+                .modifier(RefreshIndicatorGroup(useGeometryGroup: useGeometryGroup, fallbackGroup: fallbackGroup))
+                .position(x: region.midX, y: region.midY)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
-/// The refresh indicator box's layer group (open item 18, `RefreshPlacementEffect`). 17+: `geometryGroup()` in every view
-/// (geometry only, drawing-neutral). 15–16: `compositingGroup()` only under a scaling header, where open item 18 arises
-/// (the indicator's place below the screen in a rotation: the gap or the `.stretch` band under a header taller than the
-/// landscape viewport); without a header the box is not grouped, as before 5b32f97, and draws as on 17+ (final check of
-/// D65). A compositing group is not drawing-neutral: a custom indicator's `.blendMode` composites within it and no longer
-/// reaches what is behind the indicator (forced lane, no header, grouped in every view: a `.difference` white square stayed
-/// white over the gap's blue and the content's green, yellow / magenta on 17+; `RefreshUITests`). Under a header the 15–16
-/// indicator keeps that documented difference, as the header and the content do (SPEC S10 "15–16 layer groups"). Latched
-/// at the box's first frame (`GroupLatch`; the box exists while the indicator has a placement), so installing or removing
-/// the header during a hold never changes the custom indicator's identity.
+/// The refresh indicator's layer groups (open items 18 and 19, `RefreshPlacementEffect`: the box and the region around it).
+/// 17+: `geometryGroup()` in every view (geometry only, drawing-neutral). 15–16: `compositingGroup()` under a scaling
+/// header, where open item 18 arises (the indicator's place below the screen in a rotation: the gap or the `.stretch`
+/// band under a header taller than the landscape viewport), and around the built-in indicator (open item 19: a hold
+/// scrolled off the viewport, by S7 in a rotation; it has no blend mode, so the group draws it as on 17+). A custom
+/// indicator without a header is not grouped, as before 5b32f97, and draws as on 17+ (final check of D65): a compositing
+/// group is not drawing-neutral, a custom indicator's `.blendMode` composites within it and no longer reaches what is
+/// behind the indicator (forced lane, no header, grouped in every view: a `.difference` white square stayed white over the
+/// gap's blue and the content's green, yellow / magenta on 17+; `RefreshUITests`). So on 15–16 that one keeps no layer
+/// while its gap is off the viewport, and a rotation that brings the gap back draws it at once at its final place (open
+/// item 20). Under a header the 15–16 indicator keeps the documented blend difference, as the header and the content do
+/// (SPEC S10 "15–16 layer groups"). Latched at the box's first frame (`GroupLatch`; the boxes exist while the leaf does,
+/// an overlay's while it has a placement), so installing or removing the header during a hold never changes the custom
+/// indicator's identity.
 struct RefreshIndicatorGroup: ViewModifier {
     let useGeometryGroup: Bool
-    let hasHeader: Bool
+    /// 15–16: whether to group (`compositingGroup()`), decided once (`GroupLatch`).
+    let fallbackGroup: Bool
     @StateObject private var latch = GroupLatch(note: "refresh.group")
 
     @ViewBuilder
     func body(content: Content) -> some View {
         if useGeometryGroup, #available(iOS 17, *) {
             content.geometryGroup()
-        } else if latch.grouped(hasHeader) {
+        } else if latch.grouped(fallbackGroup) {
             content.compositingGroup()
         } else {
             content

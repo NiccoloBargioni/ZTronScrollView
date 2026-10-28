@@ -66,7 +66,11 @@ struct RefreshIndicatorTests {
     }
 
     @Test func noPullNoIndicatorAndAHoldKeepsItWhereTheGapIs() {
-        #expect(place(.top, pull: 0) == nil && place(.top, pull: -20) == nil)
+        // No gap, nothing drawn: the clip is empty (open item 19: the placement, and the indicator's layer, stay).
+        for pull: CGFloat in [0, -20] {
+            let none = place(.top, pull: pull)!
+            #expect(none.visibleLength(vertical: true) == 0 && none.clip.height == 0, "pull \(pull): \(none)")
+        }
         // At rest with a 60 pt hold open the displayed pull against the hold-less bounds is 60: the gap is the hold.
         let held = place(.top, .system, refreshing: true, drag: 1, pull: 60)!
         #expect(held.frame == CGRect(x: 0, y: 50, width: 400, height: 60) && held.opacity == 1)
@@ -74,7 +78,73 @@ struct RefreshIndicatorTests {
         // A user who scrolled the content back up: the gap shrinks, the indicator is clipped with it.
         let shrinking = place(.top, .default, refreshing: true, drag: 1, pull: 20)!
         #expect(shrinking.clip == CGRect(x: 0, y: 50, width: 400, height: 20))
-        #expect(place(.top, .default, refreshing: true, drag: 1, pull: 0) == nil)
+        #expect(place(.top, .default, refreshing: true, drag: 1, pull: 0)!.visibleLength(vertical: true) == 0)
+    }
+
+    /// Open item 19: a hold whose gap left the viewport (the content scrolled past the base, S7 in a rotation) keeps its
+    /// placement: the box's far edge on the content's edge, the indicator where the hold rests it against that edge
+    /// (`.system`: H/2 before it once the pull is past -H, continuous through 0; `.default`: glued to it), nothing visible
+    /// (the clip is empty, the region starts at the base). At rest and for any pull > 0 the visible part is unchanged.
+    @Test func aHoldScrolledAwayKeepsItsBoxOnTheContentsEdge() {
+        for edge in [Edge.top, .bottom, .leading, .trailing] {
+            let vertical = edge == .top || edge == .bottom
+            let along: CGFloat = vertical ? 800 : 400
+            let b: CGFloat = [Edge.top: 50, .bottom: 34, .leading: 0, .trailing: 0][edge]!
+            /// Position along d (from the base into the viewport) of a viewport coordinate on the pull axis.
+            func d(_ v: CGFloat) -> CGFloat { edge == .top || edge == .leading ? v - b : along - b - v }
+            func span(_ r: CGRect) -> (CGFloat, CGFloat) {
+                let a = vertical ? (d(r.minY), d(r.maxY)) : (d(r.minX), d(r.maxX))
+                return (min(a.0, a.1), max(a.0, a.1))
+            }
+            for style in [ZTronRefreshStyle.system, .default] {
+                var previous: (pull: CGFloat, centre: CGFloat)?
+                for pull: CGFloat in [-400, -100, -60, -30, -1, -0.01, 0, 0.01, 1, 30, 60, 100] {
+                    let label = "\(edge) \(style) pull \(pull)"
+                    guard let pl = place(edge, style, refreshing: true, drag: 1, pull: pull) else {
+                        Issue.record("\(label): no placement")
+                        continue
+                    }
+                    let box = span(pl.box), frame = span(pl.frame), region = span(pl.region)
+                    #expect(abs(box.1 - pull) < 1e-9, "\(label): the box ends on the content's edge \(box)")
+                    #expect(box.0 <= min(0, pull - 60) + 1e-9 && box.0 <= frame.0 + 1e-9, "\(label): box holds the indicator's near part \(box) \(frame)")
+                    #expect(abs(region.0) < 1e-9 && region.1 >= max(pull, along) - 1e-9, "\(label): region from the base \(region)")
+                    let centre = (frame.0 + frame.1) / 2
+                    let expected: CGFloat = style == .default ? pull - 30 : pull > 0 ? pull / 2 : pull - min(60, -pull) / 2
+                    #expect(abs(centre - expected) < 1e-9, "\(label): centre \(centre), expected \(expected)")
+                    if pull <= 0 {
+                        #expect(pl.visibleLength(vertical: vertical) == 0, "\(label): nothing visible")
+                    } else {
+                        #expect(abs(pl.visibleLength(vertical: vertical) - min(pull, 60)) < 1e-9,
+                                "\(label): visible \(pl.visibleLength(vertical: vertical)) as before")
+                        let clip = span(pl.clip)
+                        #expect(abs(clip.0) < 1e-9 && abs(clip.1 - pull) < 1e-9, "\(label): the gap \(clip)")
+                    }
+                    if let previous, previous.pull >= -1, pull <= 1 {
+                        #expect(abs(centre - previous.centre) <= abs(pull - previous.pull) * 1.5 + 1e-9,
+                                "\(label): continuous through 0 (\(previous) -> \(centre))")
+                    }
+                    previous = (pull, centre)
+                }
+                // Rigid with the content past -H: the indicator's distance to the content's edge is the rest one.
+                let rest = place(edge, style, refreshing: true, drag: 1, pull: 60)!
+                let away = place(edge, style, refreshing: true, drag: 1, pull: -400)!
+                let restSpan = span(rest.frame), awaySpan = span(away.frame)
+                #expect(abs((restSpan.0 - 60) - (awaySpan.0 + 400)) < 1e-9, "\(edge) \(style): rest place against the edge")
+            }
+        }
+    }
+
+    /// A hold larger than the indicator (`holdOffset`): `.system` rests at H/2 and keeps that place against the content's
+    /// edge when scrolled away; the box reaches back H.
+    @Test func aLargerHoldRestsTheSystemIndicatorInItsMiddle() {
+        let rest = RefreshIndicatorMath.placement(edge: .top, style: .system, overlay: false, refreshing: true, dragPosition: 1,
+                                                  pull: 100, length: 60, viewport: viewport, base: base, hold: 100)!
+        #expect(rest.frame.midY == 50 + 50 && rest.clip == CGRect(x: 0, y: 50, width: 400, height: 100))
+        #expect(rest.box == rest.clip, "at rest the box is the gap")
+        let away = RefreshIndicatorMath.placement(edge: .top, style: .system, overlay: false, refreshing: true, dragPosition: 1,
+                                                  pull: -300, length: 60, viewport: viewport, base: base, hold: 100)!
+        #expect(away.frame.midY == 50 - 300 - 50 && away.box == CGRect(x: 0, y: 50 - 400, width: 400, height: 100))
+        #expect(away.visibleLength(vertical: true) == 0)
     }
 
     @Test func theLiveHeaderHeightMovesTheTopBase() {

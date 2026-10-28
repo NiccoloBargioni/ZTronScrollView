@@ -6,11 +6,11 @@ edge's outward axis (lateral offsets +-90 pt: clear of the probe, the Dynamic Is
 the white component within 40 pt of the centre line across that axis (the status bar text and the lab's buttons are
 farther out).
 
-usage: python3 -I holdgap.py <scenario-dir> --edge top|bottom|leading|trailing [--base <pt>] [--tol <pt>]
-  --base  the largest base of the edge over both orientations (the safe-area inset the gap starts at): top 62, bottom 34,
-          leading / trailing 62 (default per edge). A frame is judged only when the indicator's resting place (measured
-          against the content's edge in the first frames of the hold) lies entirely between the content's edge and that
-          base, or entirely off the window.
+usage: python3 -I holdgap.py <scenario-dir> --edge top|bottom|leading|trailing [--base <portrait,landscape>] [--tol <pt>]
+  --base  the edge's base (the safe-area inset the gap starts at) in portrait and landscape; default per edge: top 62,0,
+          bottom 34,21, leading / trailing 0,62 (the larger of iPhone 18 Pro / 15 Pro); mid-rotation the larger one. A
+          frame is judged only when the indicator's resting place (measured against the content's edge in the first
+          frames of the hold) lies entirely between the content's edge and the base, or entirely off the window.
 Per frame (holdgap.csv): the content edge s_e and the window edge s_w (pt from the display centre along the outward axis),
 the probe's extent along the axis relative to s_e, and a verdict:
   inPlace  the probe is drawn at its resting place against the content's edge (within --tol, default 1 pt);
@@ -121,11 +121,17 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("dir")
     ap.add_argument("--edge", required=True, choices=["top", "bottom", "leading", "trailing"])
-    ap.add_argument("--base", type=float, default=None)
+    ap.add_argument("--base", default=None, help="portrait,landscape base of the edge in pt")
     ap.add_argument("--tol", type=float, default=1.0)
     ap.add_argument("--rest-frames", type=int, default=8)
+    ap.add_argument("--overlay", action="store_true",
+                    help="overlay placement: the probe floats at the base, judged against the window's edge (present in every "
+                         "frame with the window's edge measured, largest single-frame step); 'over' does not apply")
     a = ap.parse_args()
-    base = a.base if a.base is not None else {"top": 62, "bottom": 34, "leading": 62, "trailing": 62}[a.edge]
+    # The edge's base (its safe-area inset) per orientation: iPhone 18 Pro (27.0) / 15 Pro (17.5), the larger of the two.
+    bp, bl = {"top": (62, 0), "bottom": (34, 21), "leading": (0, 62), "trailing": (0, 62)}[a.edge]
+    if a.base:
+        bp, bl = (float(x) for x in a.base.split(","))
     meta = json.load(open(os.path.join(a.dir, "meta.json")))
     sc = float(meta.get("scale", 3))
     rows = {int(r["frame"]): r for r in csv.DictReader(open(os.path.join(a.dir, "frames.csv")))}
@@ -214,7 +220,31 @@ def main():
             if s_e is not None:
                 rec["pc"] = round((best[0] + best[1]) / 2 - s_e, 2)
         rec["ring"] = ringover
-        rec["_found"] = (s_e, s_w, content_off, best, ringover)
+        # Portrait (n down the recording), landscape (n across it) or in between (the larger base).
+        ang = abs(np.degrees(np.arctan2(n[0], n[1]))) % 180
+        base = bp if min(ang, 180 - ang) < 1 else bl if abs(ang - 90) < 1 else max(bp, bl)
+        rec["_found"] = (s_e, s_w, content_off, best, ringover, base)
+    if a.overlay:
+        # The probe's centre along the outward axis from the display centre (rotation-invariant: the axis turns with the
+        # content): present from its first frame on, and its largest single-frame step against its whole travel.
+        rows_ = [x for x in recs if x.get("_found")]
+        first = next((x["frame"] for x in rows_ if x["_found"][3] is not None), None)
+        rows_ = [x for x in rows_ if first is not None and x["frame"] >= first]
+        miss = [x["frame"] for x in rows_ if x["_found"][3] is None]
+        cs = [(x["frame"], (x["_found"][3][0] + x["_found"][3][1]) / 2) for x in rows_ if x["_found"][3]]
+        step, at = 0.0, None
+        for (f0, v0), (f1, v1) in zip(cs, cs[1:]):
+            if f1 == f0 + 1 and abs(v1 - v0) > step:
+                step, at = abs(v1 - v0), f1
+        travel = (max(v for _, v in cs) - min(v for _, v in cs)) if cs else 0.0
+        for x in recs:
+            x.pop("_found", None)
+        summary = {"edge": a.edge, "overlay": True, "frames": len(recs), "judged": len(rows_), "drawn": len(cs),
+                   "missing": len(miss), "missingFrames": miss[:40], "travel": round(travel, 2), "maxStep": round(step, 2),
+                   "maxStepFrame": at, "stepFraction": round(step / travel, 3) if travel > 0 else None}
+        json.dump(summary, open(os.path.join(a.dir, "holdgap.json"), "w"), indent=1)
+        print(json.dumps(summary))
+        return
     # Resting place: the first frames with the probe and the edge, full length (19-21 pt).
     rest = [x for x in recs if x.get("pc") != "" and x["probe"] and 18 <= x["p1"] - x["p0"] <= 22][:a.rest_frames]
     if not rest:
@@ -230,7 +260,7 @@ def main():
         found = x.pop("_found", None)
         if found is None or x["frame"] < first_rest:
             continue
-        s_e, s_w, content_off, best, ringover = found
+        s_e, s_w, content_off, best, ringover, base = found
         # Over the content: any part of the probe on the content's side of its edge, or a probe-sized white square
         # anywhere whose surround is mostly content.
         if (best is not None and s_e is not None and best[0] < s_e - 1.0) or ringover:

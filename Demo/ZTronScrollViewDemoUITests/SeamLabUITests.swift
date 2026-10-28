@@ -49,6 +49,24 @@ final class SeamLabUITests: XCTestCase {
         info(app, "portrait again")
     }
 
+    /// Landscape rest, portrait (system rotation), landscape again (open item 19: on a horizontal lab the narrowing
+    /// rotation takes a leading / trailing hold's gap off the screen, the widening one brings it back).
+    func testRotateFromLandscape() {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let app = launch()
+        XCTAssertTrue(app.buttons["seam.width"].waitForExistence(timeout: 10))
+        Thread.sleep(forTimeInterval: 2.0)
+        info(app, "landscape")
+        print("SEAMLAB mark portrait \(Date().timeIntervalSince1970)")
+        XCUIDevice.shared.orientation = .portrait
+        Thread.sleep(forTimeInterval: 2.5)
+        info(app, "portrait")
+        print("SEAMLAB mark landscape \(Date().timeIntervalSince1970)")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        Thread.sleep(forTimeInterval: 2.5)
+        info(app, "landscape again")
+    }
+
     /// A pull past the top: press on the content, drag down 220 pt slowly, hold 1.5 s (the finger stays down), release (the
     /// content springs back). `.preserve`: the header moves down with the content (the gap opens above it); `.stretch`: it
     /// grows. Either way its bottom edge stays on the content's top.

@@ -198,4 +198,192 @@ struct RefreshIndicatorLayerTests {
         }
         #endif
     }
+
+    // MARK: Open item 19: a headerless hold whose gap leaves the viewport
+
+    /// Each marker layer's window frame and the part of it its ancestors' clips let through (`masksToBounds` layers): what
+    /// it can draw.
+    func markerVisibility(in window: UIWindow) -> [(frame: CGRect, visible: CGRect)] {
+        var out: [(CGRect, CGRect)] = []
+        let root = window.layer
+        func visit(_ layer: CALayer, _ clip: CGRect) {
+            var clip = clip
+            if layer.masksToBounds { clip = clip.intersection(layer.convert(layer.bounds, to: root)) }
+            if let c = layer.backgroundColor {
+                var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+                if UIColor(cgColor: c).getRed(&r, green: &g, blue: &b, alpha: &a), a > 0.5,
+                   abs(r - Self.marker.r) < 0.02, abs(g - Self.marker.g) < 0.02, abs(b - Self.marker.b) < 0.02 {
+                    let f = layer.convert(layer.bounds, to: root)
+                    out.append((f, f.intersection(clip)))
+                }
+            }
+            layer.sublayers?.forEach { visit($0, clip) }
+        }
+        visit(root, .infinite)
+        return out
+    }
+
+    /// The window frames of every layer of the window.
+    func layerFrames(in window: UIWindow) -> [CGRect] {
+        var out: [CGRect] = []
+        func visit(_ layer: CALayer) {
+            out.append(layer.convert(layer.bounds, to: window.layer))
+            layer.sublayers?.forEach(visit)
+        }
+        visit(window.layer)
+        return out
+    }
+
+    /// `marker*`: a marker-coloured custom view placed with that style (`.default` is what `refresher(refreshView:)` uses);
+    /// `builtIn*`: the built-in indicator (found by its box's layer).
+    enum Look: String, CaseIterable, Sendable { case markerSystem, markerDefault, builtInSystem, builtInDefault }
+
+    /// Open item 19: without a header, a hold whose gap leaves the viewport (S7 in a rotation scrolls it away; here the
+    /// content scrolled 400 pt past the base) took the indicator out of the tree (its placement was nil), so a rotation
+    /// back had no layer to interpolate and drew it at once at its final place, over the content still sliding in (seam
+    /// lab, 14 frames). The indicator keeps its layer group (the box) on the content's edge, the indicator rigid with the
+    /// content where the hold rests it (30 pt before the edge: `.default` glued to it, `.system` at H/2), and draws
+    /// nothing there (`region` starts at the base); at rest it draws whole in its gap, part way in its part of the gap.
+    /// Every edge, both styles, a custom and the built-in indicator, both OS paths. 15–16 keep a custom indicator without
+    /// a header ungrouped (its blend modes, final check of D65): its box has no layer off the viewport (open item 20).
+    @Test(arguments: OSPath.allCases, Look.allCases)
+    func aHeaderlessHoldScrolledAwayKeepsItsIndicatorOnTheContentsEdge(path: OSPath, look: Look) {
+        let marker = look == .markerSystem || look == .markerDefault
+        let style: ZTronRefreshStyle = look == .markerSystem || look == .builtInSystem ? .system : .default
+        for edge in [Edge.top, .bottom, .leading, .trailing] {
+            let vertical = edge == .top || edge == .bottom
+            let viewport = CGSize(width: 390, height: 800)
+            let content = vertical ? CGSize(width: 390, height: 3000) : CGSize(width: 3000, height: 800)
+            let rig = RefreshRig(path, configs: [edge: ZTronRefreshConfiguration()], axes: vertical ? .vertical : .horizontal,
+                                 viewport: viewport, content: content)
+            var spec = RefresherSpec(style: style, overlay: false, configuration: ZTronRefreshConfiguration(), action: { _ in })
+            if marker {
+                spec.indicator = { _ in
+                    AnyView(Color(red: Self.marker.r, green: Self.marker.g, blue: Self.marker.b).frame(width: 20, height: 20))
+                }
+            }
+            let host = RefreshIndicatorsHost(coordinator: rig.refresh, state: rig.state, specs: [edge: spec])
+            let w = withOSPath(path) {
+                let w = UIWindow(frame: CGRect(origin: .zero, size: viewport))
+                w.rootViewController = UIHostingController(rootView: host.ignoresSafeArea())
+                w.makeKeyAndVisible()
+                return w
+            }
+            defer { unhost(w) }
+            let along = vertical ? viewport.height : viewport.width
+            let end = vertical ? content.height - viewport.height : content.width - viewport.width
+            if edge == .bottom { rig.state.setContentOffset(CGPoint(x: 0, y: end), animated: false) }
+            if edge == .trailing { rig.state.setContentOffset(CGPoint(x: end, y: 0), animated: false) }
+            pump(0.2)
+            rig.refresh.begin(edge, runAction: false)
+            for _ in 0..<40 { rig.tick(); pump(0.016) }
+            pump(0.3)
+            let label = "\(path) \(look) \(edge)"
+            /// The signed pull now and the placement the leaf computes from it.
+            func now() -> (pull: CGFloat, placement: RefreshPlacement?) {
+                let st = rig.state.peek
+                let s = RefreshMath.signedPull(edge: edge, offset: st.presentationOffset, zoom: 1, metrics: st.metrics,
+                                               alignment: rig.state.contentAlignment)
+                let (base, _) = RefreshIndicatorMath.base(edge: edge, metrics: st.metrics, overlay: false)
+                return (s, RefreshIndicatorMath.placement(edge: edge, style: style, overlay: false, refreshing: true,
+                                                          dragPosition: 1, pull: s, length: 60, viewport: viewport, base: base,
+                                                          hold: 60))
+            }
+            /// The marker's centre along the pull axis, outward from the content's edge (+30: the hold's rest place).
+            func outward(_ f: CGRect, pull s: CGFloat) -> CGFloat {
+                switch edge {
+                case .top: return s - f.midY
+                case .leading: return s - f.midX
+                case .bottom: return f.midY - (along - s)
+                case .trailing: return f.midX - (along - s)
+                }
+            }
+            /// The content's edge in window coordinates along the pull axis (the base is 0: no safe area, no header).
+            func contentEdge(_ s: CGFloat) -> CGFloat { edge == .top || edge == .leading ? s : along - s }
+            /// The built-in indicator: a layer at the box's frame (its group) and a smaller one inside it (the indicator).
+            /// A marker view is found by its colour instead (SwiftUI draws its box without a layer of that frame).
+            func boxLayer(_ box: CGRect) -> Bool {
+                let frames = layerFrames(in: w)
+                return frames.contains { abs($0.minX - box.minX) < 0.5 && abs($0.minY - box.minY) < 0.5
+                    && abs($0.width - box.width) < 0.5 && abs($0.height - box.height) < 0.5 }
+                    && frames.contains { box.insetBy(dx: -0.5, dy: -0.5).contains($0) && $0.width * $0.height > 0
+                        && $0.width * $0.height < box.width * box.height * 0.5 }
+            }
+            let rest = now()
+            #expect(abs(rest.pull - 60) < 0.5, "\(label): held at rest (pull \(rest.pull))")
+            if !marker, let box = rest.placement?.box {
+                #expect(boxLayer(box), "\(label) rest: the box's layer \(box)")
+            }
+            if marker {
+                let m = markerVisibility(in: w)
+                #expect(m.count == 1, "\(label) rest: marker layers \(m.map(\.frame))")
+                if let m = m.first {
+                    #expect(abs(outward(m.frame, pull: 60) - 30) < 0.5, "\(label) rest: \(m.frame)")
+                    #expect(m.visible == m.frame, "\(label) rest: drawn whole in its gap (\(m.visible))")
+                }
+            }
+            // Scroll the content 400 pt past the base: the gap is off the viewport.
+            let away: CGPoint
+            switch edge {
+            case .top: away = CGPoint(x: 0, y: 400)
+            case .bottom: away = CGPoint(x: 0, y: end - 400)
+            case .leading: away = CGPoint(x: 400, y: 0)
+            case .trailing: away = CGPoint(x: end - 400, y: 0)
+            }
+            rig.state.setContentOffset(away, animated: false)
+            pump(0.2)
+            let gone = now()
+            #expect(abs(gone.pull + 400) < 0.5, "\(label): content edge 400 pt past the base (\(gone.pull))")
+            #expect(rig.refreshState(edge).mode == .refreshing, "\(label): still held")
+            guard let placement = gone.placement else {
+                Issue.record("\(label) away: no placement")
+                continue
+            }
+            let farEdge: CGFloat
+            switch edge {
+            case .top: farEdge = placement.box.maxY
+            case .leading: farEdge = placement.box.maxX
+            case .bottom: farEdge = placement.box.minY
+            case .trailing: farEdge = placement.box.minX
+            }
+            #expect(abs(farEdge - contentEdge(gone.pull)) < 0.01, "\(label) away: the box ends on the content's edge")
+            let ungrouped = path == .forcedFallback && marker
+            withKnownIssue("open item 20: 15–16 keep a headerless custom indicator ungrouped (blend modes)") {
+                if !marker {
+                    #expect(boxLayer(placement.box), "\(label) away: the box keeps its layers off the viewport \(placement.box)")
+                } else {
+                    let m = markerVisibility(in: w)
+                    #expect(m.count == 1, "\(label) away: the indicator keeps its layer (\(m.map(\.frame)))")
+                    if let m = m.first {
+                        #expect(abs(outward(m.frame, pull: gone.pull) - 30) < 0.5, "\(label) away: rigid on the content's edge \(m.frame)")
+                        #expect(m.visible.isNull || m.visible.width * m.visible.height == 0, "\(label) away: draws nothing (\(m.visible))")
+                    }
+                }
+            } when: { ungrouped }
+            // Scrolled back to 20 pt into the hold (pull 40): drawn in the gap only, never past the content's edge.
+            let part: CGPoint
+            switch edge {
+            case .top: part = CGPoint(x: 0, y: -40)
+            case .bottom: part = CGPoint(x: 0, y: end + 40)
+            case .leading: part = CGPoint(x: -40, y: 0)
+            case .trailing: part = CGPoint(x: end + 40, y: 0)
+            }
+            rig.state.setContentOffset(part, animated: false)
+            pump(0.2)
+            if marker {
+                if let m = markerVisibility(in: w).first {
+                    let edgeAt = along - 40
+                    switch edge {
+                    case .top: #expect(m.visible.maxY <= 40.01 && m.visible.minY >= -0.01, "\(label) part: \(m.visible)")
+                    case .leading: #expect(m.visible.maxX <= 40.01 && m.visible.minX >= -0.01, "\(label) part: \(m.visible)")
+                    case .bottom: #expect(m.visible.minY >= edgeAt - 0.01 && m.visible.maxY <= along + 0.01, "\(label) part: \(m.visible)")
+                    case .trailing: #expect(m.visible.minX >= edgeAt - 0.01 && m.visible.maxX <= along + 0.01, "\(label) part: \(m.visible)")
+                    }
+                    #expect(!m.visible.isNull && m.visible.width * m.visible.height > 0, "\(label) part: drawn in the gap")
+                } else {
+                    Issue.record("\(label) part: no marker layer")
+                }
+            }
+        }
+    }
 }
