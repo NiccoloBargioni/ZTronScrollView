@@ -438,6 +438,12 @@ Calibrate the defaults side by side with UIRefreshControl.
     that size, as the content transform) and the outer box on the presented base; both are identity at the committed size, so
     rotations are unchanged (open item 21: the box sat at the committed pull, so S7 drew the indicator over the content still sliding
     in, 57 frames of a 0.4-height resize and back).
+    Amended 2026-10-28 (review of open item 21): the outer box is moved to the edge's base by a render-time translation (animatable,
+    so a base an app moves in an animated transaction still interpolates), not laid out there, and the move across the edge is the
+    box's own: nothing laid out above the box changes when the resize commits (unanimated), so 15–16 draw the box's move at each
+    drawn size too. Laid out at the committed base, a commit that moved the base (a top-pinned height change takes the bottom off
+    the home indicator: the bottom inset 34 -> 0) left the box's effect at the committed size on the forced lane: a bottom overlay
+    jumped 500 pt to the middle of the content and a hold in the gap vanished at once instead of sliding out clipped.
   - On completion, animate back to rest unless the user is tracking.
 - **One action per pull.** Only one refresh runs at a time. Never call the action twice for one pull. Cancel the async task when the view disappears.
 - **Disabled** while `zoomScale` is above minimum (configurable) and while scrolling is disabled.
@@ -765,6 +771,9 @@ screen recordings, `scripts/seam/`):
   closes one run-loop turn in), until a 0.1 s reveal animation of its own (`RefreshResizeReveal`, `RefreshRevealFade`). Forced
   lane, headerless hold: top rotation 9 -> 0 frames over the content, leading 15 -> 0, the missing frames unchanged (7 / 9, on the
   way out); hidden until the resize's close and shown at once, as first decided, changed nothing (the close is one turn in).
+  On 15–16 a `GeometryEffect` is drawn at each drawn size of an app's animated resize only while no layout above it changes at the
+  resize's unanimated commit (a padding or `.offset` by a committed value: the effect then sees the committed size from the commit
+  on); 17+ resolve the geometry at each `geometryGroup()` (review of open item 21, S9 "Indicator placement").
 - **Banners (amended 2026-10-27, review d16).** A view without the vertical axis lays its banner out from layout too (`R(W)`, its `p` and
   stretch the state's: 0 unless zoomed content pans, D15; its overflow container the committed one), so an app-driven animated width
   change interpolates it with the content (it took the state's height: laid out at `(W_new, R_old)` in the animated pass and re-set by the

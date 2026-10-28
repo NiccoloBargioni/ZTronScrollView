@@ -491,4 +491,141 @@ struct RefreshIndicatorLayerTests {
         #expect(judged >= 3 && inPlace == judged, "\(label): \(inPlace) / \(judged) in place \(off)")
         print("I21 \(label) judged=\(judged) inPlace=\(inPlace) over=\(over.count) off=\(off)")
     }
+
+    // MARK: Review of open item 21: a hold during a resize that moves the base
+
+    /// A colour for the scroll view's drawn frame (its background, extended into the safe area the view touches).
+    static let viewportColor = (r: 0.2, g: 0.3, b: 0.9)
+
+    /// A hold on the far end, in the gap or floating; `bottom*`: a vertical view whose height animates to 0.4 (top-pinned),
+    /// `trailing*`: a horizontal one whose width animates to 0.6 (leading-pinned); `bottomGapUnderHeader`: with a scaling
+    /// header (15–16 group the boxes there, open item 18).
+    enum EndHold: String, CaseIterable, Sendable {
+        case bottomOverlay, bottomGap, trailingOverlay, trailingGap, bottomGapUnderHeader
+        var edge: Edge { rawValue.hasPrefix("bottom") ? .bottom : .trailing }
+        var overlay: Bool { rawValue.hasSuffix("Overlay") }
+        var header: Bool { self == .bottomGapUnderHeader }
+    }
+
+    /// Laid out in the safe area as the seam lab's view: the library extends the viewport to the screen edges it touches,
+    /// so the far end's inset goes to 0 when the resize takes the view off that edge. The content's last 100 pt are
+    /// `edgeColor`.
+    struct EndEdgeResizeHoldHost: View {
+        let state: ZTronScrollState
+        let hold: EndHold
+        @ObservedObject var size: Size
+        var body: some View {
+            let vertical = hold.edge == .bottom
+            let edgeColor = Color(red: RefreshIndicatorLayerTests.edgeColor.r, green: RefreshIndicatorLayerTests.edgeColor.g,
+                                  blue: RefreshIndicatorLayerTests.edgeColor.b)
+            let base = ZTronScrollView(vertical ? .vertical : .horizontal, state: state) {
+                if vertical {
+                    VStack(spacing: 0) { Color.green.frame(height: 2900); edgeColor.frame(height: 100) }
+                } else {
+                    HStack(spacing: 0) { Color.green.frame(width: 2900); edgeColor.frame(width: 100) }
+                }
+            }
+            // The same view type either way (`withScalingHeader` returns `Self`).
+            let view = (hold.header ? base.withScalingHeader(size: .fixed(min: 0, max: 100)) { _ in Color.red } : base)
+                .refresher(refreshView: { _ in
+                    Color(red: RefreshIndicatorLayerTests.marker.r, green: RefreshIndicatorLayerTests.marker.g,
+                          blue: RefreshIndicatorLayerTests.marker.b)
+                        .frame(width: 20, height: 20)
+                }, overlay: hold.overlay, configuration: ZTronRefreshConfiguration(allowedEdges: vertical ? .bottom : .trailing)) {
+                    try? await Task.sleep(nanoseconds: 1_000_000_000_000)
+                }
+                .background(Color(red: RefreshIndicatorLayerTests.viewportColor.r,
+                                  green: RefreshIndicatorLayerTests.viewportColor.g,
+                                  blue: RefreshIndicatorLayerTests.viewportColor.b).ignoresSafeArea())
+            return GeometryReader { g in
+                view.frame(width: vertical || !size.narrow ? g.size.width : g.size.width * 0.6,
+                           height: vertical && size.short ? g.size.height * 0.4 : g.size.height)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+        }
+    }
+
+    /// Review of open item 21 (a04c279): the region was `.padding`ed to the committed base, a layout move that the resize's
+    /// unanimated commit makes when the base's inset changes (the far end leaves the safe area: 68 → 0 here). On 15–16 (the
+    /// forced lane) the box's `GeometryEffect` under it then saw the committed size, so its move along the edge was not
+    /// drawn: a bottom overlay jumped to its committed place in the middle of the content at the start of the shrink and
+    /// was not drawn during the growth (41 of 56 samples here; seam lab: 500 pt, 59 frames missing); a hold in the gap
+    /// was not drawn at all instead of sliding out clipped at the base and back. Sampled as drawn every 0.05 s through the
+    /// shrink and the growth back: an overlay rests on its base at the drawn end, whole; in the gap the marker is never
+    /// over the content, rests 30 pt past the content's drawn end wherever it is drawn, and is drawn whole where that
+    /// place is inside the drawn gap.
+    @Test(arguments: OSPath.allCases, EndHold.allCases)
+    func anAnimatedResizeThatMovesTheBaseKeepsTheHoldOnItsDrawnEdge(path: OSPath, hold: EndHold) {
+        let s = makeState(path), size = Size(), edge = hold.edge, overlay = hold.overlay
+        let w = withOSPath(path) {
+            let w = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+            let c = UIHostingController(rootView: EndEdgeResizeHoldHost(state: s, hold: hold, size: size))
+            // The device's safe area (iPhone 18 Pro portrait), and a trailing one for the horizontal view.
+            c.additionalSafeAreaInsets = UIEdgeInsets(top: 62, left: 0, bottom: 34, right: edge == .trailing ? 34 : 0)
+            w.rootViewController = c
+            w.makeKeyAndVisible()
+            return w
+        }
+        defer { unhost(w) }
+        let vertical = edge == .bottom
+        pump(0.3)
+        let g = s.geometry, i = s.adjustedContentInset
+        s.scroll(to: vertical
+            ? CGPoint(x: 0, y: max(-i.top, g.contentSize.height - g.containerSize.height + i.bottom))
+            : CGPoint(x: max(-i.leading, g.contentSize.width - g.containerSize.width + i.trailing), y: 0))
+        pump(0.3)
+        s.beginRefreshing(edge: edge)
+        pump(0.8)
+        let label = "\(path) \(hold)"
+        func far(_ r: CGRect) -> CGFloat { vertical ? r.maxY : r.maxX }
+        func near(_ r: CGRect) -> CGFloat { vertical ? r.minY : r.minX }
+        func mid(_ r: CGRect) -> CGFloat { vertical ? r.midY : r.midX }
+        func len(_ r: CGRect) -> CGFloat { r.isNull ? 0 : (vertical ? r.height : r.width) }
+        // The marker's distance before the viewport's drawn end at rest: the base + L / 2 (overlay) or + the hold's
+        // rest (30 pt, the gap), at both sizes.
+        var rest: [CGFloat] = []
+        func restDistance() {
+            if let v = presented(Self.viewportColor, in: w)?.frame, let m = presented(Self.marker, in: w),
+               len(m.visible) > 19.5 {
+                rest.append(far(v) - mid(m.frame))
+            }
+        }
+        restDistance()
+        var samples: [(tag: String, v: CGRect, m: (frame: CGRect, visible: CGRect)?, e: CGRect?)] = []
+        for (k, flag) in [true, false].enumerated() {
+            withAnimation(.linear(duration: 1.2)) {
+                if vertical { size.short = flag } else { size.narrow = flag }
+            }
+            for n in 0..<28 {
+                pump(0.05)
+                guard let v = presented(Self.viewportColor, in: w)?.frame else { continue }
+                samples.append(("\(k).\(n)", v, presented(Self.marker, in: w), presented(Self.edgeColor, in: w)?.frame))
+            }
+            pump(0.5)
+            restDistance()
+        }
+        let lo = (rest.min() ?? .nan) - 1, hi = (rest.max() ?? .nan) + 1, maxBase = (rest.max() ?? 0) - 30
+        var bad: [String] = [], judged = 0
+        for (tag, v, m, e) in samples {
+            let shown = len(m?.visible ?? .null), d = far(v) - (m.map { mid($0.frame) } ?? .nan)
+            if overlay {
+                judged += 1
+                if !(shown > 19.5 && d >= lo && d <= hi) { bad.append("\(tag) d \(d) shown \(shown)") }
+            } else if let e {
+                if let m, shown > 0.5 {
+                    if near(m.visible) < far(e) - 0.5 { bad.append("\(tag) over \(near(m.visible)) < \(far(e))") }
+                    if abs(mid(m.frame) - (far(e) + 30)) > 1 { bad.append("\(tag) off \(mid(m.frame)) edge \(far(e))") }
+                }
+                if far(e) + 40 <= far(v) - maxBase {
+                    judged += 1
+                    if !(shown > 19.5) { bad.append("\(tag) missing, edge \(far(e)) viewport \(far(v))") }
+                }
+            }
+        }
+        #expect(rest.count == (overlay ? 3 : 2), "\(label): at rest drawn whole \(rest)")
+        #expect(s.refresh?.states[edge]?.mode == .refreshing, "\(label): still held")
+        #expect(judged >= 2, "\(label): \(judged) judged samples")
+        #expect(bad.isEmpty, "\(label): \(bad.count) of \(samples.count) samples \(bad)")
+        print("I21R \(label) samples=\(samples.count) judged=\(judged) bad=\(bad.count) rest=\(rest)")
+    }
 }

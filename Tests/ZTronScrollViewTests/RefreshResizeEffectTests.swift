@@ -27,7 +27,8 @@ struct RefreshResizeEffectTests {
                                              size: CGSize(width: 321.5, height: 874))
         #expect(abs(half.x - 40.25) < 1e-9 && abs(half.y - 45.28125) < 1e-9, "half way: \(half)")
         #expect(RefreshResizeEffect.delta(commit: c, edge: .top, baseFollowsInset: true, size: c.current.viewport) == .zero)
-        // The leaf's move (region and box) is the cross term only; the region's the inset change along the edge.
+        // The box's move across the edge (the region spans the drawn viewport and does not move across); the region's the
+        // inset change along the edge.
         #expect(RefreshResizeEffect.crossDelta(commit: c, edge: .top, size: c.previous.viewport) == CGPoint(x: 80.5, y: 0))
         let region = RefreshResizeEffect.regionDelta(commit: c, edge: .top, baseFollowsInset: true, size: c.previous.viewport)
         #expect(region.x == 0 && abs(region.y - 90.5625) < 1e-9, "region: \(region)")
@@ -103,5 +104,31 @@ struct RefreshResizeEffectTests {
         let overlay = RefreshResizeEffect.boxDelta(commit: c, edge: .bottom, baseFollowsInset: true, overlay: true, draw: nil,
                                                    size: size)
         #expect(abs(overlay.y - 500) < 1e-9, "bottom overlay box: with the drawn bottom (\(overlay))")
+    }
+
+    /// Review of open item 21: the region's committed base is its effect's translation (no layout that the resize's
+    /// commit moves, so the box's effect under it is drawn at each drawn size on 15–16), animatable as the layout it
+    /// replaces; the box's effect carries its move across the edge. At the committed size: the base, and identity for the
+    /// box.
+    @Test func theRegionEffectCarriesTheBaseAndTheBoxEffectTheCrossMove() {
+        let c = Self.commit()
+        func translation(_ e: RefreshResizeEffect, _ size: CGSize) -> CGPoint {
+            let t = e.effectValue(size: size)
+            return CGPoint(x: t.m31, y: t.m32)
+        }
+        let region = RefreshResizeEffect(commit: c, edge: .top, baseFollowsInset: true,
+                                         part: .region(origin: CGPoint(x: 0, y: 257.5625)), draw: nil)
+        #expect(translation(region, c.current.viewport) == CGPoint(x: 0, y: 257.5625), "at rest: the base")
+        let start = translation(region, c.previous.viewport)
+        #expect(start.x == 0 && abs(start.y - (257.5625 + 90.5625)) < 1e-9, "drawn start: the presented base (\(start))")
+        var animated = region
+        animated.animatableData = AnimatablePair(0, 100)
+        #expect(animated.part == .region(origin: CGPoint(x: 0, y: 100)) && animated.animatableData == AnimatablePair(0, 100))
+        let box = RefreshResizeEffect(commit: c, edge: .top, baseFollowsInset: true, part: .box(overlay: false), draw: nil)
+        #expect(translation(box, c.current.viewport) == .zero, "the box at the committed size")
+        // No content drawing given: along the edge the box rests on the base, which the region moves (0 inside it).
+        let b = translation(box, c.previous.viewport)
+        #expect(abs(b.x - 80.5) < 1e-9 && abs(b.y) < 1e-9, "the box at the drawn start: centred across (\(b))")
+        #expect(box.animatableData == .zero)
     }
 }

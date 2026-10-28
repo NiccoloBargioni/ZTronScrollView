@@ -487,11 +487,24 @@ nonisolated struct RefreshRevealFade: ViewModifier, Animatable {
 /// outside the region and off the viewport, the region off the viewport (a header taller than the landscape viewport puts
 /// the base below it). An overlay's region is its box.
 ///
-/// Open item 21: the region is laid out as the drawn viewport moved along the pull axis to the base (its far side the
-/// viewport's, across the edge the whole width: the box clips there), and the box inside it is placed in a frame of the
-/// drawn viewport's size. So during an open `withAnimation` resize, which SwiftUI draws frame by frame at the drawn size,
-/// both render-time moves are functions of that size (`RefreshResizeEffect`): the region to the presented base, the box
-/// with the content's drawn edge. Identity at the committed size: a system rotation's Core Animation frames are unchanged.
+/// Open item 21: the region is laid out as the drawn viewport (its far side the viewport's, across the edge the whole
+/// width: the box clips there) and moved along the pull axis to the base by a render-time translation, and the box inside
+/// it is placed in a frame of the drawn viewport's size. So during an open `withAnimation` resize, which SwiftUI draws
+/// frame by frame at the drawn size, both render-time moves are functions of that size (`RefreshResizeEffect`): the region
+/// to the presented base, the box with the content's drawn edge and centred across the edge. Identity (the region: its
+/// committed base) at the committed size: a system rotation's Core Animation frames are unchanged.
+///
+/// Review of open item 21: no layout above the box's effect changes at the resize's commit. The commit is written
+/// without animation; a layout move it makes to an ancestor of a `GeometryEffect` (the region `.padding`ed to the committed
+/// base, as a04c279 laid it out, or `.offset` by it) ended the animation of that effect's geometry on 15–16 (the forced
+/// lane), so the effect saw the committed size from the commit on and the box's move along the edge was not drawn: a
+/// bottom overlay hold, the height animated to 0.4 top-pinned (its bottom inset 34 → 0 at the commit), jumped 500 pt to
+/// its committed place in the middle of the content on the way out and was not drawn on the way back (hosted presented
+/// layer tree: 41 of 56 samples; seam lab 59 frames missing); a bottom hold in the gap vanished at once instead of sliding
+/// out clipped. 17+ resolve it at each `geometryGroup()`. The base is the region effect's translation instead, a render-
+/// time move, and the cross move is the box's (the region spans the drawn viewport across the edge, so a move across
+/// never cuts it; a04c279 to 8f902f4 widened it by a margin of the committed cross length, which also changed at a width
+/// resize's commit).
 private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
     var pull: CGFloat
     let edge: Edge
@@ -543,8 +556,8 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
 
     /// The region is the drawn viewport moved along the pull axis so that its end on the edge's side is the edge's base
     /// (`region` from the base on, open item 19): `(0, b)` top, `(0, −b)` bottom, `(b, 0)` leading, `(−b, 0)` trailing.
-    /// Across the edge it spans the viewport and `crossMargin` more on each side (the box clips the indicator to the free
-    /// width; the margin keeps the drawn viewport inside the region when the leaf centres both in the drawn width, `.cross`).
+    /// Across the edge it spans the drawn viewport (the box clips the indicator to the free width). The move is the region
+    /// effect's translation (`RefreshResizeEffect.Part.region`), not layout: see the type's note on the commit.
     static func regionOrigin(edge: Edge, region: CGRect, viewport: CGSize) -> CGPoint {
         switch edge {
         case .top: return CGPoint(x: 0, y: region.minY)
@@ -566,11 +579,6 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
             if let placement {
                 let box = placement.box
                 let origin = Self.regionOrigin(edge: edge, region: placement.region, viewport: viewport)
-                let vertical = edge == .top || edge == .bottom
-                let m = vertical ? viewport.width : viewport.height         // crossMargin
-                let inset = vertical
-                    ? EdgeInsets(top: origin.y, leading: -m, bottom: -origin.y, trailing: -m)
-                    : EdgeInsets(top: -m, leading: origin.x, bottom: -m, trailing: -origin.x)
                 ZStack(alignment: .topLeading) {
                     ZStack(alignment: .topLeading) {
                         ZStack(alignment: .topLeading) {
@@ -592,27 +600,23 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
                         .frame(width: max(0, box.width), height: max(0, box.height), alignment: .topLeading)
                         .clipped()
                         .modifier(RefreshIndicatorGroup(useGeometryGroup: useGeometryGroup, fallbackGroup: fallbackGroup))
-                        .position(x: box.midX - origin.x + (vertical ? m : 0), y: box.midY - origin.y + (vertical ? 0 : m))
+                        .position(x: box.midX - origin.x, y: box.midY - origin.y)
                     }
-                    // The drawn viewport's size (and the margins), so the box's move is a function of the drawn size (open
-                    // item 21).
+                    // The drawn viewport's size, so the box's move is a function of the drawn size (open item 21).
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .modifier(RefreshResizeEffect(commit: resize, edge: edge, baseFollowsInset: baseFollowsInset,
-                                                  part: .box(overlay: overlay, crossMargin: m), draw: draw))
+                                                  part: .box(overlay: overlay), draw: draw))
                 }
+                // The drawn viewport, laid out with nothing that the resize's commit changes (no committed base, no
+                // committed margin): see the note above.
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .clipped()
                 .modifier(RefreshIndicatorGroup(useGeometryGroup: useGeometryGroup, fallbackGroup: fallbackGroup))
-                .padding(inset)
                 .modifier(RefreshResizeEffect(commit: resize, edge: edge, baseFollowsInset: baseFollowsInset,
-                                              part: .region, draw: nil))
+                                              part: .region(origin: origin), draw: nil))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        // Centred across the edge in the drawn width / height, outside both groups: inside the region's 15–16
-        // `compositingGroup()` the move was not drawn per frame (forced lane, `.stretch` hold, width 402 -> 241: the
-        // indicator 80.5 pt off the header's centre at the start, 0.33 pt with the move here).
-        .modifier(RefreshResizeEffect(commit: resize, edge: edge, baseFollowsInset: baseFollowsInset, part: .cross, draw: nil))
     }
 }
 
@@ -663,13 +667,17 @@ struct RefreshContentDraw: Equatable, Sendable {
 /// viewport and the content are drawn at the presented one, interpolated by the drawn size exactly as the content's
 /// transform does (`ResizeMath.presented`). Render-time moves at the drawn size, identity outside an open resize and at
 /// the committed size (a system rotation, whose frames Core Animation interpolates):
-/// - `.cross` (the leaf, outside the groups): centred across the edge in the drawn width / height;
-/// - `.region` (the outer clip, laid out as the drawn viewport from the committed base): its base to the presented one,
-///   the inset change along the pull axis (`regionDelta`; a `.stretch` header's `top0 + R` moves with `aci.top` by
-///   `ΔR`, a `.preserve` `.openGap` header's plain base too, D65; a `.preserve` `.followContent` header's base, `top0`,
-///   stays).
-/// - `.box(overlay:crossMargin:)` (inside the region, along the edge): an overlay with its base (`delta`); in the gap the
-///   box's far edge stays on the content's DRAWN edge (`boxDelta`, open item 21).
+/// - `.region(origin:)` (the outer clip, laid out as the drawn viewport): the committed base (`origin`, also at rest)
+///   and from it to the presented one, the inset change along the pull axis (`regionDelta`; a `.stretch` header's
+///   `top0 + R` moves with `aci.top` by `ΔR`, a `.preserve` `.openGap` header's plain base too, D65; a `.preserve`
+///   `.followContent` header's base, `top0`, stays).
+/// - `.box(overlay:)` (inside the region): centred across the edge in the drawn width / height (`crossDelta`); along
+///   the edge an overlay with its base (`delta`), in the gap the box's far edge on the content's DRAWN edge (`boxDelta`,
+///   open item 21).
+///
+/// Both are drawn per frame only while no layout above them changes at the commit (`RefreshPlacementEffect`): on 15–16
+/// an effect under a layout move made at the (unanimated) commit saw the committed size from then on (review of open
+/// item 21; a04c279's cross move inside the region the same, 80.5 pt, which 8b9cbcc moved to the leaf).
 ///
 /// Measured before the commit moved to the presented geometry (seam lab, `.stretch` hold, width 402 → 241 pt): the
 /// indicator jumped 90 pt (`ΔR`) and 80 pt sideways in one frame at the commit. Open item 21 (a headerless hold, the
@@ -678,29 +686,42 @@ struct RefreshContentDraw: Equatable, Sendable {
 /// at its final place over the content still sliding in (holdgap.py: 57 frames over the content, about 1.1 s; 27.0,
 /// 17.5 and forced).
 nonisolated struct RefreshResizeEffect: GeometryEffect {
-    enum Part: Equatable { case cross, region, box(overlay: Bool, crossMargin: CGFloat) }
+    enum Part: Equatable { case region(origin: CGPoint), box(overlay: Bool) }
 
     let commit: ResizeCommit
     let edge: Edge
     /// Whether the edge's base is the adjusted inset (no header, `.stretch`, `.preserve` `.openGap`, the end edges) or stays
     /// (`.preserve` `.followContent`: `top0`).
     let baseFollowsInset: Bool
-    let part: Part
+    var part: Part
     /// The content's drawing inputs (`.box` in the gap); nil outside an open resize.
     let draw: RefreshContentDraw?
+
+    /// The region's committed base (`.region(origin:)`) animates as the layout it replaces did: a base the leaf moves in
+    /// an animated transaction (an app's `withAnimation` inset change) is interpolated with it; the resize's commit is
+    /// unanimated, so it lands at once there and `regionDelta` draws the move. The box has none.
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get {
+            if case let .region(origin) = part { return AnimatablePair(origin.x, origin.y) }
+            return .zero
+        }
+        set {
+            if case .region = part { part = .region(origin: CGPoint(x: newValue.first, y: newValue.second)) }
+        }
+    }
 
     func effectValue(size: CGSize) -> ProjectionTransform {
         let d: CGPoint
         switch part {
-        case .region: d = Self.regionDelta(commit: commit, edge: edge, baseFollowsInset: baseFollowsInset, size: size)
-        case .cross: d = Self.crossDelta(commit: commit, edge: edge, size: size)
-        case let .box(overlay, margin):
-            // Its frame is the drawn viewport and the region's margins across the edge.
-            let drawn = edge == .top || edge == .bottom
-                ? CGSize(width: size.width - 2 * margin, height: size.height)
-                : CGSize(width: size.width, height: size.height - 2 * margin)
-            d = Self.boxDelta(commit: commit, edge: edge, baseFollowsInset: baseFollowsInset, overlay: overlay, draw: draw,
-                              size: drawn)
+        case let .region(origin):
+            let r = Self.regionDelta(commit: commit, edge: edge, baseFollowsInset: baseFollowsInset, size: size)
+            d = CGPoint(x: origin.x + r.x, y: origin.y + r.y)
+        case let .box(overlay):
+            // Its frame is the drawn viewport (the region's).
+            let b = Self.boxDelta(commit: commit, edge: edge, baseFollowsInset: baseFollowsInset, overlay: overlay,
+                                  draw: draw, size: size)
+            let c = Self.crossDelta(commit: commit, edge: edge, size: size)
+            d = CGPoint(x: b.x + c.x, y: b.y + c.y)
         }
         return ProjectionTransform(CGAffineTransform(translationX: d.x, y: d.y))
     }
@@ -745,14 +766,15 @@ nonisolated struct RefreshResizeEffect: GeometryEffect {
         }
     }
 
-    /// The leaf's move across the edge (region and box): centred in the drawn width / height (`delta`'s cross term).
+    /// The box's move across the edge: centred in the drawn width / height (`delta`'s cross term). The region spans the
+    /// drawn viewport across the edge and does not move across.
     static func crossDelta(commit: ResizeCommit, edge: Edge, size: CGSize) -> CGPoint {
         let d = delta(commit: commit, edge: edge, baseFollowsInset: true, size: size)
         return edge == .top || edge == .bottom ? CGPoint(x: d.x, y: 0) : CGPoint(x: 0, y: d.y)
     }
 
-    /// The box's move along the edge inside the region (whose own move is `regionDelta`; across the edge both move with
-    /// the leaf, `crossDelta`). An overlay rests on its base (`delta`); in the gap the far edge is the content's edge drawn
+    /// The box's move along the edge inside the region (whose own move is `regionDelta`; across the edge the box moves by
+    /// `crossDelta`). An overlay rests on its base (`delta`); in the gap the far edge is the content's edge drawn
     /// at this size, `contentEdge(size) − contentEdge(committed)` (the gap's far edge moves with the drawn content, less
     /// the bound's move where the base does not follow it: `.preserve` `.followContent`, whose gap ends at the header's
     /// top, the content's edge less `aci.top − top0`).
