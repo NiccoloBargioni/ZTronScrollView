@@ -27,6 +27,10 @@ struct RefreshResizeEffectTests {
                                              size: CGSize(width: 321.5, height: 874))
         #expect(abs(half.x - 40.25) < 1e-9 && abs(half.y - 45.28125) < 1e-9, "half way: \(half)")
         #expect(RefreshResizeEffect.delta(commit: c, edge: .top, baseFollowsInset: true, size: c.current.viewport) == .zero)
+        // The leaf's move (region and box) is the cross term only; the region's the inset change along the edge.
+        #expect(RefreshResizeEffect.crossDelta(commit: c, edge: .top, size: c.previous.viewport) == CGPoint(x: 80.5, y: 0))
+        let region = RefreshResizeEffect.regionDelta(commit: c, edge: .top, baseFollowsInset: true, size: c.previous.viewport)
+        #expect(region.x == 0 && abs(region.y - 90.5625) < 1e-9, "region: \(region)")
     }
 
     @Test func aPreservedHeadersBaseStaysAndAClosedCommitIsIdentity() {
