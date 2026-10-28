@@ -41,9 +41,11 @@ enum RefreshIndicatorMath {
     ///   - hold: the gap a hold keeps open (`RefreshEngine.holdSize`); `nil` = `length`.
     ///   - base: `adjustedContentInset − refreshHold` per edge.
     ///   - header: the live scaling header height counted onto the top base (0 until M8b-3).
-    /// - Returns: `nil` for a degenerate viewport, and for an overlay none of whose indicator is inside its clip. In the
-    ///   gap the placement is kept whatever the pull (open item 19): with the gap closed or scrolled off the viewport the
-    ///   indicator draws nothing (`clip` empty), its box stays on the content's edge.
+    /// - Returns: `nil` for a degenerate viewport, for an overlay none of whose indicator is inside its clip, and in the
+    ///   gap for a closed gap (`pull <= 0`) unless `refreshing` (a pull or its release ends there, as before). While
+    ///   refreshing (the hold, the spinner's retraction) the placement in the gap is kept whatever the pull (open item 19):
+    ///   with the gap closed or scrolled off the viewport the indicator draws nothing (`clip` empty), its box stays on
+    ///   the content's edge.
     static func placement(edge: Edge, style: ZTronRefreshStyle, overlay: Bool, refreshing: Bool, dragPosition: CGFloat,
                           pull: CGFloat, length: CGFloat, viewport: CGSize, base: EdgeInsets,
                           header: CGFloat = 0, hold: CGFloat? = nil) -> RefreshPlacement? {
@@ -80,12 +82,13 @@ enum RefreshIndicatorMath {
             visible = box
             region = box
         } else {
-            // In the gap `[0, pull]`, its far end on the content's edge. Open item 19: the box keeps that far edge
-            // whatever the pull, also where the content covers the base (a hold scrolled away, S7 in a rotation), so its
+            // In the gap `[0, pull]`, its far end on the content's edge. Open item 19: while refreshing the box keeps that
+            // far edge whatever the pull, also where the content covers the base (a hold scrolled away, S7 in a rotation), so its
             // layer exists and moves rigidly with the content; `region` (from the base on) keeps the drawing to the gap.
             // The box reaches `max(L, hold)` before the content's edge (the whole gap when it is longer): it holds the
             // indicator's part before the edge, and the visible gap of any interpolated frame of an animation that
             // ends at rest (a gap of at most the hold).
+            guard refreshing || pull > 0 else { return nil }
             let s = pull
             let H = max(0, hold ?? L)
             switch style {
@@ -363,8 +366,9 @@ struct RefreshEdgeIndicator: View {
 /// Open item 19 (no header): S7 scrolls a top hold's gap above the landscape viewport (the content covers the base), where
 /// the placement was nil, so the indicator left the tree; on the way back it was drawn at once at its final place, over
 /// the content Core Animation was still sliding in (seam lab, 14 frames; 4 more vanished early on the way out). In the gap
-/// the placement is now kept whatever the pull: the box's far edge is the content's edge in every state (it reaches
-/// `max(L, hold)` back from it), so the box moves rigidly with the content and an interpolated frame cannot draw the
+/// the placement is now kept whatever the pull while refreshing (a pull or its release still ends at 0): the box's far edge
+/// is the content's edge in every state (it reaches `max(L, hold)` back from it), so the box moves rigidly with the content
+/// and an interpolated frame cannot draw the
 /// indicator past that edge; an outer box, `region`, from the edge's base on, clips the drawing to the gap (nothing above
 /// the base, nothing at all while the gap is closed or scrolled away). Both are layer groups: the box keeps its layer
 /// outside the region and off the viewport, the region off the viewport (a header taller than the landscape viewport puts
@@ -442,9 +446,9 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
 /// gap's blue and the content's green, yellow / magenta on 17+; `RefreshUITests`). So on 15–16 that one keeps no layer
 /// while its gap is off the viewport, and a rotation that brings the gap back draws it at once at its final place (open
 /// item 20). Under a header the 15–16 indicator keeps the documented blend difference, as the header and the content do
-/// (SPEC S10 "15–16 layer groups"). Latched at the box's first frame (`GroupLatch`; the boxes exist while the leaf does,
-/// an overlay's while it has a placement), so installing or removing the header during a hold never changes the custom
-/// indicator's identity.
+/// (SPEC S10 "15–16 layer groups"). Latched at the box's first frame (`GroupLatch`; the boxes exist while the indicator
+/// has a placement: in the gap for the whole hold), so installing or removing the header during a hold never changes the
+/// custom indicator's identity.
 struct RefreshIndicatorGroup: ViewModifier {
     let useGeometryGroup: Bool
     /// 15–16: whether to group (`compositingGroup()`), decided once (`GroupLatch`).

@@ -417,6 +417,18 @@ Calibrate the defaults side by side with UIRefreshControl.
 - **While refreshing:**
   - The offset holds so the indicator stays visible below the top adjusted inset.
   - The user can still scroll away and back.
+  - **Indicator placement (amended 2026-10-28, open item 19).** In the gap (not `overlay:`) the indicator's box is laid out with its far
+    edge on the content's edge, `[pull − max(L, hold, pull), pull]` from the edge's base, so it moves rigidly with the content; while
+    refreshing (the hold and the spinner's retraction) it is kept whatever the pull, also when the gap is scrolled away or S7 takes it off
+    the screen in a rotation (a pull, or its release below the trigger, still ends at `pull = 0`); an outer box from the base on clips
+    the drawing to the gap `[0, max(0, pull)]` (nothing while the gap is closed or covered). `.system` stays centred in the gap for
+    `pull > 0` (UIRefreshControl) and, with the gap closed, keeps going with the content's edge (continuous at 0) until it sits where the
+    hold rests it (`hold / 2` before the edge); `.default` and a custom view stay glued to the edge. Nothing visible changes at rest or
+    for `pull > 0`. Both boxes are layer groups, so they keep their layers off the screen and Core Animation interpolates them with the
+    content (before: the placement was nil off the screen, so a rotation back drew the indicator at once at its final place, over the
+    content still sliding in, about 14 frames; 4 frames went missing on the way out). The indicator view stays in the tree for the
+    whole hold (its `@State` too), visible or not. 15–16 limit: a custom indicator without a scaling header is not grouped (S10
+    "15–16 layer groups"), so it keeps the old rotation behaviour there (open item 20).
   - On completion, animate back to rest unless the user is tracking.
 - **One action per pull.** Only one refresh runs at a time. Never call the action twice for one pull. Cancel the async task when the view disappears.
 - **Disabled** while `zoomScale` is above minimum (configurable) and while scrolling is disabled.
@@ -729,11 +741,14 @@ screen recordings, `scripts/seam/`):
   view that has a scaling header at its first render (latched: installing or removing the header later never changes the content's
   identity; a header installed later rotates with the pre-group tearing on 15–16, one removed later keeps the group). Documented 15–16
   differences of a header view: a content blend mode does not reach behind the scroll view, a header blend mode does not reach the content
-  scrolled under the header. 17+ `geometryGroup()` has none of these. The refresh indicator box is a group too (open item 18): 17+
-  `geometryGroup()` in every view with a refresher; 15–16 `compositingGroup()` only in a view with a scaling header (latched at the
-  box's first frame), where a blend mode inside a custom indicator composites within the indicator (it does not reach the gap behind
-  it, the content or the header behind an overlay indicator). Without a header the 15–16 box is not grouped and draws as on 17+
-  (final check of D65: grouped in every view, a `.difference` indicator drew unblended on the forced lane).
+  scrolled under the header. 17+ `geometryGroup()` has none of these. The refresh indicator's boxes are groups too (open items 18
+  and 19: the box and the outer region box, S9 "Indicator placement"): 17+ `geometryGroup()` in every view with a refresher; 15–16
+  `compositingGroup()` in a view with a scaling header and around the built-in indicator (latched at the box's first frame); under a
+  header a blend mode inside a custom indicator composites within the indicator (it does not reach the gap behind it, the content or
+  the header behind an overlay indicator). A custom indicator without a header is not grouped on 15–16 and draws as on 17+ (final
+  check of D65: grouped in every view, a `.difference` indicator drew unblended on the forced lane); the price is open item 20: off
+  the viewport (a hold scrolled away, S7 in a rotation) SwiftUI keeps no layer for it, so a rotation that brings its gap back draws
+  it at once at its final place over the content still sliding in (the forced lane; the built-in indicator, grouped, does not).
 - **Banners (amended 2026-10-27, review d16).** A view without the vertical axis lays its banner out from layout too (`R(W)`, its `p` and
   stretch the state's: 0 unless zoomed content pans, D15; its overflow container the committed one), so an app-driven animated width
   change interpolates it with the content (it took the state's height: laid out at `(W_new, R_old)` in the animated pass and re-set by the

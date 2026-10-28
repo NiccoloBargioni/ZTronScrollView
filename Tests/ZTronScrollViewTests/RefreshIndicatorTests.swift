@@ -66,9 +66,10 @@ struct RefreshIndicatorTests {
     }
 
     @Test func noPullNoIndicatorAndAHoldKeepsItWhereTheGapIs() {
-        // No gap, nothing drawn: the clip is empty (open item 19: the placement, and the indicator's layer, stay).
+        #expect(place(.top, pull: 0) == nil && place(.top, pull: -20) == nil, "a pull (or its release) ends at 0")
+        // Refreshing, no gap: nothing drawn, the clip is empty (open item 19: the placement, and the layer, stay).
         for pull: CGFloat in [0, -20] {
-            let none = place(.top, pull: pull)!
+            let none = place(.top, refreshing: true, drag: 1, pull: pull)!
             #expect(none.visibleLength(vertical: true) == 0 && none.clip.height == 0, "pull \(pull): \(none)")
         }
         // At rest with a 60 pt hold open the displayed pull against the hold-less bounds is 60: the gap is the hold.
