@@ -385,6 +385,40 @@ final class RefreshUITests: XCTestCase {
         }
     }
 
+    /// The identifiers (`refresh.` ones) VoiceOver can reach, from the demo's `VoiceOverTree` (read on Info). XCUITest
+    /// lists an element SwiftUI hides from VoiceOver too (`accessibilityHidden` keeps it for automation: same snapshot,
+    /// 27.0), so it cannot tell.
+    private func voiceOver(_ app: XCUIApplication) -> [String] {
+        let raw = info(app, "vo").raw
+        guard let r = raw.range(of: " vo=") else { return ["?"] }
+        return raw[r.upperBound...].split(separator: ",").map(String.init)
+    }
+
+    /// Review of open item 19: a hold scrolled away keeps its custom indicator in the view tree (its box on the content's
+    /// edge, clipped), and VoiceOver kept reaching it there, with a frame above the scroll view, over the other controls
+    /// (at 37a2cb4 it was removed). It leaves VoiceOver's tree while nothing of it is drawn and comes back with the gap,
+    /// still refreshing, the same view.
+    func testACustomIndicatorScrolledAwayLeavesTheAccessibilityTree() {
+        let app = launch("custom")
+        let id = "refresh.custom.mode"
+        app.buttons["refresh.begin"].tap()
+        XCTAssertTrue(waitFor(3, "Refreshing") { mode(app) == "Refreshing" })
+        Thread.sleep(forTimeInterval: 1.2)
+        XCTAssertTrue(voiceOver(app).contains(id), "\(path) held: VoiceOver reaches the custom indicator")
+        drag(app, from: (0.5, 0.85), to: (0.5, 0.15))
+        Thread.sleep(forTimeInterval: 1.0)
+        XCTAssertEqual(mode(app), "Refreshing", "still held")
+        let away = voiceOver(app)
+        XCTAssertFalse(away.contains(id), "\(path) scrolled away: not in VoiceOver's tree (\(away))")
+        XCTAssertTrue(away.contains("refresh.begin"), "\(path): the walk reaches the other controls (\(away))")
+        drag(app, from: (0.5, 0.15), to: (0.5, 0.85))
+        Thread.sleep(forTimeInterval: 1.5)
+        XCTAssertEqual(mode(app), "Refreshing", "still held")
+        XCTAssertTrue(voiceOver(app).contains(id), "\(path) back in the gap: VoiceOver reaches it again")
+        app.buttons["refresh.end"].tap()
+        XCTAssertTrue(waitFor(4, "Idle again") { mode(app) == "Idle" })
+    }
+
     func testTheNamedAccessibilityElementsExist() {
         let app = launch("system")
         let e = a11y(app)

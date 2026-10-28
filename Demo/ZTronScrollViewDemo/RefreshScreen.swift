@@ -182,8 +182,9 @@ struct RefreshSectionView: View {
         #if DEBUG
         snapshot = ZTronRenderCounters.snapshot
         #endif
+        // `vo=`: the `refresh.` identifiers VoiceOver can reach (`VoiceOverTree`; XCUITest lists hidden ones too).
         info = String(format: "y=%.1f x=%.1f phase=%d rows=%d", state.contentOffset.y, state.contentOffset.x,
-                      state.phase.rawValue, rows)
+                      state.phase.rawValue, rows) + " vo=" + VoiceOverTree.identifiers(prefix: "refresh.").joined(separator: ",")
         #if DEBUG
         trace = ZTronRenderCounters.events.filter { $0.contains(" rf ") }.joined(separator: "\n")
         #endif

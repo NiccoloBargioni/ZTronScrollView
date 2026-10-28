@@ -304,10 +304,18 @@ struct RefreshEdgeIndicator: View {
                                               zoom: target?.targetZoom ?? sample.zoom, metrics: m,
                                               alignment: state.contentAlignment)
             let (base, overlay) = RefreshIndicatorMath.base(edge: edge, metrics: m, overlay: spec.overlay)
-            indicator.modifier(RefreshPlacementEffect(
-                pull: pull, edge: edge, style: spec.style, overlay: overlay, length: spec.configuration.indicatorHeight,
-                hold: RefreshEngine.holdSize(edge: edge, config: spec.configuration, overlay: false),
-                refreshing: refresh.mode == .refreshing || (retract == .spinner && !overlay), refresh: refresh, retract: retract,
+            let length = spec.configuration.indicatorHeight
+            let hold = RefreshEngine.holdSize(edge: edge, config: spec.configuration, overlay: false)
+            let refreshing = refresh.mode == .refreshing || (retract == .spinner && !overlay)
+            // Whether any of the indicator is inside its clip at this pull (a hold scrolled away keeps its placement and
+            // draws nothing: open item 19).
+            let visible = RefreshIndicatorMath.placement(
+                edge: edge, style: spec.style, overlay: overlay, refreshing: refreshing, dragPosition: refresh.dragPosition,
+                pull: pull, length: length, viewport: m.viewportSize, base: base, hold: hold)
+                .map { $0.visibleLength(vertical: edge == .top || edge == .bottom) > 0 } ?? false
+            indicator(visible: visible).modifier(RefreshPlacementEffect(
+                pull: pull, edge: edge, style: spec.style, overlay: overlay, length: length, hold: hold,
+                refreshing: refreshing, refresh: refresh, retract: retract,
                 viewport: m.viewportSize, base: base, useGeometryGroup: state.usesGeometryGroup,
                 hasHeader: state.headerSpec != nil || m.header != nil, custom: spec.indicator != nil))
             .modifier(RefreshResizeEffect(commit: m.resize, edge: edge,
@@ -315,9 +323,14 @@ struct RefreshEdgeIndicator: View {
         }
     }
 
-    @ViewBuilder private var indicator: some View {
+    /// `visible`: any of it is inside its clip. A custom view leaves the accessibility tree while nothing of it is drawn: a
+    /// hold scrolled away keeps it in the tree (open item 19), clipped, with a frame over whatever is there (review of
+    /// open item 19: 226 pt above the scroll view, over the other controls). `accessibilityHidden` on the one structure
+    /// keeps its identity and its state.
+    @ViewBuilder private func indicator(visible: Bool) -> some View {
         if let custom = spec.indicator {
             custom(binding)
+                .accessibilityHidden(!visible)
         } else {
             BuiltInRefreshIndicator(refresh: refresh, edge: edge, spinner: retract == .spinner)
                 .accessibilityHidden(true)      // the named element carries the state; a custom view decides for itself
