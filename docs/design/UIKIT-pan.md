@@ -1,4 +1,4 @@
-# UIKIT-pan · An opt-in recognizing UIKit pan for two approved scenarios (D60; design, U1 folded in; C2 rule to confirm; next: U2 core)
+# UIKIT-pan · An opt-in recognizing UIKit pan for two approved scenarios (D60; design, U1 folded in; next: U2 core)
 
 **Decision (user, 2026-10-27).** A UIKit pan recognizer is approved for exactly two scenarios, both with 100 % test coverage:
 - **N**: a `ZTronScrollView` inside SwiftUI's own vertical `ScrollView` on iOS 26+. This is Open item 13(a): today the page never scrolls
@@ -14,8 +14,8 @@ recommendations are accepted; the modifier replaces Q2's `.offAxis` overload and
 
 **Spike U1 (UIKITPAN-s1, done; corrections accepted by the user 2026-10-28).** S passed on every OS measured (17.5, 18.0–18.6, 26.5,
 27.0). N gives "exactly one moves" once the pan shares touches only with its own name (V ctl). U1's corrections C1–C7 are folded in (§4 lists
-where), with a narrow S2 allowance (§7). The N angle rule is open: the user answered C2 twice, 15 s apart, per-OS constants here and one
-45° rule to the spike session (§9).
+where), with a narrow S2 allowance (§7). N uses per-OS angle cones, which the user confirmed on 2026-10-28, superseding the one-45° record
+in 0038ea9 (§9 item 8).
 
 Sources:
 - this session's four reader reports: the gesture stack on main 9e60063; DBG-s8 on `claude/confident-babbage-6acfe7`; SHEET-s1/s2, DBG-s7
@@ -157,7 +157,7 @@ The table is keyed on whether N holds, not on which scenario picked the path. A 
 vertical `ScrollView`, takes the S path and the N cones. In N the page is vertical, so the horizontal cone is the one across the page's
 axis.
 
-The N values are per-OS constants (U1 C2 option b; whether (b) stands is open, §9 item 8). Each boundary sits halfway between two angles that U1 separated at slow speed, so no
+The N values are per-OS constants (U1 C2 option b, confirmed by the user on 2026-10-28, §9 item 8). Each boundary sits halfway between two angles that U1 separated at slow speed, so no
 measured row is a tie:
 - **Across the page:** a native inner carousel took 40° and the page took 50° in the Q3e sweep, on both OSes. Q3 disagrees at 50°: there
   the carousel took 50° at 600 pt/s on every lane, and at 150 pt/s on 26.5 and 27.0, where slow 50° therefore split between runs (§6 C3
@@ -365,9 +365,9 @@ F1 is not U1's. It came from applying Q5's numbers to `PanSession.baseline` (ful
 
 U1 did not measure iOS 15 and 16 (no runtime here), a second finger landing during an active pan, or real fingers (§6 C4).
 
-**Conflicting C2 record (review C-3).** U1's branch tip 0038ea9 records C2 option (a), one 45° rule, in its copy of this design (§2,
-§7, §9 item 8), in its handoff and in Orchestration item 14. This design records option (b). The user gave the two answers 15 s apart
-on 2026-10-27, (b) here and then (a) to the spike session. Which one stands is open (§9).
+**Superseded C2 record (review C-3).** U1's branch tip 0038ea9 records C2 option (a), one 45° rule, in its copy of this design (§2, §7,
+§9 item 8), in its handoff and in Orchestration item 14. On 2026-10-28 the user confirmed option (b) and asked that this record be
+superseded (§9 item 8). This design is the reference.
 
 ## 5. Build sessions
 
@@ -380,8 +380,8 @@ on 2026-10-27, (b) here and then (a) to the spike session. Which one stands is o
 | **U5** docs (clerk) | SPEC S2, S3, S8, S11, S12 and S14 (§7 text), NESTED §6.1, SHEET-spike, parity rows, Orchestration (item 13 closed, D47 texts, D60, renumber the duplicate D47), ZTRONPAGES §5 items 3–4 | — | 0.5–1 % |
 
 Order: U2 → U3 → U4 → U5 (U5 can draft in parallel). U2–U5 ≈ 11–13.5 % (the opt-in adds ≈ 0.5 % to U3). The probe harness on U1's
-branch must reach U4: port the probes and the harness, or merge the branch with 0038ea9's doc hunks reconciled with this design. Its
-native sweep rows are U4's baselines. U5 amends UIKITPAN-s1.md's C2 and Next lines to the C2 rule that stands.
+branch must reach U4: port the probes and the harness, or merge the branch with 0038ea9's doc hunks dropped in favour of this design. Its
+native sweep rows are U4's baselines. UIKITPAN-s1.md's C2 and Next lines must read option (b) before that merge (U5 checks).
 
 Neither session touches `Packages/ScrollArbitration` or `ZTronScrollPhysics`. The unmerged D34/D37 (confirmed) and D40 / SHEET-s3's D47
 (unconfirmed) rewrite the same `GestureAttach` switch (6 conflict hunks against main). Settle their merge before U3 (§9 Q7). The UIKit path
@@ -557,13 +557,10 @@ The user accepted every recommendation and added the opt-in gate (§3).
 Both are folded into §2 and §7. F1 came from folding the corrections in, and needs no decision. A three-lens review of the fold (with a
 skeptic) found 17 real defects, all fixed. They are cited as "review X-n".
 
-8. **Open: which C2 rule stands.** Fifteen seconds after the answer above, the user told the spike session "C2: keep one 45° axis rule
-   and document the 40–70° band as a deviation from native" (23:22 UTC). The spike session committed that as 0038ea9. This design
-   follows (b) until the user confirms one.
-   - **If (a):** the cone table collapses to 45° everywhere, and §2's derivation becomes the deviation band. In it, our view gives the
-     page drags that native gives the inner view:
-     - a horizontal view gives up the medium and fast drags of 50–70° on 26.x and of 50° on 27.0, and the slow 50° drags in the runs
-       where native took them on 26.5 and 27.0;
-     - a vertical view gives up 10–40° on 26.x and 30–40° on 27.0. §6 C3's N
-     cells in the band become deviation rows, printed, and §7 gets 0038ea9's "Deviation (N)" bullet.
-   - **Either way:** the direction vector, F1 and every other fix stand.
+8. **C2, the N angle rule: per-OS cones (user, 2026-10-28).** The user had answered twice, 15 s apart on 2026-10-27:
+   - (b) here, at 23:21:53 UTC;
+   - (a), "keep one 45° axis rule and document the 40–70° band as a deviation from native", to the spike session at 23:22:08 UTC. The
+     spike session committed (a) as 0038ea9.
+
+   On 2026-10-28 the user confirmed: "keep the per-OS angles (45° across; 85° on 26.x and 65° on 27.0+ along the page). Supersede
+   0038ea9's one-45° record." The cones in §2 stand. Axis rule step 4 never applies.

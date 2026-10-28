@@ -29,8 +29,8 @@ Follow-up 2 (2026-10-28, after spike U1 = UIKITPAN-s1 on `claude/keen-lichterman
   - `.uikitPan` is excluded from `forceAllFallbacks`;
   - corrected native facts: 50° at 600 pt/s goes to the carousel on every lane, the slow 50° cell splits on 26.5 / 27.0, and on 27.0 only the 30° list cell depends on speed;
   - new C3 rows: both scenarios, `.inNativeScrollView` without N, the zoomer at 35° / 40°, covered views, first drag after a flip.
-- Open: the user answered C2 twice, 15 s apart: (b) here at 23:21:53Z, and (a), one 45° rule, to the spike session at 23:22:08Z (its commit 0038ea9). §9 item 8 records both and what (a) would change. The design follows (b) until the user confirms.
+- C2: the user had answered twice, 15 s apart: (b) here at 23:21:53Z, and (a), one 45° rule, to the spike session at 23:22:08Z (its commit 0038ea9). On 2026-10-28 the user confirmed (b) and asked that 0038ea9's record be superseded (§9 item 8). I asked the spike session to amend its branch.
 - Open: M-4 (D31 R1's rect-only observer on the UIKit path) is documented and printed, not fixed. Fixing it would widen the walk's allowance to the observer.
-Next: 1) the user confirms C2; 2) U2 → U3 → U4 → U5, after D40 / SHEET-s3 are decided for U3.
+Next: U2 → U3 → U4 → U5, after D40 / SHEET-s3 are decided for U3.
 Tests: none (design only). The review evidence is in this session's scratchpad (`understand/*.md`, `review.md`), not committed.
 Usage: not measured
