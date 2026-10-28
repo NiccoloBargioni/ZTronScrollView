@@ -33,7 +33,8 @@ import ZTronScrollView
 // White probes (pure white, labelled "other" by the analyzer; scripts/seam/probe.py tracks them against the header's
 // bottom edge): `-ZTronSeamSticky 1` puts a 120 x 16 pt bar in an `.overlay(alignment: .bottom)` of the header content (a
 // sticky overlay); `-ZTronSeamHold 1` installs a refresher whose indicator is a 20 x 20 pt square and begins refreshing
-// (no action) 0.8 s after launch, so every later stimulus runs during a refresh hold (M8b-s6).
+// (no action) 0.8 s after launch, so every later stimulus runs during a refresh hold (M8b-s6); `-ZTronSeamHoldEdge
+// top|bottom|leading|trailing` and `-ZTronSeamHoldOverlay 1` pick its edge and placement (open item 19).
 // Resize variants (M8b-s6 close, the verifier's break probes): `-ZTronSeamBottomPinned 1` (the height change is bottom-pinned:
 // the scroll view's top leaves the top safe area), `-ZTronSeamBoth 1` (height and width together), `-ZTronSeamSpring 1` (a
 // bouncy spring instead of easeInOut), `-ZTronSeamRetarget <s>` (the toggle again `s` seconds into the change), and
@@ -201,7 +202,16 @@ struct SeamLabScreen: View {
             }
             guard SeamLab.hold else { return }
             try? await Task.sleep(nanoseconds: 800_000_000)
-            state.beginRefreshing()
+            let edge = SeamLab.holdEdge
+            if edge == .bottom || edge == .trailing {
+                // The far end first: `beginRefreshing` reveals the hold only when the content is at its edge.
+                let g = state.geometry, i = state.adjustedContentInset
+                state.scroll(to: edge == .bottom
+                    ? CGPoint(x: 0, y: max(-i.top, g.contentSize.height - g.containerSize.height + i.bottom))
+                    : CGPoint(x: max(-i.leading, g.contentSize.width - g.containerSize.width + i.trailing), y: 0))
+                try? await Task.sleep(nanoseconds: 300_000_000)
+            }
+            state.beginRefreshing(edge: edge)
         }
     }
 }
@@ -234,8 +244,11 @@ extension SeamLabScreen {
                                overflow: SeamLab.overflow) { [tall] _ in SeamLabHeader(tall: tall) }
         if let pull = SeamLab.pull { view = view.scalingHeaderPullBehavior(pull) }
         if SeamLab.hold {
-            // A held refresh with a white probe as its indicator (centred in the indicator's frame).
-            return view.refresher(refreshView: { _ in Color.white.frame(width: 20, height: 20) }) {
+            // A held refresh with a white probe as its indicator (centred in the indicator's frame), on the edge
+            // `-ZTronSeamHoldEdge` names (open item 19), in the gap or floating (`-ZTronSeamHoldOverlay 1`).
+            return view.refresher(refreshView: { _ in Color.white.frame(width: 20, height: 20) },
+                                  overlay: SeamLab.holdOverlay,
+                                  configuration: ZTronRefreshConfiguration(allowedEdges: Edge.Set(SeamLab.holdEdge))) {
                 try? await Task.sleep(nanoseconds: 1_000_000_000_000)
             }
         }
@@ -382,6 +395,23 @@ extension SeamLab {
     static var retargetNear: CGFloat? { Double(HeaderDemo.argument("-ZTronSeamRetargetNear", "")).map { CGFloat($0) } }
     static var noHeader: Bool { HeaderDemo.argument("-ZTronSeamNoHeader", "0") == "1" }
     static var startY: CGFloat? { Double(HeaderDemo.argument("-ZTronSeamStartY", "")).map { CGFloat($0) } }
+}
+
+// MARK: Open item 19 probes: the hold's edge and placement
+extension SeamLab {
+    /// `-ZTronSeamHoldEdge top|bottom|leading|trailing` (with `-ZTronSeamHold 1`): the held refresher's edge; default the
+    /// axis' start edge. An end edge scrolls to that end first, so the hold is revealed.
+    static var holdEdge: Edge {
+        switch HeaderDemo.argument("-ZTronSeamHoldEdge", "") {
+        case "top": return .top
+        case "bottom": return .bottom
+        case "leading": return .leading
+        case "trailing": return .trailing
+        default: return horizontal ? .leading : .top
+        }
+    }
+    /// `-ZTronSeamHoldOverlay 1`: the held refresher floats over the content (overlay placement).
+    static var holdOverlay: Bool { HeaderDemo.argument("-ZTronSeamHoldOverlay", "0") == "1" }
 }
 
 /// Reads the presented (animated) frame height every frame (`-ZTronSeamRetargetNear`).

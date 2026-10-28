@@ -33,6 +33,9 @@ for sc in "$@"; do
       height[0-9]*) extra+=(-ZTronSeamAnimateHeight "0.${x#height0}") ;;   # with width: seam.width animates the HEIGHT to 0.<digits> (height04 = 0.4, height025 = 0.25), top-pinned (M8b-s6)
       refresh) extra+=(-ZTronSeamRefresh 2.5) ;;
       hold) extra+=(-ZTronSeamHold 1) ;;       # a held refresh from 0.8 s (white 20 pt probe indicator; scripts/seam/probe.py) (M8b-s6)
+      noheader) extra+=(-ZTronSeamNoHeader 1) ;;   # no scaling header (open item 19: the hold's gap leaves the screen in a rotation)
+      htop|hbottom|hleading|htrailing) extra+=(-ZTronSeamHoldEdge "${x#h}") ;;   # with hold: the held refresher's edge (an end edge scrolls there first)
+      hoverlay) extra+=(-ZTronSeamHoldOverlay 1) ;;   # with hold: overlay placement (the indicator floats over the content)
       sticky) extra+=(-ZTronSeamSticky 1) ;;   # a white 120 x 16 pt bar in an .overlay(alignment: .bottom) of the header (probe.py) (M8b-s6)
       vbottom) extra+=(-ZTronSeamBottomPinned 1) ;;   # with height<digits>: bottom-pinned, the TOP inset goes 62 -> 0 (M8b-s6 close)
       vboth) extra+=(-ZTronSeamBoth 1) ;;             # with height<digits>: the width animates to 60 % too
