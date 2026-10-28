@@ -618,9 +618,10 @@ height; `min`; `band = max(0, R − min)`;
   else `.openGap`. `.stretch` ignores it; so does a banner (a view without the vertical axis), which keeps the `.followContent`
   translation (only D15's zoomed vertical pan can pull it). It is part of the header's resolved metrics: a change is a cold
   configuration change (no content body runs; the header builder runs once, as for any re-evaluation of the container); during a live
-  pull the header takes the new mode's place in that update (in the change's animation, if it has one). With `.openGap` the header's
-  live input does not change under a pull at all (only the content's transform moves); the background and the fade follow the header's
-  frame in both modes. `ZTronHeaderGeometry` is the same in both modes (`height` `R − c`, `stretch` 0).
+  pull the header takes the new mode's place in that update (in the change's animation, if it has one). With `.openGap` only o′ changes in the header's
+  live input under a pull: its frame leaf and layout follow it per frame as in every other mode (a `.fit` header is measured per
+  frame there too), while its height and place stay at rest; no body runs. The background and the fade follow the header's frame in
+  both modes. `ZTronHeaderGeometry` is the same in both modes (`height` `R − c`, `stretch` 0).
 
 - The header is **clipped** to its frame and **proposed its live height**: an `.overlay(alignment: .bottom…)` inside it is laid out against
   the live frame, so it sticks to the moving bottom edge during both collapse and stretch (the "sticky overlay") and reads the live height

@@ -65,10 +65,12 @@ recorder can write scrambled pts, so t is indicative only (summary.timestampsMon
 --open-gap (D65, optional; the default analysis is unchanged, the option only adds frames.csv columns gapExcess /
 hdrBotDev and summary.openGap): a `.preserve` header with `ZTronHeaderPullBehavior.openGap` stays still under a pull and
 the gap below it EQUALS the pull by design, so the raw seam is not the measure there.
-  pull  the pull is the content top's displacement from the FIRST rest span (ctop_c - ctop0): gapExcess = seam - pull
-        (= ctop0 - hdr_bot_c: about 0 when the header's bottom stays where the content's top rested), hdrBotDev =
-        hdr_bot_c - its first-rest value, hdrDev = the header thickness against its first-rest value (both about 0: the
-        header is still at its rest height). Use it for pulls, refresh holds and their ends without a rotation.
+  pull  each frame against the last settled rest at or before it (at least 3 measured frames; frames before the first
+        one, the launch, are not evaluated): the pull is the content top's displacement from that rest (ctop_c -
+        ctop0), gapExcess = seam - seam0 - pull (about 0 when the header's bottom stays where it rested; seam0 is the
+        rest's own gap, e.g. a developer contentInset.top), hdrBotDev = hdr_bot_c - its rest value, hdrDev = the header
+        thickness against its rest value (both about 0: the header is still at its rest height). Use it for pulls,
+        refresh holds and their ends without a rotation.
   hold  the gap is the refresh hold, constant while the header and the content move together (a rotation during the
         hold): for each segment whose rest before and rest after have the same seam (within 1 pt, the open gap; one of
         them may be unmeasured, e.g. a landscape rest whose content is below the screen), gapExcess = seam - that seam;
@@ -904,24 +906,45 @@ def open_gap_check(mode, measured, segs):
     out = {"mode": mode}
     worst = (0.0, None)
     if mode == "pull":
-        ref = next((rs for rs in rests if med(rs, "ctop_c") is not None and med(rs, "hdr_bot_c") is not None), None)
-        if ref is None:
-            out["error"] = "no rest span with a content top and a header bottom"
+        # Each frame against the last settled rest at or before it (at least 3 frames with a content top and a header
+        # bottom): the first rest can be a single launch-zoom frame, and a developer contentInset opens a rest seam the
+        # pull adds to (review of D65). Frames before the first settled rest (the launch) are not evaluated.
+        starts = [bounds[j] + 1 for j in range(0, len(bounds), 2)]
+        refs = []   # (first index, stats) of each settled rest, in order
+        for k, rs in enumerate(rests):
+            if sum(1 for r in rs if clear(r, "ctop_c") and clear(r, "hdr_bot_c")) >= 3:
+                refs.append((starts[k], {"frames": [rs[0]["frame"], rs[-1]["frame"]], "ctop_c": med(rs, "ctop_c"),
+                                         "hdr_bot_c": med(rs, "hdr_bot_c"), "hdr": med(rs, "hdr"),
+                                         "seam": med(rs, "seam") or 0.0}))
+        if not refs:
+            out["error"] = "no rest span of 3 frames with a content top and a header bottom"
             return out
-        c0, b0, h0 = med(ref, "ctop_c"), med(ref, "hdr_bot_c"), med(ref, "hdr")
-        out["reference"] = {"frames": [ref[0]["frame"], ref[-1]["frame"]], "ctop_c": c0, "hdr_bot_c": b0, "hdr": h0,
-                            "seam": med(ref, "seam")}
+        out["reference"] = "the settled rest before each frame"
+        out["references"] = [st for _, st in refs]
+
+        def ref_at(i):
+            st = None
+            for start, cand in refs:
+                if start > i:
+                    break
+                st = cand
+            return st
+
         dev_b, dev_h, pull_max, n = (0.0, None), (0.0, None), 0.0, 0
-        for r in measured:
+        for i, r in enumerate(measured):
+            ref = ref_at(i)
+            if ref is None:
+                continue
             if clear(r, "hdr_bot_c"):
-                r["hdrBotDev"] = round(r["hdr_bot_c"] - b0, 3)
+                r["hdrBotDev"] = round(r["hdr_bot_c"] - ref["hdr_bot_c"], 3)
                 if abs(r["hdrBotDev"]) > abs(dev_b[0]):
                     dev_b = (r["hdrBotDev"], r["frame"])
-            if h0 is not None and clear(r, "hdr") and abs(r["hdr"] - h0) > abs(dev_h[0]):
-                dev_h = (round(r["hdr"] - h0, 3), r["frame"])
+            if ref["hdr"] is not None and clear(r, "hdr") and abs(r["hdr"] - ref["hdr"]) > abs(dev_h[0]):
+                dev_h = (round(r["hdr"] - ref["hdr"], 3), r["frame"])
             if clear(r, "seam") and clear(r, "ctop_c"):
-                pull = r["ctop_c"] - c0
-                r["gapExcess"] = round(r["seam"] - pull, 3)
+                pull = r["ctop_c"] - ref["ctop_c"]
+                r["pull"] = round(pull, 3)
+                r["gapExcess"] = round(r["seam"] - ref["seam"] - pull, 3)
                 pull_max = max(pull_max, pull)
                 n += 1
                 if abs(r["gapExcess"]) > abs(worst[0]):
@@ -934,7 +957,7 @@ def open_gap_check(mode, measured, segs):
             w = max(rs, key=lambda r: abs(r["gapExcess"]), default=None)
             per.append({"frames": [measured[a]["frame"], measured[b]["frame"]],
                         "maxGapExcess": w["gapExcess"] if w else None, "frame": w["frame"] if w else None,
-                        "maxPull": round(max((r["ctop_c"] - c0 for r in rs if clear(r, "ctop_c")), default=0.0), 3)})
+                        "maxPull": round(max((r["pull"] for r in rs if num(r.get("pull"))), default=0.0), 3)})
         out["segments"] = per
     else:
         per, n, dev_b = [], 0, (0.0, None)
@@ -1248,7 +1271,7 @@ def main():
               "contentTopJump", json.dumps(seg["contentTopJump"]))
     if "openGap" in summary:
         og = summary["openGap"]
-        print("openGap", json.dumps({k: og[k] for k in og if k != "segments"}))
+        print("openGap", json.dumps({k: og[k] for k in og if k not in ("segments", "references")}))
 
 
 if __name__ == "__main__":
