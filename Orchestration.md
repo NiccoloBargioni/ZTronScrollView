@@ -200,11 +200,28 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
    indicator. Seam lab, rotation during a hold (uncapped 16:9, frames with
    the gap on the screen): see the handoff table; width hold unchanged (within 0.5 pt). (b) iOS 15/16 runtimes unverified here
    (the forced lane on 27.0 only), as item 16 (a).
-19. **Headerless twin of item 18 (2026-10-28, reported by the D65 final check, pre-existing)**: a view WITHOUT a header, a top
-   refresh hold, a rotation to landscape and back (seam lab `-ZTronSeamNoHeader 1 -ZTronSeamHold 1`, `testRotate`): S7 scrolls the
-   gap off the screen in landscape (the placement is nil there), and on the way back the indicator is drawn at its final place
-   over the content for about 14 frames before the gap arrives (27.0 / 17.5, fb1fe59 the same: 14 frames; the reviewer's
-   montage `scratchpad/last/review/seam/new-175/rot-top/montage-232-256.png`). Not re-measured or addressed in the final check.
+19. **Headerless twin of item 18 (2026-10-28, reported by the D65 final check, pre-existing)**: ~~a view WITHOUT a header, a top
+   refresh hold, a rotation to landscape and back: S7 scrolls the gap off the screen in landscape (the placement is nil there), and
+   on the way back the indicator is drawn at its final place over the content for about 14 frames~~ FIXED 2026-10-28 (779acb1 +
+   008aa87, `RefreshIndicators.swift`; notes `scratchpad/i19/notes-build.md`). In the gap, while refreshing (the hold, the spinner's
+   retraction), the placement is kept whatever the pull: the indicator's box (a layer group) keeps its far edge on the content's
+   edge (`[pull - max(L, hold, pull), pull]`), so it moves rigidly with the content off the screen too, and an outer group from the
+   edge's base on clips the drawing to the gap (nothing visible while the gap is closed or covered: no change at rest or for
+   pull > 0). `.system` keeps going with the content's edge below 0 (continuous) until it sits at the hold's rest place (H/2 before
+   the edge). A pull or its release still ends at 0 (rig body runs unchanged). Seam lab (`holdgap.py`: frames with the indicator's
+   place on the screen in place / over the content / missing, new `testRotateFromLandscape` for leading / trailing): 27.0 top
+   66/73 in place, 16 over, 4 missing -> 73/73, 0, 0; bottom 67/74, 0, 4 -> 73/73; leading 49/61, 15, 9 -> 84/84; trailing 67/79, 0,
+   9 -> 81/81; 17.5 top 50/55, 16, 3 -> 55/55; bottom 50/59, 0, 5 -> 59/59; leading 53/61, 15, 6 -> 54/54; trailing 53/64, 0, 9 ->
+   63/63 (max deviation <= 0.75 pt). Overlay control and the header rotate-hold scenarios (item 18 (a)) unchanged (all 9 PASS,
+   = the final check). Tests: `RefreshIndicatorTests.aHoldScrolledAwayKeepsItsBoxOnTheContentsEdge`,
+   `aLargerHoldRestsTheSystemIndicatorInItsMiddle`, `RefreshIndicatorLayerTests.aHeaderlessHoldScrolledAwayKeepsItsIndicatorOnTheContentsEdge`.
+20. **15–16: a custom refresh indicator without a header has no layer off the screen (2026-10-28, the remainder of item 19)**: the
+   final check of D65 keeps it ungrouped on 15–16 (a compositing group isolates its blend modes), so SwiftUI drops its layer while
+   its gap is off the viewport and a rotation back draws it at once at its final place (forced lane, unchanged: top 9 frames over the
+   content, leading 15; `withKnownIssue` in the layer test). The built-in indicator is grouped there and keeps its layer. A spike
+   grouping every 15–16 indicator removed most of it (forced top 0 over, leading 79/79 in place) but the 15–16 headerless CONTENT
+   itself tears in a rotation (its group is only under a header, review d16), so the indicator cannot be rigid with it there either.
+   Lead / user decision: blend-mode parity (now) or the rotation (group custom indicators too; the blend test would change on 15–16).
 
 ## Decisions (keep)
 - D1 Naming map in CLAUDE.md (ZoomScroll → ZTronScroll, `ztronScroll…` modifiers; matches ZTronPages' `ztronPage()`).
@@ -549,3 +566,4 @@ Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (≤ 2 simulators at 
 | 2026-10-28 | Opus 5.5 workflow subagent (D65 review fixes) | open item 18 (a) fixed: the refresh indicator box is a layer group laid out at its clip (rotations that take the gap / `.stretch` band below the screen keep it; a translation variant broke `withAnimation` resizes and was replaced), `.stretch` overlay clip; `ProofUITests` content.body 1 (forced) = the quiet-period harness's own parent update (main's library too, native `ScrollView` 6/6), settle label in its own leaf; `HeaderSafeAreaInsetTests` judged per elapsed frame + stalled-sampler test; seam lab 60 runs (27.0 / 17.5 / forced); handoff `docs/progress/M8b-s5.md` "D65 review fixes" | not measured |
 | 2026-10-28 | Opus 5.5 workflow subagent (D65 final check fixes) | the 15–16 refresh indicator group isolated a custom indicator's blend modes in every view (forced lane, no header: a `.difference` probe drew white): `RefreshIndicatorGroup`, 15–16 `compositingGroup()` only under a scaling header (latched), 17+ unchanged; demo `blend` / `blendOverlay` + `RefreshUITests` pixel test, `RefreshIndicatorLayerTests` latch test; item 18 (a) seam rotate-hold 9/9 PASS; unit 785 green on 27.0 + 17.5; Refresh/Header/Proof UI 32/32 × 3 lanes; open item 19 (headerless twin, pre-existing) recorded; handoff `docs/progress/M8b-s5.md` "Final check fixes" | not measured |
 | 2026-10-28 | Opus 5.5 side session M8b-s6 (lead, cont.: ultracode workflows keyboard+overlay, D65 build+review+suites, final check) | D64 keyboard seam, open item 17 cherry-picked from `claude/overlay-place-fix`, D65 pull behaviour, analyzer `--open-gap` per-segment reference, handoff `docs/progress/M8b-s6.md` | not measured |
+| 2026-10-28 | Opus 5.5 workflow subagent (open item 19 builder) | open item 19 fixed: while refreshing, the gap indicator keeps its placement whatever the pull (box group with its far edge on the content's edge, region group from the base clipping to the gap; `.system` continuous below 0 to its hold rest place), so S7 rotations move it with the content; 15–16 group the built-in indicator too, a headerless custom one stays ungrouped (open item 20); seam lab `-ZTronSeamHoldEdge` / `-ZTronSeamHoldOverlay`, `testRotateFromLandscape`, `holdgap.py`; headerless 4 edges 27.0 + 17.5: 0 frames over the content, all in place (before: up to 16 frames over, 3-9 missing); item 18 (a) rotate-hold 9/9 PASS; unit 788 green on 27.0 + 17.5; Refresh/Header/Proof UI 32/32 × 3 lanes; no D-number; notes `scratchpad/i19/notes-build.md` | not measured |
