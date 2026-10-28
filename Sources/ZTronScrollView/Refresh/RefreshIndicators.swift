@@ -289,9 +289,12 @@ struct RefreshEdgeIndicator: View {
     let refresh: ZTronRefreshState
     /// Set while the indicator retracts: after a refresh it keeps the spinner look, whatever `refresh.mode` says.
     var retract: RefreshEngine.RetractLook?
+    /// The custom view the leaf built last (`BuiltRefreshIndicator`).
+    @StateObject private var built = BuiltRefreshIndicator()
 
     var body: some View {
-        ChromeLeaf(state, channels: [.offset, .metrics]) { sample in
+        let built = built
+        return ChromeLeaf(state, channels: [.offset, .metrics]) { sample in
             let m = sample.metrics
             // While an app-driven animated resize is open (M8b-s6), `m` is the committed geometry and the content is drawn
             // at the presented one (`ResizeMath` at the drawn size): the pull comes from the target (realised at the
@@ -313,7 +316,7 @@ struct RefreshEdgeIndicator: View {
                 edge: edge, style: spec.style, overlay: overlay, refreshing: refreshing, dragPosition: refresh.dragPosition,
                 pull: pull, length: length, viewport: m.viewportSize, base: base, hold: hold)
                 .map { $0.visibleLength(vertical: edge == .top || edge == .bottom) > 0 } ?? false
-            indicator(visible: visible).modifier(RefreshPlacementEffect(
+            indicator(visible: visible, built: built).modifier(RefreshPlacementEffect(
                 pull: pull, edge: edge, style: spec.style, overlay: overlay, length: length, hold: hold,
                 refreshing: refreshing, refresh: refresh, retract: retract,
                 viewport: m.viewportSize, base: base, useGeometryGroup: state.usesGeometryGroup,
@@ -326,10 +329,13 @@ struct RefreshEdgeIndicator: View {
     /// `visible`: any of it is inside its clip. A custom view leaves the accessibility tree while nothing of it is drawn: a
     /// hold scrolled away keeps it in the tree (open item 19), clipped, with a frame over whatever is there (review of
     /// open item 19: 226 pt above the scroll view, over the other controls). `accessibilityHidden` on the one structure
-    /// keeps its identity and its state.
-    @ViewBuilder private func indicator(visible: Bool) -> some View {
+    /// keeps its identity and its state. While nothing of it is drawn (outside a retraction) and its state is the same,
+    /// the leaf hands SwiftUI the view it built last (`BuiltRefreshIndicator`), so its body does not run.
+    @ViewBuilder private func indicator(visible: Bool, built: BuiltRefreshIndicator) -> some View {
         if let custom = spec.indicator {
-            custom(binding)
+            // A retraction (a release, a refresh's end) may be drawn by a SwiftUI-animated reset whose last leaf frame is
+            // already at rest: it builds every frame, as before.
+            built.view(reuse: !visible && retract == nil, state: refresh) { custom(binding) }
                 .accessibilityHidden(!visible)
         } else {
             BuiltInRefreshIndicator(refresh: refresh, edge: edge, spinner: retract == .spinner)
@@ -353,6 +359,25 @@ struct RefreshEdgeIndicator: View {
                     }
                 }
             })
+    }
+}
+
+/// The custom indicator the leaf built last and the state it shows (review of open item 19). The leaf rebuilds
+/// `custom(binding)` on each of its frames, a fresh closure `Binding` each time, so the view's body ran on every frame
+/// of a plain scroll while a hold was scrolled away and nothing of it was drawn (hosted rig, "away": 4 -> 20 at 779acb1;
+/// SPEC S4 allows an indicator body per frame only during a pull or a collapse). With `reuse` (nothing of it visible, no
+/// retraction) and the state it was built with (`ZTronRefreshState`: mode, drag position, style, edge), the leaf hands
+/// SwiftUI the SAME `AnyView`, as the header's user views are reused (D42): no body runs ("away" 20 -> 3, the frames with
+/// the gap on the screen). Otherwise it builds it again, as before (every other rig phase unchanged). Never publishes.
+@MainActor
+final class BuiltRefreshIndicator: ObservableObject {
+    private var last: (view: AnyView, state: ZTronRefreshState)?
+
+    func view(reuse: Bool, state: ZTronRefreshState, build: () -> AnyView) -> AnyView {
+        if reuse, let last, last.state == state { return last.view }
+        let view = build()
+        last = (view, state)
+        return view
     }
 }
 
