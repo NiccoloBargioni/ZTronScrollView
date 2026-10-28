@@ -427,8 +427,17 @@ Calibrate the defaults side by side with UIRefreshControl.
     for `pull > 0`. Both boxes are layer groups, so they keep their layers off the screen and Core Animation interpolates them with the
     content (before: the placement was nil off the screen, so a rotation back drew the indicator at once at its final place, over the
     content still sliding in, about 14 frames; 4 frames went missing on the way out). The indicator view stays in the tree for the
-    whole hold (its `@State` too), visible or not. 15–16 limit: a custom indicator without a scaling header is not grouped (S10
-    "15–16 layer groups"), so it keeps the old rotation behaviour there (open item 20).
+    whole hold (its `@State` too), visible or not. 15–16: a custom indicator without a scaling header is not grouped (S10
+    "15–16 layer groups"), so it has no layer off the screen there (open item 20); D66 hides it in a rotation instead of drawing it
+    over the content.
+    Amended 2026-10-28 (review of open item 19, open item 21): while nothing of a custom indicator is drawn (a hold scrolled away) it
+    is hidden from accessibility (`accessibilityHidden` on the same view: VoiceOver no longer reaches it above the scroll view) and its
+    body does not run (the leaf hands SwiftUI the view it built last while its `ZTronRefreshState` is the same; any visible frame,
+    retraction or state change builds it as before). During an app-driven animated resize (`withAnimation`, Split View, Stage
+    Manager), which SwiftUI draws at each drawn size, the box's far edge stays on the content's DRAWN edge (`ResizeMath.resolve` at
+    that size, as the content transform) and the outer box on the presented base; both are identity at the committed size, so
+    rotations are unchanged (open item 21: the box sat at the committed pull, so S7 drew the indicator over the content still sliding
+    in, 57 frames of a 0.4-height resize and back).
   - On completion, animate back to rest unless the user is tracking.
 - **One action per pull.** Only one refresh runs at a time. Never call the action twice for one pull. Cancel the async task when the view disappears.
 - **Disabled** while `zoomScale` is above minimum (configurable) and while scrolling is disabled.
@@ -749,6 +758,13 @@ screen recordings, `scripts/seam/`):
   check of D65: grouped in every view, a `.difference` indicator drew unblended on the forced lane); the price is open item 20: off
   the viewport (a hold scrolled away, S7 in a rotation) SwiftUI keeps no layer for it, so a rotation that brings its gap back draws
   it at once at its final place over the content still sliding in (the forced lane; the built-in indicator, grouped, does not).
+  D66 (2026-10-28, open item 20): on that path (15–16, custom indicator, no header), a resize that begins with nothing of the
+  indicator visible draws it at opacity 0 (the same view: no group, its blend modes kept; no body run) until the resize is drawn
+  frame by frame (an app-driven `withAnimation` resize: open item 21 keeps it on the content's edge there) or, for a resize that
+  closes undrawn (a system rotation: SwiftUI renders its final state once and Core Animation interpolates the layers; the watch
+  closes one run-loop turn in), until a 0.1 s reveal animation of its own (`RefreshResizeReveal`, `RefreshRevealFade`). Forced
+  lane, headerless hold: top rotation 9 -> 0 frames over the content, leading 15 -> 0, the missing frames unchanged (7 / 9, on the
+  way out); hidden until the resize's close and shown at once, as first decided, changed nothing (the close is one turn in).
 - **Banners (amended 2026-10-27, review d16).** A view without the vertical axis lays its banner out from layout too (`R(W)`, its `p` and
   stretch the state's: 0 unless zoomed content pans, D15; its overflow container the committed one), so an app-driven animated width
   change interpolates it with the content (it took the state's height: laid out at `(W_new, R_old)` in the animated pass and re-set by the

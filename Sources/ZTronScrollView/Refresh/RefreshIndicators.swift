@@ -534,7 +534,8 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
     /// 15–16 (or the forced fallbacks) with a custom indicator and no scaling header: no layer group, so SwiftUI keeps no
     /// layer for the indicator while its gap is off the screen (open item 20): a system rotation (Core Animation
     /// interpolates the layers of its final state) that brings the gap back drew it at once at its final place over the
-    /// content still sliding in. D66 (`RefreshResizeReveal`): drawn at opacity 0 instead, shown once the transition is over.
+    /// content still sliding in. D66 (`RefreshResizeReveal`): drawn at opacity 0 instead, shown in a short reveal of its own
+    /// (a rotation) or as soon as the resize is drawn frame by frame (`withAnimation`).
     private var ungrouped: Bool {
         if useGeometryGroup, #available(iOS 17, *) { return false }
         return !fallbackGroup

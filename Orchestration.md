@@ -215,13 +215,41 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
    63/63 (max deviation <= 0.75 pt). Overlay control and the header rotate-hold scenarios (item 18 (a)) unchanged (all 9 PASS,
    = the final check). Tests: `RefreshIndicatorTests.aHoldScrolledAwayKeepsItsBoxOnTheContentsEdge`,
    `aLargerHoldRestsTheSystemIndicatorInItsMiddle`, `RefreshIndicatorLayerTests.aHeaderlessHoldScrolledAwayKeepsItsIndicatorOnTheContentsEdge`.
-20. **15–16: a custom refresh indicator without a header has no layer off the screen (2026-10-28, the remainder of item 19)**: the
+20. **15–16: a custom refresh indicator without a header has no layer off the screen (2026-10-28, the remainder of item 19)**: ~~the
    final check of D65 keeps it ungrouped on 15–16 (a compositing group isolates its blend modes), so SwiftUI drops its layer while
    its gap is off the viewport and a rotation back draws it at once at its final place (forced lane, unchanged: top 9 frames over the
    content, leading 15; `withKnownIssue` in the layer test). The built-in indicator is grouped there and keeps its layer. A spike
    grouping every 15–16 indicator removed most of it (forced top 0 over, leading 79/79 in place) but the 15–16 headerless CONTENT
    itself tears in a rotation (its group is only under a header, review d16), so the indicator cannot be rigid with it there either.
-   Lead / user decision: blend-mode parity (now) or the rotation (group custom indicators too; the blend test would change on 15–16).
+   Lead / user decision: blend-mode parity (now) or the rotation (group custom indicators too; the blend test would change on 15–16).~~
+   RESOLVED 2026-10-28 by D66 (2121913; notes `scratchpad/i19b/notes-build.md`): still ungrouped (blend modes kept, no layer off the
+   screen: the layer test's `withKnownIssue` stays), but hidden (opacity 0) for a resize that begins with nothing of it visible,
+   shown when the resize is drawn frame by frame or, for a rotation, in a 0.1 s reveal of its own. Forced lane, headerless hold
+   (holdgap: in place / judged, over, missing): top rotation 70/77, 9, 7 -> 72/79, 0, 7; leading 68/79, 15, 9 -> 67/79, 0, 9;
+   trailing 66/79, 0, 10 -> 66/78, 0, 9; bottom 68/81, 3, 10 -> 67/80, 3, 10 (those 3 at the first rotation's start: the 15–16
+   headerless content lands at once, as before); a `withAnimation` resize shows it at once (height 0.4 and back 59/59 in place).
+   17+ and the built-in indicator unchanged. Test `RefreshIndicatorTests.aResizeThatBeganWithNothingVisibleHidesItUntilItIsDrawnFrameByFrameOrOver`.
+21. **An animated resize during a hold draws the indicator over the content (2026-10-28, review of open item 19, pre-existing)**:
+   ~~a headerless hold, the scroll view's height animated to 0.4 top-pinned and back (easeInOut 1.2 s): S7 takes the gap off the
+   screen and back; during the open resize the leaf took the pull from the committed target and `RefreshResizeEffect` moved the
+   placement by the inset / size change only, not by the content's S7 offset change: the indicator vanished at once on the way out
+   and was drawn at its final place over the content still sliding in (holdgap.py: 57 frames over the content, about 1.1 s; 27.0,
+   17.5 and forced, before and after item 19)~~ FIXED 2026-10-28 (a04c279 + 8b9cbcc, `RefreshIndicators.swift`; notes
+   `scratchpad/i19b/notes-build.md`). The outer region is laid out as the drawn viewport from the committed base (plus a margin of
+   the committed cross length on each side) and the box sits in a frame of the drawn viewport's size inside it, so the render-time
+   moves are functions of the drawn size (`RefreshResizeEffect`): `.cross` at the leaf (centred in the drawn width / height, outside
+   the groups: inside the 15–16 region group it was not drawn per frame, forced `.stretch` width 80.5 pt off), `.region` to the
+   presented base, `.box` with the content's edge as `ContentTransform` draws it (`ResizeMath.resolve` at that size; an overlay with
+   its base; `.followContent` less the bound's move). Identity at the committed size: rotations unchanged. Seam lab (holdgap.py: in place / judged,
+   over, missing), height 0.4 and back, headerless top: 27.0 33/61, 57, 16 -> 59/59, 0, 0; 17.5 31/56, 57, 15 -> 58/58, 0, 0;
+   forced 28/52, 47, 15 -> 59/59, 0, 0. The same at the bottom edge: 57 -> 0 frames over (27.0, 17.5, forced), the horizontal lab's
+   leading gap in a width change 47 -> 0 (their missing frames are the gap beyond the shrinking scroll view, which holdgap's window
+   base counts; forced bottom keeps ~10 more clipped frames at the end of the growth than 17+: the ungrouped indicator, item 20);
+   headerless width 176/176 -> 178/178; `.openGap` / `.followContent` / `.stretch` height 0.4 and the `.stretch` width resize in
+   place (lateral <= 0.34 pt; forced 80.5 pt at a04c279, fixed by 8b9cbcc); rotations unchanged (headerless, 4 edges, 0 over;
+   item 18 (a) rotate-hold 9/9 PASS).
+   Tests: `RefreshIndicatorLayerTests.anAnimatedResizeDuringAHoldKeepsTheIndicatorOnTheContentsEdge` (presented tree every 0.05 s,
+   height and width, both paths: before 11 / 7 samples over the content), `RefreshResizeEffectTests` (cross / region / box deltas).
 
 ## Decisions (keep)
 - D1 Naming map in CLAUDE.md (ZoomScroll → ZTronScroll, `ztronScroll…` modifiers; matches ZTronPages' `ztronPage()`).
@@ -498,6 +526,20 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
   `.ambientBlur` pull, `.stretch` pull, both modes): `.openGap` header still under the pull (header bottom and height within 0.5 pt
   of rest, gap − pull within 0.33 pt), every other seam within 0.67 pt, lateral within 0.17 pt, no one-frame step above 0.25;
   limits: open item 18.
+- D66 (2026-10-28, lead; open item 20) On iOS 15–16 (and the forced fallbacks) a custom refresh indicator in a view WITHOUT a
+  scaling header stays ungrouped, which keeps its blend modes (final check of D65), so SwiftUI keeps no layer for it off the screen
+  and a rotation or resize that takes its gap off the screen and back drew it over the content. On that path, while a resize is open
+  and the indicator had no visible extent when it began, it is drawn at opacity 0: no group, no identity change, no body run (opacity
+  only, `RefreshResizeReveal` + `RefreshRevealFade` in `RefreshPlacementEffect`). Amended by measurement (the builder, same day):
+  "until the resize closes, then show it" changed nothing in a rotation (the resize watch closes one run-loop turn into it,
+  M5-s2, while Core Animation runs the rotation; logged: hidden, then shown 1 ms later: top 10 / leading 15 frames over the content)
+  and hid the indicator through a `withAnimation` resize that open item 21 draws in place (height 0.4 and back: 16 frames missing).
+  So it is shown at once when the resize is drawn frame by frame (`phase == .animating` while open), and a resize that closes
+  undrawn (a rotation) shows it in a 0.1 s animation of its own (opacity 0 for 85 % of it), set by `.transaction` (the close is
+  written with `disablesAnimations`, which ignored `.animation(_:value:)` and a delayed opacity animation). Measured, forced lane,
+  headerless hold: rotations 0 frames over the content, the missing frames those it already had on the way out (a longer reveal
+  only added missing frames: 0.3 s 43 / 38, 0.6 s 63 / 61 for top / leading). Code `Refresh/RefreshIndicators.swift`; test
+  `RefreshIndicatorTests.aResizeThatBeganWithNothingVisibleHidesItUntilItIsDrawnFrameByFrameOrOver`; SPEC S10 "15–16 layer groups".
 - D16 (user, 2026-10-18) Physics and the post-rotation re-centering are generated and tested by **Fable 5.1**
   (builder agents with model fable). Re-centering ports ZTronMapKit's normalized-centre discipline
   (ContentGeometry: capture before resize, restore = centre × newContentSize − newViewport/2, clamp, centre smaller
@@ -567,3 +609,4 @@ Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (≤ 2 simulators at 
 | 2026-10-28 | Opus 5.5 workflow subagent (D65 final check fixes) | the 15–16 refresh indicator group isolated a custom indicator's blend modes in every view (forced lane, no header: a `.difference` probe drew white): `RefreshIndicatorGroup`, 15–16 `compositingGroup()` only under a scaling header (latched), 17+ unchanged; demo `blend` / `blendOverlay` + `RefreshUITests` pixel test, `RefreshIndicatorLayerTests` latch test; item 18 (a) seam rotate-hold 9/9 PASS; unit 785 green on 27.0 + 17.5; Refresh/Header/Proof UI 32/32 × 3 lanes; open item 19 (headerless twin, pre-existing) recorded; handoff `docs/progress/M8b-s5.md` "Final check fixes" | not measured |
 | 2026-10-28 | Opus 5.5 side session M8b-s6 (lead, cont.: ultracode workflows keyboard+overlay, D65 build+review+suites, final check) | D64 keyboard seam, open item 17 cherry-picked from `claude/overlay-place-fix`, D65 pull behaviour, analyzer `--open-gap` per-segment reference, handoff `docs/progress/M8b-s6.md` | not measured |
 | 2026-10-28 | Opus 5.5 workflow subagent (open item 19 builder) | open item 19 fixed: while refreshing, the gap indicator keeps its placement whatever the pull (box group with its far edge on the content's edge, region group from the base clipping to the gap; `.system` continuous below 0 to its hold rest place), so S7 rotations move it with the content; 15–16 group the built-in indicator too, a headerless custom one stays ungrouped (open item 20); seam lab `-ZTronSeamHoldEdge` / `-ZTronSeamHoldOverlay`, `testRotateFromLandscape`, `holdgap.py`; headerless 4 edges 27.0 + 17.5: 0 frames over the content, all in place (before: up to 16 frames over, 3-9 missing); item 18 (a) rotate-hold 9/9 PASS; unit 788 green on 27.0 + 17.5; Refresh/Header/Proof UI 32/32 × 3 lanes; no D-number; notes `scratchpad/i19/notes-build.md` | not measured |
+| 2026-10-28 | Opus 5.5 workflow subagent (review of open item 19: A, B, open item 21, D66) | A: a scrolled-away custom indicator leaves VoiceOver's tree (`accessibilityHidden`; XCUITest lists hidden elements, so the demo reads its own `VoiceOverTree`); B: no indicator body while it draws nothing (`BuiltRefreshIndicator`, rig away 20 -> 3, other phases unchanged); open item 21 fixed (box on the content's drawn edge during an animated resize, region at the presented base, cross centring at the leaf: 57 -> 0 frames over on 27.0 / 17.5 / forced); D66 implemented and amended by measurement (item 20 resolved: forced rotations 9 / 15 -> 0 over); unit 793 green on 27.0 + 17.5 (9 known issues); Refresh/Header/Proof UI 33/33 x 3 lanes; seam lab 3 lanes; notes `scratchpad/i19b/notes-build.md` | not measured |
