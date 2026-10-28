@@ -386,4 +386,108 @@ struct RefreshIndicatorLayerTests {
             }
         }
     }
+
+    // MARK: Open item 21: an animated resize during a hold
+
+    /// A colour for the content's first 100 pt (its top edge), the rest green.
+    static let edgeColor = (r: 0.9, g: 0.4, b: 0.1)
+
+    final class Size: ObservableObject { @Published var short = false; @Published var narrow = false }
+
+    struct ResizeHoldHost: View {
+        let state: ZTronScrollState
+        @ObservedObject var size: Size
+        var body: some View {
+            VStack(spacing: 0) {
+                ZTronScrollView(.vertical, state: state) {
+                    VStack(spacing: 0) {
+                        Color(red: RefreshIndicatorLayerTests.edgeColor.r, green: RefreshIndicatorLayerTests.edgeColor.g,
+                              blue: RefreshIndicatorLayerTests.edgeColor.b).frame(height: 100)
+                        Color.green.frame(height: 2900)
+                    }
+                }
+                .refresher(refreshView: { _ in
+                    Color(red: RefreshIndicatorLayerTests.marker.r, green: RefreshIndicatorLayerTests.marker.g,
+                          blue: RefreshIndicatorLayerTests.marker.b)
+                        .frame(width: 20, height: 20)
+                }) {
+                    try? await Task.sleep(nanoseconds: 1_000_000_000_000)
+                }
+                .frame(width: size.narrow ? 241 : 402, height: size.short ? 874 * 0.4 : 874)
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        }
+    }
+
+    /// As drawn now (the presentation tree): the first layer filled with `color`, and its part inside its ancestors' clips.
+    func presented(_ color: (r: Double, g: Double, b: Double), in window: UIWindow) -> (frame: CGRect, visible: CGRect)? {
+        let root = window.layer.presentation() ?? window.layer
+        var found: (CGRect, CGRect)?
+        func visit(_ layer: CALayer, _ clip: CGRect) {
+            guard found == nil else { return }
+            var clip = clip
+            if layer.masksToBounds { clip = clip.intersection(layer.convert(layer.bounds, to: root)) }
+            if let c = layer.backgroundColor {
+                var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+                if UIColor(cgColor: c).getRed(&r, green: &g, blue: &b, alpha: &a), a > 0.5,
+                   abs(r - color.r) < 0.02, abs(g - color.g) < 0.02, abs(b - color.b) < 0.02 {
+                    let f = layer.convert(layer.bounds, to: root)
+                    found = (f, f.intersection(clip))
+                    return
+                }
+            }
+            layer.sublayers?.forEach { visit($0, clip) }
+        }
+        visit(root, .infinite)
+        return found
+    }
+
+    /// Open item 21: a headerless hold, the scroll view's height animated to 0.4 (top-pinned) and back, or its width to
+    /// 241 pt and back. S7 keeps the visible centre, so the content's top edge slides up past the base (the gap leaves the
+    /// viewport) and back. The box moved with the base only: it sat at the committed pull, so the marker vanished at once
+    /// on the way out and, on the way back, was drawn at its final place while the content still covered the gap (seam
+    /// lab: 57 frames over the content). Sampled as drawn every 0.05 s: never past the content's edge, and where its
+    /// resting place is on the screen, there (30 pt before the edge, the hold's rest). Before the fix (27.0): 11 of 28
+    /// samples over the content, the first one missing; 17.5 and forced alike.
+    @Test(arguments: OSPath.allCases, [false, true])
+    func anAnimatedResizeDuringAHoldKeepsTheIndicatorOnTheContentsEdge(path: OSPath, width: Bool) {
+        let s = makeState(path), size = Size()
+        let w = withOSPath(path) {
+            let w = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+            w.rootViewController = UIHostingController(rootView: ResizeHoldHost(state: s, size: size).ignoresSafeArea())
+            w.makeKeyAndVisible()
+            return w
+        }
+        defer { unhost(w) }
+        pump(0.3)
+        s.beginRefreshing()
+        pump(0.8)
+        let label = "\(path) \(width ? "width" : "height")"
+        var judged = 0, inPlace = 0, over: [String] = [], off: [String] = []
+        func sample(_ tag: String) {
+            guard let edge = presented(Self.edgeColor, in: w)?.frame.minY else { return }
+            guard let m = presented(Self.marker, in: w) else { return }
+            let drawn = !m.visible.isNull && m.visible.height > 0.5
+            if drawn, m.visible.maxY > edge + 0.5 { over.append("\(tag) \(m.visible.maxY) > \(edge)") }
+            // The resting place [edge - 40, edge - 20] entirely on the screen (the base is 0 here).
+            if edge - 40 >= 0.5 {
+                judged += 1
+                if drawn, abs(m.frame.midY - (edge - 30)) <= 1, m.visible.height > 19.5 { inPlace += 1 } else {
+                    off.append("\(tag) marker \(m.frame.midY) visible \(m.visible.height) edge \(edge)")
+                }
+            }
+        }
+        for (k, flag) in [true, false].enumerated() {
+            withAnimation(.linear(duration: 1.2)) {
+                if width { size.narrow = flag } else { size.short = flag }
+            }
+            for i in 0..<28 { pump(0.05); sample("\(k).\(i)") }
+            pump(0.5)
+        }
+        #expect(s.refresh?.states[.top]?.mode == .refreshing, "\(label): still held")
+        #expect(over.isEmpty, "\(label): drawn over the content \(over)")
+        #expect(judged >= 3 && inPlace == judged, "\(label): \(inPlace) / \(judged) in place \(off)")
+        print("I21 \(label) judged=\(judged) inPlace=\(inPlace) over=\(over.count) off=\(off)")
+    }
 }
