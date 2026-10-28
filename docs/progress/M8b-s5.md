@@ -310,3 +310,39 @@ Tests: unit `ZTronScrollViewTests` 784 tests / 76 suites green on 27.0 (final) a
 ×2 on 17.5), 1 known issue (F6), 0 feedback-loop warnings; `HeaderUITests` + `RefreshUITests` + `ProofUITests` 31/31 on 17.5 and 30/31
 on 27.0 preferred (`RefreshUITests.testRefreshableMapsToTheSystemRefresher` timed out once; ×5 and the suite 14/14 green after);
 `ProofUITests` with the final harness ×2 on 27.0 preferred and 17.5 (12/12 each), ×3 forced (18/18).
+
+### Final check fixes · 2026-10-28 · Opus 5.5 fixer (workflow subagent, branch claude/cool-stonebraker-0015c9 at 6e317c2)
+One confirmed finding of the D65 final check, reproduced, root-caused, fixed and tested (53b272c). No new D-number.
+
+**15–16 group isolated a custom refresh indicator's blend modes in every view with a refresher.** 5b32f97 applied the
+indicator box's layer group (`HeaderLayerGroup`) in every view, header or not; on 15–16 that is `compositingGroup()`, which
+composites the indicator alone, so the forced path drew differently from 17+ (`geometryGroup()`, drawing-neutral) and from
+fb1fe59. Reproduced with a new demo section (`-ZTronRefreshSection blend | blendOverlay`: no header, a held refresh, a white
+20 pt `.difference` indicator over the scroll view's pure blue background / the content's pure green top) and a pixel test,
+`RefreshUITests.testACustomIndicatorsBlendModeReachesWhatIsBehindIt` (the centre column of a screenshot): at 6e317c2 forced
+27.0 drew it white (`white 339+20`, fails), preferred 27.0 yellow / magenta (blended).
+- Fix (`Refresh/RefreshIndicators.swift` `RefreshIndicatorGroup`): 17+ `geometryGroup()` in every view as before; 15–16
+  `compositingGroup()` only when the view has a scaling header (`state.headerSpec` or header metrics), where open item 18 needs
+  it; without one the box is not grouped (it draws as on 17+). Latched at the box's first frame (`GroupLatch(note:)`, now
+  shared with the content's group), so installing or removing the header during a hold never changes the indicator's identity.
+  The header case keeps the documented 15–16 difference (SPEC S10 "15–16 layer groups", corrected).
+- Tests: the UI pixel test above (fixed: forced 27.0, 27.0 and 17.5 yellow / magenta); unit
+  `RefreshIndicatorLayerTests.theFifteenIndicatorGroupIsOnlyUnderAHeader` (per path, header first or not, toggled during the
+  hold: 15–16 `none` / `compositing` and never re-decided, 17+ no latch; fails at 6e317c2 on the forced path). A logic-test
+  host has no render server, so the drawing itself is checked by the UI test only; a real 15/16 device was not available.
+- Open item 18 (a) stays fixed: `RefreshIndicatorLayerTests` green on both paths (the header case keeps its group), and the
+  seam lab's rotation during a hold (uncapped 16:9; frames with the gap on the screen / indicator there, centre deviation; no
+  frame drawn off its place in any run):
+
+| scenario | 27.0 | 17.5 | 27.0 forced |
+|---|---|---|---|
+| `.preserve` `.openGap` | 23/26, 0.30 pt | 21/23, 0.23 pt | 23/25, 0.34 pt |
+| `.preserve` `.followContent` | 24/24, 0.52 pt | 23/23, 0.94 pt | 24/24, 0.49 pt |
+| `.stretch` | 23/24, 0.27 pt | 22/23, 0.27 pt | 23/25, 0.27 pt |
+
+  Seams ≤ 0.5 pt, lateral ≤ 0.14 pt, all 9 PASS (the misses are the probe merging with the lab's white buttons at the screen
+  edge, as in the D65 review fixes table).
+
+Not addressed (reported by the final check, pre-existing at fb1fe59): open item 19, the headerless twin of item 18.
+Tests: unit `ZTronScrollViewTests` 785 tests / 76 suites green on 27.0 and 17.5, 1 known issue (F6), 0 feedback-loop warnings;
+`RefreshUITests` + `HeaderUITests` + `ProofUITests` 32/32 on 27.0 preferred, 17.5 and 27.0 forced (one run each).

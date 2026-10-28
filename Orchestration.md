@@ -194,10 +194,17 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
    then drifted into the gap. Root cause: SwiftUI drew no layer for the indicator while its place was outside the viewport (no
    marker layer in the hosted layer tree, `RefreshIndicatorLayerTests`), so Core Animation had nothing to interpolate; `.stretch`
    the same (its overlay placement was nil there). The indicator box is now its own layer group (17+ `geometryGroup()`, 15–16
-   `compositingGroup()`), still laid out at the clip's place (a render-time translation, 8b5d3ad, broke `withAnimation` resizes:
-   88 pt), and an overlay clip is never shorter than the indicator. Seam lab, rotation during a hold (uncapped 16:9, frames with
+   `compositingGroup()` only under a scaling header since the final check, 53b272c: grouped in every view, the 15–16 group kept
+   a headerless view's custom indicator from blending with what is behind it), still laid out at the clip's place (a
+   render-time translation, 8b5d3ad, broke `withAnimation` resizes: 88 pt), and an overlay clip is never shorter than the
+   indicator. Seam lab, rotation during a hold (uncapped 16:9, frames with
    the gap on the screen): see the handoff table; width hold unchanged (within 0.5 pt). (b) iOS 15/16 runtimes unverified here
    (the forced lane on 27.0 only), as item 16 (a).
+19. **Headerless twin of item 18 (2026-10-28, reported by the D65 final check, pre-existing)**: a view WITHOUT a header, a top
+   refresh hold, a rotation to landscape and back (seam lab `-ZTronSeamNoHeader 1 -ZTronSeamHold 1`, `testRotate`): S7 scrolls the
+   gap off the screen in landscape (the placement is nil there), and on the way back the indicator is drawn at its final place
+   over the content for about 14 frames before the gap arrives (27.0 / 17.5, fb1fe59 the same: 14 frames; the reviewer's
+   montage `scratchpad/last/review/seam/new-175/rot-top/montage-232-256.png`). Not re-measured or addressed in the final check.
 
 ## Decisions (keep)
 - D1 Naming map in CLAUDE.md (ZoomScroll → ZTronScroll, `ztronScroll…` modifiers; matches ZTronPages' `ztronPage()`).
@@ -540,3 +547,4 @@ Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (≤ 2 simulators at 
 | 2026-10-27 | Opus 5.5 side session M8b-s6 (lead, ultracode: closer + verifier + fixer, then a core check: reviewer + full suites) | main merged (D52 → D59), the review finding the d16 fixer never received (an animated height change engaging `.capped`: header slot between the safe areas), refresh indicator during resizes, M5 resize progress unclamped + safe-area steps (spring / retarget / bottom-pinned resizes), D61–D63, open item 15, handoff `docs/progress/M8b-s6.md` | not measured |
 | 2026-10-27 | Opus 5.5 workflow subagent (overlay placement root cause) | open item 17: per-frame overlay placements root-caused (the content gate's `.disabled` re-created per frame) and fixed (`ContentInteractionGate`), pre-existing on main; hosted regression test; handoff `docs/progress/M8b-s5.md` "Overlay placement fix" | not measured |
 | 2026-10-28 | Opus 5.5 workflow subagent (D65 review fixes) | open item 18 (a) fixed: the refresh indicator box is a layer group laid out at its clip (rotations that take the gap / `.stretch` band below the screen keep it; a translation variant broke `withAnimation` resizes and was replaced), `.stretch` overlay clip; `ProofUITests` content.body 1 (forced) = the quiet-period harness's own parent update (main's library too, native `ScrollView` 6/6), settle label in its own leaf; `HeaderSafeAreaInsetTests` judged per elapsed frame + stalled-sampler test; seam lab 60 runs (27.0 / 17.5 / forced); handoff `docs/progress/M8b-s5.md` "D65 review fixes" | not measured |
+| 2026-10-28 | Opus 5.5 workflow subagent (D65 final check fixes) | the 15–16 refresh indicator group isolated a custom indicator's blend modes in every view (forced lane, no header: a `.difference` probe drew white): `RefreshIndicatorGroup`, 15–16 `compositingGroup()` only under a scaling header (latched), 17+ unchanged; demo `blend` / `blendOverlay` + `RefreshUITests` pixel test, `RefreshIndicatorLayerTests` latch test; item 18 (a) seam rotate-hold 9/9 PASS; unit 785 green on 27.0 + 17.5; Refresh/Header/Proof UI 32/32 × 3 lanes; open item 19 (headerless twin, pre-existing) recorded; handoff `docs/progress/M8b-s5.md` "Final check fixes" | not measured |
