@@ -16,6 +16,9 @@ enum PanEvent: Equatable {
     case touchesEnded(time: TimeInterval)
     case frame(time: TimeInterval)
     case cancelled
+    /// The UIKit pan's `shouldBegin` answered false (D60, UIKit path only): at most once per sequence, from `UIKitPanCore`.
+    /// A caught motion settles; nothing else happens until the touch ends.
+    case declined
 }
 
 /// Cold snapshot taken by the coordinator before each event.
@@ -39,6 +42,9 @@ struct PanEnvironment: Equatable {
     var arbitrates: Bool { hasArbiter || isContainer }
     /// `ZTronScrollState.lastInterruptedVelocity`, read at recognition (after the catch's `interrupt()`).
     var interruptedVelocity: CGVector = .zero
+    /// The recognizer's translation already excludes its hysteresis (the UIKit pan, F1): the recognition sample moves the
+    /// content by its whole length. Read once per sequence, at touch-down.
+    var translationExcludesHysteresis = false
 }
 
 enum PanEffect: Equatable {
@@ -49,6 +55,9 @@ enum PanEffect: Equatable {
     case setOffset(CGPoint)
     case release(ReleaseRequest)
     case endSequence
+    /// A caught motion whose touch declined the UIKit pan (D60): it settles from where the catch stopped it with zero
+    /// velocity (paging and targets snap, plain content stays) and no drag delegate callbacks.
+    case settle
 }
 
 struct ReleaseRequest: Equatable {
@@ -95,6 +104,11 @@ struct PanSession: Equatable {
     /// this (native: a 128 pt first sample moves the content 117 pt; docs/design/PHYSICS-calibration.md), so only the
     /// hysteresis itself is "lost", never the whole recognition sample.
     var hysteresis: CGFloat = 10
+    /// `PanEnvironment.translationExcludesHysteresis` of the current sequence, read at its touch-down.
+    private(set) var creditsWholeFirstSample = false
+    /// `.ignored` because the owner decision gave the swipe to an inner view: the recognition sample, kept current, so
+    /// the swipe can still become ours if that view declines it (`revive(env:)`).
+    private(set) var yielded: Pending?
 
     // MARK: Events
 
@@ -111,6 +125,10 @@ struct PanSession: Equatable {
 
         case let .touching(down, caught):
             switch event {
+            case .declined:
+                guard caught else { return [] }
+                phase = .touching(down: down, caught: false)
+                return [.settle]
             case let .dragChanged(translation, startLocation, _):
                 let pending = Pending(down: down, caught: caught, startLocation: startLocation, translation: translation)
                 if env.arbitrates {
@@ -140,7 +158,8 @@ struct PanSession: Equatable {
 
         case .ignored:
             switch event {
-            case .dragEnded, .touchesEnded, .cancelled: phase = .idle
+            case let .dragChanged(translation, _, _): yielded?.translation = translation
+            case .dragEnded, .touchesEnded, .cancelled: phase = .idle; yielded = nil
             default: break
             }
             return []
@@ -182,13 +201,24 @@ struct PanSession: Equatable {
         guard case let .awaitingDecision(pending) = phase else { return [] }
         switch owner {
         case .participant: return beginDrag(pending, env: env, deferredTracking: true)
-        case .container: phase = .ignored; return []
+        case .container: phase = .ignored; yielded = pending; return []
         }
+    }
+
+    /// The inner view the swipe was decided for declined it after this view's ask (D60 §2 "Decline", the reverse of the
+    /// order `NestedScrollArbiter.participantDeclined` assumes): the swipe is this view's after all, from its current
+    /// sample. Nothing when this view is not waiting on such a decision.
+    mutating func revive(env: PanEnvironment) -> [PanEffect] {
+        guard case .ignored = phase, let pending = yielded else { return [] }
+        yielded = nil
+        return beginDrag(pending, env: env, deferredTracking: true)
     }
 
     private mutating func handleIdle(_ event: PanEvent, env: PanEnvironment) -> [PanEffect] {
         switch event {
         case let .touchDown(_, time, touchCount):
+            creditsWholeFirstSample = env.translationExcludesHysteresis
+            yielded = nil
             guard env.isScrollEnabled, !env.axes.isEmpty, touchCount < 2 else { phase = .ignored; return [] }
             let caught = env.isMovingWithoutFinger
             phase = .touching(down: time, caught: caught)
@@ -206,7 +236,10 @@ struct PanSession: Equatable {
     }
 
     private mutating func beginDrag(_ p: Pending, env: PanEnvironment, deferredTracking: Bool) -> [PanEffect] {
-        let baseline = Self.baseline(presentation: env.presentationOffset, translation: p.translation, env: env,
+        // F1: UIKit's translation already excludes its hysteresis (U1 Q5), so the baseline is built from a zero
+        // translation and the content moves by the whole recognition sample.
+        let baseline = Self.baseline(presentation: env.presentationOffset,
+                                     translation: creditsWholeFirstSample ? .zero : p.translation, env: env,
                                      coefficient: rubberBandCoefficient, hysteresis: hysteresis)
         var lock: Axis?
         if env.isDirectionalLockEnabled, env.axes.contains(.horizontal), env.axes.contains(.vertical) {

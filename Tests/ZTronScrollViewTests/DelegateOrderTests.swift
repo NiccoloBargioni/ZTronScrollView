@@ -41,6 +41,10 @@ final class PanDriver {
             case let .release(r): state.endDrag(r, tracker: tracker, env: env(), settings: settings)
             case .endSequence: state.endTracking()
             case .askOwner: break
+            case .settle:
+                let p = state.peek.presentationOffset
+                state.endDrag(ReleaseRequest(origin: p, dragStart: p, liftTime: .nan, zeroVelocity: true), tracker: tracker,
+                              env: env(), settings: settings, notifiesDrag: false)
             }
             if phases.last != state.phase { phases.append(state.phase) }
         }
