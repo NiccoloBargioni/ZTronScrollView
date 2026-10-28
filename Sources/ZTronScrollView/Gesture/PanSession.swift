@@ -106,8 +106,8 @@ struct PanSession: Equatable {
     var hysteresis: CGFloat = 10
     /// `PanEnvironment.translationExcludesHysteresis` of the current sequence, read at its touch-down.
     private(set) var creditsWholeFirstSample = false
-    /// `.ignored` because the owner decision gave the swipe to an inner view: the recognition sample, kept current, so
-    /// the swipe can still become ours if that view declines it (`revive(env:)`).
+    /// `.ignored` after an owner decision: the recognition sample, kept current, so the swipe can still become ours if
+    /// the inner view it was decided for declines it (`revive(env:)`, asked only by this view's own nested arbiter).
     private(set) var yielded: Pending?
 
     // MARK: Events
