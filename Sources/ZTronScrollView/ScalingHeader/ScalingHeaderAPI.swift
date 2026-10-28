@@ -28,8 +28,8 @@ extension ZTronScrollView {
     ///   header inside the collapse band and an overflow-limited resting height (`.capped` / `.refit` while the limit sets
     ///   it) land in one frame when the resize is committed, at its start; rotations are seamless. A `.fit` header's content change inside the
     ///   band is not re-measured.
-    /// - iOS 15–16: the header and the content are each drawn as one compositing group, so a blend mode inside one does
-    ///   not reach the other or what is behind the scroll view.
+    /// - iOS 15–16: the header, the content and a refresh indicator are each drawn as one compositing group, so a blend
+    ///   mode inside one does not reach the others or what is behind the scroll view.
     /// - A scroll command issued while an animated resize is in flight ends the resize: the content takes the final
     ///   geometry at once while the header still animates.
     /// - `background: .ambientBlur` draws a SECOND instance of the header content: its `onAppear` / `task` run for it

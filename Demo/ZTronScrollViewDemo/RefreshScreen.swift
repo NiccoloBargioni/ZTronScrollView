@@ -2,8 +2,9 @@ import SwiftUI
 import ZTronScrollView
 
 /// M8b-2: the refresher gallery (docs/design/M8b-refresh-header.md §3). The section comes from
-/// `-ZTronRefreshSection system|default|overlay|custom|completion|loadMore|horizontal|refreshable` (default `system`);
-/// every section shows `refresh.actions` and `content.body` and has `Info` / `Reset` buttons that write the readout.
+/// `-ZTronRefreshSection system|default|overlay|custom|completion|loadMore|horizontal|refreshable|blend|blendOverlay`
+/// (default `system`); every section shows `refresh.actions` and `content.body` and has `Info` / `Reset` buttons that
+/// write the readout.
 struct RefreshScreen: View {
     static var section: String {
         let a = ProcessInfo.processInfo.arguments
@@ -135,6 +136,20 @@ struct RefreshSectionView: View {
             }
             .refresher { await load() }
             .frame(height: 140)
+        case "blend", "blendOverlay":
+            // No scaling header, a custom indicator drawn with `.difference` (a white 20 pt square): blended over the scroll
+            // view's pure blue background in the hold's gap it draws yellow, over the content's pure green top (`overlay`)
+            // magenta; composited alone (a layer group of its own on 15–16) it would stay white (final check of D65).
+            ZTronScrollView(.vertical, state: state) {
+                VStack(spacing: 0) {
+                    Color(red: 0, green: 1, blue: 0).frame(height: 120)
+                    column(40)
+                }
+            }
+            .refresher(refreshView: { _ in Color.white.frame(width: 20, height: 20).blendMode(.difference) },
+                       overlay: section == "blendOverlay") { await load() }
+            .background(Color(red: 0, green: 0, blue: 1))
+            .frame(height: 360)
         case "refreshable":
             // `.refreshable` maps to a `.system` refresher on the top edge.
             ZTronScrollView(.vertical, state: state) { column(40) }

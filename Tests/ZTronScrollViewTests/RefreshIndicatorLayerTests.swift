@@ -144,4 +144,58 @@ struct RefreshIndicatorLayerTests {
         #expect(start - end > 80, "\(path): the gap moves up with R (\(start) -> \(end))")
         #expect(mid < start - 10 && mid > end + 10, "\(path): part way at mid animation: \(start) -> \(mid) -> \(end)")
     }
+
+    // MARK: Final check of D65: the 15–16 indicator group only under a header
+
+    final class HeaderToggle: ObservableObject { @Published var on = false }
+
+    struct BlendHost: View {
+        @ObservedObject var header: HeaderToggle
+        let state: ZTronScrollState
+        var body: some View {
+            let view = ZTronScrollView(.vertical, state: state) { Color.green.frame(height: 3000) }
+            // The same view type either way (`withScalingHeader` returns `Self`): toggling keeps the identity.
+            (header.on ? view.withScalingHeader(size: .fixed(min: 0, max: 100)) { _ in Color.red } : view)
+                .refresher(refreshView: { _ in Color.white.frame(width: 20, height: 20).blendMode(.difference) }) {
+                    try? await Task.sleep(nanoseconds: 1_000_000_000_000)
+                }
+        }
+    }
+
+    /// The 15–16 group (`compositingGroup()`) composites a custom indicator alone: its blend modes no longer reach what is
+    /// behind it (forced lane, no header: a `.difference` white probe stayed white where 17+ and fb1fe59 blend it,
+    /// `RefreshUITests.testACustomIndicatorsBlendModeReachesWhatIsBehindIt`). Open item 18 needs the group only under a
+    /// scaling header, so 15–16 group the box only there, latched at the box's first frame: installing or removing the
+    /// header during the hold keeps the indicator's identity. (A logic-test host has no render server, so this checks the
+    /// latched branch; the header case's layers are checked above.)
+    @Test(arguments: OSPath.allCases, [false, true])
+    func theFifteenIndicatorGroupIsOnlyUnderAHeader(path: OSPath, headerFirst: Bool) {
+        #if DEBUG
+        ZTronRenderCounters.reset()
+        let s = makeState(path), header = HeaderToggle()
+        header.on = headerFirst
+        let w = withOSPath(path) {
+            let w = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+            w.rootViewController = UIHostingController(rootView: BlendHost(header: header, state: s))
+            w.makeKeyAndVisible()
+            return w
+        }
+        defer { unhost(w) }
+        pump(0.4)
+        #expect(ZTronRenderCounters.notes["refresh.group"] == nil, "\(path): no indicator box before the hold")
+        s.beginRefreshing()
+        pump(0.5)
+        let first = ZTronRenderCounters.notes["refresh.group"]
+        header.on.toggle()   // install / remove the header during the hold
+        pump(0.5)
+        let after = ZTronRenderCounters.notes["refresh.group"]
+        #expect(s.refresh?.states[.top]?.mode == .refreshing, "\(path): still held")
+        if path == .preferred {
+            #expect(first == nil && after == nil, "17+: geometryGroup, no latch (\(String(describing: first)))")
+        } else {
+            #expect(first == (headerFirst ? "compositing" : "none"), "\(path) header first \(headerFirst): \(String(describing: first))")
+            #expect(after == first, "\(path): the latch never re-decides during the hold (\(String(describing: after)))")
+        }
+        #endif
+    }
 }

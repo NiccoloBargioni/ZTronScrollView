@@ -274,7 +274,8 @@ struct RefreshEdgeIndicator: View {
             indicator.modifier(RefreshPlacementEffect(
                 pull: pull, edge: edge, style: spec.style, overlay: overlay, length: spec.configuration.indicatorHeight,
                 refreshing: refresh.mode == .refreshing || (retract == .spinner && !overlay), refresh: refresh, retract: retract,
-                viewport: m.viewportSize, base: base, useGeometryGroup: state.usesGeometryGroup))
+                viewport: m.viewportSize, base: base, useGeometryGroup: state.usesGeometryGroup,
+                hasHeader: state.headerSpec != nil || m.header != nil))
             .modifier(RefreshResizeEffect(commit: m.resize, edge: edge,
                                           baseFollowsInset: edge != .top || HeaderMath.refreshTop(m)?.overlay != false))
         }
@@ -314,18 +315,19 @@ struct RefreshEdgeIndicator: View {
 /// Every other frame (a finger, a release on the clock) just evaluates it with the pull of that frame.
 ///
 /// The indicator box (the clip's size, the indicator at its place inside it, `.clipped()`) is its own layer group
-/// (`HeaderLayerGroup`: 17+ `geometryGroup()`, 15–16 `compositingGroup()`), laid out at the clip's place. Open item 18:
-/// without the group (the indicator `.position`ed in the viewport's frame under a mask path) SwiftUI drew no layer for the
-/// indicator while its place was outside the viewport (`RefreshIndicatorLayerTests`). In a system rotation that takes the
-/// gap below the screen (a refresh hold under a header taller than the landscape viewport: an uncapped 16:9 `.preserve`
-/// `.openGap` or `.stretch` header) the indicator vanished on the way out and, on the way back, appeared at once at its
-/// final place, over the header Core Animation was still shrinking (seam lab: 5-6 of 32-34 rotation frames drawn, up to
-/// 79 pt off the gap). A laid-out clip box alone changed nothing (spike); as a group it keeps its layer below the screen and
-/// Core Animation interpolates it with the content's and the header's groups. The box stays laid out (`.position`), not
-/// moved by a render-time translation: a placement change the leaf makes in an animated transaction (a `withAnimation`
-/// resize) must animate as layout does (a translation landed at once, 88 pt off the gap at the start of a narrowing).
-/// An overlay's clip is never shorter than the indicator (`RefreshIndicatorMath.placement`), so a `.stretch` base below the
-/// screen keeps it too. Like the content's and the header's, the 15–16 group keeps a custom indicator's blend modes inside it.
+/// (`RefreshIndicatorGroup`: 17+ `geometryGroup()`, 15–16 `compositingGroup()` under a scaling header), laid out at the
+/// clip's place. Open item 18: without the group (the indicator `.position`ed in the viewport's frame under a mask
+/// path) SwiftUI drew no layer for the indicator while its place was outside the viewport
+/// (`RefreshIndicatorLayerTests`). In a system rotation that takes the gap below the screen (a refresh hold under a
+/// header taller than the landscape viewport: an uncapped 16:9 `.preserve` `.openGap` or `.stretch` header) the
+/// indicator vanished on the way out and, on the way back, appeared at once at its final place, over the header Core
+/// Animation was still shrinking (seam lab: 5-6 of 32-34 rotation frames drawn, up to 79 pt off the gap). A laid-out
+/// clip box alone changed nothing (spike); as a group it keeps its layer below the screen and Core Animation
+/// interpolates it with the content's and the header's groups. The box stays laid out (`.position`), not moved by a
+/// render-time translation: a placement change the leaf makes in an animated transaction (a `withAnimation` resize)
+/// must animate as layout does (a translation landed at once, 88 pt off the gap at the start of a narrowing). An
+/// overlay's clip is never shorter than the indicator (`RefreshIndicatorMath.placement`), so a `.stretch` base below
+/// the screen keeps it too.
 private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
     var pull: CGFloat
     let edge: Edge
@@ -339,6 +341,8 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
     let base: EdgeInsets
     /// The state's layer-group flag (fixed at its creation): 17+ `geometryGroup()`, 15–16 `compositingGroup()`.
     let useGeometryGroup: Bool
+    /// The view has a scaling header (its spec or its metrics): the 15–16 group is only for it (`RefreshIndicatorGroup`).
+    let hasHeader: Bool
 
     var animatableData: CGFloat {
         get { pull }
@@ -363,11 +367,38 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
                 }
                 .frame(width: max(0, clip.width), height: max(0, clip.height), alignment: .topLeading)
                 .clipped()
-                .modifier(HeaderLayerGroup(useGeometryGroup: useGeometryGroup))
+                .modifier(RefreshIndicatorGroup(useGeometryGroup: useGeometryGroup, hasHeader: hasHeader))
                 .position(x: clip.midX, y: clip.midY)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+/// The refresh indicator box's layer group (open item 18, `RefreshPlacementEffect`). 17+: `geometryGroup()` in every view
+/// (geometry only, drawing-neutral). 15–16: `compositingGroup()` only under a scaling header, where open item 18 arises
+/// (the indicator's place below the screen in a rotation: the gap or the `.stretch` band under a header taller than the
+/// landscape viewport); without a header the box is not grouped, as before 5b32f97, and draws as on 17+ (final check of
+/// D65). A compositing group is not drawing-neutral: a custom indicator's `.blendMode` composites within it and no longer
+/// reaches what is behind the indicator (forced lane, no header, grouped in every view: a `.difference` white square stayed
+/// white over the gap's blue and the content's green, yellow / magenta on 17+; `RefreshUITests`). Under a header the 15–16
+/// indicator keeps that documented difference, as the header and the content do (SPEC S10 "15–16 layer groups"). Latched
+/// at the box's first frame (`GroupLatch`; the box exists while the indicator has a placement), so installing or removing
+/// the header during a hold never changes the custom indicator's identity.
+struct RefreshIndicatorGroup: ViewModifier {
+    let useGeometryGroup: Bool
+    let hasHeader: Bool
+    @StateObject private var latch = GroupLatch(note: "refresh.group")
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if useGeometryGroup, #available(iOS 17, *) {
+            content.geometryGroup()
+        } else if latch.grouped(hasHeader) {
+            content.compositingGroup()
+        } else {
+            content
+        }
     }
 }
 

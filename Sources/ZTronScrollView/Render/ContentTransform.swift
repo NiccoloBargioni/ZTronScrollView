@@ -271,15 +271,21 @@ struct ContentLayerGroup: ViewModifier {
     }
 }
 
-/// The 15–16 content group's first-render decision (never published: it never changes after the first body).
+/// A 15–16 group's first-render decision (never published: it never changes after the first body): the content's
+/// (`ContentLayerGroup`) and the refresh indicator box's (`RefreshIndicatorGroup`). DEBUG: the decision in the render
+/// counters' notes under `note`.
 final class GroupLatch: ObservableObject {
     private var value: Bool?
+    private let note: String
+
+    init(note: String = "content.group") { self.note = note }
 
     func grouped(_ hasHeader: Bool) -> Bool {
         if let value { return value }
         value = hasHeader
         #if DEBUG
-        MainActor.assumeIsolated { ZTronRenderCounters.notes["content.group"] = hasHeader ? "compositing" : "none" }
+        let note = note
+        MainActor.assumeIsolated { ZTronRenderCounters.notes[note] = hasHeader ? "compositing" : "none" }
         #endif
         return hasHeader
     }

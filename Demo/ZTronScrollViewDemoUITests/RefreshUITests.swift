@@ -321,6 +321,70 @@ final class RefreshUITests: XCTestCase {
         XCTAssertEqual(info(app, "end").double("y"), 0, accuracy: 2)
     }
 
+    // MARK: drawing
+
+    /// The colour runs (in points) down the screen column at `x` between `y0` and `y1`, from a screenshot: pure colours
+    /// by name ("white", "yellow", "magenta", "blue", "green"), anything else "other".
+    private func colourRuns(_ app: XCUIApplication, x: CGFloat, from y0: CGFloat, to y1: CGFloat)
+        -> [(name: String, from: CGFloat, length: CGFloat)] {
+        guard let cg = XCUIScreen.main.screenshot().image.cgImage,
+              let space = CGColorSpace(name: CGColorSpace.sRGB) else { return [] }
+        let w = cg.width, h = cg.height
+        var px = [UInt8](repeating: 0, count: w * h * 4)
+        guard let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: space,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return [] }
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        let scale = CGFloat(w) / app.windows.firstMatch.frame.width
+        func name(_ r: UInt8, _ g: UInt8, _ b: UInt8) -> String {
+            let hi: (UInt8) -> Bool = { $0 > 200 }, lo: (UInt8) -> Bool = { $0 < 80 }
+            switch (hi(r), hi(g), hi(b), lo(r), lo(g), lo(b)) {
+            case (true, true, true, _, _, _): return "white"
+            case (true, true, _, _, _, true): return "yellow"
+            case (true, _, true, _, true, _): return "magenta"
+            case (_, _, true, true, true, _): return "blue"
+            case (_, true, _, true, _, true): return "green"
+            default: return "other"
+            }
+        }
+        let col = min(w - 1, max(0, Int(x * scale)))
+        var runs: [(name: String, from: CGFloat, length: CGFloat)] = []
+        for row in max(0, Int(y0 * scale))..<min(h, Int(y1 * scale)) {
+            let i = (row * w + col) * 4
+            let n = name(px[i], px[i + 1], px[i + 2])
+            if let last = runs.last, last.name == n {
+                runs[runs.count - 1].length += 1 / scale
+            } else {
+                runs.append((n, CGFloat(row) / scale, 1 / scale))
+            }
+        }
+        return runs
+    }
+
+    /// Final check of D65: a custom indicator's blend mode reaches what is behind it in a view without a scaling header,
+    /// on every path. The fix of open item 18 (5b32f97) made the indicator box a layer group in every view, and its 15–16
+    /// `compositingGroup()` composited the indicator alone: a `.difference` white square stayed white on the forced lane
+    /// (17+ and fb1fe59: yellow over the gap's blue, magenta over the content's green). The 15–16 group is now only under
+    /// a scaling header, where open item 18 needs it.
+    func testACustomIndicatorsBlendModeReachesWhatIsBehindIt() {
+        for (section, expected) in [("blend", "yellow"), ("blendOverlay", "magenta")] {
+            let app = launch(section)
+            app.buttons["refresh.begin"].tap()
+            XCTAssertTrue(waitFor(3, "Refreshing") { mode(app) == "Refreshing" }, "\(section): the hold begins")
+            Thread.sleep(forTimeInterval: 1.0)
+            let list = element(app, "refresh.list").frame
+            // The 20 pt probe is centred across the edge, in the hold's gap (or over the content's top, overlay).
+            let runs = colourRuns(app, x: list.midX, from: list.minY + 2, to: list.minY + 110)
+            let text = runs.filter { $0.length >= 1 }.map { "\($0.name) \(Int($0.from))+\(Int($0.length.rounded()))" }
+            print("REFRESH \(path) blend \(section): \(text)")
+            XCTAssertTrue(runs.contains { $0.name == expected && $0.length >= 12 },
+                          "\(path) \(section): the probe draws \(expected) (blended): \(text)")
+            XCTAssertFalse(runs.contains { $0.name == "white" && $0.length >= 6 },
+                           "\(path) \(section): the probe is not composited alone (white): \(text)")
+            app.buttons["refresh.end"].tap()
+            app.terminate()
+        }
+    }
+
     func testTheNamedAccessibilityElementsExist() {
         let app = launch("system")
         let e = a11y(app)

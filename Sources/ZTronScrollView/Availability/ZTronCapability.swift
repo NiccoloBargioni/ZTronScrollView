@@ -59,9 +59,10 @@ public enum ZTronCapability: String, CaseIterable, Sendable, Hashable {
     case uikitTouchObserver
     /// `geometryGroup()` (iOS 17): the scrolled content and the scaling header are each ONE layer group, so Core Animation
     /// moves them rigidly and together when it interpolates a system rotation (M8b-3 seamless header). Fallback:
-    /// `compositingGroup()` (iOS 13), the same layer boundary (see `ContentLayerGroup`), applied to the content only on a
-    /// view with a scaling header. It is not drawing-neutral: blend modes inside the content (or the header) composite
-    /// inside the group (they do not reach what is behind it) and an ancestor's opacity fades the group as one image.
+    /// `compositingGroup()` (iOS 13), the same layer boundary (see `ContentLayerGroup`), applied to the content and to the
+    /// refresh indicator's box only on a view with a scaling header. It is not drawing-neutral: blend modes inside the
+    /// content (or the header, or a custom refresh indicator) composite inside the group (they do not reach what is behind
+    /// it) and an ancestor's opacity fades the group as one image.
     case geometryGroup
     /// `TimelineView(.animation)` (iOS 15). Always available: never gated, never forced.
     case frameClock

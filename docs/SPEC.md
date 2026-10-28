@@ -729,9 +729,11 @@ screen recordings, `scripts/seam/`):
   view that has a scaling header at its first render (latched: installing or removing the header later never changes the content's
   identity; a header installed later rotates with the pre-group tearing on 15–16, one removed later keeps the group). Documented 15–16
   differences of a header view: a content blend mode does not reach behind the scroll view, a header blend mode does not reach the content
-  scrolled under the header. 17+ `geometryGroup()` has none of these. The refresh indicator box is a group too (open item 18, every view
-  with a refresher): on 15–16 a blend mode inside a custom indicator composites within the indicator (it does not reach the content or
-  the header behind an overlay indicator).
+  scrolled under the header. 17+ `geometryGroup()` has none of these. The refresh indicator box is a group too (open item 18): 17+
+  `geometryGroup()` in every view with a refresher; 15–16 `compositingGroup()` only in a view with a scaling header (latched at the
+  box's first frame), where a blend mode inside a custom indicator composites within the indicator (it does not reach the gap behind
+  it, the content or the header behind an overlay indicator). Without a header the 15–16 box is not grouped and draws as on 17+
+  (final check of D65: grouped in every view, a `.difference` indicator drew unblended on the forced lane).
 - **Banners (amended 2026-10-27, review d16).** A view without the vertical axis lays its banner out from layout too (`R(W)`, its `p` and
   stretch the state's: 0 unless zoomed content pans, D15; its overflow container the committed one), so an app-driven animated width
   change interpolates it with the content (it took the state's height: laid out at `(W_new, R_old)` in the animated pass and re-set by the
