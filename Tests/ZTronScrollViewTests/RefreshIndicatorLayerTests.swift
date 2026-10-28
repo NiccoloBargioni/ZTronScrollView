@@ -245,7 +245,8 @@ struct RefreshIndicatorLayerTests {
     /// content where the hold rests it (30 pt before the edge: `.default` glued to it, `.system` at H/2), and draws
     /// nothing there (`region` starts at the base); at rest it draws whole in its gap, part way in its part of the gap.
     /// Every edge, both styles, a custom and the built-in indicator, both OS paths. 15–16 keep a custom indicator without
-    /// a header ungrouped (its blend modes, final check of D65): its box has no layer off the viewport (open item 20).
+    /// a header ungrouped (its blend modes, final check of D65): its box has no layer off the viewport (open item 20; D66 hides it
+    /// in a rotation that brings the gap back instead, `RefreshResizeReveal`).
     @Test(arguments: OSPath.allCases, Look.allCases)
     func aHeaderlessHoldScrolledAwayKeepsItsIndicatorOnTheContentsEdge(path: OSPath, look: Look) {
         let marker = look == .markerSystem || look == .markerDefault
@@ -348,7 +349,7 @@ struct RefreshIndicatorLayerTests {
             }
             #expect(abs(farEdge - contentEdge(gone.pull)) < 0.01, "\(label) away: the box ends on the content's edge")
             let ungrouped = path == .forcedFallback && marker
-            withKnownIssue("open item 20: 15–16 keep a headerless custom indicator ungrouped (blend modes)") {
+            withKnownIssue("open item 20 / D66: 15–16 keep a headerless custom indicator ungrouped (blend modes), no layer off the screen") {
                 if !marker {
                     #expect(boxLayer(placement.box), "\(label) away: the box keeps its layers off the viewport \(placement.box)")
                 } else {

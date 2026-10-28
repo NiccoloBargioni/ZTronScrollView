@@ -292,9 +292,11 @@ struct RefreshEdgeIndicator: View {
     var retract: RefreshEngine.RetractLook?
     /// The custom view the leaf built last (`BuiltRefreshIndicator`).
     @StateObject private var built = BuiltRefreshIndicator()
+    /// Whether the indicator is hidden for an open resize (`RefreshResizeReveal`, D66).
+    @StateObject private var reveal = RefreshResizeReveal()
 
     var body: some View {
-        let built = built
+        let built = built, reveal = reveal
         return ChromeLeaf(state, channels: [.offset, .metrics]) { sample in
             let m = sample.metrics
             // While an app-driven animated resize is open (M8b-s6), `m` is the committed geometry and the content is drawn
@@ -328,7 +330,8 @@ struct RefreshEdgeIndicator: View {
                 refreshing: refreshing, refresh: refresh, retract: retract,
                 viewport: m.viewportSize, base: base, useGeometryGroup: state.usesGeometryGroup,
                 hasHeader: state.headerSpec != nil || m.header != nil, custom: spec.indicator != nil,
-                resize: m.resize, baseFollowsInset: edge != .top || HeaderMath.refreshTop(m)?.overlay != false, draw: draw))
+                resize: m.resize, baseFollowsInset: edge != .top || HeaderMath.refreshTop(m)?.overlay != false, draw: draw,
+                reveal: reveal.look(open: open, visible: visible, animating: sample.phase == .animating)))
         }
     }
 
@@ -384,6 +387,72 @@ final class BuiltRefreshIndicator: ObservableObject {
         let view = build()
         last = (view, state)
         return view
+    }
+}
+
+/// D66 (open item 20): on the path without a layer group, whether the indicator is hidden for an open resize. The leaf
+/// records the visibility of its last frame with the resize closed; a resize that began with nothing of it visible hides
+/// it (`.hidden`, opacity 0, the same structure, no body run) until either
+/// - the resize is drawn frame by frame (the phase is `.animating`: an app-driven `withAnimation` resize, which SwiftUI
+///   draws at each drawn size, so the box keeps it on the content's drawn edge, open item 21): `.shown` at once; or
+/// - the resize closes without that (a system rotation: SwiftUI renders the final state once, inside UIKit's rotation
+///   block, Core Animation interpolates the layers, and the watch closes on the next run-loop turn, "never animated",
+///   M5-s2): `.revealing` on the first closed frame, which shows it in its own animation (`afterTransition`).
+/// Measured (forced lane): hidden until the resize closed and shown at once (D66 as first written) left the rotations
+/// unchanged (the watch closes one turn into them: top 9 frames over the content, leading 15) and hid the indicator for a
+/// whole `withAnimation` resize that open item 21 draws in place (height 0.4 and back: 16 frames missing). Never publishes.
+@MainActor
+final class RefreshResizeReveal: ObservableObject {
+    enum Look: Equatable { case shown, hidden, revealing }
+
+    /// The reveal's own animation (`RefreshRevealFade`: opacity 0 for its first 85 %, then a fade in). Measured on the
+    /// forced lane (seam lab, headerless hold, rotations back to the gap): revealed at once, 9 (top) / 15 (leading) frames
+    /// over the content; revealed in this animation, 0 over, and the indicator missing in the frames it already was (7 / 9,
+    /// on the way out); held longer it only went missing longer (0.3 s: 43 / 38 frames, 0.6 s: 63 / 61).
+    nonisolated static let afterTransition = Animation.linear(duration: 0.1)
+
+    private var wasOpen = false
+    private var visibleBefore = true
+    private var latched = false
+    private var drawnPerFrame = false
+
+    func look(open: Bool, visible: Bool, animating: Bool) -> Look {
+        defer { wasOpen = open }
+        if open {
+            if !wasOpen {
+                latched = !visibleBefore
+                drawnPerFrame = false
+            }
+            if animating { drawnPerFrame = true }
+            return latched && !drawnPerFrame ? .hidden : .shown
+        }
+        visibleBefore = visible
+        let closedHidden = wasOpen && latched && !drawnPerFrame
+        latched = false
+        return closedHidden ? .revealing : .shown
+    }
+}
+
+/// D66's opacity: `opacity` × the reveal's progress, 0 for the first 85 % of the reveal's animation (`afterTransition`),
+/// then rising to 1; SwiftUI evaluates it on each frame (no body of the indicator runs). The reveal is the resize's close,
+/// which the state writes without animation (`unanimated`, `disablesAnimations`): an `.animation(_:value:)` there did not
+/// animate (logged on the forced lane: hidden at the commit, shown at once 1 ms later, 9 rotation frames over the content
+/// as before), so the reveal sets its own transaction.
+nonisolated struct RefreshRevealFade: ViewModifier, Animatable {
+    var shown: CGFloat
+    let opacity: Double
+
+    var animatableData: CGFloat {
+        get { shown }
+        set { shown = newValue }
+    }
+
+    static func visibility(_ shown: CGFloat) -> Double {
+        shown >= 1 ? 1 : Double(max(0, (shown - 0.85) / 0.15))
+    }
+
+    @MainActor func body(content: Content) -> some View {
+        content.opacity(opacity * Self.visibility(shown))
     }
 }
 
@@ -449,6 +518,9 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
     let baseFollowsInset: Bool
     /// What the content is drawn with while the resize is open (nil otherwise).
     let draw: RefreshContentDraw?
+    /// D66 (`RefreshResizeReveal`): on the path without a layer group (`ungrouped`), hidden during a resize that began
+    /// with nothing of it visible and is not drawn frame by frame, shown after the system's transition.
+    let reveal: RefreshResizeReveal.Look
 
     var animatableData: CGFloat {
         get { pull }
@@ -458,6 +530,15 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
     /// 15–16 group the boxes under a scaling header (open item 18) and around the built-in indicator (open item 19); a
     /// custom indicator without a header stays ungrouped, so its blend modes reach what is behind it (final check of D65).
     private var fallbackGroup: Bool { hasHeader || !custom }
+
+    /// 15–16 (or the forced fallbacks) with a custom indicator and no scaling header: no layer group, so SwiftUI keeps no
+    /// layer for the indicator while its gap is off the screen (open item 20): a system rotation (Core Animation
+    /// interpolates the layers of its final state) that brings the gap back drew it at once at its final place over the
+    /// content still sliding in. D66 (`RefreshResizeReveal`): drawn at opacity 0 instead, shown once the transition is over.
+    private var ungrouped: Bool {
+        if useGeometryGroup, #available(iOS 17, *) { return false }
+        return !fallbackGroup
+    }
 
     /// The region is the drawn viewport moved along the pull axis so that its end on the edge's side is the edge's base
     /// (`region` from the base on, open item 19): `(0, b)` top, `(0, −b)` bottom, `(b, 0)` leading, `(−b, 0)` trailing.
@@ -479,6 +560,7 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
         #if DEBUG
         let _ = RefreshTrace.leaf(edge: edge, pull: pull, refresh: refresh, retract: retract, placement: placement)
         #endif
+        let hideForResize = ungrouped && reveal == .hidden, revealNow = ungrouped && reveal == .revealing
         ZStack(alignment: .topLeading) {
             if let placement {
                 let box = placement.box
@@ -493,7 +575,17 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
                         ZStack(alignment: .topLeading) {
                             content
                                 .frame(width: placement.frame.width, height: placement.frame.height)
-                                .opacity(placement.opacity)
+                                .modifier(RefreshRevealFade(shown: hideForResize ? 0 : 1, opacity: placement.opacity))
+                                // D66: hidden at once; shown after the system's transition, in the reveal's own animation
+                                // (the frame that reveals is the resize's close, written without animation)
+                                .transaction { t in
+                                    if hideForResize {
+                                        t.animation = nil
+                                    } else if revealNow {
+                                        t.disablesAnimations = false
+                                        t.animation = RefreshResizeReveal.afterTransition
+                                    }
+                                }
                                 .position(x: placement.frame.midX - box.minX, y: placement.frame.midY - box.minY)
                         }
                         .frame(width: max(0, box.width), height: max(0, box.height), alignment: .topLeading)

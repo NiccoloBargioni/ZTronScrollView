@@ -148,6 +148,28 @@ struct RefreshIndicatorTests {
         #expect(away.visibleLength(vertical: true) == 0)
     }
 
+    /// D66: a resize that began with nothing of the indicator visible (its last frame with the resize closed) hides it
+    /// until the resize is drawn frame by frame (`.animating`: shown at once) or closes without that (a system rotation:
+    /// `.revealing` once, shown after the transition). A resize that began visible never hides.
+    @Test func aResizeThatBeganWithNothingVisibleHidesItUntilItIsDrawnFrameByFrameOrOver() {
+        let r = RefreshResizeReveal()
+        // A rotation: open one turn, never animated.
+        #expect(r.look(open: false, visible: false, animating: false) == .shown)
+        #expect(r.look(open: true, visible: false, animating: false) == .hidden, "began with nothing visible")
+        #expect(r.look(open: true, visible: true, animating: false) == .hidden, "latched, whatever the target pull says")
+        #expect(r.look(open: false, visible: true, animating: false) == .revealing, "closed undrawn: shown after the transition")
+        #expect(r.look(open: false, visible: true, animating: false) == .shown)
+        // A withAnimation resize: drawn frame by frame from its second tick.
+        #expect(r.look(open: false, visible: false, animating: false) == .shown)
+        #expect(r.look(open: true, visible: false, animating: false) == .hidden)
+        #expect(r.look(open: true, visible: false, animating: true) == .shown, "drawn frame by frame: the box keeps it in place")
+        #expect(r.look(open: true, visible: true, animating: false) == .shown)
+        #expect(r.look(open: false, visible: true, animating: false) == .shown, "no delayed reveal")
+        // Began visible: never hidden.
+        #expect(r.look(open: true, visible: false, animating: false) == .shown)
+        #expect(r.look(open: false, visible: false, animating: false) == .shown)
+    }
+
     @Test func theLiveHeaderHeightMovesTheTopBase() {
         let with = place(.top, .system, header: 200)!
         #expect(with.frame.minY == 35 + 200 && with.clip.minY == 250)
