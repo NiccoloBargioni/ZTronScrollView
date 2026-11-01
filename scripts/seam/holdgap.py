@@ -16,8 +16,10 @@ the probe's extent along the axis relative to s_e, and a verdict:
   inPlace  the probe is drawn at its resting place against the content's edge (within --tol, default 1 pt);
   off      drawn elsewhere (dev = its centre's distance from the resting place);
   missing  its place is on the screen, it is not drawn;
-  over     some of it lies on the content's side of the edge (> 1 pt), or a probe-sized white square anywhere has a
-           surround of mostly content (rvover.py's ring test): drawn over the content (judged in every frame);
+  over     some of it lies on the content's side of the edge (> 1 pt), or a probe-shaped white square anywhere has a
+           surround of mostly content (rvover.py's ring test), or a filled probe-sized patch of white at 20-90 % with
+           some of it over the content (a TRANSLUCENT probe: `tint` = its opacity, tintOver / tintFrames): drawn over
+           the content (judged in every frame);
   ghost    its place is off the window, a probe is drawn anyway;
   partial / offscreen / unknown: not judged (the place straddles the base or the window's edge, or no edge found).
 Prints and writes holdgap.json: counts, max deviation, worst over depth, the frames of each failure.
@@ -148,7 +150,7 @@ def main():
     for i, f in enumerate(frames(video, w, h)):
         r = rows.get(i)
         rec = {"frame": i, "t": r.get("t") if r else "", "s_e": "", "s_w": "", "probe": 0, "p0": "", "p1": "", "pc": "",
-               "pk": "", "ring": "", "verdict": "unknown"}
+               "pk": "", "ring": "", "tint": "", "verdict": "unknown"}
         recs.append(rec)
         try:
             nx, ny = float(r["nx"]), float(r["ny"])
@@ -208,7 +210,11 @@ def main():
             if ring:
                 rc_ = classify(np.concatenate(ring).astype(np.int16))
                 content = float((rc_ <= 3).mean())
-            if area >= 100 and content > 0.5:
+            s0, s1 = float(np.percentile(sa, 1)), float(np.percentile(sa, 99))
+            ext = sorted((s1 - s0, k1 - k0))
+            # Probe-shaped only (12-29 pt along both axes, at most 1.5 : 1): the status bar's battery icon (30 x 16 pt) over a
+            # content stripe in a rotation is not the probe (review of open item 21: s27f rotate-hbottom 200-202).
+            if area >= 100 and content > 0.5 and 12 <= ext[0] and ext[1] <= 29 and ext[1] <= 1.5 * ext[0]:
                 ringover = max(ringover, 1)
             if abs((k0 + k1) / 2) > 40 or not (12 <= k1 - k0 <= 28):
                 continue
@@ -220,10 +226,53 @@ def main():
             if s_e is not None:
                 rec["pc"] = round((best[0] + best[1]) / 2 - s_e, 2)
         rec["ring"] = ringover
+        # A TRANSLUCENT probe over the content (the review of open item 21 / D66: a reveal faded in over the content Core
+        # Animation was still sliding in, 33-82 % opacity, invisible to the white tests above). Per pixel: white at 20-90 %
+        # over a content colour (yellow / magenta / green / cyan: the channels the colour has stay > 236, the others rise to
+        # 50-230 together) or over the gap's blue (red and green rise together, blue stays). A probe is a FILLED patch of
+        # such cells (>= 4 cells left after a one-cell erosion: the status bar's white text and icons fading over a stripe
+        # in a rotation are strokes), probe-sized (<= 34 pt per side, <= 480 pt^2: the lab's buttons, dimmed while pressed,
+        # are 24 x 24 pt in a 72 pt row), within 120 pt of the centre line across the axis; it is over the content when
+        # >= 3 of its cells (12 pt^2) are content tinted towards white. A fade at its place in the gap is not "over".
+        tint_alpha = 0.0
+        TL, TH, HI = 50, 231, 236
+        gr, gg, gb = g[..., 0], g[..., 1], g[..., 2]
+
+        def mid(c):
+            return (c > TL) & (c < TH)
+        tint_c = (((gr > HI) & (gg > HI) & mid(gb)) | ((gr > HI) & (gb > HI) & mid(gg)) | ((gg > HI) & (gb > HI) & mid(gr))
+                  | ((gg > HI) & mid(gr) & mid(gb) & (np.abs(gr - gb) < 30)))
+        tint_b = (gb > HI) & mid(gr) & mid(gg) & (np.abs(gr - gg) < 30)
+        ccells = tint_c.mean(axis=(1, 3)) > 0.5
+        if ccells.any():
+            acells = (tint_c | tint_b).mean(axis=(1, 3)) > 0.5
+            for comp in components(acells | ccells):
+                if ccells[comp[:, 0], comp[:, 1]].sum() < 3:
+                    continue
+                y0, x0 = comp.min(axis=0)
+                y1, x1 = comp.max(axis=0)
+                if len(comp) * 4 > 480 or (x1 - x0 + 1) * 2 > 34 or (y1 - y0 + 1) * 2 > 34:
+                    continue
+                mk = np.zeros((y1 - y0 + 3, x1 - x0 + 3), dtype=bool)
+                mk[comp[:, 0] - y0 + 1, comp[:, 1] - x0 + 1] = True
+                core = mk[1:-1, 1:-1].copy()
+                for dy in (-1, 0, 1):
+                    for dx in (-1, 0, 1):
+                        core &= mk[1 + dy:mk.shape[0] - 1 + dy, 1 + dx:mk.shape[1] - 1 + dx]
+                if core.sum() < 4:
+                    continue
+                cy, cx = (y0 + y1 + 1) / 2 * cell, (x0 + x1 + 1) / 2 * cell
+                if abs((np.array([cx, cy]) - C) @ cross / sc) > 120:
+                    continue
+                sel = tint_c[y0:y1 + 1, :, x0:x1 + 1, :]
+                px = g[y0:y1 + 1, :, x0:x1 + 1, :][sel]
+                if len(px):
+                    tint_alpha = max(tint_alpha, float(np.median(px.min(axis=1))) / 255.0)
+        rec["tint"] = round(tint_alpha, 2) if tint_alpha else ""
         # Portrait (n down the recording), landscape (n across it) or in between (the larger base).
         ang = abs(np.degrees(np.arctan2(n[0], n[1]))) % 180
         base = bp if min(ang, 180 - ang) < 1 else bl if abs(ang - 90) < 1 else max(bp, bl)
-        rec["_found"] = (s_e, s_w, content_off, best, ringover, base)
+        rec["_found"] = (s_e, s_w, content_off, best, ringover, base, tint_alpha)
     if a.overlay:
         # The probe's centre along the outward axis from the display centre (rotation-invariant: the axis turns with the
         # content): present from its first frame on, and its largest single-frame step against its whole travel.
@@ -252,21 +301,24 @@ def main():
         return
     rc = float(np.median([x["pc"] for x in rest]))
     half = 10.0
-    counts = {k: 0 for k in ("inPlace", "off", "missing", "over", "ghost", "partial", "offscreen", "unknown")}
-    lists = {k: [] for k in ("off", "missing", "over", "ghost")}
+    counts = {k: 0 for k in ("inPlace", "off", "missing", "over", "tintOver", "ghost", "partial", "offscreen", "unknown")}
+    lists = {k: [] for k in ("off", "missing", "over", "tint", "ghost")}
     maxdev, maxover = 0.0, 0.0
     first_rest = rest[0]["frame"]
     for x in recs:
         found = x.pop("_found", None)
         if found is None or x["frame"] < first_rest:
             continue
-        s_e, s_w, content_off, best, ringover, base = found
-        # Over the content: any part of the probe on the content's side of its edge, or a probe-sized white square
-        # anywhere whose surround is mostly content.
-        if (best is not None and s_e is not None and best[0] < s_e - 1.0) or ringover:
+        s_e, s_w, content_off, best, ringover, base, tint_alpha = found
+        # Over the content: any part of the probe on the content's side of its edge, a probe-sized white square anywhere
+        # whose surround is mostly content, or a translucent probe over the content (any opacity >= 20 %).
+        if (best is not None and s_e is not None and best[0] < s_e - 1.0) or ringover or tint_alpha:
             x["verdict"] = "over"
             counts["over"] += 1
             lists["over"].append(x["frame"])
+            if tint_alpha:
+                counts["tintOver"] += 1
+                lists["tint"].append((x["frame"], round(tint_alpha, 2)))
             if best is not None and s_e is not None:
                 maxover = max(maxover, s_e - best[0])
             continue

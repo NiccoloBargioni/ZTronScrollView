@@ -166,8 +166,9 @@ struct RefreshIndicatorLayerTests {
     /// behind it (forced lane, no header: a `.difference` white probe stayed white where 17+ and fb1fe59 blend it,
     /// `RefreshUITests.testACustomIndicatorsBlendModeReachesWhatIsBehindIt`). Open item 18 needs the group only under a
     /// scaling header, so 15–16 group the box only there, latched at the box's first frame: installing or removing the
-    /// header during the hold keeps the indicator's identity. (A logic-test host has no render server, so this checks the
-    /// latched branch; the header case's layers are checked above.)
+    /// header during the hold keeps the indicator's identity, and D66's gate (`refresh.d66`) reads the same latched
+    /// decision. (A logic-test host has no render server, so this checks the latched branch; the header case's layers are
+    /// checked above.)
     @Test(arguments: OSPath.allCases, [false, true])
     func theFifteenIndicatorGroupIsOnlyUnderAHeader(path: OSPath, headerFirst: Bool) {
         #if DEBUG
@@ -189,12 +190,19 @@ struct RefreshIndicatorLayerTests {
         header.on.toggle()   // install / remove the header during the hold
         pump(0.5)
         let after = ZTronRenderCounters.notes["refresh.group"]
+        let gate = ZTronRenderCounters.notes["refresh.d66"]
         #expect(s.refresh?.states[.top]?.mode == .refreshing, "\(path): still held")
         if path == .preferred {
             #expect(first == nil && after == nil, "17+: geometryGroup, no latch (\(String(describing: first)))")
+            #expect(gate == "off", "17+: D66 never applies (\(String(describing: gate)))")
         } else {
             #expect(first == (headerFirst ? "compositing" : "none"), "\(path) header first \(headerFirst): \(String(describing: first))")
             #expect(after == first, "\(path): the latch never re-decides during the hold (\(String(describing: after)))")
+            // Review of open item 21 / D66: D66's gate is the latched decision too, not the live header (it read
+            // `hasHeader || !custom` while the groups latched it: a header installed during the hold left the ungrouped
+            // indicator without D66, one removed made D66 hide a grouped one).
+            #expect(gate == (first == "none" ? "applies" : "off"),
+                    "\(path) header first \(headerFirst): D66's gate follows the latch (\(String(describing: gate)))")
         }
         #endif
     }
