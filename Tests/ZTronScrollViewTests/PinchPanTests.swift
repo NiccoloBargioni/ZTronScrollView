@@ -328,6 +328,8 @@ struct PinchPanTests {
         r.now += 0.016
         r.coord.synthesizePan(location: CGPoint(x: 120, y: 170), time: r.now)
         #expect(abs(r.state.contentOffset.y - (o.y + 30)) < 1e-6 && r.state.contentOffset.x == o.x)
+        // The finger slows to a crawl (< 250 pt/s over its last 50 ms, BTN-s2), pauses, lifts: rest.
+        for k in 1...4 { r.now += 0.016; r.coord.synthesizePan(location: CGPoint(x: 120, y: 170 - CGFloat(k)), time: r.now) }
         r.now += 0.5
         r.coord.handlePinch(.fingerCountChanged(count: 0, remaining: nil, time: r.now))
         r.coord.handle(.touchesEnded(time: r.now))
@@ -377,9 +379,14 @@ struct PinchPanTests {
         r.now += 0.016
         r.coord.handle(.dragChanged(translation: CGSize(width: 0, height: -42), startLocation: landing, time: r.now))
         #expect(abs(r.state.contentOffset.y - (o.y + 30)) < 1e-6, "then 1:1")
-        // A pause, then the lift: the gesture's own velocity is ignored, the tracker says rest.
+        // The finger slows to a crawl, pauses, lifts: the gesture's own velocity is ignored, the tracker's gate says
+        // rest (< 250 pt/s over the last 50 ms of moves, BTN-s2; the pause itself does not matter).
+        for k in 1...4 {
+            r.now += 0.016
+            r.coord.handle(.dragChanged(translation: CGSize(width: 0, height: -42 - CGFloat(k)), startLocation: landing, time: r.now))
+        }
         r.now += 0.1
-        r.coord.handle(.dragEnded(translation: CGSize(width: 0, height: -42), time: r.now, fallbackVelocity: CGVector(dx: 0, dy: -5000)))
+        r.coord.handle(.dragEnded(translation: CGSize(width: 0, height: -46), time: r.now, fallbackVelocity: CGVector(dx: 0, dy: -5000)))
         r.coord.handle(.touchesEnded(time: r.now))
         #expect(!r.state.isDecelerating && r.state.phase == .idle && !r.coord.isSequenceActive)
         #expect(!r.delegate.log.contains("willBeginDecelerating"))
@@ -402,6 +409,8 @@ struct PinchPanTests {
         r.now += 0.016
         r.coord.synthesizePan(location: CGPoint(x: 120, y: 200), time: r.now)
         #expect(abs(r.state.contentOffset.y - (o.y + 20)) < 1e-6)
+        // Slows to a crawl before the lift (BTN-s2 gate): the release rests.
+        for k in 1...4 { r.now += 0.016; r.coord.synthesizePan(location: CGPoint(x: 120, y: 200 - CGFloat(k)), time: r.now) }
         r.now += 0.1
         r.coord.handlePinch(.fingerCountChanged(count: 0, remaining: nil, time: r.now))
         r.coord.handle(.touchesEnded(time: r.now))

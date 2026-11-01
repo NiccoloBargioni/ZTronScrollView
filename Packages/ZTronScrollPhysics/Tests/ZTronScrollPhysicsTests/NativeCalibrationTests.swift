@@ -77,7 +77,26 @@ import Testing
         expectClose(v, Self.mediumNativeVelocity, Self.mediumNativeVelocity * 0.03, "medium fling")
     }
 
+    /// Fling into the bottom edge (27.0 calibration run 4, ZTron lane): the lift is 16.6 ms after the newest sample.
+    static let edgeFingers: [(TimeInterval, CGFloat)] = [(0.0, 607.67), (0.0167, 587.67), (0.0337, 563.33), (0.05, 537), (0.0668, 509.33), (0.0834, 481), (0.1002, 424), (0.1334, 396.33), (0.1499, 369.67), (0.1669, 345), (0.1835, 323.33), (0.2002, 307.67)]
+    static let edgeLift: TimeInterval = 0.2168
+
+    /// The estimator is unchanged by the release rule (BTN-s2, P1 + P2): the content velocity of the recorded flings
+    /// is pinned to the pre-change values (a Python port of the estimator agrees to float noise).
+    @Test(arguments: [(fastFingers, fastLift, CGFloat(3454.0055837361087)),
+                      (mediumFingers, mediumLift, CGFloat(1344.148740801884)),
+                      (edgeFingers, edgeLift, CGFloat(1335.207114878925))])
+    func releaseVelocityCalibrationUnchanged(fingers: [(TimeInterval, CGFloat)], lift: TimeInterval, pinned: CGFloat) {
+        let v = tracked(fingers, lift: lift)
+        expectClose(v, pinned, pinned * 1e-6, "pinned release velocity")
+    }
+
     @Test func slowDragHeldBeforeLiftReleasesAtRest() {
+        // Rests by the gate (the finger's last 50 ms ran ≈ 160 pt/s < 250), not by the 0.5 s pause: the fit is non-zero.
+        var tracker = VelocityTracker()
+        for (t, y) in Self.slowFingers { tracker.add(position: y, at: t) }
+        #expect(abs(tracker.gateVelocity) > 100 && abs(tracker.gateVelocity) < 250)
+        #expect(tracker.ungatedVelocity(at: Self.slowLift) != 0)
         #expect(tracked(Self.slowFingers, lift: Self.slowLift) == 0)
         let motion = ReleaseSolver.resolve(ReleaseContext(origin: 2280, velocity: 0, bounds: AxisBounds(min: 0, max: 5400)), at: 0)
         #expect(motion == .rest(position: 2280))
@@ -117,8 +136,11 @@ import Testing
         let bounds = AxisBounds(min: 0, max: 5400)
         var tracker = VelocityTracker()
         for (t, y) in Self.topFingers { tracker.add(position: y, at: t) }
-        #expect(tracker.velocity(at: Self.topLift) == 0)                 // the pause zeroes the decay velocity…
-        let raw = -tracker.lastMotionVelocity                            // …but not the spring-back seed
+        // The 0.3 s pause does not zero the release (BTN-s2, P1) and the finger's last 50 ms ran ≈ 260 pt/s, above the
+        // gate: the release velocity equals the last-motion fit (same samples in both windows, up to float noise).
+        #expect(abs(tracker.gateVelocity) >= 250 && abs(tracker.gateVelocity) < 300)
+        expectClose(tracker.velocity(at: Self.topLift), tracker.lastMotionVelocity, 1e-9, "release = last motion")
+        let raw = -tracker.lastMotionVelocity                            // the spring-back seed
         // UIKit's own estimate runs ≈ 15 % above the 100 ms fit here (the XCUI drag slows over its last 100 ms):
         // B = −378 vs ours −299; the curves differ by at most ΔB/(ω·e) ≈ 2.7 pt.
         expectClose(raw, -378, 100, "last raw velocity")

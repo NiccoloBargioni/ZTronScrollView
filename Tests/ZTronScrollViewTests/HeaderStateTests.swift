@@ -156,8 +156,13 @@ struct HeaderStateTests {
         #expect(abs(slow.endPosition + base) < 1e-6, "60 of 176 at rest: back to expanded")
         #expect(d.targets.last == -base && seen.last == -base, "the delegate and the modifier see the snapped target")
         s.interrupt()
-        let flick = release(s, at: 60, speed: 150, path: path)
-        #expect(abs(flick.endPosition - (176 - base)) < 1e-6, "velocity-aware: the projected rest is past the middle")
+        // D49 rev 2: the header snap is a natural release, so it sees the gated velocity (UIKit: no deceleration below
+        // 250 pt/s, like a willEndDragging retarget); 150 pt/s rests at 60 and snaps back to expanded.
+        let gated = release(s, at: 60, speed: 150, path: path)
+        #expect(abs(gated.endPosition + base) < 1e-6, "below the 250 pt/s gate the release rests: back to expanded")
+        s.interrupt()
+        let flick = release(s, at: 10, speed: 300, path: path)
+        #expect(abs(flick.endPosition - (176 - base)) < 1e-6, "velocity-aware: the projected rest (≈ 160) is past the middle")
         #expect(d.targets.last == 176 - base)
         s.interrupt()
         let far = release(s, at: 60, speed: 3000, path: path)
@@ -184,10 +189,10 @@ struct HeaderStateTests {
 
     @Test(arguments: OSPath.allCases) func afterFinishAcceleratingSnapsOnceTheMotionRests(path: OSPath) {
         let (s, clock) = make(path, snap: .afterFinishAccelerating())
-        _ = release(s, at: 60, speed: 100, path: path)
+        _ = release(s, at: 10, speed: 300, path: path)
         #expect(s.phase == .decelerating)
         settle(s, clock)
-        #expect(abs(oPrime(s) - 176) < 0.5, "the deceleration rests near 110, then the nearest position: \(oPrime(s))")
+        #expect(abs(oPrime(s) - 176) < 0.5, "the deceleration rests near 160, then the nearest position: \(oPrime(s))")
         let rest = release(s, at: 120, speed: 0, path: path)
         _ = rest
         #expect(s.phase == .animating, "a release at rest inside the band animates to the nearest position")

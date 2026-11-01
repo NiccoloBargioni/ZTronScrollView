@@ -191,8 +191,15 @@ The transform is driven by *target* values. The public `contentOffset`/`zoomScal
 - **Bounce:** support SwiftUI's `ScrollBounceBehavior` (.automatic, .always, .basedOnSize) per axis, plus UIKit-style bounces/alwaysBounce knobs.
 - **Release velocity:**
   - Use your own tracker over the last ~100 ms of timestamped samples.
-  - It is ≈ 0 if the finger rested for ~50–80 ms before lifting (tune this).
-  - `DragGesture.Value.velocity` (17+) is only a fallback.
+  - ~~It is ≈ 0 if the finger rested for ~50–80 ms before lifting (tune this).~~ **Amendment 2026-10-25 (BTN-s3, D49) — UIKit's
+    rule, measured (BTN-s2):** only touch moves enter. The fit is evaluated at the lift, but at most one frame (1/60 s) after the
+    newest sample, so an event-free pause before the lift never changes the release. Gate: the release velocity is 0 unless the
+    finger's velocity over the last 50 ms of samples before the newest (position interpolated at newest − 50 ms), taken as a
+    vector over the axes the view scrolls, reaches 250 pt/s; past it every scrolling axis decelerates from its own component,
+    however small (`UIScrollView` does not decelerate below it; a finger that rests while still reporting small moves falls under
+    it; measured BTN-s3: a two-axis view gates on the vector, 84 of 84 diagonal drags, a one-axis view on its own axis, 35 of 35). The gate applies to natural releases only: a scroll-target behavior (or paging) sees the ungated velocity and keeps
+    "v₀ ≈ 0" = 20 pt/s, and the rubber-band spring-back is seeded with the finger's last movement velocity, ungated.
+  - `DragGesture.Value.velocity` (17+) is only a fallback (gated the same way on a natural release).
 - **Release in bounds:**
   - Decay with decelerationRate r per ms (.normal 0.998, .fast 0.99).
   - Position: x(t) = x₀ + v₀·(r^(1000t) − 1)/(1000·ln r). Rest point: x₀ − v₀/(1000·ln r). Units: v₀ in pt/s, t in s.

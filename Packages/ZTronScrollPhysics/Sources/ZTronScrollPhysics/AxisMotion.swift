@@ -131,9 +131,9 @@ public struct ReleaseContext: Sendable, Equatable {
     public var thresholds: RestThresholds
     /// Target resolved by the scroll-target behavior, then the delegate's `willEndDragging` (`nil` = natural).
     public var target: CGFloat?
-    /// `pt/s`: the finger's last movement velocity in content direction, *not* zeroed by a pause before the lift
-    /// (``VelocityTracker/lastMotionVelocity``). Seeds the spring-back when released out of bounds. Defaults to
-    /// `velocity`.
+    /// `pt/s`: the finger's last movement velocity in content direction, *not* gated by the 250 pt/s deceleration
+    /// threshold and not zeroed by a pause before the lift (``VelocityTracker/lastMotionVelocity``). Seeds the
+    /// spring-back when released out of bounds. Defaults to `velocity`.
     public var rubberBandVelocity: CGFloat
 
     public init(origin: CGFloat, velocity: CGFloat, bounds: AxisBounds, rate: DecelerationRate = .normal,

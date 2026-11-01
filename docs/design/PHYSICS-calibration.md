@@ -27,7 +27,7 @@ re-measured against a native SwiftUI `ScrollView` (UIScrollView-backed) on the i
 |---|---|---|
 | recognition | first sample of 128 pt moves the content 117 pt | offset moves by \|t₀\| − 10 along t₀ at recognition |
 | tracking | 1:1, 2 ms behind the finger event | same (ours 4–6 ms) |
-| release velocity | 3457 pt/s (fast), 1350 (medium), 0 after a 0.5 s hold | unweighted least-squares slope over the last 100 ms (±1 %) |
+| release velocity | 3457 pt/s (fast), 1350 (medium), 0 after a 0.5 s hold | unweighted least-squares slope over the last 100 ms (±1 %), evaluated at most one frame after the newest sample; the held slow drag is 0 by the 250 pt/s gate on its last 50 ms (≈ 170 pt/s), not by the hold (BTN-s3, SPEC S6 amendment; values pinned in `NativeCalibrationTests`) |
 | deceleration | r = 0.99800 per ms (both fits, rms < 0.6 pt) | `DecelerationRate.normal` unchanged |
 | decay end | stops at \|v\| ≈ 10 pt/s, 4.7–4.8 pt short of the analytic rest, no jump; 2.93 s / 2.47 s | `RestThresholds.velocity = 10`, natural decays end at `stopPosition` |
 | rubber band | 89.0 pt for 190 pt overscroll (c = 0.569 implied, i.e. 0.55 with the 10 pt hysteresis) | unchanged |
