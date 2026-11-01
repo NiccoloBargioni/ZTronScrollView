@@ -260,11 +260,17 @@ crossfade under `withAnimation { scrollTo }` through the band (a pixel column's 
 - The `.background` slot's top edge at the safe-area top on 15 / forced (the overlay needed an explicit `.top` frame).
 - A `clipShape` whose path animates inside a `compositingGroup()` during a system rotation of a stretch hold (CA interpolation of
   the mask), and the effect drawn per frame in an app-animated resize on 15–16.
+  **Measured (step 3, 2026-11-01):** none on the forced lane (27.0, the 15–16 path): rotate holds |seam| ≤ 0.5 pt, lateral
+  ≤ 0.25, jumps ≤ 0.24 (= preferred); the clip is a `Path(rect)`, no mask layer on either path; the app-animated width and
+  AnimateHeight holds pass. Real 15–16 devices unmeasured (no runtime on macOS 27).
 - Implicit animation of the gradient stops under a transaction-driven scroll (lag): the `Animatable` modifier precedent says no;
   measure with the crossfade scenario.
 - `.slideBehind` under a translucent navigation bar: the header draws under the bar as it moves up (by design; confirm with the user).
 - 15–16 `.slideBehind`: the unclipped-at-`top0` header and the content group both inside the scroll view's clip; blend isolation.
 - Readers scaled under `.stretch` (text inside a scaled stack is rasterised by the scale on 15–16: slight blur while pulled).
+  **Measured (step 3, 2026-11-01):** on EVERY lane (17.5, 27.0, 27.0 forced) the pulled header is its layer's bitmap
+  scaled: a 24 pt text's edge width grows 1.25× (17.5) to 1.8× (27.0) at s = 1.25. Transient (pull / refresh hold only);
+  a re-raster would re-run the header body (S4), so it is a documented limit (open item 28).
 - Mode switch at runtime re-installs the header (`@State` lost) — acceptable? If not, both slots must share one host (harder).
 
 ## 8. Lead decisions on the open questions (2026-11-01)

@@ -287,6 +287,11 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
    watch closes one turn in for both); an orientation-flip heuristic would give single-axis system resizes (iPad Split View /
    Stage Manager, Core Animation-interpolated, no iPad lane) back the item 20 symptom (drawn over the content), which is worse
    than a late reveal. Options: accept; or reveal at once when the size change is single-axis and measure on an iPad lane first.
+28. **`.stretch` pull blurs text in the header while pulled (2026-11-01, header behaviors step 3 / D69, measured, OPEN)** (item 24
+   above is 27 on main): the stretch is a render-time scale (D69), so Core Animation scales the header layer's bitmap: a 24 pt
+   text's edge width grows 1.25x (17.5) to 1.8x (27.0, forced) at s = 1.25 (seam lab `-ZTronSeamHeaderText 1`, all lanes, not
+   only 15-16). Transient (pull and refresh hold), images unaffected in kind. A re-raster would re-run the header body (S4).
+   Options: accept and document in SPEC S10 (proposed); or a user opt-in that re-lays the header at the pulled height.
 
 ## Decisions (keep)
 - D1 Naming map in CLAUDE.md (ZoomScroll → ZTronScroll, `ztronScroll…` modifiers; matches ZTronPages' `ztronPage()`).
