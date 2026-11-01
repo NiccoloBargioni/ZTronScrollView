@@ -294,6 +294,8 @@ struct RefreshEdgeIndicator: View {
     @StateObject private var built = BuiltRefreshIndicator()
     /// Whether the indicator is hidden for an open resize (`RefreshResizeReveal`, D66).
     @StateObject private var reveal = RefreshResizeReveal()
+    /// Whether this frame's base move follows an app-animated inset change (`RefreshBaseFollow`).
+    @StateObject private var follow = RefreshBaseFollow()
 
     var body: some View {
         let built = built, reveal = reveal
@@ -325,13 +327,22 @@ struct RefreshEdgeIndicator: View {
                 RefreshContentDraw(offset: $0.targetOffset, zoom: $0.targetZoom, limits: state.zoomLimits,
                                    alignment: state.contentAlignment, paging: state.isPagingEnabled ? state.scrollAxes : [])
             }
+            let along: CGFloat = switch edge {
+            case .top: base.top
+            case .bottom: base.bottom
+            case .leading: base.leading
+            case .trailing: base.trailing
+            }
+            let baseAnimation = open ? nil : follow.animation(base: along, pull: pull, overlay: overlay,
+                                                              insets: m.adjustedContentInset, follow: state.insetFollow)
             indicator(visible: visible, built: built).modifier(RefreshPlacementEffect(
                 pull: pull, edge: edge, style: spec.style, overlay: overlay, length: length, hold: hold,
                 refreshing: refreshing, refresh: refresh, retract: retract,
                 viewport: m.viewportSize, base: base, useGeometryGroup: state.usesGeometryGroup,
                 hasHeader: state.headerSpec != nil || m.header != nil, custom: spec.indicator != nil,
                 resize: m.resize, baseFollowsInset: edge != .top || HeaderMath.refreshTop(m)?.overlay != false, draw: draw,
-                reveal: reveal.look(open: open, visible: visible, animating: sample.phase == .animating)))
+                reveal: reveal.look(open: open, visible: visible, animating: sample.phase == .animating),
+                baseAnimation: baseAnimation))
         }
     }
 
@@ -387,6 +398,39 @@ final class BuiltRefreshIndicator: ObservableObject {
         let view = build()
         last = (view, state)
         return view
+    }
+}
+
+/// Fix round 2 of M8b-s6 (review of open item 21): an inset-only change the app animates (`withAnimation` around a bottom
+/// `.safeAreaInset`, a bar) is reported after the layout pass that animates the container's frame, and written without
+/// animation: the edge's base, where the indicator's clip begins (`region`), moved at once while the container's own clip,
+/// its frame, followed the app's curve. A hold in the gap at the bottom vanished on the first frame instead of sliding out
+/// clipped by the frame (seam lab kbfake, 150 pt, 27.0 / 17.5 / forced; hosted: the region 806 → 656 at once, the frame
+/// 806 → 656 over 1.2 s), and an overlay jumped 150 pt to its new base (and back, drawn at once at its old place).
+/// `ZTronScrollState.insetFollow` keeps the turn's animation and the inset it wrote; on the frame whose base moves by that
+/// change the leaf draws the move in it (`RefreshPlacementEffect` interpolates the base with the pull): an overlay with
+/// its base, in the gap only where the content's edge stays (`base + pull` unchanged: the box stays on the content's edge,
+/// the region slides with the frame). Where the content moves (the start edge kept), the base moves at once as before.
+/// The decision is made once per change and repeated only for the same values (a body run twice). Never publishes.
+@MainActor
+final class RefreshBaseFollow: ObservableObject {
+    private var last: (base: CGFloat, edge: CGFloat)?
+    private var decided: (serial: UInt64, base: CGFloat, pull: CGFloat, animation: Animation?)?
+
+    /// `base`: the edge's base along its axis; `pull`: the signed pull (the content's edge is `base + pull` from the
+    /// viewport's side of the edge); `insets`: this frame's adjusted inset.
+    func animation(base: CGFloat, pull: CGFloat, overlay: Bool, insets: EdgeInsets,
+                   follow: ZTronScrollState.InsetFollow?) -> Animation? {
+        let prev = last
+        last = (base, base + pull)
+        guard let follow, follow.insets == insets else { return nil }
+        if let d = decided, d.serial == follow.serial {
+            return abs(d.base - base) < 0.01 && abs(d.pull - pull) < 0.01 ? d.animation : nil
+        }
+        var a: Animation?
+        if let prev, abs(base - prev.base) > 0.5, overlay || abs(base + pull - prev.edge) <= 0.5 { a = follow.animation }
+        decided = (follow.serial, base, pull, a)
+        return a
     }
 }
 
@@ -518,6 +562,9 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
     /// with nothing of it visible and is not drawn frame by frame, shown after the system's transition.
     let reveal: RefreshResizeReveal.Look
 
+    /// The animation of an app-animated inset change this frame's base move follows (`RefreshBaseFollow`), else nil.
+    let baseAnimation: Animation?
+
     var animatableData: CGFloat {
         get { pull }
         set { pull = newValue }
@@ -620,6 +667,12 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
         .modifier(RefreshIndicatorGroup(kind: group))
         .modifier(RefreshResizeEffect(commit: resize, edge: edge, baseFollowsInset: baseFollowsInset,
                                       part: .region(origin: origin), draw: nil))
+        // An app-animated inset change (`RefreshBaseFollow`): the boxes' layout and the region's origin move in its
+        // animation, below this modifier, whose own `pull` lands at once (interpolated here too, the values the body
+        // derives were animated again on every frame: the moves lagged 0.1 s to most of the change, hosted).
+        .transaction { t in
+            if let baseAnimation { t.animation = baseAnimation }
+        }
     }
 }
 

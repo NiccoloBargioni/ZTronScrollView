@@ -64,6 +64,17 @@ public final class ZTronScrollState {
     var onFlush: (() -> Void)?
     /// `setRefreshHold(_:followsOffset: true)` runs the inset-only path with this hold instead of the stored one.
     private var holdOverride: EdgeInsets?
+    /// The animation of the run-loop turn of the last inset-only viewport change (an app's `withAnimation` around a
+    /// `.safeAreaInset` or a bar: SwiftUI animates the container's frame, the report arrives after layout) and the adjusted
+    /// inset it wrote; nil when that change had none. Cold, never published: the refresh indicator moves its base with it
+    /// (`RefreshBaseFollow`, fix round 2 of M8b-s6).
+    private(set) var insetFollow: InsetFollow?
+    private var insetFollowSerial: UInt64 = 0
+    struct InsetFollow {
+        var serial: UInt64
+        var animation: Animation
+        var insets: EdgeInsets
+    }
     /// The `onZTronScrollReachEdge` registrations, evaluated at every flush and metrics change (M8b).
     private(set) var reachEdgeWatchers: [ReachEdgeWatcher] = []
     private var isEvaluatingReachEdges = false
@@ -875,6 +886,12 @@ public final class ZTronScrollState {
             // 17.5). Without a header height change, or without an animation in the turn, the write stays as it was.
             let follow = hadViewport && insetsChanged && m.header?.resting != old.header?.resting
                 ? positionDriver.animationInTurn : nil
+            if hadViewport, insetsChanged {
+                insetFollowSerial &+= 1
+                insetFollow = positionDriver.animationInTurn.map {
+                    InsetFollow(serial: insetFollowSerial, animation: $0, insets: m.adjustedContentInset)
+                }
+            }
             #if DEBUG
             if follow != nil { dbg("vp inset follows the transaction's animation") }
             #endif

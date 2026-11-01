@@ -637,3 +637,109 @@ struct RefreshIndicatorLayerTests {
         print("I21R \(label) samples=\(samples.count) judged=\(judged) bad=\(bad.count) rest=\(rest)")
     }
 }
+
+// MARK: Fix round 2 of M8b-s6: a hold during an app-animated bottom `.safeAreaInset`
+
+extension RefreshIndicatorLayerTests {
+    /// A colour for a probe square on the bottom of the frame the scroll view is laid out in (its drawn bottom).
+    static let frameColor = (r: 0.8, g: 0.1, b: 0.7)
+
+    final class Inset: ObservableObject { @Published var on = false }
+
+    /// The seam lab's kbfake: the scroll view laid out in the safe area of a `GeometryReader` that a bottom
+    /// `.safeAreaInset` of 150 pt shrinks. The library extends the viewport over it, so the viewport keeps its size and
+    /// only the bottom inset changes (an inset-only change, no resize); the container clips to its frame, which SwiftUI
+    /// animates. The content's last 100 pt are `edgeColor`.
+    struct InsetHoldHost: View {
+        let state: ZTronScrollState
+        let overlay: Bool
+        @ObservedObject var inset: Inset
+        var body: some View {
+            let edgeColor = Color(red: RefreshIndicatorLayerTests.edgeColor.r, green: RefreshIndicatorLayerTests.edgeColor.g,
+                                  blue: RefreshIndicatorLayerTests.edgeColor.b)
+            GeometryReader { g in
+                ZStack(alignment: .bottomTrailing) {
+                    ZTronScrollView(.vertical, state: state) {
+                        VStack(spacing: 0) { Color.green.frame(height: 2900); edgeColor.frame(height: 100) }
+                    }
+                    .refresher(refreshView: { _ in
+                        Color(red: RefreshIndicatorLayerTests.marker.r, green: RefreshIndicatorLayerTests.marker.g,
+                              blue: RefreshIndicatorLayerTests.marker.b)
+                            .frame(width: 20, height: 20)
+                    }, overlay: overlay, configuration: ZTronRefreshConfiguration(allowedEdges: .bottom)) {
+                        try? await Task.sleep(nanoseconds: 1_000_000_000_000)
+                    }
+                    .frame(width: g.size.width, height: g.size.height)
+                    Color(red: RefreshIndicatorLayerTests.frameColor.r, green: RefreshIndicatorLayerTests.frameColor.g,
+                          blue: RefreshIndicatorLayerTests.frameColor.b).frame(width: 8, height: 8)
+                }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) { Color.clear.frame(height: inset.on ? 150 : 0) }
+        }
+    }
+
+    /// Review of item 21's follow-ups (MEDIUM, seam lab kbfake): the app animates a bottom `.safeAreaInset` during a bottom
+    /// hold. The report of the new inset arrives after the layout pass that animates the container's frame and was written
+    /// without animation, so the indicator's base (where its clip begins) moved 150 pt at once while the container's clip,
+    /// its frame, followed the app's curve: in the gap the marker vanished on the first frame instead of sliding out
+    /// clipped by the frame (8f902f4 to c5ffc4a, 27.0 / 17.5 / forced), an overlay jumped 150 pt to its new base and, on
+    /// the way back, to its old place under the frame. Sampled as drawn every 0.05 s through the change and back: the
+    /// content's edge never moves; in the gap the marker stays on it and is drawn exactly as far as the drawn frame reaches
+    /// over it; an overlay rests its rest distance before the drawn frame's bottom, whole.
+    @Test(arguments: OSPath.allCases, [false, true])
+    func anAnimatedSafeAreaInsetSlidesTheHoldWithTheFrame(path: OSPath, overlay: Bool) {
+        let s = makeState(path), inset = Inset()
+        let w = withOSPath(path) {
+            let w = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+            let c = UIHostingController(rootView: InsetHoldHost(state: s, overlay: overlay, inset: inset))
+            c.additionalSafeAreaInsets = UIEdgeInsets(top: 62, left: 0, bottom: 34, right: 0)
+            w.rootViewController = c
+            w.makeKeyAndVisible()
+            return w
+        }
+        defer { unhost(w) }
+        pump(0.3)
+        let g = s.geometry, i = s.adjustedContentInset
+        s.scroll(to: CGPoint(x: 0, y: max(-i.top, g.contentSize.height - g.containerSize.height + i.bottom)))
+        pump(0.3)
+        s.beginRefreshing(edge: .bottom)
+        pump(0.8)
+        let label = "\(path) \(overlay ? "overlay" : "gap")"
+        guard let frame0 = presented(Self.frameColor, in: w)?.frame.maxY, let m0 = presented(Self.marker, in: w),
+              let edge0 = presented(Self.edgeColor, in: w)?.frame.maxY else {
+            Issue.record("\(label): nothing drawn at rest"); return
+        }
+        let rest = frame0 - m0.frame.midY
+        var bad: [String] = [], judged = 0, moving = 0
+        for (k, flag) in [true, false].enumerated() {
+            withAnimation(.linear(duration: 1.2)) { inset.on = flag }
+            for n in 0..<28 {
+                pump(0.05)
+                guard let f = presented(Self.frameColor, in: w)?.frame.maxY else { continue }
+                let tag = "\(k).\(n)"
+                if abs(f - frame0) > 1, abs(f - (frame0 - 150)) > 1 { moving += 1 }
+                if let e = presented(Self.edgeColor, in: w)?.frame.maxY, abs(e - edge0) > 0.5 {
+                    bad.append("\(tag) content edge \(e)")
+                }
+                let m = presented(Self.marker, in: w)
+                let shown = m.map { $0.visible.isNull ? 0 : $0.visible.height } ?? 0
+                judged += 1
+                if overlay {
+                    if let m, shown > 19.5, abs(f - m.frame.midY - rest) <= 1 { continue }
+                    bad.append("\(tag) frame \(f) marker \(m.map { "\($0.frame.midY)" } ?? "nil") shown \(shown)")
+                } else {
+                    // Drawn as far as the frame reaches over its place on the content's edge (the region clips nothing
+                    // more).
+                    let expected = max(0, min(20, f - m0.frame.minY))
+                    if abs(shown - expected) > 1 { bad.append("\(tag) frame \(f) shown \(shown) expected \(expected)") }
+                    if let m, shown > 0.5, abs(m.frame.midY - m0.frame.midY) > 1 { bad.append("\(tag) marker at \(m.frame.midY)") }
+                }
+            }
+            pump(0.5)
+        }
+        #expect(s.refresh?.states[.bottom]?.mode == .refreshing, "\(label): still held")
+        #expect(moving >= 20, "\(label): \(moving) samples with the frame in motion")
+        #expect(bad.isEmpty, "\(label): \(bad.count) of \(judged) samples \(bad)")
+        print("KBF \(label) judged=\(judged) moving=\(moving) bad=\(bad.count) rest=\(rest)")
+    }
+}
