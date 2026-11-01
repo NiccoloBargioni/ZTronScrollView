@@ -1,4 +1,4 @@
-# NESTED-mixed · Builder briefs for rows A and D of NESTED-arbitration §6 (2026-10-21, pending the user's go)
+# NESTED-mixed · Builder briefs for rows A and D of NESTED-arbitration §6 (2026-10-21; approved by the user's resolutions R1–R3; D1 built in NESTED-s3, merged 2026-11-01, D73; A and D2 not built)
 
 Scope: `docs/design/NESTED-arbitration.md` §6 rows **A** (a native `ScrollView` or any opaque scroller inside a
 ZTronScrollView: a *passive region*) and **D** (a bridged, cooperating `UIScrollView` inside a ZTronScrollView: a public

@@ -710,6 +710,18 @@ public struct ZTronNestedScrollPolicy: Sendable {
 extension ZTronScrollView { public func nestedScrollPolicy(_ policy: ZTronNestedScrollPolicy) -> Self }   // on the inner
 extension View { public func ztronNestedScrollPolicy(_ policy: ZTronNestedScrollPolicy) -> some View }   // environment twin; propagates; the member wins
 
+// Foreign arbitration participants — Amendment 2026-11-01 (NESTED-mixed D1, user resolutions R1–R3 2026-10-21; built in NESTED-s3, D73):
+// any object conforming to ScrollArbitration's `ScrollArbitrationParticipant` (a cooperating UIScrollView bridge, row D) joins the
+// arbiter in the environment (`\.scrollArbiter`: an enclosing ZTronScrollView's nested arbiter, or ZTronPages'). The signatures name
+// ScrollArbitration 1.0.0 types; no re-export, so callers `import ScrollArbitration` (S16 "Dependents").
+@MainActor public final class ZTronScrollArbitrationRegistration {   // not observable: cold-path state, never subscribes a body
+    public init()
+    public weak var participant: (any ScrollArbitrationParticipant)?   // registered while the view is placed AND this is set; nil unregisters
+    public var isRegistered: Bool
+    public func owner(ofDragFrom startLocation: CGPoint, translation: CGSize, touchCount: Int) -> ScrollOwner   // once per touch sequence, at the UIKit pan's slop; startLocation local to the registered view; .participant with no arbiter / unregistered
+}
+extension View { public func ztronScrollArbitrationParticipant(_ registration: ZTronScrollArbitrationRegistration) -> some View }   // the view's frame in the arbiter's named space; cold (appear / frame change / disappear); ignores ztronNestedScrollPolicy
+
 // Sheet cooperation — Amendment 2026-10-21 (SHEET-s1; design `docs/design/SHEET-spike.md` §5, semantics in S12 "Inside a bottom sheet"):
 extension View { public func ztronScrollYieldsToSheet(_ yields: Bool = true) -> some View }   // environment; propagates; true = inert to drags (gestures masked `.subviews`) so the sheet gets them
 
@@ -1134,6 +1146,7 @@ ScrollArbitration is the only code ZoomScroll shares with the ZTronPages pager. 
 - **Imports:** SwiftUI and Foundation. No UIKit, no dependencies.
 - **Size:** about 200–300 lines, plus tests.
 - **Home:** built in `Packages/ScrollArbitration` (F1). At the end of MC it moves to its own Git repository, tagged `1.0.0`. ZoomScroll and ZTronPages both depend on it with `.upToNextMinor(from: "1.0.0")`.
+- **Dependents' public API (amendment 2026-11-01, D73):** ZTronScrollView's `ZTronScrollArbitrationRegistration` / `ztronScrollArbitrationParticipant(_:)` (S11) and `ZTronNestedScrollContext.fingerDirection` name 1.0.0 types without re-exporting them, so ZTronScrollView's public API follows this contract's semver: a breaking change here is a breaking change there.
 
 ### Public API (frozen at 1.0.0)
 
