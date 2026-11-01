@@ -56,9 +56,9 @@ All gestures live on `ViewportView` in the untransformed viewport space, never o
 - **Pan**: `DragGesture(minimumDistance: 10)`; baseline set at recognition; `offset = baseline − translation` (never
   accumulated), rubber band applied/inverted at the edges; directional lock and axis mask; release velocity from
   `VelocityTracker` (own samples), `DragGesture.Value.velocity` only as fallback.
-- **Pinch**: `MagnifyGesture` (17) with live centroid from `SpatialEventGesture` (18) | `MagnificationGesture` (15) with
+- **Pinch**: `MagnifyGesture` (17) with live centroid from `SpatialEventGesture` (used from 28, D34, D37) | `MagnificationGesture` (15) with
   the pan location as focal estimate. Both `.simultaneousGesture` with pan (two-finger pan while pinching).
-- **Catch**: `SpatialEventGesture` (18) | `DragGesture(minimumDistance: 0)` (15): first touch stops any motion,
+- **Catch**: `SpatialEventGesture` (used from 28, D34, D37) | `DragGesture(minimumDistance: 0)` (15): first touch stops any motion,
   sets target = presentation, and disables content hit-testing while the content was moving (S6 "touch during motion").
 - Keyboard: `focusable` + `onKeyPress` (17) | hidden `keyboardShortcut` buttons. Accessibility: `accessibilityZoomAction`
   (16) | named actions. Refresh and header read the same pan through `ZTronScrollState`, not their own gestures.
@@ -70,7 +70,7 @@ All gestures live on `ViewportView` in the untransformed viewport space, never o
 | layout without proposal change | `Layout` | 16 | `fixedSize` + top-leading frame |
 | geometry callbacks | `onGeometryChange` `(newValue)` overload; `(old, new)` is 18 | 16 (back-deployed) | `GeometryReader` + `PreferenceKey` |
 | render-time child effects | `visualEffect` | 17 | leaf modifier reading geometry |
-| raw touches / centroid / timestamps | `SpatialEventGesture` | 18 | `DragGesture(minimumDistance: 0)` |
+| raw touches / centroid / timestamps | `SpatialEventGesture` | 28 (API 18; D34, D37) | `DragGesture(minimumDistance: 0)` |
 | pinch | `MagnifyGesture` (+ centroid 18) | 17 | `MagnificationGesture` + drag focal estimate |
 | input kinds (pointer/pencil) | `GestureInputKinds` (iOS 27 SDK only: `#if compiler(>=6.4)`) | 27 | — (all inputs treated as direct touch) |
 | curves | `Spring` / `UnitCurve` | 17 | own closed forms (physics package) |

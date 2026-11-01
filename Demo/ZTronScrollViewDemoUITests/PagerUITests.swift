@@ -55,10 +55,13 @@ final class PagerUITests: XCTestCase {
         XCTAssertEqual(s.x, 0, "swipe at the leading edge leaves the scroller alone")
         XCTAssertEqual(s.page, 0)
 
-        // Scroll to the trailing edge, then one more swipe the scroller cannot follow pages.
+        // Scroll to the trailing edge, then one more swipe the scroller cannot follow pages. The edge is the content width
+        // (PagerScreen: 900 pt) minus the viewport: a fixed x (it was 500) misses it on a narrower viewport (iPhone 16,
+        // 377 pt: edge 523, the loop stopped at 508 and the last swipe only scrolled) and overshoots on a wider one.
+        let edge = 900 - Int(frame.width)
         for _ in 0..<4 {
             s = state(app)
-            if s.x >= 500 { break }
+            if s.x >= edge - 1 { break }
             swipe(app, frame: frame, from: (0.9, 0.5), to: (0.2, 0.5))
         }
         s = state(app)

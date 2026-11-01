@@ -84,10 +84,15 @@ enum RunningOS {
         isAtLeast(capability.minimumOS) && !(capability.preferredOSCeiling.map(isAtLeast) ?? false)
     }
 
-    /// `true` when the running OS is at or above every capability's `minimumOS` (iOS 27+ today); capabilities whose
-    /// preferred path is the old-OS one still need ``shipsPreferred(_:)``.
+    /// Capabilities whose API the SDK ships but the library keeps on the fallback until iOS 28 (D37): their `minimumOS` is
+    /// above every OS that exists, so no running OS "ships" them. `AvailabilityTests.spatialEventsAreHeldBackBelow28` pins
+    /// the set; when it fails on iOS 28, re-measure `UIKitControlsUITests` and empty it.
+    static let heldBack: Set<ZTronCapability> = [.spatialEvents, .liveMagnifyCentroid]
+
+    /// `true` when the running OS is at or above every capability's `minimumOS` (iOS 27+ today), the held-back ones
+    /// (``heldBack``) apart; capabilities whose preferred path is the old-OS one still need ``shipsPreferred(_:)``.
     static var shipsEveryCapability: Bool {
-        ZTronCapability.allCases.allSatisfy { isAtLeast($0.minimumOS) }
+        ZTronCapability.allCases.allSatisfy { heldBack.contains($0) || isAtLeast($0.minimumOS) }
     }
 
     static var gatedCapabilities: Set<ZTronCapability> {

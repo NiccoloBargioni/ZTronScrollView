@@ -31,7 +31,7 @@ struct PanGestureAdapter: ViewModifier {
     @Environment(\.ztronYieldsToSheet) private var yields
     @Environment(\.displayScale) private var displayScale
     @State private var observer = CatchObserverState()
-    /// Fallback observer gating (iOS < 18): the zero-distance drag steals touches from UIKit-backed controls, so
+    /// Fallback observer gating (iOS < 28, D34, D37): the zero-distance drag steals touches from UIKit-backed controls, so
     /// it is attached only while the content moves without a finger, or while a touch it saw is still down.
     @State private var armed = CatchArming()
     @GestureState private var panActive: Bool
@@ -146,7 +146,9 @@ struct GestureAttach<P: Gesture>: ViewModifier {
             let on = !yields
             switch (mode, observer) {
             case (.simultaneous, let observer?):
-                content.simultaneousGesture(observer, name: n, isEnabled: on)
+                // Armed gating (`observerEnabled`) holds on 18.x too: the observer that is not `SpatialEventGesture`
+                // (D34, D37, or any forced fallback) must not sit on the content while it is at rest.
+                content.simultaneousGesture(observer, name: n, isEnabled: on && observerEnabled)
                     .simultaneousGesture(pan, name: n, isEnabled: on)
             case (.gesture, let observer?):
                 content.gesture(observer.simultaneously(with: pan), name: n, isEnabled: on)

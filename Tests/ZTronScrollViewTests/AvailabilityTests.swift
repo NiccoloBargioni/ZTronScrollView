@@ -14,8 +14,8 @@ struct AvailabilityTests {
     @Test func minimumOSMatchesDesignMatrix() {
         let expected: [ZTronCapability: (major: Int, minor: Int)] = [
             .perPropertyObservation: (17, 0), .layoutProtocol: (16, 0), .geometryChange: (16, 0),
-            .visualEffect: (17, 0), .spatialEvents: (18, 0), .magnifyGesture: (17, 0),
-            .liveMagnifyCentroid: (18, 0), .gestureInputKinds: (27, 0), .nativeCurves: (17, 0),
+            .visualEffect: (17, 0), .spatialEvents: (28, 0), .magnifyGesture: (17, 0),
+            .liveMagnifyCentroid: (28, 0), .gestureInputKinds: (27, 0), .nativeCurves: (17, 0),
             .animationCompletion: (17, 0), .keyPathTransaction: (17, 0), .keyboardScrolling: (17, 0),
             .accessibilityZoom: (16, 0), .sensoryFeedback: (17, 0), .namedCoordinateSpace: (17, 0),
             .subviewContainers: (18, 0), .scrollBounceBehaviorType: (16, 4), .frameClock: (15, 0),
@@ -25,6 +25,27 @@ struct AvailabilityTests {
         for capability in ZTronCapability.allCases {
             guard let want = expected[capability] else { continue }
             #expect(capability.minimumOS == want, "\(capability)")
+        }
+    }
+
+    /// D37 (docs/progress/DBG-s4.md): `SpatialEventGesture` is not used on any OS that exists. Its recognizer begins at the
+    /// touch-down on 26.x / 27.0 (with the first movement on 18.x) and cancels the touches of touch-based UIKit controls, so a
+    /// SwiftUI `Stepper`, a segmented `Picker`, a compact `DatePicker` and a `ColorPicker` inside the scroll view never reacted
+    /// to a tap (`UIKitControlsUITests`, red on 26.0 / 26.5 / 27.0 with it, green without). Both capabilities resolve to their
+    /// fallback on every running OS below 28, forced or not; the day iOS 28 runs this test, re-measure and revisit it.
+    @Test(arguments: OSPath.allCases)
+    func spatialEventsAreHeldBackBelow28(path: OSPath) {
+        withOSPath(path) {
+            for capability in RunningOS.heldBack {
+                #expect(capability.minimumOS == (28, 0), "\(capability)")
+                #expect(RunningOS.isAtLeast((28, 0)) || !ZTronAvailability.osSupports(capability), "\(capability)")
+                #expect(RunningOS.isAtLeast((28, 0)) || !ZTronAvailability.isAvailable(capability), "\(capability)")
+            }
+            #expect(RunningOS.heldBack == [.spatialEvents, .liveMagnifyCentroid])
+            if !RunningOS.isAtLeast((28, 0)) {
+                let state = ZTronScrollState()
+                #expect(!state.usesSpatialEvents, "the observer is the armed DragGesture below iOS 28")
+            }
         }
     }
 
@@ -52,7 +73,8 @@ struct AvailabilityTests {
     func everyCapabilityResolvesPreferredOnNewestOS() {
         withOSPath(.preferred) {
             #expect(ZTronAvailability.forcedFallbacks.isEmpty)
-            for capability in ZTronCapability.allCases where capability.preferredOSCeiling == nil {
+            for capability in ZTronCapability.allCases
+            where capability.preferredOSCeiling == nil && !RunningOS.heldBack.contains(capability) {
                 #expect(ZTronAvailability.osSupports(capability), "\(capability)")
                 #expect(ZTronAvailability.isAvailable(capability), "\(capability)")
             }
