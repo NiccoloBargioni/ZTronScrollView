@@ -113,3 +113,30 @@ Usage: not measured.
   - Notes: `scratchpad/fu/notes.md`.
 - **Tests**: Refresh/Header/Indicator suites (27, 258 tests) green on 17.5, 9 known issues; full unit suite on 27.0: 795 tests in 77 suites green, 9 known issues (as at a19ea0f).
 - **Open**: iPad rotations last 0.4 s, so the 0.3 s delay may start the fade before one lands. Not measured, no iPad lane.
+
+## Fix round 2 of the item 21 follow-ups review (2026-11-01, Opus 5.5 workflow subagent; c5ffc4a -> 27bc80f + this commit)
+- **MEDIUM fixed (27bc80f), pre-existing at 8f902f4.** A bottom hold while the app animates a bottom `.safeAreaInset` (seam lab
+  `kbfake`, 150 pt, easeInOut 1.2 s): the probe vanished on the first frame instead of sliding out clipped by the frame.
+  - Mechanism (hosted, presentation tree): not a resize. The viewport extends over the inset, so it keeps its size and only
+    `aci.bottom` moves (128 -> 278). The report arrives after the layout pass that animates the container's frame and is
+    written unanimated: the indicator's region clip (from the base) jumped 150 pt while the container's clip, its frame,
+    followed the app's curve. An overlay jumped 150 pt to its new base (and back, at once, under the frame).
+  - Fix: `ZTronScrollState.insetFollow` keeps the turn's animation (`positionDriver.animationInTurn`) and the inset it wrote;
+    `RefreshBaseFollow` (leaf) draws the base move in it: an overlay always, the gap only where the content's edge stays
+    (`base + pull` unchanged). The animation is set below `RefreshPlacementEffect`, whose `pull` lands at once.
+  - Tried: animating the whole metrics write with the turn's animation (as the header follow does) moved the content 75 pt
+    (the transform's animated insets take the non-plain path, which keeps the centre); the base made animatable with `pull`
+    re-animated the values the modifier's body derives on every frame (moves lagged most of the change).
+  - Test `RefreshIndicatorLayerTests.anAnimatedSafeAreaInsetSlidesTheHoldWithTheFrame` (gap / overlay x 2 paths, every
+    0.05 s): c5ffc4a 4/4 fail (gap 6, overlay 44-46 of 56 samples bad), 27bc80f 4/4 pass on 27.0 and 17.5.
+  - Seam lab, `scripts/seam/insetgap.py` (judged / bad > 1 pt, worst): gap 27.0 144 / 26 -> 146 / 0 (0.67 pt), forced
+    143 / 26 -> 139 / 0 (0.33), 17.5 146 / 26 -> 146 / 0 (0.33); overlay (new scenario) 27.0 137 / 0 (0.5), forced 119 / 0
+    (0.33), 17.5 137 / 0 (0.33). Controls as before: height04-hbottom 27.0 62/128 in place, 17.5 59/129, 0 over; forced
+    rotate-hbottom 55/84, 0 over, 29 missing (was 54/84, 30); forced height04-hbottom-hoverlay 154/154, step 0.024. `kbreal`
+    on 27.0: the keyboard covers the probe within 1-2 frames, nothing to judge.
+- **LOW recorded as open item 22** (not measured): D66's reveal also waits 0.3 s after an instant resize on the ungrouped
+  15-16 path. Nothing pure-SwiftUI tells it from a system rotation; an orientation heuristic would bring item 20 back for
+  single-axis system resizes (iPad, no lane). Orchestration item 22 has the options.
+- **Tests:** unit 796 tests in 77 suites green on 27.0 and 17.5, 9 known issues, 0 feedback-loop warnings. Demo UI Refresh/Header/Proof/Resize
+  (46 tests) on 27.0 preferred, 17.5 and 27.0 forced: 46/46 each, 0 failures (one lane at a time under the machine lock).
+- Notes and recordings: `scratchpad/fu/fx2/` (seam/k27, k27f, k175; logs/).

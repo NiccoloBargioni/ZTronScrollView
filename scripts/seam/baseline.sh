@@ -43,7 +43,7 @@ for sc in "$@"; do
       vretarget) extra+=(-ZTronSeamRetarget 0.5) ;;   # seam.width toggles back 0.5 s into the change (additive retarget)
       vland) extra+=(-ZTronSeamLandscape 1) ;;        # with width: in landscape
       near[0-9]*) extra+=(-ZTronSeamRetarget 0.5 -ZTronSeamRetargetNear "${x#near}") ;;   # with height<digits>: 0.5 s in, retarget to the DRAWN height + <digits> pt (core check)
-      kbfake) extra+=(-ZTronSeamFakeKeyboard 150) ;;  # with width: seam.width toggles a 150 pt bottom .safeAreaInset, easeInOut 1.2 s (core check)
+      kbfake) extra+=(-ZTronSeamFakeKeyboard 150) ;;  # with width: seam.width toggles a 150 pt bottom .safeAreaInset, easeInOut 1.2 s (core check; a bottom hold: insetgap.py)
       kbreal) extra+=(-ZTronSeamKeyboard 1) ;;        # with width / kbrotate: seam.width toggles the system keyboard (D64)
       info) extra+=(-ZTronSeamInfo 2) ;;              # diagnostics only (draws the state line over the lab): DEBUG event log
       band) extra+=(-ZTronSeamScrollBand 0.5) ;;

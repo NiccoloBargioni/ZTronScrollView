@@ -444,6 +444,12 @@ Calibrate the defaults side by side with UIRefreshControl.
     drawn size too. Laid out at the committed base, a commit that moved the base (a top-pinned height change takes the bottom off
     the home indicator: the bottom inset 34 -> 0) left the box's effect at the committed size on the forced lane: a bottom overlay
     jumped 500 pt to the middle of the content and a hold in the gap vanished at once instead of sliding out clipped.
+    Amended 2026-11-01 (fix round 2 of the item 21 follow-ups): an inset-only change the app animates (`withAnimation` around a
+    `.safeAreaInset` or a bar; the viewport extends over it, so only the adjusted inset moves) reaches the state after the layout
+    pass that animates the container's frame. The indicator draws the move of its base in that turn's animation (an overlay with its
+    base; in the gap only while the content's edge stays, so the box stays on it and the outer box's clip slides with the frame);
+    where the content moves (an edge kept), the base moves at once as before. Before: a bottom hold in the gap vanished on the first
+    frame of a 150 pt inset change and an overlay jumped 150 pt.
   - On completion, animate back to rest unless the user is tracking.
 - **One action per pull.** Only one refresh runs at a time. Never call the action twice for one pull. Cancel the async task when the view disappears.
 - **Disabled** while `zoomScale` is above minimum (configurable) and while scrolling is disabled.
