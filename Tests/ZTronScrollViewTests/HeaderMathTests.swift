@@ -382,4 +382,176 @@ import Testing
                                                keyboard: bad) == base, "a degenerate extension \(bad) counts as none")
         }
     }
+
+    // MARK: D68 / D69 (design M8b-header-behaviors §2, §5 test 1)
+
+    /// The profile header behind the content, parallax `k`, as resolved (`min` 0: ignored).
+    static func sliding(_ k: CGFloat = 0.5, _ behavior: ZTronHeaderScalingBehavior = .preserve) -> HeaderMetrics {
+        var m = profile
+        m.collapse = .slideBehind(parallax: k)
+        m.behavior = behavior
+        m.min = 0
+        return m
+    }
+
+    static func delta(_ oPrime: CGFloat, _ m: ScrollMetrics) -> CGFloat {
+        HeaderMath.obscuredDelta(offset: CGPoint(x: 0, y: oPrime - HeaderMath.base(m)), zoom: 1, metrics: m)
+    }
+
+    @Test func theBandFollowsTheCollapseMode() {
+        #expect(Self.profile.band == 176 && Self.profile.collapsedHeight == 64)
+        #expect(Self.sliding().band == 240 && Self.sliding().collapsedHeight == 0, ".slideBehind: R")
+        var raw = Self.profile
+        raw.collapse = .slideBehind(parallax: 0.5)
+        #expect(raw.band == 240 && raw.collapsedHeight == 0, "min ignored even when set")
+        #expect(HeaderMath.resizeGeometry(Self.metrics(Self.sliding()))?.band == 240, "S7 keeps the covered fraction")
+        // Resolved: `.slideBehind` ignores `min`, and so the `min ≥ R` rule (which makes a fixed `.compress` header).
+        let sb = ZTronHeaderCollapseBehavior.Kind.slideBehind(parallax: 0.5)
+        let m = HeaderMath.metrics(size: .fixed(min: 64, max: 240), width: 402, natural: nil, collapse: sb)
+        #expect(m?.min == 0 && m?.resting == 240 && m?.band == 240 && m?.collapse == sb)
+        let tall = HeaderMath.metrics(size: .fixed(min: 300, max: 240), width: 402, natural: nil, collapse: sb)
+        #expect(tall?.resting == 240 && tall?.band == 240)
+        let fixed = HeaderMath.metrics(size: .fixed(min: 300, max: 240), width: 402, natural: nil)
+        #expect(fixed?.resting == 300 && fixed?.band == 0, ".compress keeps the min ≥ R rule")
+        // The overflow policy resolves R as it does for `.compress` (D59).
+        let capped = HeaderMath.metrics(size: .aspectRatio(16.0 / 9.0, min: 64), width: 874, natural: nil, collapse: sb,
+                                        containerHeight: 381, overflow: .capped(fraction: 0.5))
+        #expect(capped?.resting == 190.5 && capped?.min == 0 && capped?.band == 190.5)
+        let refit = HeaderMath.metrics(size: .aspectRatio(16.0 / 9.0), width: 874, natural: nil, collapse: sb,
+                                       containerHeight: 381, overflow: .refit)
+        #expect(refit?.resting == 381)
+        // The layout resolves the same R and min (`layoutResting`), so its `h_L` = R.
+        let live = HeaderLiveInput(size: .fixed(min: 64, max: 240), metrics: m, committedContainer: 778)
+        let laidOut = HeaderMath.layoutResting(width: 402, containerHeight: 778, natural: nil, live)
+        #expect(laidOut.resting == 240 && laidOut.min == 0)
+    }
+
+    @Test(arguments: [CGFloat(0), 0.25, 0.5, 1], [ZTronHeaderScalingBehavior.preserve, .stretch])
+    func slideBehindGeometry(k: CGFloat, behavior: ZTronHeaderScalingBehavior) {
+        let h = Self.sliding(k, behavior)
+        let m = Self.metrics(h)
+        let top0 = HeaderMath.top0(m)
+        for o in [-80, -20, 0, 20, 120, 239, 240, 400] as [CGFloat] {
+            let c = min(max(o, 0), 240), g = max(0, -o)
+            let geo = HeaderMath.geometry(o: o, m: h)
+            let stretch = behavior == .stretch ? g : 0
+            #expect(geo.progress == c / 240, "o′ \(o): the covered fraction")
+            #expect(geo.height == 240 + stretch, "o′ \(o): the drawn height R (+ g under .stretch)")
+            #expect(geo.stretch == stretch && geo.minHeight == 0 && geo.restingHeight == 240)
+            #expect(HeaderMath.visibleHeight(o: o, m: h) == 240 - c + stretch)
+            #expect(HeaderMath.layoutHeight(o: o, m: h) == 240, "h_L = R: the header keeps its height")
+            let tc = HeaderMath.collapseTranslation(o: o, m: h)
+            #expect(tc == -k * c && tc >= -k * 240, "t_c = −k·c, at most k·R")
+            #expect(abs(HeaderMath.collapseTranslation(progress: geo.progress, parallax: k, layoutHeight: 240) - tc) < 1e-9,
+                    "the layout's −k·p·h_L agrees at the committed R")
+            // The content's top edge is the visible band's end, the drawn header's top edge t_c above top0 (+ t_g).
+            let contentTop = m.adjustedContentInset.top - o
+            let t = HeaderMath.translation(o: o, m: h)
+            #expect(contentTop == top0 + t + HeaderMath.visibleHeight(o: o, m: h) + HeaderMath.gapBelow(o: o, m: h)
+                        - max(0, o - 240), "o′ \(o)")
+            #expect(Self.delta(o, m) == -c + stretch + t, "obscuredDelta: h_v + t_g − R")
+        }
+    }
+
+    @Test func compressKeepsItsTable() {
+        // The new helpers on `.compress`: h_L = R − c (no stretch: D69), t_c = 0, h_v = today's live height.
+        for behavior in [ZTronHeaderScalingBehavior.preserve, .stretch] {
+            var h = Self.profile
+            h.behavior = behavior
+            for o in [-80, 0, 100, 176, 500] as [CGFloat] {
+                let c = min(max(o, 0), 176), g = behavior == .stretch ? max(0, -o) : 0
+                #expect(HeaderMath.layoutHeight(o: o, m: h) == 240 - c)
+                #expect(HeaderMath.visibleHeight(o: o, m: h) == HeaderMath.height(o: o, m: h))
+                #expect(HeaderMath.height(o: o, m: h) == 240 - c + g)
+                #expect(HeaderMath.collapseTranslation(o: o, m: h) == 0)
+                let drawn = HeaderMath.layoutHeight(o: o, m: h) * HeaderMath.stretchScale(o: o, m: h)
+                #expect(abs(drawn - HeaderMath.height(o: o, m: h)) < 1e-9, "the drawn height is h_L · s")
+            }
+        }
+    }
+
+    @Test func theStretchScale() {
+        #expect(HeaderMath.stretchScale(layoutHeight: 240, stretch: 60) == 1.25)
+        #expect(HeaderMath.stretchScale(layoutHeight: 240, stretch: 0) == 1)
+        #expect(HeaderMath.stretchScale(layoutHeight: 0, stretch: 60) == 1, "R = 0: no scale")
+        #expect(HeaderMath.stretchScale(layoutHeight: .nan, stretch: 60) == 1)
+        #expect(HeaderMath.stretchScale(layoutHeight: 240, stretch: -5) == 1)
+        #expect(HeaderMath.stretchScale(layoutHeight: 240, stretch: .infinity) == 1)
+        for collapse in [ZTronHeaderCollapseBehavior.Kind.compress, .slideBehind(parallax: 0.5)] {
+            var h = Self.banner
+            h.collapse = collapse
+            for g in [0, 30, 120] as [CGFloat] {
+                #expect(abs(HeaderMath.stretchScale(o: -g, m: h) - (1 + g / 240)) < 1e-12, "\(collapse) g \(g): s = 1 + g/R")
+                #expect(abs(240 * HeaderMath.stretchScale(o: -g, m: h) - HeaderMath.height(o: -g, m: h)) < 1e-9)
+            }
+            #expect(HeaderMath.stretchScale(o: 100, m: h) == 1, "no scale while collapsing")
+            var preserve = h
+            preserve.behavior = .preserve
+            #expect(HeaderMath.stretchScale(o: -60, m: preserve) == 1, ".preserve never scales")
+            var flat = h
+            flat.resting = 0
+            flat.min = 0
+            #expect(HeaderMath.stretchScale(o: -60, m: flat) == 1, "degenerate R = 0")
+        }
+    }
+
+    @Test(arguments: [ZTronHeaderScalingBehavior.preserve, .stretch], [ZTronHeaderPullBehavior.openGap, .followContent])
+    func thePullSideIsTheSameInBothCollapseModes(behavior: ZTronHeaderScalingBehavior, pull: ZTronHeaderPullBehavior) {
+        var a = Self.profile
+        a.behavior = behavior
+        a.pull = pull
+        var b = a
+        b.collapse = .slideBehind(parallax: 0.5)
+        for hold in [0, 60] as [CGFloat] {
+            let ma = Self.metrics(a, hold: hold), mb = Self.metrics(b, hold: hold)
+            #expect(ma.adjustedContentInset == mb.adjustedContentInset, "the same reserved R")
+            let ra = HeaderMath.refreshTop(ma), rb = HeaderMath.refreshTop(mb)
+            #expect(ra?.base == rb?.base && ra?.overlay == rb?.overlay, "\(behavior) \(pull): the refresh base")
+            for o in [-120, -40, -0.5, 0] as [CGFloat] {
+                #expect(HeaderMath.gapAbove(o: o, m: a) == HeaderMath.gapAbove(o: o, m: b))
+                #expect(HeaderMath.gapBelow(o: o, m: a) == HeaderMath.gapBelow(o: o, m: b))
+                #expect(HeaderMath.translation(o: o, m: a) == HeaderMath.translation(o: o, m: b))
+                #expect(Self.delta(o, ma) == Self.delta(o, mb), "o′ \(o): obscuredDelta under a pull")
+                #expect(HeaderMath.stretchScale(o: o, m: a) == HeaderMath.stretchScale(o: o, m: b))
+            }
+        }
+        // In the band both see −c; past `.compress`'s band (176) only `.slideBehind` is still being covered.
+        let ma = Self.metrics(a), mb = Self.metrics(b)
+        #expect(Self.delta(100, ma) == -100 && Self.delta(100, mb) == -100)
+        #expect(Self.delta(200, ma) == -176 && Self.delta(200, mb) == -200 && Self.delta(500, mb) == -240)
+    }
+
+    @Test func slideBehindSnapsAndTargetsAreCoveredFractions() {
+        let h = Self.sliding()
+        #expect(HeaderMath.offset(for: .collapsed, m: h) == 240)
+        #expect(HeaderMath.offset(for: .progress(0.5), m: h) == 120)
+        #expect(HeaderMath.offset(for: .height(100), m: h) == 140, ".height is the visible height: o′ = R − h")
+        #expect(HeaderMath.offset(for: .height(30), m: h) == 210, "below the size's min: min is ignored")
+        #expect(HeaderMath.offset(for: .height(-5), m: h) == 240 && HeaderMath.offset(for: .height(500), m: h) == 0)
+        #expect(HeaderMath.offset(for: .height(.nan), m: h) == 0)
+        #expect(HeaderMath.offset(for: .height(30), m: Self.profile) == 176, ".compress clamps at min")
+        #expect(HeaderMath.snapOffset(progress: 0.25, m: h) == 60)
+        #expect(HeaderMath.nearestSnap(to: 100, positions: [0, 0.5, 1], m: h) == 120)
+        #expect(HeaderMath.nearestSnap(to: 200, positions: [0, 0.5, 1], m: h) == 240)
+        // scrollTo solves for the uncovered top at the target, `o = place(top + δ(o′))`, inside the covered band too.
+        let m = Self.metrics(h)
+        let top = m.adjustedContentInset.top
+        let place: (CGFloat) -> CGFloat = { -101 - 0.5 * $0 }
+        let y = HeaderMath.solveTarget(metrics: m, place: place)
+        let oPrime = y + HeaderMath.base(m)
+        #expect(abs(oPrime - 100) < 1e-6, "the crossing at 100 pt covered")
+        #expect(abs(y - place(top + Self.delta(oPrime, m))) < 1e-6, "self-consistent at the target")
+    }
+
+    @Test func aCollapseModeChangeKeepsTheProgress() {
+        let compress = Self.metrics(Self.profile), slide = Self.metrics(Self.sliding())
+        func keep(_ oPrime: CGFloat, _ old: ScrollMetrics, _ new: ScrollMetrics) -> CGFloat {
+            HeaderMath.keepProgress(offsetY: oPrime - HeaderMath.base(old), old: old, new: new)! + HeaderMath.base(new)
+        }
+        #expect(keep(-30, compress, slide) == -30 && keep(0, compress, slide) == 0, "at or above rest: o′ kept")
+        #expect(keep(88, compress, slide) == 120, "half collapsed → half covered")
+        #expect(keep(120, slide, compress) == 88, "and back")
+        #expect(keep(200, compress, slide) == 240, "collapsed stays collapsed (covered)")
+        #expect(keep(500, compress, slide) == 500, "past the band the content stays where it was")
+    }
 }

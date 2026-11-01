@@ -72,8 +72,9 @@ enum HeaderResizeAnchor: Equatable, Sendable {
     case collapsed
 }
 
-/// Pure scaling-header math (design M8b §2.4), no SwiftUI state. Conventions: `top0` = the top of the header's slot (the
-/// adjusted safe-area top), `R` resting height, `band = max(0, R − min)`, `o′` = the header-relative offset (content
+/// Pure scaling-header math (design M8b §2.4, M8b-header-behaviors §2), no SwiftUI state. Conventions: `top0` = the top of
+/// the header's slot (the adjusted safe-area top), `R` resting height, `band` = `max(0, R − min)` (`.compress`) or `R`
+/// (`.slideBehind`, `min` ignored), `o′` = the header-relative offset (content
 /// offset + `adjustedContentInset.top` − the refresh hold: rest is 0, a pull past the top is negative, scrolling up
 /// positive), `c = clamp(o′, 0, band)` the collapse travel and `g = max(0, −o′)` the overflow.
 ///
@@ -90,6 +91,26 @@ enum HeaderResizeAnchor: Equatable, Sendable {
 /// gap `g` lies between them (a developer `contentInset.top` adds a constant gap); past the band the content scrolls under
 /// the collapsed header. A banner (no vertical axis) translates like `.followContent` whatever the pull behavior says (D65:
 /// banners are unaffected; only zoomed content that pans vertically can pull one, D15).
+///
+/// The collapse mode (D68) changes only the content-up side (`c > 0`); the pull side above is the same in both. `k` is the
+/// `.slideBehind` parallax, `h_L` the layout height (what the slot lays the stack out at), `h_v` the visible height (what
+/// the content leaves uncovered: the inset consumers' header height), `s` the `.stretch` scale (D69: a render-time scale
+/// of the stack laid out at `h_L`, anchored at its top centre):
+///
+/// | | `.compress` (default) | `.slideBehind(k)` |
+/// |---|---|---|
+/// | `h_L` (`layoutHeight`) | `R − c` (`(1 − p)·R + p·min`) | `R` |
+/// | `h_v` (`visibleHeight`) | `R − c + stretch` | `R − c + stretch` |
+/// | collapse translation `t_c` (`collapseTranslation`) | 0 | `−k·c` (`−k·p·h_L` in the layout) |
+/// | stretch scale `s` (`stretchScale`) | `(h_L + g) / h_L` = `1 + g/R` under a `.stretch` pull (`c = 0`), else 1 | same |
+/// | drawn top / bottom edge | `top0 + t_g` / `+ h_L·s` | `top0 + t_g − k·c` / `+ R·s` |
+/// | content top (viewport y) | `top0 + ci.top + R − c + g` (unchanged) | same |
+/// | `progress` / geometry `height` | `c / band` / `h_L·s` | `c / R` (covered fraction) / `R·s` |
+/// | `obscuredDelta` | `h_v + t_g − R` | same |
+/// | z-order | above the content | behind the content |
+///
+/// `t_g` is the pull translation (`gapAbove`); `gapBelow`, `refreshTop` and every band reader (snap, `offset(for:)`,
+/// `keepProgress`, the resize anchor, `solveTarget`) are the same functions of `band` in both modes.
 enum HeaderMath {
     /// The metrics `size` resolves to at `width` (the viewport width); `nil` while the width is unknown or `.fit` is
     /// unmeasured. `containerHeight` (the viewport below the adjusted safe area, `HeaderMath.containerHeight`) limits the
@@ -124,6 +145,8 @@ enum HeaderMath {
             resting = min(resting, limit)
             minimum = min(minimum, limit)
         }
+        // `.slideBehind` ignores `min` (the content covers the whole header, D68), so its `min ≥ R` rule never applies.
+        if collapse.isSlideBehind { minimum = 0 }
         // `min ≥ R`: a fixed-height header of height `min` (band 0, progress 0, no snapping; `.stretch` still grows).
         if minimum >= resting { resting = minimum }
         let w = width.isFinite ? Swift.max(0, width) : 0
@@ -157,19 +180,69 @@ enum HeaderMath {
     }
     #endif
 
-    /// The live geometry at `o′` (§2.4 table).
+    /// The live geometry at `o′` (§2.4 table): `progress = c / band`, the drawn `height` (`.compress`: `R − c + stretch`;
+    /// `.slideBehind`: `R + stretch`, the content covers it instead of shrinking it).
     static func geometry(o oPrime: CGFloat, m: HeaderMetrics) -> ZTronHeaderGeometry {
-        let o = oPrime.isFinite ? oPrime : 0
+        let c = covered(o: oPrime, m: m)
         let band = m.band
-        let c = min(max(o, 0), band)
-        let g = max(0, -o)
-        let stretch = m.behavior == .stretch ? g : 0
-        return ZTronHeaderGeometry(progress: band > 0 ? c / band : 0, height: max(0, m.resting - c + stretch),
+        let stretch = stretch(o: oPrime, m: m)
+        let height = m.collapse.isSlideBehind ? m.resting + stretch : m.resting - c + stretch
+        return ZTronHeaderGeometry(progress: band > 0 ? c / band : 0, height: max(0, height),
                                    stretch: stretch, minHeight: m.min, restingHeight: m.resting, width: m.width)
     }
 
-    /// The live height at `o′`.
+    /// The drawn height at `o′` (`geometry(…).height`).
     static func height(o oPrime: CGFloat, m: HeaderMetrics) -> CGFloat { geometry(o: oPrime, m: m).height }
+
+    /// `c = clamp(o′, 0, band)`: how far the content has scrolled up over the header (NaN / ±∞ read as rest).
+    static func covered(o oPrime: CGFloat, m: HeaderMetrics) -> CGFloat {
+        min(max(oPrime.isFinite ? oPrime : 0, 0), m.band)
+    }
+
+    /// The `.stretch` growth at `o′`: `g = max(0, −o′)` under `.stretch`, else 0.
+    static func stretch(o oPrime: CGFloat, m: HeaderMetrics) -> CGFloat {
+        m.behavior == .stretch ? max(0, -(oPrime.isFinite ? oPrime : 0)) : 0
+    }
+
+    /// `h_v`, the visible height at `o′`: the part of the drawn header the content leaves uncovered, `R − c` plus the
+    /// `.stretch` growth (both modes; `.compress`: the live height). What the inset consumers count onto the unobscured
+    /// top (`obscuredDelta`) and what the visibility gate reads (hidden at ≤ 0.5).
+    static func visibleHeight(o oPrime: CGFloat, m: HeaderMetrics) -> CGFloat {
+        max(0, m.resting - covered(o: oPrime, m: m) + stretch(o: oPrime, m: m))
+    }
+
+    /// `h_L`, the height the slot lays the header stack out at (D68 / D69): `R − c` under `.compress`, `R` under
+    /// `.slideBehind`; the `.stretch` growth is NOT in it (it is the render-time `stretchScale`).
+    static func layoutHeight(o oPrime: CGFloat, m: HeaderMetrics) -> CGFloat {
+        max(0, m.collapse.isSlideBehind ? m.resting : m.resting - covered(o: oPrime, m: m))
+    }
+
+    /// `t_c`, the `.slideBehind` header's translation at `o′`: `−k·c` (up by the parallax times the covered distance; at
+    /// most `k·R`); 0 under `.compress`.
+    static func collapseTranslation(o oPrime: CGFloat, m: HeaderMetrics) -> CGFloat {
+        guard let k = m.collapse.parallax else { return 0 }
+        return -k * covered(o: oPrime, m: m)
+    }
+
+    /// `t_c` as the layout derives it (D68 §3.2): `−k·p·h` from the progress, the parallax and the pass's own layout height
+    /// (`R` at the committed viewport), so an animated resize interpolates it with the content. NaN-safe.
+    static func collapseTranslation(progress p: CGFloat, parallax k: CGFloat, layoutHeight h: CGFloat) -> CGFloat {
+        let q = p.isFinite ? min(max(p, 0), 1) : 0
+        let height = h.isFinite ? max(0, h) : 0
+        return -ZTronHeaderCollapseBehavior.Kind.clamp(k) * q * height
+    }
+
+    /// `s`, the `.stretch` scale of a stack laid out at `h` grown by `stretch` (D69): `(h + stretch) / h`, 1 without a
+    /// stretch, for `h ≤ 0` (a zero resting height) or non-finite input.
+    static func stretchScale(layoutHeight h: CGFloat, stretch: CGFloat) -> CGFloat {
+        guard h > 0, h.isFinite, stretch > 0, stretch.isFinite else { return 1 }
+        return (h + stretch) / h
+    }
+
+    /// `s` at `o′` from the committed metrics: `1 + g/R` under a `.stretch` pull (`c = 0` there, so `h_L = R`), else 1.
+    static func stretchScale(o oPrime: CGFloat, m: HeaderMetrics) -> CGFloat {
+        stretchScale(layoutHeight: layoutHeight(o: oPrime, m: m), stretch: stretch(o: oPrime, m: m))
+    }
 
     /// Whether a pull moves the header down with the content: `.preserve` with `ZTronHeaderPullBehavior.followContent`
     /// (D61), and a `.preserve` banner whatever the setting (D65: banners are unaffected by it). `.stretch` never moves.
@@ -217,7 +290,7 @@ enum HeaderMath {
         case .expanded: return 0
         case .collapsed: return m.band
         case let .progress(p): return snapOffset(progress: p, m: m)
-        case let .height(h): return m.resting - min(max(h.isFinite ? h : m.resting, min(m.min, m.resting)), m.resting)
+        case let .height(h): return m.resting - min(max(h.isFinite ? h : m.resting, m.collapsedHeight), m.resting)
         }
     }
 
@@ -277,14 +350,15 @@ enum HeaderMath {
         }
     }
 
-    /// How far the live header's bottom edge is from where the resting header's would be (`top0 + R`), `h + translation −
-    /// R` (negative while collapsed; under a pull `g` for `.stretch` and `.preserve` `.followContent`, 0 for `.preserve`
-    /// `.openGap`, whose header stays still: D65, pre-D61 `h − R`): the unobscured top edge is `adjustedContentInset.top +
-    /// delta` (indicators, `scrollTo`, the resize centre).
+    /// How far the visible header's bottom edge is from where the resting header's would be (`top0 + R`), `h_v +
+    /// translation − R` (`−c` in the band, in both collapse modes: a `.slideBehind` header's covered part is the content's;
+    /// under a pull `g` for `.stretch` and `.preserve` `.followContent`, 0 for `.preserve` `.openGap`, whose header stays
+    /// still: D65, pre-D61 `h − R`): the unobscured top edge is `adjustedContentInset.top + delta` (indicators,
+    /// `scrollTo`, the resize centre).
     static func obscuredDelta(offset: CGPoint, zoom: CGFloat, metrics m: ScrollMetrics) -> CGFloat {
         guard let header = m.header else { return 0 }
         let o = headerOffset(offset: offset, zoom: zoom, metrics: m)
-        return height(o: o, m: header) + translation(o: o, m: header) - header.resting
+        return visibleHeight(o: o, m: header) + translation(o: o, m: header) - header.resting
     }
 
     /// The offset (y) that keeps the header's collapse progress across a change of its metrics (`size`, a new `.fit`

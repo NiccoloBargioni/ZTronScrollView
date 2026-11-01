@@ -61,10 +61,10 @@ extension ZTronScrollState {
         setContentOffset(CGPoint(x: s.presentationOffset.x, y: clamped), animated: animated)
     }
 
-    /// The live header height at `o′` (0 without a header): what the inset consumers count onto the unobscured top
-    /// (indicators, `scrollTo`, the refresh base, the resize capture).
+    /// The visible header height at `o′` (`HeaderMath.visibleHeight`, 0 without a header): what the inset consumers count
+    /// onto the unobscured top (indicators, `scrollTo`, the refresh base, the resize capture).
     func headerHeight(at oPrime: CGFloat) -> CGFloat {
-        peek.metrics.header.map { HeaderMath.height(o: oPrime, m: $0) } ?? 0
+        peek.metrics.header.map { HeaderMath.visibleHeight(o: oPrime, m: $0) } ?? 0
     }
 
     /// A `snapHeader(to:)` queued before the layout runs once the header, the viewport and the content are known.

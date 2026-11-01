@@ -68,10 +68,13 @@ public struct ZTronHeaderCollapseBehavior: Equatable, Sendable {
         case compress
         case slideBehind(parallax: CGFloat)
 
-        /// `k` for `.slideBehind` (0…1), `nil` for `.compress`.
+        /// `k` for `.slideBehind` (0…1, `clamp`ed again: the case can be written directly), `nil` for `.compress`.
         var parallax: CGFloat? {
-            if case let .slideBehind(k) = self { return k } else { return nil }
+            if case let .slideBehind(k) = self { return Self.clamp(k) } else { return nil }
         }
+
+        /// The parallax rule: 0…1, NaN reads as 0.5 (the default).
+        static func clamp(_ k: CGFloat) -> CGFloat { k.isNaN ? 0.5 : Swift.min(Swift.max(k, 0), 1) }
 
         var isSlideBehind: Bool { parallax != nil }
     }
@@ -111,10 +114,11 @@ public struct ZTronHeaderCollapseBehavior: Equatable, Sendable {
     ///   - parallax: 0…1, clamped (NaN reads as 0.5).
     ///   - backdrop: an optional color drawn behind the content.
     public static func slideBehind(parallax: CGFloat = 0.5, backdrop: Color? = nil) -> Self {
-        let k = parallax.isNaN ? 0.5 : Swift.min(Swift.max(parallax, 0), 1)
+        let k = Kind.clamp(parallax)
         return Self(kind: .slideBehind(parallax: k), backdrop: backdrop, requestedParallax: k == parallax ? nil : parallax)
     }
 
+    /// Equal when the mode (with its parallax as read, after clamping) and the backdrop are equal.
     public static func == (a: Self, b: Self) -> Bool { a.kind == b.kind && a.backdrop == b.backdrop }
 
     /// `k` for `.slideBehind`, `nil` for `.compress`.
@@ -265,13 +269,15 @@ public struct ZTronHeaderBackground {
 
 /// What a header child reads through ``ZTronHeaderGeometryReader`` (or `ZTronScrollGeometry.header`).
 public struct ZTronHeaderGeometry: Equatable, Sendable {
-    /// 0 expanded … 1 collapsed; 0 when the header cannot collapse.
+    /// 0 expanded … 1 collapsed (`.slideBehind`: the covered fraction of the header); 0 when the header cannot collapse.
     public var progress: CGFloat
-    /// The live height, stretch included.
+    /// The drawn height, stretch included: the live height under `.compress` (`restingHeight` shrinking to `minHeight`),
+    /// the resting height under `.slideBehind` (the content covers it; it does not shrink).
     public var height: CGFloat
     /// ≥ 0: how much `.stretch` grew the header past its resting height; always 0 under `.preserve` (a pull opens a gap
     /// below a preserved header, or moves it down by that amount with `ZTronHeaderPullBehavior.followContent`).
     public var stretch: CGFloat
+    /// The size's `min` as resolved (0 under `.slideBehind`, which ignores it).
     public var minHeight: CGFloat
     /// The resolved resting height (the reference's `maxHeight`).
     public var restingHeight: CGFloat
@@ -318,6 +324,11 @@ struct HeaderMetrics: Equatable, Sendable {
     /// pans vertically (D15).
     var vertical: Bool = true
 
-    /// The collapse band: how far the header can shrink.
-    var band: CGFloat { Swift.max(0, resting - min) }
+    /// The collapse band: how far the content scrolls up over the header until it is collapsed: `R − min` (`.compress`:
+    /// the header shrinks to `min`) or `R` (`.slideBehind`: until the content covers it; `min` is ignored, D68). Snap
+    /// positions, `progress`, S7's kept progress, `keepProgress` and `scrollTo`'s solve all read it.
+    var band: CGFloat { collapse.isSlideBehind ? Swift.max(0, resting) : Swift.max(0, resting - min) }
+
+    /// The visible (uncovered) height at the band's end: `min` (at most `R`) for `.compress`, 0 for `.slideBehind`.
+    var collapsedHeight: CGFloat { collapse.isSlideBehind ? 0 : Swift.min(min, resting) }
 }
