@@ -12,8 +12,10 @@ evidence and hunk-level resolution notes, are in the appendix. Nothing was merge
   numeric order. Check that a branch's stale copy does not reopen main's closed items (item 6, item 7 / D52) or
   overwrite a confirmation (elastic-kirch's CONFIRMED D53–D55 text wins over laughing-archimedes' "pending" copy).
 - Numbers: take the next free D-number and open-item number at merge time from main AND `git log --all`.
-  Known collisions: SHEET-s3's D47 (sweet-payne) and ecstatic-ramanujan's own "D34" both need new numbers (free today:
-  D67, D68); open items 10 and 11 are reused by several branch families, renumber by merge order.
+  Known collisions: SHEET-s3's D47 (sweet-payne) and ecstatic-ramanujan's own "D34" both need new numbers. As of
+  2026-11-01 D67 is free, D68–D70 are reserved by the M8b-3 session and D71 + open item 23 by DBG-s12 (refresher), so
+  the next free numbers are D67 and D72; open items 10 and 11 are reused by several branch families, renumber by merge
+  order.
 - Verification: build; unit `ZTronScrollViewTests` on 27.0 and 17.5; contract and physics when touched. Any change to
   `GestureAttach` / `PanGestureAdapter.swift` → the whole demo UI suite on 27.0 preferred, `--forced`, `--uikit` and
   17.5 preferred, `--forced`, plus the OS-specific lanes named per branch (18.5 / 18.6, 26.5). Private simulator clones,
@@ -27,7 +29,7 @@ evidence and hunk-level resolution notes, are in the appendix. Nothing was merge
 | 1 | `elastic-kirch-23bf73` (PARITY-s1) | D53–D55 (user-confirmed 2026-10-26) | Position write-back as SwiftUI's | merge, doc conflicts only | 4 |
 | 2 | `vigilant-tharp-9659fb` (BTN-s1…s3) | D49 rev 2 | Release rule after an event-free pause (UIKit's: moves only, 250 pt/s gate) | merge + fix main's `HeaderStateTests` (150 / 100 pt/s releases now rest) inside the merge | 7 |
 | 3 | `sharp-banach-dadf23` **stage A** = merge commit `db10891` | D34, D37 (user-confirmed 2026-10-21) | `SpatialEventGesture` only from iOS 28; 18–27 use the armed fallback observer; `GestureAttach` honours `observerEnabled` on 18+ | merge with the one code hunk resolved: `isEnabled: on && observerEnabled` | 4 |
-| 4 | `ecstatic-ramanujan-bd7af2` (DBG-s3 content gate, carries DBG-s2) | its own "D34" → renumber (D68 today) | A focused text field is no longer evicted by the content gate; fixes 17.5 `PanUITests.testControlsUsable` | merge after 3; rename handoff `DBG-s3.md` → `DBG-s3b.md`; re-measure its 18+ expected failure on the post-D34 observer | 3.5 |
+| 4 | `ecstatic-ramanujan-bd7af2` (DBG-s3 content gate, carries DBG-s2) | its own "D34" → renumber (next free, D72 or later) | A focused text field is no longer evicted by the content gate; fixes 17.5 `PanUITests.testControlsUsable` | merge after 3; rename handoff `DBG-s3.md` → `DBG-s3b.md`; re-measure its 18+ expected failure on the post-D34 observer | 3.5 |
 | 5 | `awesome-stonebraker-4fe43f` | — | Demo UI full-suite note | merge with or after 4 | 0.5 |
 | 6 | `suspicious-elbakyan-3d1622` (DBG-s7) | D46 | 18.x sheet drag sharing, characterized; tests and docs only | merge | 2 |
 | 7 | `silly-jang-777448` (NESTED-mixed D1) | — (user resolutions R1–R3, 2026-10-21) | Public `ZTronScrollArbitrationRegistration` + `ztronScrollArbitrationParticipant` (no contract file changed) | merge; doc pass for the new public API; test next to D60 work | 3.5 |
@@ -65,7 +67,7 @@ Delete `beautiful-dubinsky-9c14c5` after 14. Wave 3 ≈ 12–17 points.
 
 | # | Branch | Decision needed | ≈ pts once decided |
 |---|---|---|---|
-| 16 | `sweet-payne-efd027` (SHEET-s3) | Its D47 → renumber (D67 today): exclusive pan from iOS 18 for vertical views in a sheet, at the cost of native horizontal pagers on 18.x. Blocks UIKITPAN U3 | 6 |
+| 16 | `sweet-payne-efd027` (SHEET-s3) | Its D47 → renumber (D67 if still free): exclusive pan from iOS 18 for vertical views in a sheet, at the cost of native horizontal pagers on 18.x. Blocks UIKITPAN U3 | 6 |
 | 17 | `dreamy-gagarin-5b45a9` (FIRSTLAYOUT-s1) | D48: a size change in the first run-loop turn counts as the first layout (S7). After row 1 (shared initial-offset line) | 8–10 |
 | 18 | `laughing-archimedes-87d9f9` (PARITY-s2) | D56: `ZTronScrollGeometry` in SwiftUI `ScrollGeometry` terms (behaviour-visible). D58 changes no code and does not block | 5 |
 | 19 | `intelligent-williamson-0ad6d9` (spike Q3-s2) | PAGES-s0 question 8, and its spike target breaks NESTED-mixed R1 ("the ArbitrationSpike target keeps depending on the contract only") | 2–3 |
