@@ -16,10 +16,10 @@ the probe's extent along the axis relative to s_e, and a verdict:
   inPlace  the probe is drawn at its resting place against the content's edge (within --tol, default 1 pt);
   off      drawn elsewhere (dev = its centre's distance from the resting place);
   missing  its place is on the screen, it is not drawn;
-  over     some of it lies on the content's side of the edge (> 1 pt), or a probe-shaped white square anywhere has a
-           surround of mostly content (rvover.py's ring test), or a filled probe-sized patch of white at 20-90 % with
-           some of it over the content (a TRANSLUCENT probe: `tint` = its opacity, tintOver / tintFrames): drawn over
-           the content (judged in every frame);
+  over     some of it lies on the content's side of the edge (> 1 pt), or a probe-sized white square (<= 420 pt^2)
+           anywhere has a surround of mostly content (rvover.py's ring test), or a filled probe-sized patch of white at
+           20-90 % with some of it over the content (a TRANSLUCENT probe: `tint` = its opacity, tintOver / tintFrames):
+           drawn over the content (judged in every frame);
   ghost    its place is off the window, a probe is drawn anyway;
   partial / offscreen / unknown: not judged (the place straddles the base or the window's edge, or no edge found).
 Prints and writes holdgap.json: counts, max deviation, worst over depth, the frames of each failure.
@@ -213,8 +213,10 @@ def main():
             s0, s1 = float(np.percentile(sa, 1)), float(np.percentile(sa, 99))
             ext = sorted((s1 - s0, k1 - k0))
             # Probe-shaped only (12-29 pt along both axes, at most 1.5 : 1): the status bar's battery icon (30 x 16 pt) over a
-            # content stripe in a rotation is not the probe (review of open item 21: s27f rotate-hbottom 200-202).
-            if area >= 100 and content > 0.5 and 12 <= ext[0] and ext[1] <= 29 and ext[1] <= 1.5 * ext[0]:
+            # content stripe in a rotation is not the probe (review of open item 21: s27f rotate-hbottom 200-202); nor is a
+            # lab button (24 pt square, 454 pt^2 white in a frame of a resize, s27f height04-vbottom frame 242): the probe is
+            # a 20 pt square, at most 400 pt^2 of white wherever it is (377-400 drawn over the content mid-rotation).
+            if area >= 100 and area <= 420 and content > 0.5 and 12 <= ext[0] and ext[1] <= 29 and ext[1] <= 1.5 * ext[0]:
                 ringover = max(ringover, 1)
             if abs((k0 + k1) / 2) > 40 or not (12 <= k1 - k0 <= 28):
                 continue

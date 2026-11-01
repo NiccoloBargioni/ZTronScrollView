@@ -92,3 +92,24 @@ ZTronScrollView { Rows() }
 ProfileTabs().ztronScalingHeaderPullBehavior(.openGap) // every ZTronScrollView below; innermost twin wins, member beats twin
 ```
 Usage: not measured.
+
+## Review of item 21 follow-ups (2026-11-01, Opus 5.5 workflow subagent; a19ea0f -> 18620ed + this commit)
+- **A, a19ea0f verified** (forced bottom overlay, height 0.4 and back): 8f902f4 drew 84/143 (59 missing, a 500 pt step);
+  now 157/157, 0 missing, largest step 0.10 of the 467 pt travel. Those 42-48 pt steps are the forced 27.0 recording (frames
+  repeated 2-3 times); 27.0 preferred and 17.5 step 11.3 pt.
+- **B, D66's reveal no longer draws over the content** (18620ed, `RefreshIndicators.swift`). The 0.1 s Animatable reveal was a
+  translucent fade from ~0.18 s into the rotation: SwiftUI animates what such a modifier's body derives with the transaction's
+  animation. Now plain opacity, `RefreshResizeReveal.afterTransition` = 0.15 s linear after 0.3 s; D66's semantics kept
+  (Orchestration D66, SPEC S10 amended). `scripts/seam/holdgap.py` counts a translucent probe as over (`tint`, tintOver), and
+  its ring test takes only a probe-sized square (the battery icon and a lab button had been 'over').
+- **C, the gate reads the latched group**: `RefreshGroupLatched` hands the boxes the `GroupLatch` kind; test
+  `RefreshIndicatorLayerTests.theFifteenIndicatorGroupIsOnlyUnderAHeader` checks the gate note (the live gate failed it forced).
+- **Seam lab**, 21 scenarios x 27.0 / 17.5 / forced (scen.sh ROT RES NEW HDR); 4 recordings with motion gaps were re-recorded:
+  - 0 frames over (opaque or translucent) everywhere.
+  - Forced headerless rotations (top / bottom / leading / trailing): over 0 / 0 / 4 / 0 -> 0, off 0 / 3 / 3 / 3 -> 0, missing
+    7 / 15 / 10 / 9 -> 23 / 30 / 23 / 24. Hidden through the rotation back, opaque 0.17-0.18 s after it lands.
+  - Everything else is as at a19ea0f within run-to-run noise. The resize scenarios' missing / off at the window base (height
+    bottom 66 / 10, width leading 75-79 / 18) are pre-existing.
+  - Notes: `scratchpad/fu/notes.md`.
+- **Tests**: Refresh/Header/Indicator suites (27, 258 tests) green on 17.5, 9 known issues; full unit suite on 27.0: 795 tests in 77 suites green, 9 known issues (as at a19ea0f).
+- **Open**: iPad rotations last 0.4 s, so the 0.3 s delay may start the fade before one lands. Not measured, no iPad lane.
