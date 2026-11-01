@@ -248,6 +248,57 @@ struct HeaderStretchScaleTests {
         #endif
     }
 
+    /// The user's setup (D69's motivating bug): `NavigationView` + `GeometryReader`, `.aspectRatio(16/9, min: 0)`,
+    /// `.refit`, a fade, and an aspect-fit 16:9 content with `maxWidth: .infinity` (the user's `Image`). Before D69 the
+    /// pull grew the frame and the aspect-fit content stayed `W × W·9/16` inside it: nothing grew. Now the drawn content
+    /// grows by the pull: its bottom edge moves down by `g`, its width by the same scale, its top stays.
+    @Test(arguments: OSPath.allCases)
+    func theUsersAspectFitImageGrowsWithThePull(path: OSPath) {
+        struct UserScreen: View {
+            let state: ZTronScrollState
+            let counts: BodyCount
+            var body: some View {
+                NavigationView {
+                    GeometryReader { _ in
+                        ZTronScrollView(.vertical, state: state) { Content(counts: counts) }
+                            .withScalingHeader(size: .aspectRatio(16.0 / 9.0, min: 0.0), pull: .stretch,
+                                               fade: .linear(to: Color(white: 0.5)), overflow: .refit) { _ in
+                                HeaderStretchScaleTests.color(HeaderStretchScaleTests.headerMarker)
+                                    .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                                    .frame(maxWidth: .infinity)
+                            }
+                    }
+                }
+                .navigationViewStyle(.stack)
+            }
+        }
+        let counts = BodyCount()
+        let s = makeState(path)
+        let w = withOSPath(path) { window(UserScreen(state: s, counts: counts)) }
+        defer { unhost(w) }
+        resolve(s)
+        guard let resting = s.peek.metrics.header?.resting,
+              let rest = Self.frames(of: Self.headerMarker, in: w).first else {
+            Issue.record("\(path): unresolved or no marker"); return
+        }
+        #expect(abs(rest.width - 402) < 0.5 && abs(rest.height - resting) < 0.5, "\(path): at rest \(rest), R \(resting)")
+        let bodies = counts.bodies
+        for g in [40, 100] as [CGFloat] {
+            s.track(offset: CGPoint(x: 0, y: -g - HeaderMath.base(s.peek.metrics)), zoom: 1)
+            pump(0.1)
+            guard let f = Self.frames(of: Self.headerMarker, in: w).first,
+                  let c = Self.frames(of: Self.contentMarker, in: w).first else {
+                Issue.record("\(path) g \(g): no marker"); continue
+            }
+            let scale = (resting + g) / resting
+            #expect(abs(f.minY - rest.minY) < 0.5 && abs(f.maxY - (rest.maxY + g)) < 0.5,
+                    "\(path) g \(g): the image grows down by the pull (\(rest) -> \(f))")
+            #expect(abs(f.width - 402 * scale) < 0.5 && abs(f.midX - 201) < 0.5, "\(path) g \(g): and wider by its scale (\(f))")
+            #expect(abs(f.maxY - c.minY) < 0.5, "\(path) g \(g): its bottom on the content's top (\(f.maxY) vs \(c.minY))")
+        }
+        #expect(counts.bodies == bodies, "\(path): no content body")
+    }
+
     /// The effect and the clip (pure): the top centre is fixed, the bottom edge moves down by the stretch, the width scales
     /// with it; identity / the frame itself without a stretch, for a zero height or non-finite input. Their animatable
     /// data is `o′`: an interpolated `o′` re-derives the stretch while following, and changes nothing while held (a resize).

@@ -299,6 +299,9 @@ extension SeamLab {
     static var hold: Bool { HeaderDemo.argument("-ZTronSeamHold", "0") == "1" }
     /// `-ZTronSeamSticky 1`: a white bar in a bottom-aligned overlay of the header content (a sticky overlay).
     static var sticky: Bool { HeaderDemo.argument("-ZTronSeamSticky", "0") == "1" }
+    /// `-ZTronSeamHeaderText 1` (D69, risk 7): black 24 pt text centred in the header, to compare its edges at rest and
+    /// scaled by a `.stretch` hold (blur of a scaled stack). Not for seam analysis (black reads as "outside the window").
+    static var headerText: Bool { HeaderDemo.argument("-ZTronSeamHeaderText", "0") == "1" }
     static var refreshSeconds: Double? {
         Double(HeaderDemo.argument("-ZTronSeamRefresh", "")).map { max(0, $0) }
     }
@@ -348,6 +351,8 @@ struct SeamLabHeader: View {
     var body: some View {
         if SeamLab.sticky {
             content.overlay(alignment: .bottom) { Color.white.frame(width: 120, height: 16) }
+        } else if SeamLab.headerText {
+            content.overlay { Text("Stretch Aa 0123").font(.system(size: 24, weight: .bold)).foregroundColor(.black) }
         } else {
             content
         }
