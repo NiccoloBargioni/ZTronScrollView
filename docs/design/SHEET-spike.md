@@ -111,3 +111,67 @@ the gesture starts, so "yield only for a downward drag at offset 0" cannot be ex
   above the scroller grew from nothing to three lines at the first snapshot, the viewport shrank by 18 pt and the offset followed by half of it (the
   visible centre is kept, SPEC S7). With a fixed-height readout the offset stays 0; DBG-s6 pins both (`testDisabledViewFollowsItsViewportNotTheFinger`).
 - Under load (up to 634) every run was green; no flake seen in these tests.
+
+## 7. iOS 18.x (DBG-s7, 2026-10-21; D46, `docs/progress/DBG-s7.md`): §2 and §3 are 17.5 / 27.0 facts
+
+§1–§6 were measured on 27.0 and 17.5 only (DBG-s7 re-checked 26.0, 26.5 and 27.0 with the new S1 / D1 / start-at-top tests: same as §2). DBG-s7 ran the same cases on 18.0, 18.2, 18.4, 18.5 and 18.6 (iPhone 16 Pro clones, preferred; 18.5 also `--forced`) after
+two demo UI tests went red there. The numbers below are 18.5 preferred; the other four runtimes and the `--forced` path agree on every probe case
+(A1, B1, D1a, P1, P3: identical sheet ranges and final offsets, `pc` 41–57), no flake.
+
+**What differs: SwiftUI 18.x shares a drag between the sheet's pan and a `.simultaneousGesture` drag.** Plain pane, no scroll view (controls, 250 pt drag down at medium):
+
+| Control | 17.5 / 27.0 (§3) | 18.0 – 18.6 |
+|---|---|---|
+| P1 `.simultaneousGesture(DragGesture(minimumDistance: 10))`, P2 distance 0, P9 `SpatialEventGesture` | sheet frozen | **sheet dismissed** (410 → 874) while the gesture sees 56–61 changes |
+| P3 `.gesture(DragGesture)`, P4 `.highPriorityGesture(DragGesture)` | sheet frozen | sheet frozen (410..410), gesture sees 41–57 changes |
+| P5 nothing, P10 magnify, P11 double tap | dismissed | dismissed |
+| P7 / P8 / P12 masked with `.subviews` | sheet free | sheet free (P12a: 410 → 72, then back at medium) |
+
+ZTronScrollView attaches its observer and pan with `.simultaneousGesture` (M3 §8), so on 18.x it is the P1 row: the sheet takes the drag **with** the view. The sheet moves under the
+finger, the pan's local translation stays near 0 (inferred from `dragBegan` 1 and offsets that move by no more than the 10 pt slack while the sheet travels 140–800 pt), so the content
+does not follow the finger. `testTheSheetTreatsOursLikeAPlainSimultaneousDrag` pins "ours = P1" on every OS and prints P3 (`sheetMoved` ours / plain-simultaneous / plain-gesture).
+
+Across runtimes (`testTheSheetTreatsOursLikeAPlainSimultaneousDrag` = S1: does a 250 pt drag down at medium move the sheet; D1a: large, scrolled to row 15, 700 pt down):
+
+| Runtime | S1 ours / plain `.simultaneousGesture` / plain `.gesture` | D1a ours | First pane layout |
+|---|---|---|---|
+| 17.5 (preferred, `--forced`, `--forced --uikit`) | frozen / frozen / frozen | content to 0 (−16), sheet fixed | 28 x 68, then 393 x 419 (detent) |
+| 26.0, 26.5, 27.0 | frozen / frozen / frozen | content to 0 (−16), sheet fixed | 402 x 436 (detent) |
+| 18.0, 18.2, 18.4, 18.5 (+ `--forced`), 18.6 | **moved / moved** / frozen | **sheet dismissed**, content 660 | 402 x 768 (large), then 402 x 430 |
+
+Ours against native, 18.5 (sheet top in window pt: medium 410, large 72, gone 874):
+
+| Case | Native | Ours |
+|---|---|---|
+| A1 / A2 medium, offset 0, down 250 / flick | dismissed | dismissed |
+| A3 large, offset 0, down 250 | collapses to medium (72 → 410) | the same (72 → 410) |
+| A4 large only, down 250 | follows to 312, springs back | the same, and the content overscrolls 4 pt (§2: sheet fixed, content −113 on 27.0 / 17.5) |
+| B1 large, scrolled to 660, down 150 | content 660 → 520, sheet fixed | **sheet follows to 212 (+140), content stays 660** |
+| B2 same, up 150 | content 660 → 800, sheet fixed | content 660 → 791, sheet 63..72 |
+| C1 medium, offset 0, up 250 (default / `.resizes`) | sheet expands (410 → 72) | the same |
+| C2 same, `.scrolls` | content 0 → 240, sheet fixed | **sheet expands (410 → 72)**: `.scrolls` has no effect on a view that is not a `UIScrollView` |
+| D1a large, scrolled to 660, down 700 | content to 0 (−16), sheet fixed | **sheet dismissed (72 → 874)**, content stays 660 |
+| D2 one 520 pt drag from offset 220 across the top | content to 0 (−132), sheet fixed | **sheet follows to 582 (past medium)**, content stays 220 |
+| E1 / E2 `interactiveDismissDisabled` | sheet follows with resistance (+89 / +80), returns | the same, plus a content rubber band (−17 / −79) in the same frames (`both` 63 / 53) |
+| H1 drag from the header | dismissed | dismissed |
+
+Reading: up drags and drags from the top behave like native's default (the sheet expands, collapses or dismisses); **a drag down on content that is scrolled (B1, D1a, D2) moves or dismisses
+the sheet and scrolls nothing**, which is the cost of the shared drag (native scrolls the content to its top first). "Content always wins" (§2) is false on 18.x; the S12 default is not `.scrolls` there.
+
+**S7 follows the sheet's resizes, and the sheet's own first layout is one.** `ScrollDisabledScreen` now prints the pane's size trail (`sz`), the first offsets (`ot`) and the viewport (`vp`): the pane is laid out
+at 402 x 768 (large) first and at 402 x 430 (medium) right after, for a native `ScrollView` too (18.x only: 26.5 and 27.0 lay out at the detent size, 402 x 436, from the start; 17.5 shows a degenerate 28 x 68 pane and then 393 x 419, the detent size). The first layout has no centre rule, the second is a resize:
+a view that has never been touched opens a medium sheet at offset (768 − 430) / 2 = 169 (`ot=169`, one `didScroll`, `vp` 376). While the sheet is dragged the offset follows the viewport frame by frame
+(169, 166, 164, … 0 at `vp` 714, back to 169 at 376; a native `ScrollView` keeps its offset). A disabled view (`scrollDisabled`, `ztronScrollDisabled`) never begins a drag (`dragBegan` 0, D38 holds in a
+sheet on 18.x) but moves exactly like that. `defaultScrollAnchor(.top, for: .sizeChanges)` (S7's one override) removes the movement: offset 0, no `didScroll` through every resize.
+
+**Experiment: the exclusive attach restores the 17.5 / 27.0 behaviour (measured on 18.5 only, not shipped).** The DEBUG switch `-ZTronPanGestureMode gesture` (M3 §8; the demo tests forward
+`TEST_RUNNER_ZS_DEMO_PANMODE=gesture`) attaches the observer and the pan in one `.gesture`. Then, ours on 18.5 (sheet top / content): A1 sheet fixed at 410, content rubber band −36; A3 fixed at 72,
+content −112; **B1 content 660 → 520, sheet fixed (= native)**; B2 660 → 800; C1 / C2 sheet fixed at medium, content 169 → 409 (`.scrolls`); **D1a content to 0 (−16), sheet fixed (= native)**; D1b −108;
+D2 content to 0 (−132), sheet fixed (= native); E1 sheet fixed; H1 (header) still dismissed; `scrollDisabled` at medium leaves the sheet fixed too (the disabled view's recognized drag still freezes it, as
+on 27.0); `testSheetMediumStartsAtTheTop` still reads 169 (the first-layout transient does not depend on the attach); `testTheSheetTreatsOursLikeAPlainSimultaneousDrag` goes red as it should (ours =
+plain `.gesture`, the sheet is frozen). What that costs elsewhere (ancestors and nested views starved by an exclusive child, native `ScrollView` ancestors no longer sharing the drag) is DBG-s5's measurement
+(`docs/progress/DBG-s5.md`, branch `claude/sharp-banach-dadf23`), not repeated here.
+
+Consequences for the plan: (1) SHEET-s2's `ztronScrollYieldsToSheet(_:)` (branch `claude/strange-mendel-e1528c`, not merged, never run on 18.x) frees the sheet as designed, but its `false` is not `.scrolls` on 18.x:
+the unmasked gestures still share the drag. (2) Restoring "content wins" on 18.x means attaching the pan exclusively (`.gesture`, P3), with the costs DBG-s5 measured for ancestors and nested views: a separate, measured
+follow-up. (3) The presentation transient wants a library answer of its own (treat it as the first layout) or the app-side anchor above.

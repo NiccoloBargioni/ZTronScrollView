@@ -347,8 +347,8 @@ SwiftUI's own implementations are private and tied to its UIKit-backed ScrollVie
   - `scrollBounceBehavior(_:axes:)` + `ScrollBounceBehavior`
   - `scrollDismissesKeyboard(_:)` + `ScrollDismissesKeyboardMode`
   - Sheet cooperation (`presentationContentInteraction(_:)`, detents, `interactiveDismissDisabled`: sheet APIs, not ScrollView modifiers) — Amendment 2026-10-21 (SHEET-s1):
-    approximate. Default ≙ `.scrolls` with no hand-off; `ztronScrollYieldsToSheet(_:)` (S11) gives `.resizes` per detent; live top-edge hand-off impossible without
-    UIKit (S12 "Inside a bottom sheet").
+    approximate. Default ≙ `.scrolls` with no hand-off on 17.5 / 26.x / 27.0 (on 18.x the sheet shares the drag instead, DBG-s7 / D46: S12 last bullet); `ztronScrollYieldsToSheet(_:)` (S11)
+    gives `.resizes` per detent; live top-edge hand-off impossible without UIKit (S12 "Inside a bottom sheet").
   - `scrollInputBehavior(_:for:)` + `ScrollInputKind` / `ScrollInputBehavior`
   - `refreshable` (via S9)
 - **Edge effects (26+)**
@@ -936,7 +936,7 @@ starvation of the pager case does not apply, and no gesture names are needed.
 - **Three levels (ZTronPages → outer → inner) are phase 2.** Each view talks only to its nearest container. When the pager wins a swipe, the middle view's `canFollow`
   does not yet OR in "an inner under the touch can follow", so that inner may still pan under the pager's swipe. Not needed for the scenario; known limitation.
 
-### Inside a bottom sheet — Amendment 2026-10-21 (SHEET-s1, user decision; design `docs/design/SHEET-spike.md`, measured on 27.0 + 17.5, every gesture path)
+### Inside a bottom sheet — Amendment 2026-10-21 (SHEET-s1, user decision; design `docs/design/SHEET-spike.md`, measured on 27.0 + 17.5, every gesture path; iOS 18.x differs, see the last bullet, DBG-s7 / D46)
 
 `UISheetPresentationController` cooperates only with `UIScrollView`s: it inspects their offset to decide who gets a drag. A `ZTronScrollView` is not one, and
 a recognized SwiftUI drag gesture under the finger (pan, `SpatialEventGesture`, any `DragGesture`; pinch and double tap are harmless) takes the touch away
@@ -960,6 +960,17 @@ from the sheet. This is a SwiftUI/UIKit fact, not a ZTronScrollView property (a 
   even a native `ScrollView` does not hand off mid-gesture), and telling the sheet our offset. Recipe instead (no API): `onZTronScrollDidEndDragging` /
   the delegate with `contentOffset.y < -60` at the lift → change the detent selection (large → medium) or dismiss; the sheet animates after the lift, no live
   tracking, no flick velocity (SHEET-spike §4, V3–V5).
+- **iOS 18.x (Amendment 2026-10-21, DBG-s7, D46; measured on 18.0, 18.2, 18.4, 18.5, 18.6, preferred and `--forced`; design `docs/design/SHEET-spike.md` §7): the default above is a 17.5 / 26.x / 27.0 fact (26.0 and 26.5 measured by DBG-s7, same as 27.0).**
+  SwiftUI 18.x **shares** a drag between the sheet's own pan and a `.simultaneousGesture` drag (a plain pane with one `.simultaneousGesture(DragGesture)` or `SpatialEventGesture` moves or dismisses the
+  sheet while the gesture also runs; `.gesture` and `.highPriorityGesture` freeze it, as on every OS). The pan and observer are attached that way (M3 §8), so a drag that starts on the view moves the sheet *and*
+  drives the pan; the sheet moves with the finger, so the pan's local translation stays near 0 (inferred) and the content does not follow it. Measured (iPhone 16 Pro): at the top a drag down collapses (large → medium) or
+  dismisses (medium) the sheet like native, a drag up at medium expands it (native's default `.resizes`; `.scrolls` has no effect), drags up at large scroll the content, but **a drag down on scrolled content moves
+  or dismisses the sheet instead of scrolling it** (content at row 15, 150 pt down: sheet +140 pt, content unchanged; 700 pt down: dismissed; native scrolls to the top first). `ztronScrollYieldsToSheet(false)` is
+  therefore not `.scrolls` there. A disabled view (`scrollDisabled`, `ztronScrollDisabled`) still never begins a drag in a sheet (D38 holds); it moves with the sheet's resizes by the S7 centre rule, like every view.
+  The sheet's content is laid out at the large size first and at the detent size right after (768 → 430 pt of pane), a native `ScrollView` too: the first layout has no centre rule and the second is a resize, so a
+  never-touched view opens a medium sheet scrolled by half the difference (169 pt); `defaultScrollAnchor(.top, for: .sizeChanges)` (S7's one override) keeps it at the top through every resize. Not changed:
+  restoring "content wins" on 18.x needs the exclusive attach (`.gesture`), whose costs for ancestors and nested views are measured separately (D40); treating the presentation transient as the first layout is a
+  library change of its own. Both are follow-ups, tests pin the current behaviour (`SheetUITests.testTheSheetTreatsOursLikeAPlainSimultaneousDrag`, `ScrollDisabledUITests.testSheetMediumStartsAtTheTop` expected failure on 18.x).
 
 ## S13 · Pitfalls
 
