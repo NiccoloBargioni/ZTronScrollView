@@ -186,6 +186,21 @@ struct ObservationPhaseTests {
         #expect(calls.count == count, "same list: silent")
     }
 
+    /// PARITY-s1: SwiftUI measures target visibility in the unobscured area (native, 50 pt top inset, offset 250 over 44 pt
+    /// rows: rows 7 and 8, not the row 6 behind the inset).
+    @Test(arguments: OSPath.allCases) func targetVisibilityLeavesOutWhatTheInsetsCover(path: OSPath) {
+        let s = makeState(path)
+        var m = ScrollMetrics(viewportSize: CGSize(width: 100, height: 150), contentSize: CGSize(width: 100, height: 4400), displayScale: 2)
+        m.contentInset = EdgeInsets(top: 50, leading: 0, bottom: 0, trailing: 0)
+        s.contentInsetAdjustmentBehavior = .never
+        s.setMetrics(m)
+        registry(s, (0..<100).map { (AnyHashable($0), CGRect(x: 0, y: CGFloat($0) * 44, width: 100, height: 44)) })
+        var calls: [[Int]] = []
+        _ = s.observers.addTargetVisibility(TypedTargetVisibilityBox<Int>(threshold: 0.5) { calls.append($0) })
+        s.track(offset: CGPoint(x: 0, y: 250), zoom: 1)
+        #expect(calls.last == [7, 8], "\(calls)")
+    }
+
     @Test(arguments: OSPath.allCases) func aChangeAmongOtherTypesIsSilentForTheTypedBox(path: OSPath) {
         let s = makeState(path)
         s.setMetrics(ScrollMetrics(viewportSize: CGSize(width: 100, height: 200), contentSize: CGSize(width: 100, height: 900), displayScale: 2))

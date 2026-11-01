@@ -106,16 +106,33 @@ extension ZTronScrollPosition {
             request = .edge(edge)
         } else if let point = native.point {
             request = .point(point)
+        } else if #available(iOS 26, *), let axes = Self.axes(native) {
+            request = axes
         } else {
             request = nil
         }
         self.init(request: request, serial: serial, isPositionedByUser: native.isPositionedByUser)
+        sendableID = native.viewID
     }
 
-    /// SwiftUI's position for this request (`x` / `y` requests become one-axis `scrollTo`s).
+    /// iOS 26 reads one-axis requests back (`x` / `y`); before that they read as no request.
+    @available(iOS 26, *)
+    private static func axes(_ native: ScrollPosition) -> Request? {
+        switch (native.x, native.y) {
+        case let (x?, y?): return .xy(CGPoint(x: x, y: y))
+        case let (x?, nil): return .x(x)
+        case let (nil, y?): return .y(y)
+        case (nil, nil): return nil
+        }
+    }
+
+    /// SwiftUI's position for this request (`x` / `y` requests become one-axis `scrollTo`s), of the same id type.
     public var native: ScrollPosition {
+        if case .id? = request {} else if let make = idType?.native as? (Request?) -> ScrollPosition { return make(request) }
         switch request {
-        case let .id(id, anchor)?: return ScrollPosition(id: SendableID(id), anchor: anchor)
+        case let .id(id, anchor)?:
+            if let typed = sendableID { return ScrollPosition(id: typed, anchor: anchor) }
+            return ScrollPosition(id: SendableID(id), anchor: anchor)
         case let .edge(edge)?: return ScrollPosition(edge: edge)
         case let .point(point)?: return ScrollPosition(point: point)
         case let .x(x)?: return ScrollPosition(x: x)
@@ -126,9 +143,27 @@ extension ZTronScrollPosition {
     }
 }
 
-/// SwiftUI's `ScrollPosition(id:)` wants a `Sendable` id while `AnyHashable` is not. This carries one, and converts back to
-/// the wrapped value when SwiftUI type-erases it (`_HasCustomAnyHashableRepresentation`, a public stdlib protocol), so it
-/// compares equal to the view ids the app gave.
+@available(iOS 18, *)
+extension ZTronScrollPosition.IDType {
+    /// SwiftUI's position of id type `T` for a request that names no view.
+    static func nativeMaker<T: Hashable & Sendable>(_ type: T.Type) -> (ZTronScrollPosition.Request?) -> ScrollPosition {
+        { request in
+            switch request {
+            case let .edge(edge)?: return ScrollPosition(idType: type, edge: edge)
+            case let .point(point)?: return ScrollPosition(idType: type, point: point)
+            case let .x(x)?: return ScrollPosition(idType: type, x: x)
+            case let .y(y)?: return ScrollPosition(idType: type, y: y)
+            case let .xy(p)?: return ScrollPosition(idType: type, x: p.x, y: p.y)
+            case .id?, nil: return ScrollPosition(idType: type)
+            }
+        }
+    }
+}
+
+/// SwiftUI's `ScrollPosition(id:)` wants a `Sendable` id. For an id the app gave as non-`Sendable` this carries it, and
+/// converts back to the wrapped value when type-erased (`_HasCustomAnyHashableRepresentation`, a public stdlib protocol) so it
+/// reads back equal; SwiftUI itself matches views by the id's own type, so such a request does not find the view (PARITY-s1:
+/// every `Sendable` id goes through `sendableID` instead).
 @available(iOS 18, *)
 private struct SendableID: Hashable, @unchecked Sendable, _HasCustomAnyHashableRepresentation {
     let base: AnyHashable

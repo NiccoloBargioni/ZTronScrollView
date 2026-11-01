@@ -71,10 +71,11 @@ public enum ZTronScrollAnimation: Equatable { case uikit /* setContentOffset(ani
 
 // Position/ZTronScrollPosition.swift — mirrors ScrollPosition (18+)
 public struct ZTronScrollPosition: Equatable, Sendable {
-    public init(); public init<ID: Hashable>(id: ID, anchor: UnitPoint? = nil); public init(point: CGPoint); public init(edge: Edge); public init(x: CGFloat); public init(y: CGFloat); public init(x: CGFloat, y: CGFloat)
+    public init(idType: (some Hashable & Sendable).Type = Never.self); public init<ID: Hashable>(id: ID, anchor: UnitPoint? = nil) (+ a Sendable overload)
+    public init(idType: (some Hashable & Sendable).Type = Never.self, point: CGPoint)   // likewise edge: / x: / y: / x:y: (SwiftUI's shapes, PARITY-s1)
     public mutating func scrollTo<ID: Hashable>(id: ID, anchor: UnitPoint? = nil); public mutating func scrollTo(edge: Edge); public mutating func scrollTo(point: CGPoint)
     public mutating func scrollTo(x: CGFloat); public mutating func scrollTo(y: CGFloat); public mutating func scrollTo(x: CGFloat, y: CGFloat)
-    public var viewID: (any Hashable)? { get }; public func viewID<T: Hashable>(type: T.Type) -> T?; public var point: CGPoint?; public var edge: Edge?; public private(set) var isPositionedByUser: Bool
+    public var viewID: (any Hashable)? { get }; public func viewID<T: Hashable>(type: T.Type) -> T?; public var point: CGPoint?; public var edge: Edge?; public var x: CGFloat?; public var y: CGFloat?; public private(set) var isPositionedByUser: Bool
     enum Request: Equatable { case id(AnyHashable, UnitPoint?), edge(Edge), point(CGPoint), x(CGFloat), y(CGFloat), xy(CGPoint) }
     var request: Request?; var serial: UInt64     // serial bumps on every scrollTo and takes part in ==, so repeating a request re-applies it
 }
@@ -198,6 +199,8 @@ Parity-matrix rows (API | Strategy | Min OS | Fallback | Test | Status): `Scroll
   enum in §2 is the definition (S11's `scrollTo(_:anchor:animation:)` needs it).
 - Q2 Match native `ScrollPosition`: write `viewID` when the view has a target layout and a target is centred/aligned,
   otherwise write `point` (and clear `viewID`); `isPositionedByUser` true after a user scroll. ≤ 2 writes per gesture.
+  **Superseded by D53 (PARITY-s1, 2026-10-25, measured):** SwiftUI writes the reported view (nearest anchor point, of the
+  position's id type) once per change while the user moves the view, never a point; see `docs/design/PARITY-positions.md`.
 - Q3 Accepted: `scrollTargetLayout` requires children to carry `ztronScrollID`; off-screen lazy ids are pending/no-op
   until M9 (document in the parity matrix).
 - Q4 Accepted as the starting point; confirm against a native ScrollView in the demo (R5) and record it.

@@ -127,8 +127,9 @@ final class VisibilityObserverBox: ObserverBox {
     }
 }
 
-/// `onScrollTargetVisibilityChange`: the ids of the registered targets whose visible fraction reaches the threshold,
-/// in layout order (the typed boxes with the modifiers are in `Observation/ScrollObservers.swift`).
+/// `onScrollTargetVisibilityChange`: the ids of the registered targets whose visible fraction of the unobscured area (insets
+/// left out, like SwiftUI's) reaches the threshold, in layout order (the typed boxes with the modifiers are in
+/// `Observation/ScrollObservers.swift`).
 @MainActor
 class TargetVisibilityObserverBox: ObserverBox {
     var threshold: Double
@@ -149,7 +150,7 @@ class TargetVisibilityObserverBox: ObserverBox {
     func invalidate() { lastKey = nil }
 
     func evaluate(_ g: ZTronScrollGeometry, registry: TargetRegistry, axes: Axis.Set) -> Bool {
-        let visibleRect = g.visibleRect
+        let visibleRect = g.unobscuredRect
         if let key = lastKey, key.rect == visibleRect, key.version == registry.version { return false }
         lastKey = (visibleRect, registry.version)
         let horizontal = axes == .horizontal

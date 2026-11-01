@@ -263,6 +263,7 @@ The transform is driven by *target* values. The public `contentOffset`/`zoomScal
   - Suggested approach: make the GeometryEffect a pure function of its own `size` (the animated viewport size), the committed target values, and the viewport size they were committed for.
   - Then commit the re-derived target without animating again.
 - **Override:** only an explicit developer `defaultScrollAnchor(_:for: .sizeChanges)` may override this; document that. Content-size and inset changes follow `.sizeChanges` semantics.
+  - Amendment (PARITY-s1, 2026-10-25, measured against SwiftUI on 17.5 / 18.6 / 26.5 / 27.0, `docs/design/PARITY-positions.md` rows 18–22): for a content-size change SwiftUI's `.sizeChanges` keeps an axis that sits at its anchored position at that position (and `.alignment` does so for content that fitted); otherwise the offset is kept. iOS 27+ also re-applies `.initialOffset` until the first move (D55). Viewport changes (rotation) keep the center rule above.
 - **Coverage:** must work on every OS path, including the iOS 15 geometry fallback.
 
 ## S8 · SwiftUI ScrollView API parity (iOS 13 → 27)
@@ -299,6 +300,10 @@ SwiftUI's own implementations are private and tied to its UIKit-backed ScrollVie
 - **Position**
   - `scrollPosition(_:anchor:)` with `ScrollPosition` (scrollTo id/edge/point/x/y; viewID, point, edge, isPositionedByUser)
   - `scrollPosition(id:anchor:)`
+  - Amendment (PARITY-s1, 2026-10-25, D53–D55): behaviour is measured against SwiftUI's in the same demo on each OS
+    (`docs/design/PARITY-positions.md`): points are content-space; a user scroll writes the reported view (nearest anchor
+    point, of the position's id type, `ScrollPosition(idType:)` shapes) once per change; programmatic scrolls write nothing;
+    native defects are not mirrored (listed in D54).
   - `defaultScrollAnchor(_:)`
   - `defaultScrollAnchor(_:for:)` + `ScrollAnchorRole` (initialOffset, sizeChanges, alignment)
 - **Targets**

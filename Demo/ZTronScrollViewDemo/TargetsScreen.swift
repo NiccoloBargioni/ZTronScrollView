@@ -128,7 +128,8 @@ struct TargetsReaderSection: View {
 
 struct TargetsPositionSection: View {
     @State private var state = ZTronScrollState()
-    @State private var position = ZTronScrollPosition()
+    /// Int ids are reported back (like SwiftUI's `ScrollPosition(idType:)`: a position of id type `Never` reports no view).
+    @State private var position = ZTronScrollPosition(idType: Int.self)
     @State private var info = ""
     @State private var snapshot: [String: Int] = [:]
 
@@ -159,7 +160,7 @@ struct TargetsPositionSection: View {
     private func reset() {
         state.stopScrollingAndZooming()
         state.setContentOffset(.zero, animated: false)
-        position = ZTronScrollPosition()
+        position = ZTronScrollPosition(idType: Int.self)
         TargetsReadout.resetCountersSoon()
     }
 
@@ -253,6 +254,11 @@ struct TargetsAlignedSection: View {
     @State private var nativeID: Int? = 0
     @State private var info = ""
     @State private var snapshot: [String: Int] = [:]
+    /// SwiftUI's offset, read by a probe in its content (the id binding alone cannot tell a scroll that did not happen).
+    private let probe = ParityBox()
+    /// Reset scrolls SwiftUI's list back through its reader: on 17.5 the id binding of a non-lazy stack is never written by a
+    /// user scroll, so setting it back to 0 changed nothing and the next swipe started where the last one ended (PARITY-s1).
+    @State private var nativeReset = 0
 
     private var behavior: ZTronViewAlignedScrollTargetBehavior.LimitBehavior {
         switch limit {
@@ -297,25 +303,43 @@ struct TargetsAlignedSection: View {
         .ztronScrollTargetLayout()
     }
 
+    /// `-ZTronTargetsLazy 1`: SwiftUI's row is a `LazyHStack` (PARITY-s1, R5 on 17.5).
+    static let lazy = ProcessInfo.processInfo.arguments.contains("-ZTronTargetsLazy")
+
     @ViewBuilder
     private var native: some View {
         if #available(iOS 17, *) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 0) {
-                    ForEach(0..<16, id: \.self) { i in
-                        TargetsAlignedCell(index: i).frame(width: Self.cell.width, height: Self.cell.height).id(i)
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    if Self.lazy {
+                        LazyHStack(spacing: 0) { nativeCells }.scrollTargetLayout()
+                    } else {
+                        HStack(spacing: 0) { nativeCells }.scrollTargetLayout()
                     }
                 }
-                .scrollTargetLayout()
+                .scrollTargetBehavior(ZTronViewAlignedScrollTargetBehavior(limitBehavior: behavior).native)
+                .scrollPosition(id: $nativeID)
+                .frame(width: 300, height: Self.cell.height)
+                .coordinateSpace(name: "aligned.native")
+                .onChange(of: nativeReset) { _, _ in proxy.scrollTo(0, anchor: .leading) }
+                .border(Color.gray)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("aligned.native")
             }
-            .scrollTargetBehavior(ZTronViewAlignedScrollTargetBehavior(limitBehavior: behavior).native)
-            .scrollPosition(id: $nativeID)
-            .frame(width: 300, height: Self.cell.height)
-            .border(Color.gray)
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("aligned.native")
         } else {
             Text("SwiftUI view-aligned needs iOS 17").font(.caption2)
+        }
+    }
+
+    /// Cell 0 carries the offset probe (a reader around the layout made SwiftUI's id binding answer `nil`, PARITY-s1).
+    private var nativeCells: some View {
+        ForEach(0..<16, id: \.self) { i in
+            if i == 0 {
+                TargetsAlignedCell(index: i).frame(width: Self.cell.width, height: Self.cell.height)
+                    .modifier(ParityProbe(tag: "aligned.native", box: probe)).id(i)
+            } else {
+                TargetsAlignedCell(index: i).frame(width: Self.cell.width, height: Self.cell.height).id(i)
+            }
         }
     }
 
@@ -324,13 +348,14 @@ struct TargetsAlignedSection: View {
         state.setContentOffset(.zero, animated: false)
         oursID = 0
         nativeID = 0
+        nativeReset += 1
         TargetsReadout.resetCountersSoon()
     }
 
     private func readout() {
         snapshot = TargetsReadout.counters()
-        info = String(format: "limit=%@ ox=%.1f ours=%@ native=%@", limit, state.contentOffset.x,
-                      oursID.map(String.init) ?? "nil", nativeID.map(String.init) ?? "nil")
+        info = String(format: "limit=%@ ox=%.1f ours=%@ native=%@ nx=%.1f", limit, state.contentOffset.x,
+                      oursID.map(String.init) ?? "nil", nativeID.map(String.init) ?? "nil", -(probe.drawn["aligned.native"]?.minX ?? 0))
     }
 }
 
