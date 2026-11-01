@@ -19,7 +19,7 @@ Decisions:
 - DBG-s9 guard red with stage A (13 warnings in 2 of 6 27.0 unit runs; 0 in 5 runs without it): the armed 18–27 observer puts
   `CatchArmingProbe` / `GatedGestureAttach` on every hosted test view; UIKit's app-less counts are address-keyed and never cleared, and freed
   hosting-view addresses are reused. Escalated; the user approved a harness-only fix under three conditions, all met (Tests).
-- Numbers: D72 (ecstatic's "D34"), D73 (NESTED-s3); open items 24–26. Next free: D74, open item 27 (D68–D70 M8b-3, D71 + item 23 DBG-s12, D67 DBG-s11).
+- Numbers: D72 (ecstatic's "D34"), D73 (NESTED-s3); open items 24–26. Next free: D74, open item 28 (item 27 = M8b-3's reveal item, D66; D68–D70 M8b-3, D71 + item 23 DBG-s12, D67 DBG-s11).
 Open:
 - 18.5: `SheetUITests` Y1–Y5 red on main cc4be69 and on the tip with the same numbers (the yield does not hold on 18.x, D46): pre-existing,
   recorded in item 10; waits on SHEET-s3 (plan row 16).

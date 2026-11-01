@@ -16,7 +16,7 @@ evidence and hunk-level resolution notes, are in the appendix. Nothing was merge
   2026-11-01 D67 is free, D68–D70 are reserved by the M8b-3 session and D71 + open item 23 by DBG-s12 (refresher), so
   the next free numbers are D67 and D72; open items 10 and 11 are reused by several branch families, renumber by merge
   order. After wave 1 (INTEG-s1): D67 is DBG-s11 part 2 (0e2c03d), D72 / D73 and open items 24–26 are used;
-  next free D74 and open item 27.
+  next free D74 and open item 28 (27 is M8b-3's reveal item, D66, on cool-stonebraker).
 - Verification: build; unit `ZTronScrollViewTests` on 27.0 and 17.5; contract and physics when touched. Any change to
   `GestureAttach` / `PanGestureAdapter.swift` → the whole demo UI suite on 27.0 preferred, `--forced`, `--uikit` and
   17.5 preferred, `--forced`, plus the OS-specific lanes named per branch (18.5 / 18.6, 26.5). Private simulator clones,
