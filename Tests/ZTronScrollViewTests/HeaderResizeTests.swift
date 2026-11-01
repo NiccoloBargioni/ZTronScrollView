@@ -13,11 +13,12 @@ struct HeaderResizeTests {
     static let landscape = ViewportMetrics(size: CGSize(width: 874, height: 402), safeArea: EdgeInsets(top: 0, leading: 62, bottom: 21, trailing: 62))
 
     func make(_ path: OSPath, size: ZTronHeaderSize, behavior: ZTronHeaderScalingBehavior = .preserve,
-              overflow: ZTronHeaderOverflow = .uncapped) -> (ZTronScrollState, Clock) {
+              overflow: ZTronHeaderOverflow = .uncapped,
+              collapse: ZTronHeaderCollapseBehavior = .compress) -> (ZTronScrollState, Clock) {
         let clock = Clock()
         let s = makeState(path)
         s.now = { clock.t }
-        s.headerSpec = HeaderSizing(size: size, behavior: behavior, snap: .disabled, overflow: overflow)
+        s.headerSpec = HeaderSizing(size: size, behavior: behavior, collapse: collapse, snap: .disabled, overflow: overflow)
         s.setViewport(Self.portrait)
         s.setContentSize(CGSize(width: 402, height: 3000))
         s.track(offset: CGPoint(x: 0, y: -s.adjustedContentInset.top), zoom: 1)
@@ -103,6 +104,34 @@ struct HeaderResizeTests {
         #expect(s.headerGeometry?.stretch == 0 && s.headerGeometry?.height == 226.125, "\(String(describing: s.headerGeometry))")
         rotate(s, clock, to: Self.portrait)
         #expect(s.headerGeometry?.stretch == 0 && s.headerGeometry?.progress == 0)
+    }
+
+    /// D68: under `.slideBehind` the band is the whole resting height (`min` ignored): a rotation keeps the covered
+    /// fraction while `R = W / r` changes in the same commit, and returns to the same offset.
+    @Test(arguments: OSPath.allCases) func aRotationKeepsTheCoveredFractionOfASlideBehindHeader(path: OSPath) {
+        let (s, clock) = make(path, size: .aspectRatio(16.0 / 9.0, min: 64), collapse: .slideBehind(parallax: 0.5))
+        #expect(s.peek.metrics.header?.band == 226.125, "band = R")
+        scroll(s, oPrime: 226.125 * 0.4)
+        let before = s.contentOffset
+        rotate(s, clock, to: Self.landscape)
+        let m = try! #require(s.peek.metrics.header)
+        #expect(m.resting == 491.625 && m.band == 491.625 && s.adjustedContentInset.top == 491.625, "R and band = W / r")
+        #expect(abs((s.headerGeometry?.progress ?? -1) - 0.4) < 1e-9 && s.headerGeometry?.height == 491.625,
+                "covered fraction kept, the drawn height R: \(String(describing: s.headerGeometry))")
+        #expect(abs(oPrime(s) - 491.625 * 0.4) < 1e-9)
+        rotate(s, clock, to: Self.portrait)
+        #expect(abs((s.headerGeometry?.progress ?? -1) - 0.4) < 1e-9)
+        #expect(abs(s.contentOffset.y - before.y) < 1e-9, "the sticky intent restores the offset exactly")
+    }
+
+    /// D68: fully covered (the content past the whole band), a rotation keeps it covered and the visible centre (S7).
+    @Test(arguments: OSPath.allCases) func aRotationWithASlideBehindHeaderCoveredPreservesTheVisibleCentre(path: OSPath) {
+        let (s, clock) = make(path, size: .fixed(min: 64, max: 240), collapse: .slideBehind(parallax: 1))
+        scroll(s, oPrime: 1200)
+        let centre = visibleCentreY(s)
+        rotate(s, clock, to: Self.landscape)
+        #expect(s.headerGeometry?.progress == 1, "still covered")
+        #expect(abs(visibleCentreY(s) - centre) < 1, "the centre is kept: \(visibleCentreY(s)) vs \(centre)")
     }
 
     /// D59: the overflow policy is resolved against the container of each orientation, inside the same commit, and the
