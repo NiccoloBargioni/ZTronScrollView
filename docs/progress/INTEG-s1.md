@@ -25,7 +25,7 @@ Open:
   recorded in item 10; waits on SHEET-s3 (plan row 16).
 - 26.5: `PanUITests.testCatchWhileATextInputIsEditedDoesNotFireButton` (DBG-s3b) is timing-bound: XCUI's catching tap lands 0.4–2.1 s after
   `Animate`, the animation ends at ≈ 0.65 s; a tap after the end correctly fires the Button. Tip 1/3 alone (0.41 s pass; 0.95 / 2.1 s red),
-  ecstatic head 3/3 (0.38–0.63 s). Test robustness (longer or slower animation), not a library defect.
+  ecstatic head 3/3 (0.38–0.63 s); re-run under the UI lane lock at low load: 3/3 on main 9ced7cf (0.40–0.43 s). Test robustness (longer or slower animation), not a library defect.
 - 27.0: `ButtonDragUITests.testDragRunningOffTheScreenEdgeFlingsLikeNative` red once in 7 27.0 runs: the pan got 2 drag events in 30 ms
   (1 → 64 pt) under load, then the pause, release velocity 0 (the pre-D49 shape); 3/3 alone (449–450 vs native 461–474). For the BTN owner:
   a two-sample drag that ends in a pause releases at 0.
@@ -48,7 +48,7 @@ Tests (private clones, staggered, own derived data; the host ran other sessions'
 - Demo UI, tip c7172be (passed / failed / skipped): 27.0 preferred 199 / 1 / 18 (the button-drag flake above); 27.0 `--forced` 180 / 0 / 39;
   27.0 `--uikit` 180 / 0 / 39; 17.5 preferred 200 / 1 / 18 (`RefreshUITests.testCustomIndicatorFollowsTheModes`, 3/3 alone); 17.5 `--forced` 180 / 0 / 39. 0 feedback-loop warnings in every lane.
   27.0 preferred re-check: Refresh 14/14, Header 9/9, ContentOverlay 3/3, Sheet 62/62, Observation 3/3, Pan 20/20; 17.5 `testControlsUsable` green.
-- Targeted, tip: 18.5 preferred 106 / 6 (Sheet Y1–Y5 as on main, P6 launch), `--forced` 87 / 5 / 21 (Y1–Y3, Y5, M3 launch), `--native`
+- Targeted, tip: 18.5 preferred 106 / 6 (Sheet Y1–Y5 as on main; P6 passes alone under the lock), `--forced` 87 / 5 / 21 (Y1–Y3, Y5; M3 passes alone under the lock), `--native`
   UIKitControls 9/9; 26.5 preferred 53 / 3 (catch-while-editing timing; ColorPicker + Stepper 3/3 alone), `--native` 9/9.
 - After step 3 (m3 5d878b5): 27.0 preferred 173 / 13 / 18, `--forced` 163 / 3 / 38, `--uikit` 159 / 6 / 38; 17.5 preferred 183 / 3 / 18,
   `--forced` 164 / 1 / 38 (17.5 `testControlsUsable`, fixed by row 4). Base cc4be69 27.0 preferred 149 / 19 / 5. The m3 and base failures were
