@@ -15,7 +15,8 @@ evidence and hunk-level resolution notes, are in the appendix. Nothing was merge
   Known collisions: SHEET-s3's D47 (sweet-payne) and ecstatic-ramanujan's own "D34" both need new numbers. As of
   2026-11-01 D67 is free, D68–D70 are reserved by the M8b-3 session and D71 + open item 23 by DBG-s12 (refresher), so
   the next free numbers are D67 and D72; open items 10 and 11 are reused by several branch families, renumber by merge
-  order.
+  order. After wave 1 (INTEG-s1): D67 is DBG-s11 part 2 (0e2c03d), D72 / D73 and open items 24–26 are used;
+  next free D74 and open item 27.
 - Verification: build; unit `ZTronScrollViewTests` on 27.0 and 17.5; contract and physics when touched. Any change to
   `GestureAttach` / `PanGestureAdapter.swift` → the whole demo UI suite on 27.0 preferred, `--forced`, `--uikit` and
   17.5 preferred, `--forced`, plus the OS-specific lanes named per branch (18.5 / 18.6, 26.5). Private simulator clones,
@@ -26,14 +27,14 @@ evidence and hunk-level resolution notes, are in the appendix. Nothing was merge
 
 | # | Branch | D | What | Action | ≈ pts 5x |
 |---|---|---|---|---|---|
-| 1 | `elastic-kirch-23bf73` (PARITY-s1) | D53–D55 (user-confirmed 2026-10-26) | Position write-back as SwiftUI's | merge, doc conflicts only | 4 |
-| 2 | `vigilant-tharp-9659fb` (BTN-s1…s3) | D49 rev 2 | Release rule after an event-free pause (UIKit's: moves only, 250 pt/s gate) | merge + fix main's `HeaderStateTests` (150 / 100 pt/s releases now rest) inside the merge | 7 |
-| 3 | `sharp-banach-dadf23` **stage A** = merge commit `db10891` | D34, D37 (user-confirmed 2026-10-21) | `SpatialEventGesture` only from iOS 28; 18–27 use the armed fallback observer; `GestureAttach` honours `observerEnabled` on 18+ | merge with the one code hunk resolved: `isEnabled: on && observerEnabled` | 4 |
-| 4 | `ecstatic-ramanujan-bd7af2` (DBG-s3 content gate, carries DBG-s2) | its own "D34" → renumber (next free, D72 or later) | A focused text field is no longer evicted by the content gate; fixes 17.5 `PanUITests.testControlsUsable` | merge after 3; rename handoff `DBG-s3.md` → `DBG-s3b.md`; re-measure its 18+ expected failure on the post-D34 observer | 3.5 |
-| 5 | `awesome-stonebraker-4fe43f` | — | Demo UI full-suite note | merge with or after 4 | 0.5 |
-| 6 | `suspicious-elbakyan-3d1622` (DBG-s7) | D46 | 18.x sheet drag sharing, characterized; tests and docs only | merge | 2 |
-| 7 | `silly-jang-777448` (NESTED-mixed D1) | — (user resolutions R1–R3, 2026-10-21) | Public `ZTronScrollArbitrationRegistration` + `ztronScrollArbitrationParticipant` (no contract file changed) | merge; doc pass for the new public API; test next to D60 work | 3.5 |
-| 8 | `nervous-fermi-60dcbf` | — | BOTTOMSHEET-s1 design note + handoff only | cherry-pick the docs; drop its scrollDisabled commit (superseded by D38) | 1 |
+| 1 | `elastic-kirch-23bf73` (PARITY-s1) | D53–D55 (user-confirmed 2026-10-26) | Position write-back as SwiftUI's | merge, doc conflicts only **Done (INTEG-s1, d77d05d).** | 4  |
+| 2 | `vigilant-tharp-9659fb` (BTN-s1…s3) | D49 rev 2 | Release rule after an event-free pause (UIKit's: moves only, 250 pt/s gate) | merge + fix main's `HeaderStateTests` (150 / 100 pt/s releases now rest) inside the merge **Done (fde9b5d): `HeaderStateTests` re-derived in the merge.** | 7  |
+| 3 | `sharp-banach-dadf23` **stage A** = merge commit `db10891` | D34, D37 (user-confirmed 2026-10-21) | `SpatialEventGesture` only from iOS 28; 18–27 use the armed fallback observer; `GestureAttach` honours `observerEnabled` on 18+ | merge with the one code hunk resolved: `isEnabled: on && observerEnabled` **Done (5d878b5); the DBG-s9 guard needed the harness-only D52 extension (c7172be, user-approved).** | 4  |
+| 4 | `ecstatic-ramanujan-bd7af2` (DBG-s3 content gate, carries DBG-s2) | its own "D34" → renumber (next free, D72 or later) | A focused text field is no longer evicted by the content gate; fixes 17.5 `PanUITests.testControlsUsable` | merge after 3; rename handoff `DBG-s3.md` → `DBG-s3b.md`; re-measure its 18+ expected failure on the post-D34 observer **Done (a4b1338): D72, `DBG-s3b.md`, item 25; 17.5 `testControlsUsable` green on the tip; the strict 18+ expected failure still holds on 18.5 / 26.5 / 27.0 with the D34 observer.** | 3.5  |
+| 5 | `awesome-stonebraker-4fe43f` | — | Demo UI full-suite note | merge with or after 4 **Done (d322cfd).** | 0.5  |
+| 6 | `suspicious-elbakyan-3d1622` (DBG-s7) | D46 | 18.x sheet drag sharing, characterized; tests and docs only | merge **Done (c00071e).** | 2  |
+| 7 | `silly-jang-777448` (NESTED-mixed D1) | — (user resolutions R1–R3, 2026-10-21) | Public `ZTronScrollArbitrationRegistration` + `ztronScrollArbitrationParticipant` (no contract file changed) | merge; doc pass for the new public API; test next to D60 work **Done (bc575bc): SPEC S11 + S16 entries, D73.** | 3.5  |
+| 8 | `nervous-fermi-60dcbf` | — | BOTTOMSHEET-s1 design note + handoff only | cherry-pick the docs; drop its scrollDisabled commit (superseded by D38) **Done (1b4b3ce): item 26; 7b5cfbf dropped.** | 1  |
 
 Absorbed, to delete after wave 1 (user's yes): `competent-engelbart-ce0375`, `nifty-dubinsky-277c66` (in sharp-banach),
 `determined-lederberg-7907ea` (same patches in ecstatic-ramanujan), `spike-q3-descendant-simultaneous` (in
