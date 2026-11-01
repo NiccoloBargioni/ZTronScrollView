@@ -198,13 +198,28 @@ struct HeaderStretchScaleTests {
     func aStretchHoldKeepsTheScaleAcrossAnAnimatedWidthChange(path: OSPath) {
         let box = Box(), counts = BodyCount(), width = Width()
         let s = makeState(path)
+        #if DEBUG
+        ZTronRenderCounters.reset()
+        #endif
         let w = withOSPath(path) { window(HoldHost(state: s, width: width, box: box, counts: counts)) }
         defer { unhost(w) }
         resolve(s)
+        let installed = counts.bodies
+        #if DEBUG
+        let builds = ZTronRenderCounters.value("header.builder")
+        #endif
         s.beginRefreshing()
         pump(0.6)
         let hold = s.headerGeometry?.stretch ?? 0
         #expect(hold > 30, "\(path): the hold stretches the header (\(String(describing: s.headerGeometry)))")
+        // The hold's stretch runs no content body and no header builder (the install's runs are counted apart).
+        #expect(counts.bodies == installed, "\(path): no content body for the hold (\(counts.bodies - installed))")
+        #if DEBUG
+        print("STRETCH \(path) builder runs: install \(builds), after the hold \(ZTronRenderCounters.value("header.builder"))")
+        #expect(ZTronRenderCounters.value("header.builder") == builds,
+                "\(path): builder runs for the hold (\(ZTronRenderCounters.value("header.builder") - builds); install \(builds))")
+        #expect(ZTronRenderCounters.value("header.frame") > 0, "\(path): the leaf drew the hold")
+        #endif
         s.endOfTurn()
         #if DEBUG
         ZTronRenderCounters.reset()
