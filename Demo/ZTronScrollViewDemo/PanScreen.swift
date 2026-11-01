@@ -58,6 +58,12 @@ private struct CancelProbeTicker: View {
 
 struct PanScreen: View {
     private static let keys = ["content.body", "didScroll", "button.fired", "clock.tick", "pan.catch", "pan.movingAtEvent", "pan.ev.down", "pan.ev.up", "pan.ev.dragEnd"]
+    /// With `-ZTronPanField` the screen shows only these rows (and a shorter scroller) so that it fits above the keyboard on an
+    /// iPhone 15: the counters the field tests read, and how often the content gate used each means (`ContentLock`, DEBUG).
+    private static let fieldKeys = ["content.body", "didScroll", "button.fired", "pan.catch", "gate.shield", "gate.disabled", "gate.mask"]
+    /// `-ZTronPanField`: a TextField beside the buttons, outside the scroll view: while it is edited the content gate takes its
+    /// editing path (shield + mask instead of hit-testing + `.disabled`), which the catch / pan tests then run against.
+    private static let showField = ProcessInfo.processInfo.arguments.contains("-ZTronPanField")
     /// UIKit touch observer probes (D31, DEBUG counters): events the recognizer saw and the two `canPrevent` answers it gave.
     private static let observerKeys = ["pan.ev.drag", "pan.ev.cancel", "phase.tracking", "uikit.began", "uikit.moved", "uikit.ended",
                                        "uikit.cancelled", "uikit.canPrevent", "uikit.canBePrevented"]
@@ -73,6 +79,7 @@ struct PanScreen: View {
     @State private var shown = true
     @State private var probeScheduled = false
     @State private var probeLog = ""
+    @State private var note = ""
 
     var body: some View {
         VStack(spacing: 6) {
@@ -80,10 +87,15 @@ struct PanScreen: View {
                 Button("Reset") { reset() }.accessibilityIdentifier("Reset")
                 Button("Snapshot") { takeSnapshot() }.accessibilityIdentifier("Snapshot")
                 if Self.showToggle { Button("Toggle") { shown.toggle() }.accessibilityIdentifier("Toggle") }
+                if Self.showField {
+                    TextField("Edit", text: $note).textFieldStyle(.roundedBorder).accessibilityIdentifier("pan.field")
+                    // Motion without a finger to catch: an animated scroll (the spring runs about a second).
+                    Button("Animate") { state.setContentOffset(CGPoint(x: 0, y: 1200), animated: true) }.accessibilityIdentifier("Animate")
+                }
             }
             if shown {
                 ZTronScrollView(.vertical, state: state) { PanContent() }
-                    .frame(height: 360)
+                    .frame(height: Self.showField ? 250 : 360)
                     .border(Color.gray)
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("scroller")
@@ -94,7 +106,7 @@ struct PanScreen: View {
                 CountedLabel(key: p == .tracking ? "phase.tracking" : "phase.other", text: "phase \(p.rawValue)")
             }
             VStack(spacing: 0) {
-                ForEach(Self.keys + Self.observerKeys, id: \.self) { CounterRow(key: $0, value: snapshot[$0] ?? 0) }
+                ForEach(Self.showField ? Self.fieldKeys : Self.keys + Self.observerKeys, id: \.self) { CounterRow(key: $0, value: snapshot[$0] ?? 0) }
             }
             Text(stateInfo).font(.caption2).accessibilityIdentifier("stateInfo").accessibilityValue(stateInfo)
         }

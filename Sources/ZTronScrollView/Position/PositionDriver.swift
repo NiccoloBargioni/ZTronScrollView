@@ -285,7 +285,8 @@ final class PositionDriver {
 
 /// An animatable that changes with every new position request, so that an update made inside `withAnimation` evaluates the
 /// transaction at the container (`.transaction` runs only for animating descendants) and the driver can take the animation.
-/// It draws nothing; its `body` runs a few times during the animation, which is nothing next to a scroll.
+/// It draws nothing; its `body` runs a few times during the animation, which is nothing next to a scroll. Apply it through
+/// ``PositionTicketLeaf``, never to the container or to anything that holds the content.
 struct PositionTicket: GeometryEffect {
     var ticket: Double
     var animatableData: Double {
@@ -293,4 +294,15 @@ struct PositionTicket: GeometryEffect {
         set { ticket = newValue }
     }
     func effectValue(size: CGSize) -> ProjectionTransform { ProjectionTransform() }
+}
+
+/// ``PositionTicket`` on a clear leaf in the container's background. As a wrapper of the container, even with a ticket that
+/// never changed, it made SwiftUI on iOS 17.5 interpolate the layout under it in the keyboard's transaction: the first frame
+/// paired the new keyboard inset with the old frame (the viewport observer read 360 pt + a 230 pt inset), the resize watch
+/// reported `.animating`, `TransformHost` blocked its content (`allowsHitTesting(false)`), UIKit disabled user interaction on
+/// the focused `TextField` and it resigned (`PanUITests.testControlsUsable`, M6 s3). The leaf sees the same transaction and
+/// moves nothing but itself.
+struct PositionTicketLeaf: View {
+    let ticket: Double
+    var body: some View { Color.clear.modifier(PositionTicket(ticket: ticket)).allowsHitTesting(false) }
 }

@@ -199,7 +199,7 @@ final class NestedPagerUITests: XCTestCase {
 
     /// Observed (17.5 preferred; docs/progress/NESTED-s2.md): nobody is told to ignore the sequence, so BOTH recognize
     /// the drag; the outer's DragGesture reaches its hysteresis, starts dragging and locks its content (`.disabled`
-    /// while dragging), which cuts the inner's drag after a few points. Net effect: the outer pages, the zoomed image
+    /// while dragging and no text input is edited, DBG-s3b), which cuts the inner's drag after a few points. Net effect: the outer pages, the zoomed image
     /// barely moves (here +3 pt of a 252 pt swipe). Before nested arbitration this was the only behaviour.
     func testIndependentZoomedSwipePagesAndImageBarelyMoves() {
         let app = launch("independent")

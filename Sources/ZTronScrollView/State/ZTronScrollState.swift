@@ -197,6 +197,7 @@ public final class ZTronScrollState {
         usesUIKitTouchObserver = ZTronAvailability.isAvailable(.uikitTouchObserver) && !usesSpatialEvents
         usesMagnifyGesture = ZTronAvailability.isAvailable(.magnifyGesture)
         usesAnimationCompletion = ZTronAvailability.isAvailable(.animationCompletion)
+        _ = TextEditingMonitor.shared   // listening before any text input of the screen can take the focus
         targets = TargetRegistry(usesGeometryChange: usesGeometryChange)
         targets.state = self
         targetRegistry = targets
