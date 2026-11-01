@@ -101,7 +101,8 @@ Open:
 - C2's record on this branch: `UIKITPAN-s1.md` reads option (b) (460e379). This branch's Orchestration item 14 still says "Decision
   needed: C2" from the revert. The design branch's text is the reference.
 
-Next: 1) settle the D34/D37 merges and the D40 / SHEET-s3 D47 decision, which block U3 (§9 Q7); 2) U3, the shell and wiring per
+Next: 1) settle the D34/D37 merges and the D40 / SHEET-s3 D47 decision, which block U3 (§9 Q7; the user confirmed on
+2026-11-01 that U3 waits for them); 2) U3, the shell and wiring per
 design §5, with the contract above and `PanEvent.direction`; 3) U4 demo and UI matrix, with this branch's U1 probes and harness as
 baselines; then U5.
 
