@@ -67,7 +67,7 @@ struct HeaderFitTests {
         let counts = BodyCount()
         let w = withOSPath(path) {
             window(ZTronScrollView(.vertical, state: s) { StatefulContent(counts: counts) }
-                .withScalingHeader(size: .fixed(max: 200), scalingBehavior: .stretch) { _ in Color.red }
+                .withScalingHeader(size: .fixed(max: 200), pull: .stretch) { _ in Color.red }
                 .refreshable { }, size: CGSize(width: 402, height: 874))
         }
         #expect(s.refresh?.specs.keys.sorted { "\($0)" < "\($1)" } == [.top] && s.refresh?.specs[.top]?.style == .system)

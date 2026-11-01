@@ -169,7 +169,7 @@ struct ProfileScreen: View {
             ZTronScrollView(.vertical, state: state) {
                 VStack(spacing: 0) { ForEach(0..<40, id: \.self) { HeaderRow(index: $0) } }
             }
-            .withScalingHeader(size: .fixed(min: 64, max: 240), scalingBehavior: .preserve, snap: snap,
+            .withScalingHeader(size: .fixed(min: 64, max: 240), pull: .preserve, snap: snap,
                                background: HeaderDemo.background) { header in
                 ProfileHeader(header: header)
             }
@@ -257,10 +257,18 @@ struct BannerScreen: View {
                 VStack(spacing: 0) { ForEach(0..<40, id: \.self) { HeaderRow(index: $0) } }
             }
         }
+        #if DEBUG
+        // The deprecated spelling (`scalingBehavior:` → `pull:`), kept so the demo compiles it (with its warning).
         .withScalingHeader(size: size, scalingBehavior: .stretch, fade: .linear(to: .black, from: 0.4),
                            background: HeaderDemo.background, overflow: overflow) { header in
             BannerHeader(header: header)
         }
+        #else
+        .withScalingHeader(size: size, pull: .stretch, fade: .linear(to: .black, from: 0.4),
+                           background: HeaderDemo.background, overflow: overflow) { header in
+            BannerHeader(header: header)
+        }
+        #endif
         .refresher(overlay: true) { await HeaderDemo.load() }
     }
 }

@@ -224,7 +224,7 @@ struct HeaderLayoutFrameTests {
         let counts = BodyCount()
         let w = withOSPath(path) {
             window(ZTronScrollView(.vertical, state: s) { StatefulContent(counts: counts) }
-                .withScalingHeader(size: .fixed(min: 64, max: 240), scalingBehavior: mode.behavior) { _ in Probe(box: box) }
+                .withScalingHeader(size: .fixed(min: 64, max: 240), pull: mode.behavior) { _ in Probe(box: box) }
                 .scalingHeaderPullBehavior(mode.pull),
                    size: CGSize(width: 402, height: 874))
         }
@@ -276,7 +276,7 @@ struct HeaderLayoutFrameTests {
         let s = makeState(path)
         let w = withOSPath(path) {
             window(ZTronScrollView(.vertical, state: s) { StatefulContent(counts: counts) }
-                .withScalingHeader(size: .fixed(min: 64, max: 240), scalingBehavior: .stretch,
+                .withScalingHeader(size: .fixed(min: 64, max: 240), pull: .stretch,
                                    background: .ambientBlur(radius: 12)) { _ in Root(runs: runs) },
                    size: CGSize(width: 402, height: 874))
         }
@@ -427,7 +427,7 @@ struct HeaderLayoutFrameTests {
         let behavior = mode.behavior
         let w = withOSPath(path) {
             window(ZTronScrollView(.vertical, state: s) { Color.green.frame(height: 4000) }
-                .withScalingHeader(size: .aspectRatio(16.0 / 9.0, min: 64), scalingBehavior: behavior,
+                .withScalingHeader(size: .aspectRatio(16.0 / 9.0, min: 64), pull: behavior,
                                    background: .view { Probe(box: bg) }) { _ in Probe(box: box) }
                 .ztronScalingHeaderPullBehavior(mode.pull),
                    size: CGSize(width: 402, height: 874))

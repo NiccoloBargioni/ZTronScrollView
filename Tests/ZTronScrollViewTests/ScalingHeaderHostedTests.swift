@@ -86,7 +86,7 @@ struct ScalingHeaderHostedTests {
     func profile(_ s: ZTronScrollState, counts: BodyCount, header: HeaderCounts,
                  behavior: ZTronHeaderScalingBehavior = .stretch) -> some View {
         ZTronScrollView(.vertical, state: s) { StatefulContent(counts: counts) }
-            .withScalingHeader(size: .fixed(min: 64, max: 240), scalingBehavior: behavior) { proxy in
+            .withScalingHeader(size: .fixed(min: 64, max: 240), pull: behavior) { proxy in
                 ZStack(alignment: .bottom) {
                     Color.red
                     VStack(spacing: 0) {
@@ -190,7 +190,7 @@ struct ScalingHeaderHostedTests {
         let s = makeState(path)
         let w = withOSPath(path) {
             window(ZTronScrollView(.horizontal, state: s) { Color.green.frame(width: 2000) }
-                .withScalingHeader(size: .fixed(min: 0, max: 100), scalingBehavior: .stretch) { _ in Color.red })
+                .withScalingHeader(size: .fixed(min: 0, max: 100), pull: .stretch) { _ in Color.red })
         }
         let m = s.peek.metrics
         #expect(m.header?.vertical == false)

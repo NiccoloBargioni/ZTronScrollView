@@ -23,7 +23,7 @@ struct RefreshIndicatorLayerTests {
         let behavior: ZTronHeaderScalingBehavior
         var body: some View {
             ZTronScrollView(.vertical, state: state) { Color.green.frame(height: 3000) }
-                .withScalingHeader(size: .aspectRatio(16.0 / 9.0, min: 64), scalingBehavior: behavior) { _ in Color.red }
+                .withScalingHeader(size: .aspectRatio(16.0 / 9.0, min: 64), pull: behavior) { _ in Color.red }
                 .refresher(refreshView: { _ in
                     Color(red: RefreshIndicatorLayerTests.marker.r, green: RefreshIndicatorLayerTests.marker.g,
                           blue: RefreshIndicatorLayerTests.marker.b)

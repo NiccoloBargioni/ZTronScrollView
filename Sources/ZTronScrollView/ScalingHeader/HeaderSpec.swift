@@ -5,7 +5,10 @@ import SwiftUI
 /// return `Self`. `==` compares the value fields only (a new builder closure is always applied, R7).
 struct HeaderSpec {
     var size: ZTronHeaderSize
+    /// The `pull:` reaction (the former `scalingBehavior:`).
     var behavior: ZTronHeaderScalingBehavior
+    /// D68: the `collapse:` reaction (with its `.slideBehind` backdrop).
+    var collapse: ZTronHeaderCollapseBehavior = .compress
     var snap: ZTronHeaderSnap
     var fade: ZTronHeaderFade?
     var background: ZTronHeaderBackground?
@@ -15,7 +18,7 @@ struct HeaderSpec {
     /// The state's cold values with the resolved pull behavior (D65: the member, else the environment, else `.openGap`;
     /// resolved by the container, which reads both).
     func sizing(pull: ZTronHeaderPullBehavior) -> HeaderSizing {
-        HeaderSizing(size: size, behavior: behavior, snap: snap, overflow: overflow, pull: pull)
+        HeaderSizing(size: size, behavior: behavior, collapse: collapse, snap: snap, overflow: overflow, pull: pull)
     }
 }
 
@@ -23,6 +26,8 @@ struct HeaderSpec {
 struct HeaderSizing: Equatable {
     var size: ZTronHeaderSize
     var behavior: ZTronHeaderScalingBehavior
+    /// D68: the collapse mode (carried into `HeaderMetrics.collapse`); a change (the backdrop's too) is a cold spec change.
+    var collapse: ZTronHeaderCollapseBehavior = .compress
     var snap: ZTronHeaderSnap
     var overflow: ZTronHeaderOverflow = .uncapped
     /// D65: where a `.preserve` header's pull gap opens (carried into `HeaderMetrics.pull`). A change is a cold spec change
@@ -32,12 +37,16 @@ struct HeaderSizing: Equatable {
     /// `HeaderMath.metrics` plus its DEBUG warnings (cold: the state's commits, never the layout path); `nil` while the
     /// width is unknown or `.fit` unmeasured.
     @MainActor func resolve(width: CGFloat, natural: CGFloat?, vertical: Bool, containerHeight: CGFloat) -> HeaderMetrics? {
-        let metrics = HeaderMath.metrics(size: size, width: width, natural: natural, behavior: behavior, pull: pull,
-                                         vertical: vertical, containerHeight: containerHeight, overflow: overflow)
+        let metrics = HeaderMath.metrics(size: size, width: width, natural: natural, behavior: behavior,
+                                         collapse: collapse.kind, pull: pull, vertical: vertical,
+                                         containerHeight: containerHeight, overflow: overflow)
         #if DEBUG
         if let warning = HeaderMath.warning(size: size, width: width, natural: natural, containerHeight: containerHeight,
                                             overflow: overflow) {
             HeaderDiagnostics.note(warning)
+        }
+        if let requested = collapse.requestedParallax, let k = collapse.parallax {
+            HeaderDiagnostics.note("withScalingHeader: .slideBehind(parallax: \(requested)) is outside 0…1, read as \(k)")
         }
         if metrics != nil, behavior == .stretch, !vertical {
             HeaderDiagnostics.note("withScalingHeader: .stretch is inert on a scroll view without the vertical axis (a fixed banner)")

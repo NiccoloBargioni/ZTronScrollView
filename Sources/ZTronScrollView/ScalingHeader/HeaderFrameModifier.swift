@@ -345,9 +345,12 @@ struct HeaderInteractionGate: ViewModifier {
 }
 
 /// `fade:`: a gradient from clear (at `start · h`) to the color (at the bottom edge), laid out against the live frame:
-/// it follows the frame by layout and reads nothing.
+/// it follows the frame by layout and reads nothing. Draws the `rest` gradient (the per-state crossfade is D70's
+/// `HeaderFadeOverlay`; `.linear(to:from:)` is the same gradient in every state).
 struct HeaderFade: View {
-    let fade: ZTronHeaderFade?
+    let fade: ZTronHeaderFade.Gradient?
+
+    init(fade: ZTronHeaderFade?) { self.fade = fade?.rest }
 
     var body: some View {
         if let fade {

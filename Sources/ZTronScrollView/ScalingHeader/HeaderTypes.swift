@@ -1,10 +1,12 @@
 import SwiftUI
 
-// Scaling header (SPEC S10, amendment 2026-10-19; design M8b §2): the public value types. The header is installed with
-// `ZTronScrollView.withScalingHeader(size:scalingBehavior:snap:fade:background:overflow:header:)`, precedes the content
-// (its resting height is reserved in `adjustedContentInset.top`), collapses by shrinking from the bottom with its top edge
-// pinned and reacts to a pull past the top with `.preserve` (it keeps its resting height; where the gap opens is the
-// `ZTronHeaderPullBehavior`, D65: below it by default, or above it when it follows the content) or `.stretch` (it grows with
+// Scaling header (SPEC S10, amendment 2026-10-19; design M8b §2, M8b-header-behaviors): the public value types. The
+// header is installed with `ZTronScrollView.withScalingHeader(size:collapse:pull:snap:fade:background:overflow:header:)`,
+// precedes the content (its resting height is reserved in `adjustedContentInset.top`), reacts to the content scrolling up
+// over it with its `ZTronHeaderCollapseBehavior` (`.compress`: it shrinks from the bottom with its top edge pinned;
+// `.slideBehind`: it keeps its height and the content slides over it, D68) and to a pull past the top with its
+// `ZTronHeaderScalingBehavior` (`.preserve`: it keeps its resting height, and where the gap opens is the
+// `ZTronHeaderPullBehavior`, D65: below it by default, or above it when it follows the content; `.stretch`: it grows with
 // the pull, its top edge pinned).
 
 /// How tall the header rests and how far it collapses.
@@ -43,12 +45,81 @@ public enum ZTronHeaderOverflow: Equatable, Sendable {
     case refit
 }
 
-/// The reaction to a pull past the top: `.preserve` keeps the header at its resting height (where the gap a pull opens
-/// goes, and the refresh indicator with it, is ``ZTronHeaderPullBehavior``: below the header by default, above it when the
-/// header follows the content), `.stretch` grows the header from its bottom edge with the (rubber-banded) pull, its top
-/// edge pinned (a refresh indicator floats over the stretched band).
+/// The reaction to a pull past the top (the `pull:` parameter of `withScalingHeader`, formerly `scalingBehavior:`).
 public enum ZTronHeaderScalingBehavior: Sendable {
-    case preserve, stretch
+    /// The default. The header keeps its resting height; where the gap a pull opens goes, and the refresh indicator with
+    /// it, is ``ZTronHeaderPullBehavior`` (below the header by default, above it when the header follows the content).
+    case preserve
+    /// The header grows with the (rubber-banded) pull, its top edge pinned and its bottom edge on the content's top edge;
+    /// a refresh indicator floats over the stretched band. Only when the vertical axis can bounce (scrollable content,
+    /// `scrollBounceBehavior(.always)` or a refresher); inert on a scroll view without the vertical axis (a banner).
+    case stretch
+}
+
+/// What the header does while the content scrolls up over it (the `collapse:` parameter of `withScalingHeader`, D68).
+/// A struct, like SwiftUI's `Animation`, so that both `.slideBehind` and `.slideBehind(parallax: 0.3)` can be written.
+///
+/// Whatever the mode, the header's resting height is reserved in `adjustedContentInset.top`, the content's top edge
+/// starts on the header's bottom edge at rest, and snap positions (``ZTronHeaderSnap``) and the geometry's `progress`
+/// are fractions of the collapse band (0 expanded … 1 collapsed or fully covered).
+public struct ZTronHeaderCollapseBehavior: Equatable, Sendable {
+    /// The resolved mode (the backdrop is a drawing detail, not part of it).
+    enum Kind: Equatable, Sendable {
+        case compress
+        case slideBehind(parallax: CGFloat)
+
+        /// `k` for `.slideBehind` (0…1), `nil` for `.compress`.
+        var parallax: CGFloat? {
+            if case let .slideBehind(k) = self { return k } else { return nil }
+        }
+
+        var isSlideBehind: Bool { parallax != nil }
+    }
+
+    let kind: Kind
+    /// `.slideBehind(…, backdrop:)`: the color drawn behind the content (in its own space), `nil` for none.
+    let backdrop: Color?
+    /// DEBUG: the parallax as written when it was outside 0…1 or NaN (`HeaderSizing.resolve` notes it); not compared.
+    let requestedParallax: CGFloat?
+
+    /// The default: the header shrinks from its bottom edge, its top edge pinned, down to the size's `min` as the content
+    /// scrolls up (its bottom edge stays on the content's top edge), then the content scrolls under the collapsed header.
+    /// The header's subtree is laid out at the live height, so an overlay pinned to its bottom follows the bottom edge.
+    public static let compress = Self(kind: .compress, backdrop: nil, requestedParallax: nil)
+
+    /// `.slideBehind(parallax: 0.5)`: the header keeps its resting height and is drawn BEHIND the content, which slides up
+    /// over it; the header moves up at half the content's speed. See ``slideBehind(parallax:backdrop:)``.
+    public static let slideBehind = Self(kind: .slideBehind(parallax: 0.5), backdrop: nil, requestedParallax: nil)
+
+    /// The header keeps its resting height and is drawn BEHIND the content, which slides up over it (the content's top
+    /// edge leaves the header's bottom edge only by covering it); the header itself moves up by `parallax` times the
+    /// distance the content has covered: 0 keeps it still, 1 moves it with the content, 0.5 (the default) at half speed.
+    /// The band is the whole resting height: the header is fully covered after scrolling by its height (snap positions
+    /// and `progress` are the covered fraction), and the size's `min` is ignored.
+    ///
+    /// The content is drawn over the header as it is: where it does not paint an opaque background of its own (a clear
+    /// `List` row, text on nothing), the header shows through it. `backdrop` fills the content's whole frame with a color,
+    /// below the content and moving with it (as part of its scrolling transform, no content body runs); the app's
+    /// background color is the recommended value, `nil` (the default) draws nothing.
+    ///
+    /// The header is not clipped at the safe-area top as it moves up: like the content, it may draw under a translucent
+    /// navigation bar. Touches in the uncovered part reach the header; covered parts cannot be touched. Switching
+    /// `collapse:` between `.compress` and `.slideBehind` at run time installs the header again: its builder runs once
+    /// more and its `@State` starts over (the content keeps its identity and state).
+    ///
+    /// - Parameters:
+    ///   - parallax: 0…1, clamped (NaN reads as 0.5).
+    ///   - backdrop: an optional color drawn behind the content.
+    public static func slideBehind(parallax: CGFloat = 0.5, backdrop: Color? = nil) -> Self {
+        let k = parallax.isNaN ? 0.5 : Swift.min(Swift.max(parallax, 0), 1)
+        return Self(kind: .slideBehind(parallax: k), backdrop: backdrop, requestedParallax: k == parallax ? nil : parallax)
+    }
+
+    public static func == (a: Self, b: Self) -> Bool { a.kind == b.kind && a.backdrop == b.backdrop }
+
+    /// `k` for `.slideBehind`, `nil` for `.compress`.
+    var parallax: CGFloat? { kind.parallax }
+    var isSlideBehind: Bool { kind.isSlideBehind }
 }
 
 /// Where the gap a pull past the top opens with a `.preserve` scaling header (D65, user 2026-10-27). Set it for every
@@ -85,14 +156,52 @@ public struct ZTronHeaderSnap: Equatable, Sendable {
     }
 }
 
-/// A linear gradient from clear (at `start · height` from the header's top) to `color` (at its bottom edge), drawn over the
-/// header inside its live frame and below any refresh indicator.
+/// A gradient over the header toward its bottom edge (the `fade:` parameter of `withScalingHeader`, D70), drawn above the
+/// header's content and background and below any refresh indicator, inside the header (it collapses, stretches and moves
+/// with it; no body runs because of it).
+///
+/// One gradient for every state: `.linear(to: color, from: 0.5)`. A gradient per state: `.init(rest:collapse:pull:)`,
+/// e.g. `.init(rest: .linear(to: bg), collapse: .linear(to: bg, from: 0), pull: nil)`: `rest` at rest, `collapse` while
+/// the content scrolls up over the header, `pull` while it is pulled past the top. The states crossfade, without jumps:
+/// the collapse state is reached in proportion to the collapse progress (fully when collapsed or covered), the pull state
+/// in proportion to the pull (fully at half the header's resting height). A `nil` state draws no fade.
 public struct ZTronHeaderFade: Equatable {
-    let color: Color
-    let start: CGFloat
+    /// One state's gradient: clear at `start` of the band, `color` at the band's end. The band is the header's frame
+    /// (`.compress`; under `.stretch` it stretches with the header) or, under `.slideBehind`, the header's uncovered part:
+    /// the gradient reaches its color exactly where the content's top edge covers the header.
+    public struct Gradient: Equatable {
+        let color: Color
+        /// 0…1 (NaN reads as 0.5).
+        let start: CGFloat
 
+        /// A linear gradient from clear at `start` (a fraction of the band from the header's top, 0…1, clamped) to `color`
+        /// at the band's end.
+        public static func linear(to color: Color, from start: CGFloat = 0.5) -> Self {
+            Self(color: color, start: start.isNaN ? 0.5 : Swift.min(Swift.max(start, 0), 1))
+        }
+    }
+
+    /// The gradient at rest (`nil`: none).
+    public var rest: Gradient?
+    /// The gradient while the content scrolls up over the header, reached fully when it is collapsed (`.compress`) or
+    /// covered (`.slideBehind`); `nil`: none.
+    public var collapse: Gradient?
+    /// The gradient while the content is pulled past the top, reached fully at a pull of half the header's resting
+    /// height; `nil`: none.
+    public var pull: Gradient?
+
+    /// A gradient per state, crossfaded by the scroll position (see the type). A state left `nil` draws no fade.
+    public init(rest: Gradient?, collapse: Gradient? = nil, pull: Gradient? = nil) {
+        self.rest = rest
+        self.collapse = collapse
+        self.pull = pull
+    }
+
+    /// The same linear gradient in every state, from clear at `start` (a fraction of the band, 0…1) to `color` at the
+    /// band's end: `rest`, `collapse` and `pull` are all `Gradient.linear(to: color, from: start)`.
     public static func linear(to color: Color, from start: CGFloat = 0.5) -> Self {
-        ZTronHeaderFade(color: color, start: start)
+        let g = Gradient.linear(to: color, from: start)
+        return Self(rest: g, collapse: g, pull: g)
     }
 }
 
@@ -198,6 +307,8 @@ struct HeaderMetrics: Equatable, Sendable {
     var min: CGFloat
     var resting: CGFloat
     var behavior: ZTronHeaderScalingBehavior
+    /// D68: what the header does as the content scrolls up over it (a cold change, like `behavior`).
+    var collapse: ZTronHeaderCollapseBehavior.Kind = .compress
     /// D65: where a `.preserve` header's pull gap opens (`HeaderMath.gapAbove` / `gapBelow`); `.stretch` and banners ignore
     /// it. Resolved from the member, else the environment, else `.openGap` (a cold change, like `behavior`).
     var pull: ZTronHeaderPullBehavior = .openGap

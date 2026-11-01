@@ -97,7 +97,8 @@ enum HeaderMath {
     /// calls it on every pass (`layoutResting`); the DEBUG diagnostics of a degenerate size are `warning(…)`, which only
     /// the state's cold resolve (`HeaderSizing.resolve`) asks for.
     static func metrics(size: ZTronHeaderSize, width: CGFloat, natural: CGFloat?,
-                        behavior: ZTronHeaderScalingBehavior = .preserve, pull: ZTronHeaderPullBehavior = .openGap,
+                        behavior: ZTronHeaderScalingBehavior = .preserve,
+                        collapse: ZTronHeaderCollapseBehavior.Kind = .compress, pull: ZTronHeaderPullBehavior = .openGap,
                         vertical: Bool = true, containerHeight: CGFloat = 0,
                         overflow: ZTronHeaderOverflow = .uncapped) -> HeaderMetrics? {
         var minimum = max(0, size.minimum.isFinite ? size.minimum : 0)
@@ -126,7 +127,8 @@ enum HeaderMath {
         // `min ≥ R`: a fixed-height header of height `min` (band 0, progress 0, no snapping; `.stretch` still grows).
         if minimum >= resting { resting = minimum }
         let w = width.isFinite ? Swift.max(0, width) : 0
-        return HeaderMetrics(min: minimum, resting: resting, behavior: behavior, pull: pull, width: w, vertical: vertical)
+        return HeaderMetrics(min: minimum, resting: resting, behavior: behavior, collapse: collapse, pull: pull, width: w,
+                             vertical: vertical)
     }
 
     #if DEBUG
@@ -317,8 +319,8 @@ enum HeaderMath {
         guard let size = live.size, w > 0, w.isFinite else { return committed }
         let container = containerHeight.map { $0.isFinite ? Swift.max(0, $0) : 0 } ?? live.committedContainer
         if size.isFit, abs(w - m.width) <= 0.5, abs(container - live.committedContainer) <= 0.5 { return committed }
-        guard let r = metrics(size: size, width: w, natural: natural, behavior: m.behavior, vertical: m.vertical,
-                              containerHeight: container, overflow: live.overflow) else { return committed }
+        guard let r = metrics(size: size, width: w, natural: natural, behavior: m.behavior, collapse: m.collapse,
+                              vertical: m.vertical, containerHeight: container, overflow: live.overflow) else { return committed }
         return (r.resting, Swift.min(r.min, r.resting))
     }
 

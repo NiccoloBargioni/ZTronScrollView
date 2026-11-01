@@ -240,7 +240,7 @@ extension SeamLabScreen {
         let base = ZTronScrollView(SeamLab.horizontal ? .horizontal : .vertical, state: state) { SeamLabContent() }
             .scrollIndicators(.hidden)
         var view = SeamLab.noHeader ? base : base
-            .withScalingHeader(size: SeamLab.size, scalingBehavior: SeamLab.behavior, background: SeamLab.background,
+            .withScalingHeader(size: SeamLab.size, pull: SeamLab.behavior, background: SeamLab.background,
                                overflow: SeamLab.overflow) { [tall] _ in SeamLabHeader(tall: tall) }
         if let pull = SeamLab.pull { view = view.scalingHeaderPullBehavior(pull) }
         if SeamLab.hold {

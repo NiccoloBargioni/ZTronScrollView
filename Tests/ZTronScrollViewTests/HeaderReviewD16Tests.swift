@@ -210,7 +210,7 @@ struct HeaderReviewD16Tests {
         let w = withOSPath(path) {
             window(ZTronScrollView(.vertical, state: s) { Color.green.frame(height: 300).overlay(LogProbe(log: content)) }
                 .defaultScrollAnchor(.center, for: .alignment)
-                .withScalingHeader(size: .fixed(min: 64, max: 240), scalingBehavior: behavior) { _ in LogProbe(log: log) }
+                .withScalingHeader(size: .fixed(min: 64, max: 240), pull: behavior) { _ in LogProbe(log: log) }
                 .scalingHeaderPullBehavior(mode.pull))
         }
         defer { unhost(w) }
@@ -324,7 +324,7 @@ struct HeaderReviewD16Tests {
             let s = makeState(path)
             let w = withOSPath(path) {
                 window(ZTronScrollView(.vertical, state: s) { Color.green.frame(height: 3000) }
-                    .withScalingHeader(size: .fixed(min: 64, max: 240), scalingBehavior: .stretch, background: background) {
+                    .withScalingHeader(size: .fixed(min: 64, max: 240), pull: .stretch, background: background) {
                         ReaderHeader(header: $0, runs: runs)
                     })
             }
