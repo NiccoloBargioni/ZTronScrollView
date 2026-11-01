@@ -58,7 +58,8 @@ struct HeaderReaderChildren: View {
 struct ScalingHeaderHostedTests {
     func window<V: View>(_ view: V, size: CGSize = CGSize(width: 402, height: 874)) -> UIWindow {
         let w = UIWindow(frame: CGRect(origin: .zero, size: size))
-        w.rootViewController = UIHostingController(rootView: view)
+        w.rootViewController = UIHostingController(rootView: AnyView(view))
+        HostingViews.track(w)
         w.makeKeyAndVisible()
         pump(0.3)
         return w

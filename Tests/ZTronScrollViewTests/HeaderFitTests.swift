@@ -12,7 +12,8 @@ import UIKit
 struct HeaderFitTests {
     func window<V: View>(_ view: V, size: CGSize) -> UIWindow {
         let w = UIWindow(frame: CGRect(origin: .zero, size: size))
-        w.rootViewController = UIHostingController(rootView: view)
+        w.rootViewController = UIHostingController(rootView: AnyView(view))
+        HostingViews.track(w)
         w.makeKeyAndVisible()
         pump(0.4)
         return w

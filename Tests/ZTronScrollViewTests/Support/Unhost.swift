@@ -1,11 +1,14 @@
+import SwiftUI
 import Testing
 import UIKit
 
 /// Tears a test window down: hidden, no root controller. A window that holds a `UIScrollView` is retired instead
-/// (``ScrollViewWindows``): the same, but the window and its scroll views stay allocated.
+/// (``ScrollViewWindows``): the same, but the window and its scroll views stay allocated. A tracked hosting controller
+/// (``HostingViews``) is emptied and kept.
 @MainActor
 func unhost(_ window: UIWindow?) {
     guard let window else { return }
+    HostingViews.retire(window)
     if !ScrollViewWindows.retire(window) {
         window.isHidden = true
         window.rootViewController = nil
@@ -61,6 +64,7 @@ enum ScrollViewWindows {
     @discardableResult
     static func retire(_ window: UIWindow) -> Bool {
         guard keepIfScrolling(window) else { return false }
+        HostingViews.retire(window)
         for view in allScrollViews(in: window) where !isKept(view) { kept.append(view) }
         live.removeAll { $0.window === window }
         window.isHidden = true
@@ -72,5 +76,52 @@ enum ScrollViewWindows {
         var found = view.subviews.flatMap(allScrollViews(in:))
         if let scrollView = view as? UIScrollView { found.insert(scrollView, at: 0) }
         return found
+    }
+}
+
+/// Keeps every tracked test hosting controller (and so its `_UIHostingView`) allocated until the process exits, on
+/// iOS 26+ (INTEG-s1, the D52 mechanism of ``ScrollViewWindows`` on the hosting view itself).
+///
+/// From D34 / D37 the iOS 18–27 preferred path gates the fallback observer (`CatchArmingProbe` reads the phase in a
+/// body), so a ZTron hosting view now records a few counted `[layout]` invalidations per motion when SwiftUI updates it
+/// inside UIKit's layout pass. The counts never clear in this app-less process and each freed hosting view's address is
+/// taken by a later test's, so in about one full 27.0 run in three one address passed the threshold (40) and every
+/// later hosting view there printed "Observation tracking feedback loop detected". Kept controllers never free their
+/// address; retiring one swaps its root for `EmptyView`, so the test's views and state go away with the test.
+///
+/// A controller is retired by `unhost` or, once its window was released (its test is over), by a later `host()`: a
+/// window that is still alive may belong to an async test that is suspended, so it is never retired from outside.
+@MainActor
+enum HostingViews {
+    private final class Entry {
+        weak var window: UIWindow?
+        let controller: UIHostingController<AnyView>
+        init(window: UIWindow, controller: UIHostingController<AnyView>) { self.window = window; self.controller = controller }
+    }
+    private static var kept: [UIHostingController<AnyView>] = []
+    /// Tracked controllers that may still show their test's content.
+    private static var live: [Entry] = []
+
+    /// Tracks `window`'s root controller when it is a `UIHostingController<AnyView>` (iOS 26+).
+    static func track(_ window: UIWindow) {
+        guard ScrollViewWindows.isNeeded, let controller = window.rootViewController as? UIHostingController<AnyView>,
+              !kept.contains(where: { $0 === controller }) else { return }
+        kept.append(controller)
+        live.append(Entry(window: window, controller: controller))
+    }
+
+    /// Empties the controllers whose window was released.
+    static func retireReleased() {
+        for entry in live where entry.window == nil { entry.controller.rootView = AnyView(EmptyView()) }
+        live.removeAll { $0.window == nil }
+    }
+
+    /// Empties the tracked controller of `window` and takes it out of the window; the controller stays allocated.
+    static func retire(_ window: UIWindow) {
+        guard let i = live.firstIndex(where: { $0.window === window }) else { return }
+        let controller = live.remove(at: i).controller
+        controller.rootView = AnyView(EmptyView())
+        window.isHidden = true
+        if window.rootViewController === controller { window.rootViewController = nil }
     }
 }
