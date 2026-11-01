@@ -9,14 +9,15 @@ import SwiftUI
 ///
 /// The geometry comes from LAYOUT (M8b-3 seamless header, seam spike A), so the header moves with the content in every
 /// animation: its slot's top edge is placed by SwiftUI (the overlay is attached after the container's `.ignoresSafeArea`,
-/// so it starts at the safe-area top), its height is `(1 − p) · R(W, H) + p · min + stretch` with `W × H` the proposed
-/// size and `R(W, H)` resolved in the same layout pass as the container (size and overflow policy, exactly as the state
-/// resolves it; 16+: `HeaderSlotLayout`, 15 / forced: `HeaderFallbackFrame`), and `p`, the stretch and the `.preserve`
+/// so it starts at the safe-area top), its height is `(1 − p) · R(W, H) + p · min` with `W × H` the proposed size and
+/// `R(W, H)` resolved in the same layout pass as the container (size and overflow policy, exactly as the state resolves
+/// it; 16+: `HeaderSlotLayout`, 15 / forced: `HeaderFallbackFrame`), and `p`, the stretch and the `.preserve`
 /// translation come from the state (the translation is the pull with `ZTronHeaderPullBehavior.followContent`, D61, and
 /// always 0 with the default `.openGap`, D65: that header stays still and the gap opens below it, by the content's own
-/// transform; the background and the fade are inside the framed stack, so they follow the frame in both modes). An
-/// animated resize then interpolates the header with the content; the unanimated resize commit changes nothing in the
-/// header while the progress is kept (D51).
+/// transform; the background and the fade are inside the framed stack, so they follow the frame in both modes). The
+/// `.stretch` growth is a render-time scale of the framed stack (D69, `HeaderStretchEffect` + `HeaderStretchClip`): a
+/// pull lays nothing out. An animated resize then interpolates the header with the content; the unanimated resize commit
+/// changes nothing in the header while the progress is kept (D51).
 struct HeaderFrameModifier: ViewModifier {
     let state: ZTronScrollState
     let size: ZTronHeaderSize
@@ -27,16 +28,17 @@ struct HeaderFrameModifier: ViewModifier {
     @ViewBuilder
     func body(content: Content) -> some View {
         let live = wake()
-        let visible = live.stateHeight > 0.5
+        let visible = live.visibleHeight > 0.5
         let group = state.usesGeometryGroup
         // The layout half: 16+ `HeaderSlotLayout` (fills the overlay, places the header at its live frame), 15 / forced
         // `HeaderFallbackFrame`. The branch is a `let` flag fixed at state creation (R6): the identity never changes.
         if state.usesLayoutProtocol, #available(iOS 16, *) {
             HeaderSlotLayout(live: live, reporter: reporter) {
-                Self.chrome(content, visible: visible, group: group)
+                Self.chrome(content, live: live, visible: visible, group: group)
             }
         } else {
-            Self.chrome(content.modifier(HeaderFallbackFrame(live: live, state: state)), visible: visible, group: group)
+            Self.chrome(content.modifier(HeaderFallbackFrame(live: live, state: state)), live: live, visible: visible,
+                        group: group)
                 .modifier(HeaderTranslation(live: live))
                 // The slot: the header at the top of the whole overlay. Without it a header exactly as tall as the
                 // region between the safe areas was placed against the bottom safe area (34 pt low; measured).
@@ -65,11 +67,16 @@ struct HeaderFrameModifier: ViewModifier {
         return live
     }
 
-    /// What the framed header carries on every path: its own clip, its layer group and the gates. The `.preserve`
-    /// translation is the layout's (16+ placement, 15 `HeaderTranslation`), animated with the header offset.
-    static func chrome<V: View>(_ framed: V, visible: Bool, group: Bool) -> some View {
+    /// What the framed header carries on every path: the `.stretch` scale (D69), its own clip, its layer group and the
+    /// gates. The `.preserve` translation is the layout's (16+ placement, 15 `HeaderTranslation`), animated with the
+    /// header offset. The scale and the clip read the same `live` the leaf hands the slot in the same body (no frame lag)
+    /// and interpolate `o′` in a transaction-driven scroll exactly as the slot does.
+    static func chrome<V: View>(_ framed: V, live: HeaderLiveInput, visible: Bool, group: Bool) -> some View {
         framed
-            .clipped()
+            .modifier(HeaderStretchEffect(live: live))
+            // The scaled stack (wider than W, taller by g) clipped to `W × h_L · s` in the unscaled frame: sides cut, the
+            // bottom edge on the content's top; the frame itself when nothing stretches (`.clipped()` before D69).
+            .clipShape(HeaderStretchClip(live: live))
             // The header's own clip in its own layer group: Core Animation then interpolates it as the header's frame, not
             // pre-intersected with the container's clip (an uncapped header taller than the landscape viewport drew its
             // bottom edge at the container's clip, 40 pt above the content's top, all through a rotation).
@@ -111,12 +118,61 @@ struct HeaderFrameModifier: ViewModifier {
             offset = o
             follows = true
         }
-        let h = max(0, header.resting - p * header.band + stretch)
+        let h = max(0, header.resting - p * header.band)
         return HeaderLiveInput(size: size, overflow: overflow, metrics: header, progress: p, stretch: stretch,
                                translation: translation, stateHeight: h,
                                committedContainer: HeaderMath.containerHeight(viewport: m.viewportSize, safe: m.safeAreaInsets,
                                                                               adjusted: edges, keyboard: m.keyboardExtension),
                                offset: offset, followsOffset: follows)
+    }
+}
+
+/// D69: the `.stretch` growth as a render-time scale of the framed stack, anchored at its top centre: `s = (h + g) / h`
+/// with `h` the stack's own LAYOUT height (`size`: the slot's `h_L(W, H)` on 16+, `HeaderFallbackFrame`'s on 15 / forced)
+/// and `g = live.stretch`, so the scaled stack's bottom edge is `top + h + g`, the content's top, and an aspect-fit image
+/// grows with the pull. Identity without a stretch. `size` is the layout's, not the state's: across an open resize `g` is
+/// the intent's anchor and `h` the layout's own `R(W, H)`, so the unanimated commit changes nothing drawn; an app-animated
+/// resize interpolates `h` with the drawn size. Its animatable data is the header offset `o′`, like `HeaderSlotLayout` /
+/// `HeaderFallbackFrame`: a transaction-driven scroll re-derives `g` per frame in the same transaction.
+nonisolated struct HeaderStretchEffect: GeometryEffect {
+    var live: HeaderLiveInput
+
+    var animatableData: CGFloat {
+        get { live.offset }
+        set { live = live.at(offset: newValue) }
+    }
+
+    func effectValue(size: CGSize) -> ProjectionTransform {
+        ProjectionTransform(Self.transform(size: size, stretch: live.stretch))
+    }
+
+    /// `translate(W/2, 0) · scale(s) · translate(−W/2, 0)`: x ↦ W/2 + s · (x − W/2), y ↦ s · y.
+    static func transform(size: CGSize, stretch: CGFloat) -> CGAffineTransform {
+        let s = HeaderMath.stretchScale(layoutHeight: size.height, stretch: stretch)
+        guard s != 1 else { return .identity }
+        let w = size.width.isFinite ? size.width : 0
+        return CGAffineTransform(a: s, b: 0, c: 0, d: s, tx: w / 2 * (1 - s), ty: 0)
+    }
+}
+
+/// D69: the framed header's clip, `W × h · s` in the stack's UNSCALED frame (`h` its layout height, `s` the
+/// `HeaderStretchEffect` scale from the same `live`): the scaled stack's sides (it is `s · W` wide) are cut at the slot's
+/// width and its bottom edge, `h + g`, is kept. Exactly the frame (`.clipped()`) without a stretch. Same animatable data.
+nonisolated struct HeaderStretchClip: Shape {
+    var live: HeaderLiveInput
+
+    var animatableData: CGFloat {
+        get { live.offset }
+        set { live = live.at(offset: newValue) }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        Path(Self.rect(in: rect, stretch: live.stretch))
+    }
+
+    static func rect(in rect: CGRect, stretch: CGFloat) -> CGRect {
+        let s = HeaderMath.stretchScale(layoutHeight: rect.height, stretch: stretch)
+        return CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height * s)
     }
 }
 
@@ -190,11 +246,12 @@ struct HeaderSlotLayout: Layout {
 
 /// 15 / forced: the same height from iOS 13 layout modifiers (no Layout protocol), one fixed structure for every size:
 /// - `.aspectRatio(r)` inside the band, its overflow limit inactive: the header stack fills a box proposed by
-///   `.aspectRatio(r / (1 − p), .fit)` at the proposed width, extended by `p · min + stretch` (a negative inner padding
-///   gives the stack the full live height, a positive outer one gives it to the frame), floored at `min + stretch`.
-/// - `.fit` at rest (`p = 0`, no stretch, its limit inactive): the stack at its ideal height (`fixedSize(vertical:)`): the
-///   live height IS the ideal height there; reported (preference, same update) so the state commits the same `R`.
-/// - otherwise (`.fixed`, a band position of `.fit`, collapsed, stretched `.fit`, an active overflow limit, the banner):
+///   `.aspectRatio(r / (1 − p), .fit)` at the proposed width, extended by `p · min` (a negative inner padding gives the
+///   stack the full live height, a positive outer one gives it to the frame), floored at `min`.
+/// - `.fit` at rest (`p = 0`, its limit inactive; a `.stretch` pull too, D69: the stretch is the scale effect's): the
+///   stack at its ideal height (`fixedSize(vertical:)`): the live height IS the ideal height there; reported
+///   (preference, same update) so the state commits the same `R`.
+/// - otherwise (`.fixed`, a band position of `.fit`, collapsed, an active overflow limit, the banner):
 ///   the state's height (`.fixed` and a limited `R` do not depend on the width; documented: a `.fit` inside the band keeps
 ///   a commit-time step on an app-driven resize on this path).
 /// The final `fixedSize(vertical:)` frees the box from the overlay's height (a landscape 16:9 header is taller than it).
@@ -275,17 +332,18 @@ struct HeaderFallbackPlan: Equatable {
         }
         switch size {
         case let .aspectRatio(r, _) where unlimited && m.band > 0 && p < 1:
-            // (1 − p) · W / r from the aspect box, + p · min + stretch around it.
-            let extra = p * m.min + live.stretch
+            // (1 − p) · W / r from the aspect box, + p · min around it (D69: no stretch, it is drawn by the scale).
+            let extra = p * m.min
             minHeight = 0; maxHeight = .infinity
             innerPad = -extra; outerPad = extra
             ratio = r / (1 - p)
             floor = (1 - p) * m.min + extra
-        case .fit where unlimited && m.band > 0 && c < 0.5 && live.stretch < 0.5:
-            // At rest (within the sub-point snap of the offset): the ideal height, trimmed by that sub-point remainder;
-            // only when the overflow limit is not what sets `R` (the ideal height is the committed one).
+        case .fit where unlimited && m.band > 0 && c < 0.5:
+            // At rest (within the sub-point snap of the offset) or under a `.stretch` pull: the ideal height, trimmed by
+            // that sub-point remainder; only when the overflow limit is not what sets `R` (the ideal height is the
+            // committed one).
             fitRest = true
-            outerPad = live.stretch - c
+            outerPad = -c
             floor = m.min
         default:
             minHeight = h; maxHeight = h

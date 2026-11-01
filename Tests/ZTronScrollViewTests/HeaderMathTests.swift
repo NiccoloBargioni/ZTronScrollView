@@ -246,7 +246,7 @@ import Testing
     }
 
     /// The layout resolves `R(W, H)` with the same size and overflow policy as the state (D59), so the committed resting
-    /// height and the layout's agree exactly at the committed viewport, and `liveHeight` equals the state's `R − c + s`.
+    /// height and the layout's agree exactly at the committed viewport, and `liveHeight` equals the state's layout height `R − c` (D69: no stretch).
     @Test(arguments: [ZTronHeaderOverflow.uncapped, .capped(fraction: 0.5), .refit])
     func theLayoutAndTheStateResolveTheSameRestingHeight(overflow: ZTronHeaderOverflow) {
         let safe = EdgeInsets(top: 0, leading: 62, bottom: 21, trailing: 62)

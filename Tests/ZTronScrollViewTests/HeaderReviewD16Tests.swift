@@ -227,10 +227,12 @@ struct HeaderReviewD16Tests {
                 "\(tag): the header at rest is \(log.last.height) tall at y \(log.minY) (top0 \(top0)); content top \(-s.peek.presentationOffset.y)")
         // No gap between the header's bottom and the content's top at rest; under a pull none with `.followContent` (D61)
         // or `.stretch`, the pull itself with `.openGap` (D65: the header stays still).
+        // D69: a `.stretch` header is laid out at R and drawn scaled by (R + g)/R from its top: its drawn bottom edge is
+        // `minY + R + g` (the drawn frame itself is `HeaderStretchScaleTests`).
         let gapAtRest = content.minY - (log.minY + log.last.height)
         s.track(offset: CGPoint(x: 0, y: s.peek.presentationOffset.y - 50), zoom: 1)
         pump(0.1)
-        let gapPulled = content.minY - (log.minY + log.last.height)
+        let gapPulled = content.minY - (log.minY + log.last.height + (s.headerGeometry?.stretch ?? 0))
         let expected: CGFloat = mode == .openGap ? 50 : 0
         #expect(abs(gapAtRest) < 0.5 && abs(gapPulled - expected) < 0.5,
                 "\(tag): gap between the header's bottom and the content's top: \(gapAtRest) at rest, \(gapPulled) under a 50 pt pull (expected \(expected))")

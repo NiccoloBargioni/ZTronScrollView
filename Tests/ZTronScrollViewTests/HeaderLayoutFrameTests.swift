@@ -4,10 +4,11 @@ import UIKit
 @testable import ZTronScrollView
 
 /// M8b-3 seamless header (seam spike A, integrated): the header's frame comes from layout (`HeaderSlotLayout` on 16+,
-/// `HeaderFallbackFrame` on 15 / forced): `(1 − p) · R(W, H) + p · min + stretch` at the proposed size with the overflow
-/// policy (D59) applied by the layout exactly as by the state, equal to the state's live height once committed (also when
+/// `HeaderFallbackFrame` on 15 / forced): `(1 − p) · R(W, H) + p · min` at the proposed size with the overflow
+/// policy (D59) applied by the layout exactly as by the state, equal to the state's layout height once committed (also when
 /// the resting height exceeds the viewport, a landscape 16:9 header), the header stack proposed the live frame; the
-/// `.preserve` translation; the background; the content's rigid layer group. The background's accessibility (hidden, the
+/// `.preserve` translation; the background; the content's rigid layer group. The `.stretch` growth is not laid out (D69,
+/// its drawn scale is `HeaderStretchScaleTests`). The background's accessibility (hidden, the
 /// header's controls exposed once) needs a live accessibility tree, which a unit-test host does not build: it is
 /// `HeaderUITests.testAmbientBackgroundIsHiddenAndNeverRunsPerFrame`.
 @MainActor
@@ -207,6 +208,23 @@ struct HeaderLayoutFrameTests {
         #expect(!HeaderFallbackPlan(live).fitRest)
         let fit = HeaderLiveInput(size: .fit(min: 64), metrics: m, progress: 0.5, stretch: 0, stateHeight: 0)
         #expect(abs(HeaderMath.liveHeight(width: 600, containerHeight: nil, natural: 337.5, fit) - (0.5 * 337.5 + 32)) < 1e-9)
+        // D69: the stretch is the scale effect's, never in the plan (nor in the live height).
+        let stretched = HeaderMetrics(min: 64, resting: 226.125, behavior: .stretch, width: 402)
+        live = HeaderLiveInput(size: .aspectRatio(16.0 / 9.0, min: 64), metrics: stretched, progress: 0, stretch: 60,
+                               stateHeight: 226.125)
+        plan = HeaderFallbackPlan(live)
+        #expect(plan.ratio == 16.0 / 9.0 && plan.innerPad == 0 && plan.outerPad == 0 && plan.floor == 64,
+                ".aspectRatio under a pull: the resting aspect box (\(plan))")
+        live = HeaderLiveInput(size: .fit(min: 64), metrics: stretched, progress: 0, stretch: 60, stateHeight: 226.125)
+        live.natural = 226.125
+        plan = HeaderFallbackPlan(live)
+        #expect(plan.fitRest && plan.outerPad == 0, ".fit under a pull: at its ideal height (\(plan))")
+        live = HeaderLiveInput(size: .fixed(min: 64, max: 240),
+                               metrics: HeaderMetrics(min: 64, resting: 240, behavior: .stretch, width: 402),
+                               progress: 0, stretch: 60, stateHeight: 240)
+        plan = HeaderFallbackPlan(live)
+        #expect(plan.minHeight == 240 && plan.maxHeight == 240, ".fixed under a pull: R, not R + g (\(plan))")
+        #expect(HeaderMath.liveHeight(width: 402, containerHeight: nil, natural: nil, live) == 240, "no stretch in the live height")
         var committed = HeaderLiveInput(size: .fit(min: 64), metrics: m)
         committed.committedContainer = 778
         #expect(HeaderMath.liveHeight(width: 402, containerHeight: 778, natural: 300, committed) == 226.125,
@@ -248,15 +266,16 @@ struct HeaderLayoutFrameTests {
                         "\(path) g \(g): moved down by the pull (\(box.minY)), height R (\(box.size.height))")
                 #expect(abs(box.minY + box.size.height - contentTop) < 0.5, "\(path) g \(g): bottom edge on the content's top")
             case .stretch:
-                #expect(abs(box.minY - top0) < 0.5 && abs(box.size.height - (240 + g)) < 0.5,
-                        "\(path) g \(g): top pinned (\(box.minY)), grown (\(box.size.height))")
-                #expect(abs(box.minY + box.size.height - contentTop) < 0.5, "\(path) g \(g): bottom edge on the content's top")
+                // D69: laid out at R (the growth is the scale effect's; drawn frame: `HeaderStretchScaleTests`).
+                #expect(abs(box.minY - top0) < 0.5 && abs(box.size.height - 240) < 0.5,
+                        "\(path) g \(g): top pinned (\(box.minY)), laid out at R (\(box.size.height))")
+                #expect(abs(top0 + 240 + g - contentTop) < 0.5, "\(path) g \(g): the content's top is the scaled bottom edge")
             }
             // Layout = state: the frame the state describes at this offset.
             let header = m.header!
             let o = HeaderMath.headerOffset(offset: s.peek.presentationOffset, zoom: 1, metrics: m)
             #expect(abs(box.minY - (top0 + HeaderMath.translation(o: o, m: header))) < 0.5
-                        && abs(box.size.height - HeaderMath.height(o: o, m: header)) < 0.5, "\(path) \(mode) g \(g): layout = state")
+                        && abs(box.size.height - HeaderMath.layoutHeight(o: o, m: header)) < 0.5, "\(path) \(mode) g \(g): layout = state")
         }
         #expect(counts.bodies == bodies, "no content body under a pull")
     }
@@ -358,8 +377,10 @@ struct HeaderLayoutFrameTests {
                 #expect(a == b, "\(behavior) o′ \(o): \(a) vs \(b)")
             }
             let pulled = start.at(offset: -80)
-            let translation: CGFloat = mode == .followContent ? 80 : 0, height: CGFloat = behavior == .stretch ? 320 : 240
-            #expect(pulled.translation == translation && pulled.stateHeight == height, "\(mode): \(pulled)")
+            let translation: CGFloat = mode == .followContent ? 80 : 0, visible: CGFloat = behavior == .stretch ? 320 : 240
+            // D69: the layout height never has the stretch; the visible height does.
+            #expect(pulled.translation == translation && pulled.stateHeight == 240 && pulled.visibleHeight == visible
+                        && pulled.stretch == (behavior == .stretch ? 80 : 0), "\(mode): \(pulled)")
             if mode == .openGap {
                 // D65: the `.openGap` header's live input is the rest's under any pull (only `o′` moves): no new layout work.
                 var rest = start

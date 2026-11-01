@@ -272,7 +272,10 @@ public struct ZTronHeaderGeometry: Equatable, Sendable {
     /// 0 expanded … 1 collapsed (`.slideBehind`: the covered fraction of the header); 0 when the header cannot collapse.
     public var progress: CGFloat
     /// The drawn height, stretch included: the live height under `.compress` (`restingHeight` shrinking to `minHeight`),
-    /// the resting height under `.slideBehind` (the content covers it; it does not shrink).
+    /// the resting height under `.slideBehind` (the content covers it; it does not shrink). Under a `.stretch` pull the
+    /// header is laid out at its resting height and DRAWN scaled by `height / restingHeight` from its top centre (D69),
+    /// readers inside it too: a child sized from `height` is scaled once more; size it from `restingHeight` for an
+    /// unscaled size.
     public var height: CGFloat
     /// ≥ 0: how much `.stretch` grew the header past its resting height; always 0 under `.preserve` (a pull opens a gap
     /// below a preserved header, or moves it down by that amount with `ZTronHeaderPullBehavior.followContent`).

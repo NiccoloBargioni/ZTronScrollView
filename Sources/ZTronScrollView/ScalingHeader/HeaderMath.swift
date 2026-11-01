@@ -22,13 +22,15 @@ struct HeaderLiveInput: Equatable {
     var overflow: ZTronHeaderOverflow = .uncapped
     /// The committed metrics (`nil`: unresolved, the header is not drawn).
     var metrics: HeaderMetrics?
-    /// Collapse progress, `.stretch` growth and the `.preserve` translation (`g` under a pull with
-    /// `ZTronHeaderPullBehavior.followContent`, D61; always 0 with `.openGap`, D65: the field then never changes).
+    /// Collapse progress, `.stretch` growth (the scale effect's `g`, D69: never in a layout height) and the `.preserve`
+    /// translation (`g` under a pull with `ZTronHeaderPullBehavior.followContent`, D61; always 0 with `.openGap`, D65: the
+    /// field then never changes).
     var progress: CGFloat = 0
     var stretch: CGFloat = 0
     var translation: CGFloat = 0
-    /// The state's height (`R − c + stretch`): a banner of a view without the vertical axis keeps it (its content reserve
-    /// is state-driven too).
+    /// The state's LAYOUT height `R − p · band` (D69: the stretch is drawn by `HeaderStretchEffect`, not laid out): the
+    /// 15 path's frame where it does not follow the width, and a banner of a view without the vertical axis keeps it (its
+    /// content reserve is state-driven too).
     var stateHeight: CGFloat = 0
     /// The container height the committed metrics were resolved against (`HeaderMath.containerHeight`).
     var committedContainer: CGFloat = 0
@@ -47,6 +49,13 @@ struct HeaderLiveInput: Equatable {
 
     var layoutDriven: Bool { metrics?.vertical == true }
 
+    /// `h_v`, what the content leaves uncovered (`HeaderMath.visibleHeight`): `R − p · band + stretch`. The visibility
+    /// gate reads it (hidden at ≤ 0.5). Derived from the fields above, so it is as bit-stable as they are.
+    var visibleHeight: CGFloat {
+        guard let m = metrics else { return 0 }
+        return Swift.max(0, m.resting - progress * m.band + stretch)
+    }
+
     /// The same input at the header offset `o` (an animation frame): re-derived as `HeaderFrameModifier.liveInput` does
     /// when it follows the offset; only `offset` changes otherwise.
     func at(offset o: CGFloat) -> HeaderLiveInput {
@@ -57,7 +66,7 @@ struct HeaderLiveInput: Equatable {
         c.progress = g.progress
         c.stretch = g.stretch
         c.translation = HeaderMath.translation(o: o, m: m)
-        c.stateHeight = Swift.max(0, m.resting - g.progress * m.band + g.stretch)
+        c.stateHeight = Swift.max(0, m.resting - g.progress * m.band)
         return c
     }
 }
@@ -81,7 +90,7 @@ enum HeaderResizeAnchor: Equatable, Sendable {
 /// | | `.preserve` `.openGap` (D65, default) | `.preserve` `.followContent` (D61) | `.stretch` |
 /// |---|---|---|---|
 /// | top edge | `top0` (still) | `top0 + g` (moves down with the content) | `top0` (pinned) |
-/// | height `h` | `R − c` | `R − c` | `R − c + g` |
+/// | drawn height `h` | `R − c` | `R − c` | `R − c + g` (D69: laid out at `R − c`, scaled by `(R + g) / R`) |
 /// | bottom edge | `top0 + R − c` | `top0 + g + R − c` | `top0 + R − c + g` |
 /// | gap above the header (`gapAbove`, the translation) | 0 | `g`: `[top0, top0 + g]`, the refresh indicator's slot | 0 |
 /// | gap below the header (`gapBelow`) | `g`: `[top0 + R, top0 + R + g]`, the refresh indicator's slot | 0 | 0 (the indicator floats over the band) |
@@ -398,9 +407,10 @@ enum HeaderMath {
         return (r.resting, Swift.min(r.min, r.resting))
     }
 
-    /// The header's live height at a layout size: `h = (1 − p) · R(W, H) + p · min(W, H) + stretch`, with `p` and the
-    /// stretch from the state and `R`, `min` from the layout. Equal to the state's `R − c + stretch` at the committed
-    /// viewport; inside a resize nothing in it changes at the unanimated commit while the progress is kept (D51).
+    /// The header's live LAYOUT height at a layout size: `h_L = (1 − p) · R(W, H) + p · min(W, H)`, with `p` from the state
+    /// and `R`, `min` from the layout. Equal to the state's `R − c` at the committed viewport; inside a resize nothing in
+    /// it changes at the unanimated commit while the progress is kept (D51). The `.stretch` growth is not in it (D69): the
+    /// stack laid out at `h_L` is drawn scaled by `(h_L + g) / h_L` (`HeaderStretchEffect`), so a pull lays nothing out.
     ///
     /// A banner (a view without the vertical axis) is laid out the same way, so an app-driven animated width change
     /// interpolates it with the content (review d16: it took the state's height, was laid out at `(W_new, R_old)` in the
@@ -410,7 +420,7 @@ enum HeaderMath {
     static func liveHeight(width w: CGFloat, containerHeight: CGFloat?, natural: CGFloat?, _ live: HeaderLiveInput) -> CGFloat {
         guard live.metrics != nil else { return 0 }
         let r = layoutResting(width: w, containerHeight: live.layoutDriven ? containerHeight : nil, natural: natural, live)
-        return Swift.max(0, (1 - live.progress) * r.resting + live.progress * r.min + live.stretch)
+        return Swift.max(0, (1 - live.progress) * r.resting + live.progress * r.min)
     }
 
     // MARK: Resize (SPEC S7: the scaling header keeps its collapse progress)
