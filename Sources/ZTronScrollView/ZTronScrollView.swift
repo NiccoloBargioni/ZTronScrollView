@@ -131,6 +131,11 @@ struct ScrollContainer<Content: View>: View {
         let sizing = header?.sizing(pull: config.headerPull ?? envConfig.headerPull ?? .openGap)
         state.headerSpec = sizing
         return content
+            // `.slideBehind(backdrop:)` (D68): the color behind the content, in content space (under the transform and the
+            // content-integral overlays: it moves with the content and covers exactly its rect, so a `.slideBehind` header
+            // never shows through a content without its own background). Always applied (`Color.clear`, drawing and
+            // hit-testing nothing, without one): a backdrop or collapse mode change never changes the content's structure.
+            .background { header?.collapse.backdrop ?? Color.clear }
             // Content-integral overlays (M6b): laid out from the content's own size, inside both content spaces and under
             // the transform; twins below members. Always applied (an empty list draws nothing).
             .overlay(alignment: .topLeading) {
@@ -146,6 +151,15 @@ struct ScrollContainer<Content: View>: View {
             .modifier(TransformHost(state: state, axes: axes, hasHeader: header != nil))
             .modifier(NamedSpaceModifier(name: "ztronScroll.viewport", useNew: state.usesNamedCoordinateSpace))
             .ignoresSafeArea(.all, edges: edges)
+            // A `.slideBehind` header (D68): the same slot as the overlay below (same frame, same layout pass, same safe-area
+            // handling), BEHIND the content, which slides over it. Touches in the band the content leaves uncovered reach
+            // it (the content's hit area is its own drawn frame). Both slots are always attached; `HeaderOverlay` shows
+            // the header in the one of its mode.
+            .background(alignment: .top) {
+                HeaderOverlay(spec: header, state: state, behind: true)
+                    .ignoresSafeArea(.all, edges: edges.subtracting([.top, .bottom]))
+                    .ignoresSafeArea(.keyboard, edges: .bottom)
+            }
             // Scaling header (M8b-3), attached AFTER `.ignoresSafeArea`: SwiftUI places its slot's top edge at the safe-area
             // top in the same layout pass as the container size (no state, so a rotation or an animated resize moves it with
             // the content); the side edges are ignored again (full width). The bottom safe area is NOT ignored: the slot

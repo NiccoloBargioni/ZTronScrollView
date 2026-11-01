@@ -28,9 +28,9 @@ struct HeaderLiveInput: Equatable {
     var progress: CGFloat = 0
     var stretch: CGFloat = 0
     var translation: CGFloat = 0
-    /// The state's LAYOUT height `R − p · band` (D69: the stretch is drawn by `HeaderStretchEffect`, not laid out): the
-    /// 15 path's frame where it does not follow the width, and a banner of a view without the vertical axis keeps it (its
-    /// content reserve is state-driven too).
+    /// The state's LAYOUT height `h_L` (`layoutHeight(_:progress:)`: `R − p · band`, `R` under `.slideBehind`; D69: the
+    /// stretch is drawn by `HeaderStretchEffect`, not laid out): the 15 path's frame where it does not follow the width,
+    /// and a banner of a view without the vertical axis keeps it (its content reserve is state-driven too).
     var stateHeight: CGFloat = 0
     /// The container height the committed metrics were resolved against (`HeaderMath.containerHeight`).
     var committedContainer: CGFloat = 0
@@ -49,6 +49,17 @@ struct HeaderLiveInput: Equatable {
 
     var layoutDriven: Bool { metrics?.vertical == true }
 
+    /// `k`, the `.slideBehind` parallax (D68), 0 under `.compress`: the layout moves the header by
+    /// `HeaderMath.collapseTranslation(progress:parallax:layoutHeight:)` (`−k · p · h_L`, from its own `h_L`). Read from the
+    /// committed metrics, so it is as bit-stable as they are.
+    var parallax: CGFloat { metrics?.collapse.parallax ?? 0 }
+
+    /// `h_L` from the state (`R − p · band`; `R` under `.slideBehind`, whose header keeps its height while the content
+    /// covers it, D68). No stretch (D69).
+    static func layoutHeight(_ m: HeaderMetrics, progress p: CGFloat) -> CGFloat {
+        m.collapse.isSlideBehind ? Swift.max(0, m.resting) : Swift.max(0, m.resting - p * m.band)
+    }
+
     /// `h_v`, what the content leaves uncovered (`HeaderMath.visibleHeight`): `R − p · band + stretch`. The visibility
     /// gate reads it (hidden at ≤ 0.5). Derived from the fields above, so it is as bit-stable as they are.
     var visibleHeight: CGFloat {
@@ -66,7 +77,7 @@ struct HeaderLiveInput: Equatable {
         c.progress = g.progress
         c.stretch = g.stretch
         c.translation = HeaderMath.translation(o: o, m: m)
-        c.stateHeight = Swift.max(0, m.resting - g.progress * m.band)
+        c.stateHeight = Self.layoutHeight(m, progress: g.progress)
         return c
     }
 }
@@ -417,9 +428,13 @@ enum HeaderMath {
     /// animated pass and re-set to `R_new` by the unanimated commit: a 90 pt one-frame step and 159 pt lateral in the seam
     /// lab). Its `p` and stretch are 0 except while zoomed content pans vertically (D15). Its overflow container is the
     /// committed one: a banner's adjusted edges exclude the safe area's top and bottom, the header slot's do not.
+    ///
+    /// `.slideBehind` (D68): `h_L = R(W, H)` at every progress (the content covers the header instead of shrinking it); the
+    /// layout moves it up by `collapseTranslation(progress:parallax:layoutHeight:)` of this same height.
     static func liveHeight(width w: CGFloat, containerHeight: CGFloat?, natural: CGFloat?, _ live: HeaderLiveInput) -> CGFloat {
-        guard live.metrics != nil else { return 0 }
+        guard let m = live.metrics else { return 0 }
         let r = layoutResting(width: w, containerHeight: live.layoutDriven ? containerHeight : nil, natural: natural, live)
+        if m.collapse.isSlideBehind { return Swift.max(0, r.resting) }
         return Swift.max(0, (1 - live.progress) * r.resting + live.progress * r.min)
     }
 

@@ -2,7 +2,8 @@ import SwiftUI
 
 /// The container's header hook (design M8b §2.2): drawn in an overlay of the viewport attached after its
 /// `.ignoresSafeArea` (SwiftUI places the header slot's top edge at the safe-area top in the same layout pass as the
-/// container), above the content and below the refresh indicators and the scroll indicators. Cold: its body runs on
+/// container), above the content and below the refresh indicators and the scroll indicators; a `.slideBehind` header
+/// (D68) in the container's `.background`, laid out the same way, behind the content. Cold: its body runs on
 /// install, on a parent rebuild (a new builder closure is always applied, R7) and never because of scrolling,
 /// refreshing, collapse, stretch or a resize.
 struct HeaderHost: View {
@@ -40,13 +41,18 @@ struct HeaderHost: View {
     }
 }
 
-/// The overlay slot: the header when one is installed, nothing otherwise.
+/// A header slot of the container: the header when one is installed in this slot's collapse mode, nothing otherwise. The
+/// container always attaches both (D68: `behind: true` in its `.background`, for `.slideBehind`, drawn behind the
+/// content; `behind: false` in its overlay, for `.compress`, above it), so its structure never changes; a run-time switch
+/// of `collapse:` between the two modes moves the header to the other slot: a new header instance (its builder runs once,
+/// its `@State` starts over; the content's identity is untouched). Cold: decided from the spec, never from the state.
 struct HeaderOverlay: View {
     let spec: HeaderSpec?
     let state: ZTronScrollState
+    var behind = false
 
     var body: some View {
-        if let spec {
+        if let spec, spec.collapse.kind.isSlideBehind == behind {
             HeaderHost(spec: spec, state: state)
         }
     }

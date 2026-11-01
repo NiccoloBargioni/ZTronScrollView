@@ -16,8 +16,10 @@ import SwiftUI
 /// always 0 with the default `.openGap`, D65: that header stays still and the gap opens below it, by the content's own
 /// transform; the background and the fade are inside the framed stack, so they follow the frame in both modes). The
 /// `.stretch` growth is a render-time scale of the framed stack (D69, `HeaderStretchEffect` + `HeaderStretchClip`): a
-/// pull lays nothing out. An animated resize then interpolates the header with the content; the unanimated resize commit
-/// changes nothing in the header while the progress is kept (D51).
+/// pull lays nothing out. `.slideBehind` (D68) keeps the height at `R(W, H)` and moves the header up by `k · p · R(W, H)`
+/// (the layout's own `R`: 16+ placement, 15 `HeaderTranslation`); its slot is the container's `.background`, behind the
+/// content. An animated resize then interpolates the header with the content; the unanimated resize commit changes
+/// nothing in the header while the progress is kept (D51).
 struct HeaderFrameModifier: ViewModifier {
     let state: ZTronScrollState
     let size: ZTronHeaderSize
@@ -118,7 +120,7 @@ struct HeaderFrameModifier: ViewModifier {
             offset = o
             follows = true
         }
-        let h = max(0, header.resting - p * header.band)
+        let h = HeaderLiveInput.layoutHeight(header, progress: p)
         return HeaderLiveInput(size: size, overflow: overflow, metrics: header, progress: p, stretch: stretch,
                                translation: translation, stateHeight: h,
                                committedContainer: HeaderMath.containerHeight(viewport: m.viewportSize, safe: m.safeAreaInsets,
@@ -176,9 +178,13 @@ nonisolated struct HeaderStretchClip: Shape {
     }
 }
 
-/// 15 / forced: the `.preserve` `.followContent` translation (0 with `.openGap`, D65), animated with the header offset like
-/// `HeaderFallbackFrame` (both interpolate the same `o′` in the same transaction).
-nonisolated struct HeaderTranslation: ViewModifier, Animatable {
+/// 15 / forced: the header's translation, animated with the header offset like `HeaderFallbackFrame` (both interpolate the
+/// same `o′` in the same transaction): the `.preserve` `.followContent` pull translation (0 with `.openGap`, D65) plus the
+/// `.slideBehind` collapse translation `−k · p · h` (D68) with `h` the framed stack's own LAYOUT height (`size`: the
+/// fallback frame's `R(W)`), as `HeaderSlotLayout` places it on 16+: an app-animated width change interpolates it with
+/// the drawn size and the resize commit re-sets nothing. A geometry effect (hit-testing and accessibility frames follow it,
+/// as they followed `.offset(y:)`).
+nonisolated struct HeaderTranslation: GeometryEffect {
     var live: HeaderLiveInput
 
     var animatableData: CGFloat {
@@ -186,15 +192,20 @@ nonisolated struct HeaderTranslation: ViewModifier, Animatable {
         set { live = live.at(offset: newValue) }
     }
 
-    @MainActor func body(content: Content) -> some View {
-        content.offset(y: live.translation)
+    func effectValue(size: CGSize) -> ProjectionTransform {
+        ProjectionTransform(CGAffineTransform(translationX: 0, y: Self.translation(live, layoutHeight: size.height)))
+    }
+
+    /// `t_g + t_c`: the pull translation and the collapse translation of a stack laid out at `layoutHeight`.
+    static func translation(_ live: HeaderLiveInput, layoutHeight h: CGFloat) -> CGFloat {
+        live.translation + HeaderMath.collapseTranslation(progress: live.progress, parallax: live.parallax, layoutHeight: h)
     }
 }
 
 /// 16+: the header's SLOT, the overlay between the safe areas the content adjusts for (`W × H`). It takes the whole
 /// proposal (so its size never depends on its own result: a parent that proposes a child its own size again gets the same
 /// answer) and places the header at its top (moved down by the `.preserve` `.followContent` translation; `.openGap` keeps
-/// it at the top, D65) with the live frame `(W, h(W, H))`
+/// it at the top, D65; moved up by the `.slideBehind` parallax `k · p · h`, D68) with the live frame `(W, h(W, H))`
 /// (`HeaderMath.liveHeight`; `H` IS the overflow container, the state's `HeaderMath.containerHeight`, from the same layout
 /// pass: no committed inset enters it, so a resize that changes the bottom safe area resolves the limit in its animated
 /// pass, M8b-s6). The header stack is proposed the live frame (sticky overlays, the background). `.fit` measures the ideal height at `W` here
@@ -219,7 +230,9 @@ struct HeaderSlotLayout: Layout {
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         let h = height(at: bounds.width, slot: bounds.height, subviews)
-        subviews.first?.place(at: CGPoint(x: bounds.midX, y: bounds.minY + live.translation), anchor: .top,
+        // `.slideBehind` (D68): up by `k · p · h` of this pass's own `h` (`R(W, H)`), as the 15 path's `HeaderTranslation`.
+        let y = bounds.minY + HeaderTranslation.translation(live, layoutHeight: h)
+        subviews.first?.place(at: CGPoint(x: bounds.midX, y: y), anchor: .top,
                               proposal: ProposedViewSize(width: bounds.width, height: h))
     }
 
@@ -321,7 +334,9 @@ struct HeaderFallbackPlan: Equatable {
             minHeight = h; maxHeight = h
             return
         }
-        let p = min(max(live.progress, 0), 1)
+        // `.slideBehind` (D68) lays the stack out at `R` whatever the progress (its translation is `HeaderTranslation`'s):
+        // the plan of rest.
+        let p = m.collapse.isSlideBehind ? 0 : min(max(live.progress, 0), 1)
         let c = p * m.band
         // The committed `R` is the size's own (no overflow limit, no `min ≥ R`): only then does `R` follow the width alone.
         let unlimited: Bool

@@ -10,7 +10,10 @@ import ZTronScrollView
 // `-ZTronScreen banner`: `-ZTronHeaderSize aspect|fixed|fit` (default aspect = `.aspectRatio(16/9)`),
 // `-ZTronHeaderOverflow uncapped|capped|refit` (capped = `.capped(fraction: 0.6)`), `.stretch`, a fade,
 // the title font from the live height, an overlay refresher over the stretched band, a horizontal-axis toggle.
-// Both take `-ZTronHeaderBackground ambient|glass|color|view|none` (ZTronHeaderBackground, default none) and show
+// Both take `-ZTronHeaderBackground ambient|glass|color|view|none` (ZTronHeaderBackground, default none),
+// `-ZTronHeaderCollapse compress|slide|slide0|slide1` (D68: `.compress`, default; `.slideBehind` with parallax 0.5, 0, 1;
+// a slide adds a `Cover` button, `snapHeader(to: .height(12))`) and `-ZTronHeaderBackdrop on|off` (with a slide, the
+// `backdrop:` color, white; default off: the rows' translucent tints show the header through them), and show
 // `content.body`, `header.builder`, `header.frame`, `refresh.actions`, `header.measure` and a `stateInfo` line
 // (`y`, `p` progress, `h` height, `R` resting, `smax` largest stretch, `taps` header button taps) after `Info`.
 
@@ -31,6 +34,19 @@ enum HeaderDemo {
         default: return nil
         }
     }
+
+    /// `-ZTronHeaderCollapse compress|slide|slide0|slide1` (D68) with `-ZTronHeaderBackdrop on|off`.
+    static var collapse: ZTronHeaderCollapseBehavior {
+        let backdrop: Color? = argument("-ZTronHeaderBackdrop", "off") == "on" ? .white : nil
+        switch argument("-ZTronHeaderCollapse", "compress") {
+        case "slide": return .slideBehind(parallax: 0.5, backdrop: backdrop)
+        case "slide0": return .slideBehind(parallax: 0, backdrop: backdrop)
+        case "slide1": return .slideBehind(parallax: 1, backdrop: backdrop)
+        default: return .compress
+        }
+    }
+
+    static var slides: Bool { argument("-ZTronHeaderCollapse", "compress").hasPrefix("slide") }
 
     static let keys = ["content.body", "header.builder", "header.frame", "refresh.actions", "header.measure"]
 
@@ -66,6 +82,8 @@ struct HeaderDemoChrome: View {
     @Binding var info: String
     @Binding var snapshot: [String: Int]
     var extra: AnyView = AnyView(EmptyView())
+    /// The `header.` identifiers VoiceOver reaches, in its order (`VoiceOverTree`, read on Info): `vo.header`'s value.
+    @State private var voiceOver = ""
 
     var body: some View {
         VStack(spacing: 2) {
@@ -75,12 +93,18 @@ struct HeaderDemoChrome: View {
                 Button("Half") { state.snapHeader(to: .progress(0.5)) }.accessibilityIdentifier("header.half")
                 Button("Collapse") { state.snapHeader(to: .collapsed) }.accessibilityIdentifier("header.collapse")
                 Button("Expand") { state.snapHeader(to: .expanded) }.accessibilityIdentifier("header.expand")
+                if HeaderDemo.slides {
+                    // D68: 12 pt of a `.slideBehind` header left uncovered (visible, so hit-testable, but mostly covered).
+                    Button("Cover") { state.snapHeader(to: .height(12)) }.accessibilityIdentifier("header.cover")
+                }
                 extra
             }
             HStack(spacing: 6) {
                 ForEach(HeaderDemo.keys, id: \.self) { CounterRow(key: $0, value: snapshot[$0] ?? 0) }
             }
             Text(info).font(.caption2).accessibilityIdentifier("stateInfo").accessibilityValue(info)
+                // An overlay: the list never changes the chrome's height (a taller readout resizes the scroll view).
+                .overlay(Color.clear.accessibilityElement().accessibilityIdentifier("vo.header").accessibilityValue(voiceOver))
         }
         .font(.caption)
     }
@@ -103,6 +127,7 @@ struct HeaderDemoChrome: View {
         #if DEBUG
         snapshot = ZTronRenderCounters.snapshot
         #endif
+        voiceOver = VoiceOverTree.identifiers(prefix: "header.").joined(separator: ",")
         let g = state.headerGeometry
         info = String(format: "y=%.1f p=%.4f h=%.1f R=%.3f smax=%.1f hmax=%.1f taps=%d phase=%d", state.contentOffset.y,
                       g?.progress ?? -1, g?.height ?? -1, g?.restingHeight ?? -1, HeaderDemo.maxStretch, HeaderDemo.maxHeight,
@@ -169,7 +194,7 @@ struct ProfileScreen: View {
             ZTronScrollView(.vertical, state: state) {
                 VStack(spacing: 0) { ForEach(0..<40, id: \.self) { HeaderRow(index: $0) } }
             }
-            .withScalingHeader(size: .fixed(min: 64, max: 240), pull: .preserve, snap: snap,
+            .withScalingHeader(size: .fixed(min: 64, max: 240), collapse: HeaderDemo.collapse, pull: .preserve, snap: snap,
                                background: HeaderDemo.background) { header in
                 ProfileHeader(header: header)
             }
@@ -250,26 +275,30 @@ struct BannerScreen: View {
     }
 
     private var scroller: some View {
-        ZTronScrollView(horizontal ? .horizontal : .vertical, state: state) {
+        let base = ZTronScrollView(horizontal ? .horizontal : .vertical, state: state) {
             if horizontal {
                 HStack(spacing: 0) { ForEach(0..<20, id: \.self) { HeaderRow(index: $0).frame(width: 120) } }
             } else {
                 VStack(spacing: 0) { ForEach(0..<40, id: \.self) { HeaderRow(index: $0) } }
             }
         }
+        let current = base.withScalingHeader(size: size, collapse: HeaderDemo.collapse, pull: .stretch,
+                                             fade: .linear(to: .black, from: 0.4), background: HeaderDemo.background,
+                                             overflow: overflow) { header in
+            BannerHeader(header: header)
+        }
         #if DEBUG
-        // The deprecated spelling (`scalingBehavior:` → `pull:`), kept so the demo compiles it (with its warning).
-        .withScalingHeader(size: size, scalingBehavior: .stretch, fade: .linear(to: .black, from: 0.4),
-                           background: HeaderDemo.background, overflow: overflow) { header in
-            BannerHeader(header: header)
-        }
+        // The deprecated spelling (`scalingBehavior:` → `pull:`), kept so the demo compiles it (with its warning); the
+        // collapse switch (D68) needs the current one.
+        let headed = HeaderDemo.slides ? current
+            : base.withScalingHeader(size: size, scalingBehavior: .stretch, fade: .linear(to: .black, from: 0.4),
+                                     background: HeaderDemo.background, overflow: overflow) { header in
+                BannerHeader(header: header)
+            }
         #else
-        .withScalingHeader(size: size, pull: .stretch, fade: .linear(to: .black, from: 0.4),
-                           background: HeaderDemo.background, overflow: overflow) { header in
-            BannerHeader(header: header)
-        }
+        let headed = current
         #endif
-        .refresher(overlay: true) { await HeaderDemo.load() }
+        return headed.refresher(overlay: true) { await HeaderDemo.load() }
     }
 }
 

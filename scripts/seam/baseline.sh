@@ -45,6 +45,9 @@ for sc in "$@"; do
       near[0-9]*) extra+=(-ZTronSeamRetarget 0.5 -ZTronSeamRetargetNear "${x#near}") ;;   # with height<digits>: 0.5 s in, retarget to the DRAWN height + <digits> pt (core check)
       kbfake) extra+=(-ZTronSeamFakeKeyboard 150) ;;  # with width: seam.width toggles a 150 pt bottom .safeAreaInset, easeInOut 1.2 s (core check; a bottom hold: insetgap.py)
       kbreal) extra+=(-ZTronSeamKeyboard 1) ;;        # with width / kbrotate: seam.width toggles the system keyboard (D64)
+      slide) extra+=(-ZTronSeamCollapse slideBehind) ;;      # D68: collapse .slideBehind (parallax 0.5): the header slides behind the content
+      slide0|slide1) extra+=(-ZTronSeamCollapse "slideBehind:${x#slide}") ;;   # D68: parallax 0 (still) / 1 (with the content)
+      ruler) extra+=(-ZTronSeamRuler 1) ;;   # D68: white position marks in the header (its top is clipped at the scroll view's frame as it slides up)
       info) extra+=(-ZTronSeamInfo 2) ;;              # diagnostics only (draws the state line over the lab): DEBUG event log
       band) extra+=(-ZTronSeamScrollBand 0.5) ;;
       combo) extra+=(-ZTronSeamScrollBand 0.5 -ZTronSeamWidthThenScroll 0.5) ;;

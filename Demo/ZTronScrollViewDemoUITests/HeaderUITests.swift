@@ -206,6 +206,116 @@ final class HeaderUITests: XCTestCase {
         assertNoBodies(i, "button")
     }
 
+    // MARK: slideBehind (D68)
+
+    /// The `header.` identifiers VoiceOver reaches, in VoiceOver's order (the demo's `VoiceOverTree`, read on Info into
+    /// `vo.header`): XCUITest also lists elements SwiftUI hides from VoiceOver, so it cannot tell.
+    private func voiceOver(_ app: XCUIApplication) -> [String] {
+        _ = info(app, "vo")
+        let raw = element(app, "vo.header").value as? String ?? ""
+        print("HEADER \(path) vo \(raw)")
+        return raw.split(separator: ",").map(String.init)
+    }
+
+    /// D68: a `.slideBehind` header is drawn behind the content (the container's background slot); the content's hit area
+    /// is its own drawn frame, so the header's button works in the band the content leaves uncovered and not where the
+    /// content covers it. Banner `.fixed(0…200)` with parallax 0 (the header stays still, its button top-trailing): half
+    /// covered the tap counts; with 12 pt left uncovered (the header still visible and hit-testable, the button under the
+    /// content) the tap is the content's; uncovered again it counts.
+    func testSlideBehindHeaderButtonTapsOnlyWhereUncovered() {
+        let app = launch("banner", ["-ZTronHeaderSize", "fixed", "-ZTronHeaderCollapse", "slide0"])
+        let button = element(app, "header.button")
+        XCTAssertTrue(button.waitForExistence(timeout: 3))
+        app.buttons["header.half"].tap()
+        Thread.sleep(forTimeInterval: 1.0)
+        XCTAssertEqual(headerHeight(app), 200, accuracy: 1, "slideBehind keeps the resting height")
+        // Frames are read against the scroller's frame read at the same moment: the Info readout above the scroll view
+        // wraps onto more lines as it fills, which moves the viewport down.
+        func spot() -> XCUICoordinate {
+            let f = button.frame
+            return app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: f.midX, dy: f.midY))
+        }
+        let top = element(app, "header.scroller").frame.minY
+        let frame = button.frame
+        print("HEADER \(path) slide button \(frame) scroller top \(top) row0 \(element(app, "header.row.0").frame)")
+        spot().tap()
+        Thread.sleep(forTimeInterval: 0.3)
+        var i = info(app, "slide half")
+        XCTAssertEqual(i.double("p"), 0.5, accuracy: 0.001)
+        XCTAssertEqual(i.double("taps"), 1, "the button works in the uncovered band")
+        app.buttons["header.cover"].tap()
+        Thread.sleep(forTimeInterval: 1.0)
+        i = info(app, "slide cover")
+        XCTAssertEqual(i.double("p"), 0.94, accuracy: 0.001, "12 pt of 200 left uncovered")
+        let coverTop = element(app, "header.scroller").frame.minY
+        let row0 = element(app, "header.row.0").frame.minY
+        print("HEADER \(path) slide cover button \(button.frame) scroller top \(coverTop) row0 \(row0)")
+        XCTAssertEqual(button.frame.minY - coverTop, frame.minY - top, accuracy: 1, "parallax 0: the header stays still")
+        XCTAssertGreaterThan(row0 - coverTop, 11, "the content's top 12 pt below the header's top")
+        XCTAssertLessThan(row0, button.frame.midY - 5, "the content covers the button's centre")
+        spot().tap()
+        Thread.sleep(forTimeInterval: 0.3)
+        i = info(app, "slide covered tap")
+        XCTAssertEqual(i.double("taps"), 1, "covered by the content: the tap is the content's, not the header's")
+        app.buttons["header.expand"].tap()
+        Thread.sleep(forTimeInterval: 1.0)
+        spot().tap()
+        Thread.sleep(forTimeInterval: 0.3)
+        i = info(app, "slide uncovered")
+        XCTAssertEqual(i.double("taps"), 2, "uncovered again: the header's button")
+        assertNoBodies(i, "slide taps")
+    }
+
+    /// D68 on the profile (`.fixed(64…240)`, parallax 0.5, `min` ignored): VoiceOver announces the header before the
+    /// content (the background slot keeps the sort priority); half covered the header keeps its 240 pt and its top moved
+    /// up by half the covered 120 pt (accessibility frames follow the drawn ones), the content's top 120 pt into it; fully
+    /// covered the header leaves VoiceOver (visible height 0). The part moved above the scroll view is neither drawn nor
+    /// touchable: the chrome's button there still works.
+    func testSlideBehindMovesByTheParallaxAndIsAnnouncedFirst() {
+        let app = launch("profile", ["-ZTronHeaderCollapse", "slide"])
+        let scroller = element(app, "header.scroller")
+        // Frames relative to the scroller's top read at the same moment (the Info readout grows and moves the viewport).
+        let rest = element(app, "header.box").frame.offsetBy(dx: 0, dy: -scroller.frame.minY)
+        XCTAssertEqual(rest.height, 240, accuracy: 1, "resting height")
+        let vo = voiceOver(app)
+        let firstRow = vo.firstIndex { $0.hasPrefix("header.row.") } ?? -1
+        let lastHeader = vo.lastIndex { !$0.hasPrefix("header.row.") } ?? Int.max
+        XCTAssertTrue(vo.contains("header.button") && vo.contains("header.box"), "the header is in VoiceOver's tree: \(vo.prefix(6))")
+        XCTAssertTrue(firstRow > 0 && lastHeader < firstRow, "header first, then the content: \(vo.prefix(6))")
+        let rowRest = element(app, "header.row.0").frame.minY - scroller.frame.minY
+        app.buttons["header.half"].tap()
+        Thread.sleep(forTimeInterval: 1.0)
+        let half = element(app, "header.box").frame.offsetBy(dx: 0, dy: -scroller.frame.minY)
+        let rowHalf = element(app, "header.row.0").frame.minY - scroller.frame.minY
+        print("HEADER \(path) slide rest \(rest) half \(half) row0 \(rowRest) -> \(rowHalf) (scroller-relative)")
+        XCTAssertEqual(half.height, 240, accuracy: 1, "slideBehind keeps R")
+        XCTAssertEqual(half.minY, rest.minY - 60, accuracy: 1, "up by k · c = 0.5 · 120")
+        XCTAssertEqual(rowHalf, rowRest - 120, accuracy: 1, "the content slid 120 pt over it")
+        var i = info(app, "slide half")
+        XCTAssertEqual(i.double("p"), 0.5, accuracy: 0.001)
+        XCTAssertEqual(i.double("h"), 240, accuracy: 0.5, "the geometry's height is R")
+        app.buttons["header.collapse"].tap()
+        Thread.sleep(forTimeInterval: 1.0)
+        let covered = voiceOver(app)
+        XCTAssertFalse(covered.contains("header.button") || covered.contains("header.box"),
+                       "fully covered: hidden from VoiceOver (\(covered.prefix(4)))")
+        i = info(app, "slide covered")
+        XCTAssertEqual(i.double("p"), 1, accuracy: 0.001)
+        // 12 pt left uncovered (visible, so hit-testable), the header's top is 114 pt above the scroll view, over the
+        // chrome; clipped there, it takes no touches there either (the container's content shape): the chrome's Expand
+        // button under it still works.
+        app.buttons["header.cover"].tap()
+        Thread.sleep(forTimeInterval: 1.0)
+        XCTAssertEqual(info(app, "slide cover").double("p"), 0.95, accuracy: 0.001, "12 pt of 240 left uncovered")
+        let expand = app.buttons["header.expand"]
+        XCTAssertGreaterThan(expand.frame.maxY, scroller.frame.minY - 114, "Expand is under the header's overflow")
+        expand.tap()
+        Thread.sleep(forTimeInterval: 1.0)
+        i = info(app, "slide expanded")
+        XCTAssertEqual(i.double("p"), 0, accuracy: 0.001, "the chrome's button took the tap")
+        assertNoBodies(i, "slide profile")
+    }
+
     // MARK: banner
 
     func testBannerStretchesWithThePullAndSpringsBack() {

@@ -39,6 +39,12 @@ import ZTronScrollView
 // the scroll view's top leaves the top safe area), `-ZTronSeamBoth 1` (height and width together), `-ZTronSeamSpring 1` (a
 // bouncy spring instead of easeInOut), `-ZTronSeamRetarget <s>` (the toggle again `s` seconds into the change), and
 // `-ZTronSeamLandscape 1` (SeamLabUITests.testWidth rotates to landscape first).
+// `-ZTronSeamCollapse compress|slideBehind[:k]` (D68): the `collapse:` mode (default compress; slideBehind = parallax 0.5,
+// slideBehind:0 / slideBehind:1 that parallax): the red header keeps its height behind the content (whose opaque blue
+// background covers it) and moves up by k times the covered distance; `seam.scroll`'s band is then R. `-ZTronSeamRuler 1`:
+// six white bars in the header (header y 20 + 40 i, 2 + 2 i pt tall, x 5–45 % of its width): the header's position read
+// from any bar left uncovered and unclipped (as it moves up, the header is clipped at the scroll view's frame, here the
+// safe-area top, like the content), so the parallax can be measured.
 
 enum SeamLab {
     static let red = Color(red: 1, green: 0, blue: 0)
@@ -240,8 +246,8 @@ extension SeamLabScreen {
         let base = ZTronScrollView(SeamLab.horizontal ? .horizontal : .vertical, state: state) { SeamLabContent() }
             .scrollIndicators(.hidden)
         var view = SeamLab.noHeader ? base : base
-            .withScalingHeader(size: SeamLab.size, pull: SeamLab.behavior, background: SeamLab.background,
-                               overflow: SeamLab.overflow) { [tall] _ in SeamLabHeader(tall: tall) }
+            .withScalingHeader(size: SeamLab.size, collapse: SeamLab.collapse, pull: SeamLab.behavior,
+                               background: SeamLab.background, overflow: SeamLab.overflow) { [tall] _ in SeamLabHeader(tall: tall) }
         if let pull = SeamLab.pull { view = view.scalingHeaderPullBehavior(pull) }
         if SeamLab.hold {
             // A held refresh with a white probe as its indicator (centred in the indicator's frame), on the edge
@@ -261,6 +267,15 @@ extension SeamLabScreen {
 }
 
 extension SeamLab {
+    /// `-ZTronSeamRuler 1` (D68): white position marks in the header.
+    static var ruler: Bool { HeaderDemo.argument("-ZTronSeamRuler", "0") == "1" }
+    /// `-ZTronSeamCollapse compress|slideBehind[:k]` (D68).
+    static var collapse: ZTronHeaderCollapseBehavior {
+        let arg = HeaderDemo.argument("-ZTronSeamCollapse", "compress")
+        guard arg.hasPrefix("slideBehind") else { return .compress }
+        let k = arg.split(separator: ":").dropFirst().first.flatMap { Double($0) } ?? 0.5
+        return .slideBehind(parallax: CGFloat(k))
+    }
     /// `-ZTronSeamPull openGap|followContent` (D65); absent: not set (the library default, `.openGap`).
     static var pull: ZTronHeaderPullBehavior? {
         switch HeaderDemo.argument("-ZTronSeamPull", "") {
@@ -351,6 +366,8 @@ struct SeamLabHeader: View {
     var body: some View {
         if SeamLab.sticky {
             content.overlay(alignment: .bottom) { Color.white.frame(width: 120, height: 16) }
+        } else if SeamLab.ruler {
+            content.overlay(alignment: .topLeading) { SeamLabRuler() }
         } else if SeamLab.headerText {
             content.overlay { Text("Stretch Aa 0123").font(.system(size: 24, weight: .bold)).foregroundColor(.black) }
         } else {
@@ -370,6 +387,19 @@ struct SeamLabHeader: View {
                 .background(SeamLab.red)
         } else {
             SeamLab.red
+        }
+    }
+}
+
+/// `-ZTronSeamRuler 1` (D68): the header's position marks (see the file header).
+struct SeamLabRuler: View {
+    var body: some View {
+        GeometryReader { g in
+            ForEach(0..<6, id: \.self) { i in
+                Color.white
+                    .frame(width: g.size.width * 0.4, height: CGFloat(2 + 2 * i))
+                    .offset(x: g.size.width * 0.05, y: CGFloat(20 + 40 * i))
+            }
         }
     }
 }

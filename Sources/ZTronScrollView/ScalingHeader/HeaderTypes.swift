@@ -105,8 +105,9 @@ public struct ZTronHeaderCollapseBehavior: Equatable, Sendable {
     /// below the content and moving with it (as part of its scrolling transform, no content body runs); the app's
     /// background color is the recommended value, `nil` (the default) draws nothing.
     ///
-    /// The header is not clipped at the safe-area top as it moves up: like the content, it may draw under a translucent
-    /// navigation bar. Touches in the uncovered part reach the header; covered parts cannot be touched. Switching
+    /// As it moves up the header is clipped where the content is, at the scroll view's own frame (not separately at the
+    /// safe-area top): nothing of it is drawn or touched outside the scroll view. Touches in the uncovered part reach the
+    /// header; covered parts cannot be touched (VoiceOver reaches its elements until it is fully covered). Switching
     /// `collapse:` between `.compress` and `.slideBehind` at run time installs the header again: its builder runs once
     /// more and its `@State` starts over (the content keeps its identity and state).
     ///

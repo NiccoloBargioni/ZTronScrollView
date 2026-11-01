@@ -903,7 +903,18 @@ public final class ZTronScrollState {
                 syncCommit(&m, open: false)
                 storage.metrics = m
                 if insetsChanged { notifyAdjustedInsetChange() }
-                guard insetsChanged else { return }
+                guard insetsChanged else {
+                    // A header change that keeps the insets but not the band (D68: a `collapse:` switch, `R − min` ↔ `R`;
+                    // a `min` change) keeps its progress too (S10), as one that moves them does below.
+                    if hadViewport, sizeChangesAnchor == nil, let a = old.header, let b = m.header, a.band != b.band,
+                       let y = HeaderMath.keepProgress(offsetY: s.presentationOffset.y, old: old, new: m) {
+                        let oy = makeZoomGeometry(m).y.bounds(at: s.presentationZoom).clamped(y)
+                        if oy != s.presentationOffset.y {
+                            writeBoth(offset: CGPoint(x: s.presentationOffset.x, y: oy), zoom: s.presentationZoom)
+                        }
+                    }
+                    return
+                }
                 if hadViewport, m.contentSize.width > 0, m.contentSize.height > 0, isInSettleWindow, let intent = resizeIntent {
                     // The safe area of the new orientation settled a frame after the resize closed: still the resize,
                     // the sticky intent is realised against the new insets (see `setContentSize`).
