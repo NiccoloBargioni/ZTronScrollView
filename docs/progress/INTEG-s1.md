@@ -19,10 +19,10 @@ Decisions:
 - DBG-s9 guard red with stage A (13 warnings in 2 of 6 27.0 unit runs; 0 in 5 runs without it): the armed 18–27 observer puts
   `CatchArmingProbe` / `GatedGestureAttach` on every hosted test view; UIKit's app-less counts are address-keyed and never cleared, and freed
   hosting-view addresses are reused. Escalated; the user approved a harness-only fix under three conditions, all met (Tests).
-- Numbers: D72 (ecstatic's "D34"), D73 (NESTED-s3); open items 24–26. Next free: D74, open item 28 (item 27 = M8b-3's reveal item, D66; D68–D70 M8b-3, D71 + item 23 DBG-s12, D67 DBG-s11).
+- Numbers: D72 (ecstatic's "D34"), D73 (NESTED-s3); open items 24–26. Next free (2026-11-02): D76, open item 34 (D74 = SHEET-s3 refused; D75 and items 27–33 = M8b-3 on cool-stonebraker, 27 = its reveal item D66; D68–D70 M8b-3, D71 + item 23 DBG-s12, D67 DBG-s11).
 Open:
 - 18.5: `SheetUITests` Y1–Y5 red on main cc4be69 and on the tip with the same numbers (the yield does not hold on 18.x, D46): pre-existing,
-  recorded in item 10; waits on SHEET-s3 (plan row 16).
+  recorded in item 10; SHEET-s3 (plan row 16) was refused (D74); SHEET-s4 evaluates a scoped fix.
 - 26.5: `PanUITests.testCatchWhileATextInputIsEditedDoesNotFireButton` (DBG-s3b) is timing-bound: XCUI's catching tap lands 0.4–2.1 s after
   `Animate`, the animation ends at ≈ 0.65 s; a tap after the end correctly fires the Button. Tip 1/3 alone (0.41 s pass; 0.95 / 2.1 s red),
   ecstatic head 3/3 (0.38–0.63 s); re-run under the UI lane lock at low load: 3/3 on main 9ced7cf (0.40–0.43 s). Test robustness (longer or slower animation), not a library defect.
@@ -36,7 +36,7 @@ Open:
 Next:
 1. Wave 2 of the plan (row 9 sharp-banach stage B, D40, needs the user's one-line ack; then the rows after it).
 2. M8b-3 (cool-stonebraker) reconciles item 11 and its header lanes against the 250 pt/s gate (D49 rev 2) when it merges.
-3. SHEET-s3 decision (D47 → renumber) for the 18.x yield.
+3. SHEET-s4 (after D74 refused SHEET-s3) for the 18.x yield.
 Tests (private clones, staggered, own derived data; the host ran other sessions' lanes too, load 100–1000):
 - Unit `ZTronScrollViewTests` with the fix: 27.0 3× (feedback-loop threshold lowered to 5) 753/753, 753/753 + 1 timing flake
   (`PositionTests.settingTheIDScrollsAndAnimatesOnlyInsideWithAnimation`, the animation not started after 0.35 s; 3/3 alone), 753/753;

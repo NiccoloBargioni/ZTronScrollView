@@ -1,6 +1,6 @@
 # ZTronScrollView · Orchestration (resume here)
 
-Last updated: 2026-11-01 (side session INTEG-s1: wave 1 of `docs/design/INTEGRATION-plan.md` merged, rows 1–8 + the D52 extension c7172be; handoff `docs/progress/INTEG-s1.md`; next free D74, open item 28 (27 = M8b-3) · previous: 2026-10-20 05:05 (side session M8b-s0 acting as orchestrator: step 3, D27 and the integrated verification of the fan-out green at f985f95; weekly all-models 44% ·
+Last updated: 2026-11-01 (side session INTEG-s1: wave 1 of `docs/design/INTEGRATION-plan.md` merged, rows 1–8 + the D52 extension c7172be; handoff `docs/progress/INTEG-s1.md`; next free D76, open item 34 (D74 = SHEET-s3 refused; D75 and items 27–33 = M8b-3 on cool-stonebraker) · previous: 2026-10-20 05:05 (side session M8b-s0 acting as orchestrator: step 3, D27 and the integrated verification of the fan-out green at f985f95; weekly all-models 44% ·
 Fable 79%; 2026-10-19 session 3 + s3-C ended at 20% · 39%) · Status: **M0–M4 done ·
 physics calibrated (unit) · M5 rotation: user full-screen tree PASSES criteria A+B on 27.0 + 17.5 (D18/D19) · criterion C
 fixed in code (D20, staggered lift; probe + ZoomUITests 7/7 on 27.0 pref+forced, 17.5 pref) · user bounce report fixed
