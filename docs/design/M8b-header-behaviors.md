@@ -192,6 +192,15 @@ Fade blend (D70), per frame, on the visible band `u ∈ [0, 1]` (`u = 0` the hea
   (bit-stable), so the fade does not step at the commit.
 - `ZTronHeaderFade.linear(to:from:)` yields `rest = collapse = pull` = the same gradient: `t` has no effect (both sides equal,
   one gradient), so the existing fade draws exactly as today in every state (`y_end` = the frame for `.compress`).
+- **As built (step 5, 2026-11-02):** the pull distance rides `HeaderLiveInput.pull` only when `fade.pull != fade.rest`
+  (`HeaderFadeMath.tracksPull`); the slot / fallback frame / stretch / clip get `live.geometry` (pull stripped), so an
+  `.openGap` pull still does not relayout. The pull weight's `R` is the framed stack's own LAYOUT height (a pull means
+  `p = 0`, so it is `R(W, H)` on every path and mode; the overlay sits inside the `.stretch` scale), read by a
+  `GeometryReader` in the overlay and animated by the gradient leaf (`HeaderFadeGradient: Animatable` on it). The committed
+  `metrics.resting` stepped the weight to the new size's `R` in one frame at the start of an app-animated resize during a
+  refresh hold (seam lab: 0.54 → 0.90 while the drawn frame animated 226 → 136 pt over 1.2 s); with the layout height it
+  follows the drawn frame (steps 0.032 per vsync = the model). Different colours: 8 cosine-spaced interior stops per
+  segment (not 6). A fade whose states are all nil has no reader (`HeaderFadeMath.draws`).
 
 ### 3.4 Horizontal pagers / banners
 A view without the vertical axis: `.slideBehind` only changes the z-order (the banner is behind the content, which
@@ -275,6 +284,17 @@ crossfade under `withAnimation { scrollTo }` through the band (a pixel column's 
   AnimateHeight holds pass. Real 15–16 devices unmeasured (no runtime on macOS 27).
 - Implicit animation of the gradient stops under a transaction-driven scroll (lag): the `Animatable` modifier precedent says no;
   measure with the crossfade scenario.
+  **Measured (step 5, 2026-11-02):** no lag on 27.0, 17.5 and 27.0 forced (the 15–16 path). Seam lab `-ZTronSeamFade
+  split|split2` (white fade over the red header) + `scratchpad` fade tracker: per frame the column's opacity vs the blend at
+  the SAME frame's drawn geometry, 8 scenarios per lane (withAnimation `scrollTo` through the band, snap, 2 colours, a 450 pt
+  finger pull `.openGap` / `.stretch` / `.slideBehind`, `.slideBehind` scroll, an app-animated width change in a refresh
+  hold): worst opacity error ≤ 0.023 (codec), every per-vsync step equals the model's within 0.01 (no step ≥ 0.5 of the
+  change: the largest is a release, 0.15 = the model), and the fit's offset from the model has the same sign rising and
+  falling (a codec bias of 0.01–0.02; a one-frame lag would flip sign). Pixel UI test
+  `testSplitFadeCrossfadesByScrollDirection` (screenshots, all three lanes): error ≤ 0.011 (two colours' share 0.013);
+  a rotation during a held refresh: the weight is the new size's (portrait 0.53, capped landscape 0.625) on each side of the
+  system's rotation snapshot, error 0.017; earlier steps' key seam scenarios unchanged (27.0 regression lane); `content.body` 0,
+  `header.builder` 0.
 - `.slideBehind` under a translucent navigation bar: the header draws under the bar as it moves up (by design; confirm with the user).
   **Step 4:** per decision 3 it is clipped (drawing and touches) at the scroll view's own frame like the content, not at
   `top0`; so it draws under a bar only where the scroll view itself extends under it. The seam lab's scroll view is the
