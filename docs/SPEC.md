@@ -472,6 +472,14 @@ Calibrate the defaults side by side with UIRefreshControl.
 > this document keeps the original `ZoomScroll` spelling. Porting from the reference is by the migration table at the end, not by
 > swapping a type.
 
+> **Amendment 2026-11-02 (user request 2026-11-01; D68–D70, header behaviors; design `docs/design/M8b-header-behaviors.md`).**
+> The header's reactions are split by scroll direction: `collapse:` for the content scrolling up over it (`.compress`, the
+> behavior described below and the default, or `.slideBehind`, D68: the header keeps its resting height, is drawn BEHIND the
+> content and moves up with a parallax) and `pull:` for a pull past the top (the former `scalingBehavior:`, kept as a
+> deprecated spelling; `.stretch` is now a render-time scale of the whole header, D69, which replaces the relayout growth that
+> left an aspect-fit image unchanged). `fade:` takes a gradient per state, crossfaded by the scroll position (D70). Same quality
+> bar (D62, "Seamless edges"): measured on 27.0, 17.5 and the forced 15–16 path. Paragraphs tagged *(D68)*, *(D69)*, *(D70)*.
+
 A banner-style header laid out as the first thing of the scroll view, above the content. It collapses from its resting height to a
 minimum as the content scrolls up (shrinking from the bottom, its top edge pinned), stays at the minimum while the content scrolls by,
 and reacts to a pull past the top either by keeping its resting height (`.preserve`: by default it stays still and the gap opens below
@@ -484,16 +492,25 @@ API: the header is driven by our own offset state through a leaf modifier. (Amen
 
 ```swift
 extension ZTronScrollView {
-    /// Installs a scaling header above the content. Returns the same view type: every other member keeps working in
-    /// any order, and the header-equipped view is still a ZTronScrollView (state, twins, readers, refresher, delegate).
+    /// Installs a scaling header above the content (behind it with `.slideBehind`). Returns the same view type: every other
+    /// member keeps working in any order, and the header-equipped view is still a ZTronScrollView (state, twins, readers,
+    /// refresher, delegate).
     public func withScalingHeader<Header: View>(
         size: ZTronHeaderSize,
-        scalingBehavior: ZTronHeaderScalingBehavior = .preserve,
+        collapse: ZTronHeaderCollapseBehavior = .compress,   // D68 (2026-11-02): .compress / .slideBehind(parallax:backdrop:)
+        pull: ZTronHeaderScalingBehavior = .preserve,        // the former `scalingBehavior:` (same type): .preserve / .stretch
         snap: ZTronHeaderSnap = .disabled,
         fade: ZTronHeaderFade? = nil,
         background: ZTronHeaderBackground? = nil,         // D61 (user, 2026-10-26): .ambientBlur(radius:) / .frostedGlass(radius:) / .color / .view { }
         overflow: ZTronHeaderOverflow = .uncapped,        // D59 (user): .uncapped / .capped(fraction:) / .refit
         @ViewBuilder header: @escaping (ZTronHeaderProxy) -> Header) -> Self
+    /// The former spelling (amended 2026-11-02): `scalingBehavior:` forwards to `pull:` with `collapse: .compress`. It has
+    /// no default, so `withScalingHeader(size:) { }` is never ambiguous; the fix-it maps `scalingBehavior:` onto `pull:`.
+    @available(*, deprecated, renamed: "withScalingHeader(size:pull:snap:fade:background:overflow:header:)",
+               message: "scalingBehavior: is now pull:")
+    public func withScalingHeader<Header: View>(size: ZTronHeaderSize, scalingBehavior: ZTronHeaderScalingBehavior,
+        snap: ZTronHeaderSnap = .disabled, fade: ZTronHeaderFade? = nil, background: ZTronHeaderBackground? = nil,
+        overflow: ZTronHeaderOverflow = .uncapped, @ViewBuilder header: @escaping (ZTronHeaderProxy) -> Header) -> Self
     /// D65 (user, 2026-10-27): where a `.preserve` header's pull gap opens, for this view (wins over the twin; any order
     /// with `withScalingHeader`).
     public func scalingHeaderPullBehavior(_ behavior: ZTronHeaderPullBehavior) -> Self
@@ -507,7 +524,12 @@ public enum ZTronHeaderSize: Equatable, Sendable {
     case aspectRatio(CGFloat, min: CGFloat = 0)    // resting height = width ÷ ratio (ratio = width/height, SwiftUI's convention); no measurement
     case fit(min: CGFloat = 0)                     // resting height = the header's ideal height at the scroll view's width (measured)
 }
-public enum ZTronHeaderScalingBehavior: Sendable { case preserve, stretch }
+public enum ZTronHeaderScalingBehavior: Sendable { case preserve, stretch }   // the `pull:` reaction (D69: .stretch is a scale)
+public struct ZTronHeaderCollapseBehavior: Equatable, Sendable {   // D68: a struct, so `.slideBehind` and `.slideBehind(…)` both spell
+    public static let compress: Self                  // the default: shrinks from the bottom to `min`, drawn above the content
+    public static let slideBehind: Self               // parallax 0.5, no backdrop
+    public static func slideBehind(parallax: CGFloat = 0.5, backdrop: Color? = nil) -> Self   // parallax clamped to 0…1, NaN → 0.5
+}
 public enum ZTronHeaderPullBehavior: Hashable, Sendable {  // D65 (user, 2026-10-27): the pull of a .preserve header
     case openGap                                          // default: the header stays still, the gap (and refresh indicator) opens below it
     case followContent                                    // D61: the header moves down with the content, the gap opens above it
@@ -528,12 +550,17 @@ public struct ZTronHeaderSnap: Equatable, Sendable {
     public static func immediately(at positions: [CGFloat] = [0, 1]) -> Self            // positions are collapse progress: 0 expanded, 1 collapsed
     public static func afterFinishAccelerating(at positions: [CGFloat] = [0, 1]) -> Self
 }
-public struct ZTronHeaderFade: Equatable { public static func linear(to color: Color, from start: CGFloat = 0.5) -> Self }
+public struct ZTronHeaderFade: Equatable {           // D70 (2026-11-02): one gradient per state, crossfaded
+    public struct Gradient: Equatable { public static func linear(to color: Color, from start: CGFloat = 0.5) -> Self }   // start clamped 0…1
+    public var rest: Gradient?, collapse: Gradient?, pull: Gradient?   // nil = no fade in that state
+    public init(rest: Gradient?, collapse: Gradient? = nil, pull: Gradient? = nil)
+    public static func linear(to color: Color, from start: CGFloat = 0.5) -> Self   // the same gradient in every state (as before)
+}
 public struct ZTronHeaderGeometry: Equatable, Sendable {
-    public var progress: CGFloat        // 0 expanded … 1 collapsed
-    public var height: CGFloat          // live height, stretch included
+    public var progress: CGFloat        // 0 expanded … 1 collapsed (`.slideBehind`: the covered fraction, D68)
+    public var height: CGFloat          // the DRAWN height, stretch included (`.slideBehind`: R + g; under `.stretch` drawn scaled, D69)
     public var stretch: CGFloat         // ≥ 0; always 0 under .preserve
-    public var minHeight: CGFloat
+    public var minHeight: CGFloat       // `min` as resolved (0 under `.slideBehind`, which ignores it)
     public var restingHeight: CGFloat   // the resolved resting height (the former `maxHeight`)
     public var width: CGFloat           // the scroll view's width
     public static func quantizedProgress(steps: Int) -> (ZTronHeaderGeometry) -> Int   // a transform for the reader: round(progress · steps)
@@ -603,8 +630,9 @@ reader scopes; children without a reader never update because of scrolling.
 
 **Removed API (amendment: replaced, never duplicated).** `pullToRefresh`, `pullToLoadMore` → `refresher(…)` / `ztronRefresher` /
 `.refreshable` (S9); `scrollViewDidReachBottom` → `onZTronScrollReachEdge(.bottom)` (S9); `hideScrollIndicators` → `showsIndicators: false`
-/ `scrollIndicators(.hidden)`; `height(min:max:)` → `size:`; `allowsHeaderGrowth` → `scalingBehavior: .stretch`; `allowsHeaderCollapse` →
-always on (collapse = shrink from the bottom; the reference's slide-up mode is not offered); `setHeaderSnapMode` + `headerSnappingPositions`
+/ `scrollIndicators(.hidden)`; `height(min:max:)` → `size:`; `allowsHeaderGrowth` → `pull: .stretch` (amended 2026-11-02; formerly
+`scalingBehavior: .stretch`, still accepted, deprecated); `allowsHeaderCollapse` → always on (collapse = shrink from the bottom; the
+reference's slide-up mode is `collapse: .slideBehind(parallax: 1)` since D68, 2026-11-02); `setHeaderSnapMode` + `headerSnappingPositions`
 → `snap:`; `initialSnapPosition`, `snapHeaderToState` → `state.snapHeader(to:animated:)`; `collapseProgress(Binding)` →
 `ZTronHeaderGeometryReader(of: \.progress)` or `ZTronScrollReader(of: { $0.header?.progress })` (S4.6 forbids mirroring a hot value into a
 parent Binding); `scrollToTop(resetScroll:)` → `state.scrollToTop(animated:)`. There is no `ZTronScalingHeaderScrollView` type. Snap
@@ -638,14 +666,68 @@ height; `min`; `band = max(0, R − min)`;
 
 | | `.preserve` `.openGap` (default, D65) | `.preserve` `.followContent` (D61) | `.stretch` |
 |---|---|---|---|
-| live height `h` | `R − c` | `R − c` | `R − c + g` |
+| live height `h` | `R − c` | `R − c` | `R − c + g` drawn; laid out at `R − c` (D69: scaled by `(h_L + g) / h_L`) |
 | header frame / proposal | `(0, top0, W, h)` / `(W, h)`, clipped | `(0, top0 + g, W, h)` / `(W, h)`, clipped | `(0, top0, W, h)` / `(W, h)`, clipped |
 | top edge | pinned at `top0`, always | `top0 + g`: pinned at `top0` except under a pull, where it moves down with the content | pinned at `top0`, always |
-| pull past the top (`g > 0`) | **(amended 2026-10-27, user, D65; the pre-D61 rule)** the header stays still at its resting place and height `R`; the content pulls away and a gap `g` opens BETWEEN the header's bottom edge and the content's top (the scroll view's background shows; a refresh indicator lives there) | **(amended 2026-10-26, user, D61)** the header keeps its height `R` and moves down with the content by `g`: its bottom edge stays on the content's top and a gap `g` opens ABOVE it, between `top0` and the header's top (the scroll view's background shows; a refresh indicator lives there) | the header grows by `g` from its bottom edge; a `scaledToFill` child zooms in with the pull; the header's bottom edge stays glued to the content's top (no gap) |
+| pull past the top (`g > 0`) | **(amended 2026-10-27, user, D65; the pre-D61 rule)** the header stays still at its resting place and height `R`; the content pulls away and a gap `g` opens BETWEEN the header's bottom edge and the content's top (the scroll view's background shows; a refresh indicator lives there) | **(amended 2026-10-26, user, D61)** the header keeps its height `R` and moves down with the content by `g`: its bottom edge stays on the content's top and a gap `g` opens ABOVE it, between `top0` and the header's top (the scroll view's background shows; a refresh indicator lives there) | **(amended 2026-11-02, D69)** the header grows by `g` from its bottom edge as a render-time scale: laid out at `R`, drawn scaled by `(R + g) / R` about its top centre and clipped to `W × (R + g)`, so every child grows with the pull (an aspect-fit image too; a `scaledToFill` one zooms in); the header's bottom edge stays glued to the content's top (no gap) |
 | scroll up (`0 < o′ ≤ band`) | shrinks from the bottom, top pinned: `h = R − c` | same | same |
 | past the band | `h = min`; the content scrolls by under it; with `min = 0` it has vanished | same | same |
 | `progress` / `stretch` | `band > 0 ? c / band : 0` / `0` | same / `0` | same / `g` |
 
+- **Collapse (D68, 2026-11-02, user request 2026-11-01).** `collapse:` picks what the header does as the content scrolls up
+  over it (`o′ > 0`). `.compress` (the default) is the table above. `.slideBehind(parallax: k, backdrop:)` (`k` clamped to 0…1,
+  NaN → 0.5; `.slideBehind` = `k` 0.5, no backdrop) keeps the header at its resting height `R` and draws it BEHIND the content
+  (z-order: the container's `.background(alignment: .top)` slot, attached after `.ignoresSafeArea` like the `.compress` overlay
+  slot, same safe-area pair; both slots are always present, the header shows in one). The band is `R` (`min` is ignored, it
+  resolves to 0), `c = clamp(o′, 0, R)`, `p = c / R` is the covered fraction; the header moves up by `k · c` (0 = still,
+  1 = with the content: the reference's slide-up mode) and its drawn frame is `(0, top0 + t_g − k·c, W, R·s)` (`t_g` the
+  `.preserve` `.followContent` pull translation, `s` the `.stretch` scale). The content's top is where it is in every mode
+  (`aci.top − hold − o′`), so it covers the header from the bottom. Table rows for `.slideBehind`: layout height `h_L = R`
+  (the stretch never enters the layout, D69), visible height `h_v = R − c + g` (what the inset consumers use: `obscuredDelta =
+  h_v + t_g − R`, unchanged across modes), `ZTronHeaderGeometry.height` `R + g`, `progress` `c / R`, `stretch` `g`; `gapBelow`,
+  `gapAbove`, `refreshTop` and the refresh indicator's placement are those of the `pull:` mode, unchanged. Everything that reads
+  the band (snap positions, `offset(for:)`, `keepProgress`, the resize anchor, `scrollTo` anchors at the uncovered top) works
+  unchanged with `band = R`: snap positions are covered fractions, `.height(h)` is the visible height (`o′ = R − clamp(h, 0, R)`),
+  S7 keeps the covered fraction across a rotation. A header change that keeps the insets but changes the band (a `collapse:`
+  switch, or a `min` change with the same `R`) keeps the progress (`keepProgress`), as a size change does; it kept `o′` before.
+  - **The content must paint its background** where it covers the header: a clear `List` row or text on nothing shows the header
+    through it. `backdrop:` fills the content's whole frame with a color, below the content and in its space (part of its
+    scrolling transform, drawn behind the content-integral overlays; `nil` draws `Color.clear`, so the structure never changes);
+    the app's background color is the recommended value. A backdrop or mode change is a cold spec change: no content body runs.
+  - **Clip and touches.** The header is not clipped at `top0`: as it moves up it is clipped, drawing and touches, at the scroll
+    view's own frame like the content (it draws under a translucent bar only where the scroll view itself extends under it; in a
+    `NavigationView` laid out below the bar, nothing of it is drawn over the bar: the appbanner screen's UI test on 27.0, 17.5
+    and forced, the seam lab under the 27.0 glass bar, 2026-11-02).
+    Touches in the uncovered band `[top0 − k·c, top0 + R − c]` reach the header (the content's hit area is its own drawn frame;
+    no full-size element in the content chain, `ContentInteractionGate` inside it); covered parts take no touch; a drag that
+    starts on the uncovered header scrolls. Hidden from hit-testing and accessibility at `h_v ≤ 0.5` as before; VoiceOver reads
+    the header first in both slots and reaches a covered element until the gate hides it.
+  - **Switching `collapse:` at run time** between `.compress` and `.slideBehind` moves the header to the other slot: its builder
+    runs once more and its `@State` starts over (lead decision 2026-11-01: accepted, documented on the parameter); the content
+    keeps its identity and state, the covered fraction is kept.
+  - **Banners** (no vertical axis): `.slideBehind` only changes the z-order (nothing covers it), `c ≡ 0`.
+  - **15–16:** the content's layer group is a `compositingGroup()` (rigid rotations, "15–16 layer groups" below), so a content
+    child's `.blendMode` composites within the content and does not reach a `.slideBehind` header behind it (17+ `geometryGroup()`
+    lets it; open item 29, from the code).
+- **Pull `.stretch` as a scale (D69, 2026-11-02).** The relayout growth (the header laid out at `R + g`) left an aspect-fit child at
+  `W × W/r` inside the taller frame: in the user's setup (`NavigationView` + `GeometryReader`, `.aspectRatio(16/9, min: 0)`,
+  `.refit`, an `Image` with `.aspectRatio(16/9, contentMode: .fit)` and `maxWidth: .infinity`) a pull grew nothing. Now the layout
+  height never includes the stretch (`h_L = (1 − p)·R + p·min` under `.compress`, `R` under `.slideBehind`) and the header's leaf
+  draws the laid-out stack with a `GeometryEffect` `s = (h_L + g) / h_L` (identity at `g = 0` or `h_L = 0`; `c = 0` whenever
+  `g > 0`, so `s = 1 + g/R`) anchored at the top centre, clipped by a `Shape` to `W × h_L·s` in the unscaled frame (sides cut,
+  bottom on the content's top, no blank areas; a `background:` fills the scaled rect; a `Path(rect)`, no mask layer). `s` is
+  computed by the effect from the size it is given (the layout's own `R(W, H)`), so it is bit-stable across a resize's unanimated
+  commit and interpolated with the drawn size in an app-animated resize; during an open resize `g` is the anchor's. Readers see
+  the drawn values: `ZTronHeaderGeometry.height` is `R − c + g`, and a reader inside the header is scaled with it (a title sized
+  from `height` grows twice: size it from `restingHeight` for an unscaled size). The refresh hold `H` scales the header by
+  `(R + H)/R` and the indicator floats over the scaled band (placement unchanged). Measured: the user's setup grows the image
+  (`HeaderStretchScaleTests.theUsersAspectFitImageGrowsWithThePull`, both OS paths; `HeaderUITests.testAppBannerPullGrowsTheImage`,
+  27.0 / 17.5 / forced: a finger pull of 100.7 pt drew the image's bottom 100.7 pt lower and 1.445× wider, a held 60 pt pull
+  drew its grid lines scaled by `(R + 60)/R` within 0.15 pt and its bottom edge on the content's top, through the current and
+  the deprecated call). Known limits: text and vector art in a pulled header are its layer's bitmap scaled by `s` (edge width
+  1.25–1.8× at `s` = 1.25 on every lane; transient; a re-raster would re-run the header body, S4: open item 28); at a non-integer
+  `R` SwiftUI hands the effect a pixel-rounded size, so in motion the drawn bottom sits up to 0.125 pt above the content's top
+  (accepted, |seam| ≤ 0.5 pt; at rest both are pixel-snapped).
 - **Pull behavior (D65, user 2026-10-27).** `ZTronHeaderPullBehavior` picks the `.preserve` column: the member
   `scalingHeaderPullBehavior(_:)` on the scroll view, else the innermost environment twin `ztronScalingHeaderPullBehavior(_:)` above it,
   else `.openGap`. `.stretch` ignores it; so does a banner (a view without the vertical axis), which keeps the `.followContent`
@@ -660,8 +742,24 @@ height; `min`; `band = max(0, R − min)`;
   the live frame, so it sticks to the moving bottom edge during both collapse and stretch (the "sticky overlay") and reads the live height
   through the reader to resize its own children. Laying the header out at a new height is a layout pass over the header subtree only; no
   body in the header or in the content is re-evaluated by it (a `GeometryReader` inside the header would be: that is why the reader exists).
-- `fade:` draws a linear gradient from clear (at `start · h` from the top) to `color` (at the bottom edge) over the header, inside the live
-  frame, above the header and below any refresh indicator. It has no hot reads: it follows the frame by layout.
+- `fade:` draws a linear gradient from clear (at `start` of the band from the top) to `color` (at the band's end) over the header, above
+  the header's content and background and below any refresh indicator. **(Amended 2026-11-02, D70.)** It is drawn per frame in the
+  header's leaf (`HeaderFadeOverlay`, Animatable on `o′` like the slot; only the gradient leaf updates, no header or content body
+  runs), from the same live input as the slot, the stretch effect and the clip, so it never lags the geometry; it sits on the framed
+  stack before the stretch effect, so it stretches with the header under `.stretch` and moves with it under `.slideBehind`. The band
+  is the header's frame (`.compress`) or its uncovered part under `.slideBehind`: it ends at `y_end = R − (1 − k)·c` in the header's
+  frame, the content's top edge. `ZTronHeaderFade(rest:collapse:pull:)` gives a gradient per state; `.linear(to:from:)` is the same
+  gradient in all three (drawn exactly as before). Weights: collapse `t = p` (the covered fraction under `.slideBehind`), pull
+  `t = min(1, g / (R/2))` (the pull state is fully reached at half the header's height; `R` is the header's drawn layout height, so
+  it follows an app-animated resize, and in a rotation the weight changes with the system's rotation snapshot), rest when both are
+  0 (exclusive: `o′ > 0` vs `< 0`). Per state `α(u) = max(0, (u − start)/(1 − start))` on the band (`start` 1 = no visible fade;
+  `nil` = no fade in that state, the partner's colour); blended `α = (1 − t)·α_rest + t·α_partner`. One colour (the common case,
+  or a `nil` side): ONE gradient whose stops are at `{0, start_rest, start_partner, 1}` with `color.opacity(α)` (both α are linear
+  between them: exact, no dip). Two colours: two stacked gradients with the over-operator corrected (bottom `(1 − t)·α_A /
+  (1 − t·α_B)`, top `t·α_B`: coverage `α` exact at the stops, the partner's share exact), 8 cosine-spaced interior stops per
+  segment (≤ 0.75 % coverage error). The view structure is fixed per fade value (two layers iff two colours), so scrolling never
+  changes it. Measured (seam lab, 8 scenarios × 3 lanes; pixel UI test): opacity error ≤ 0.023 (codec), every per-frame step equal
+  to the model's within 0.01, no lag (the fit's bias has the same sign rising and falling).
 - `h ≤ 0.5` ⇒ hidden from hit-testing and accessibility *(kept)*. Zoom: the header lives in viewport space and ignores the zoom scale *(kept)*.
 - Nothing here forces bounce: `.stretch` shows only when the vertical axis can bounce (scrollable content with `.automatic`, or
   `scrollBounceBehavior(.always)`); DEBUG prints a note when `.stretch` is set on a view whose vertical axis cannot bounce. A refresher still
@@ -728,7 +826,8 @@ laterally aligned, with no one-frame jumps: system rotations, app-driven animate
 changes), `.fit` re-measures, refresh holds, snaps and `scrollTo`. How (M8b-3; measured in the seam lab, a per-frame analysis of simulator
 screen recordings, `scripts/seam/`):
 - **Geometry from layout.** The header's slot is an overlay attached after the container's `.ignoresSafeArea`, so SwiftUI places its top
-  edge at the safe-area top in the same layout pass as the container; its height is `h = (1 − p) · R(W, H) + p · min + stretch` with
+  edge at the safe-area top in the same layout pass as the container; its height is `h = (1 − p) · R(W, H) + p · min` (`R(W, H)` under `.slideBehind`; amended 2026-11-02, D69: the stretch is a render-time
+  scale, no longer part of the layout height) with
   `W × H` the proposed size and `R(W, H)` resolved by the layout with the same size and overflow policy as the state (16+ a `Layout`, 15 iOS 13
   modifiers), so the state's `R` (the content's inset) and the layout's agree in the same commit. An app-driven animated resize therefore
   interpolates the header with the content. While a resize is open `p`, the stretch and the `.preserve` translation are the resize intent's
@@ -746,6 +845,23 @@ screen recordings, `scripts/seam/`):
   interpolates `o′` in the same transaction as the content's offset, so every frame has the header at the interpolated content position,
   across the band's edges (interpolating the height instead left the header up to 132 pt off the content mid-band). Clock-driven motion
   (fling, `.uikit` animations, `snapHeader(to:animated:)`, the refresh hold's lift) writes the target every frame and the header leaf follows it.
+- **Header behaviors from the same live input (amended 2026-11-02, D68–D70).** The stretch scale, the `.slideBehind` parallax
+  translation and the fade are derived in the header's leaf from the same live input as the slot (one update, the same `o′`; in a
+  transaction-driven scroll each interpolates `o′` in that transaction) and from the layout's own `R`: the 16+ slot `Layout` places
+  the stack at `minY + t_g − k·p·h` with `h` the pass's own height, the 15 path's translation is a `GeometryEffect` computing the
+  same from its size (the fallback frame's `R(W)`), the stretch effect and the clip compute `s` from the stack's size, and the
+  fade's pull weight reads the stack's layout height. So an app-animated resize interpolates all of them with the content and
+  the unanimated commit re-sets nothing (during an open resize `p` and `g` are the anchor's, bit-stable). Geometry consumers of
+  the live input take it with the pull stripped (`HeaderLiveInput.geometry`): the fade's pull rides the input only when the pull
+  state differs from the rest state, and never relayouts an `.openGap` slot. Measured (2026-11-01/02, 27.0 / 17.5 / forced; seam
+  lab, |seam| ≤ 1 pt, lateral ≤ 1 pt, no one-frame step ≥ 0.5 of the change): `.stretch` pull, refresh hold, rotations and
+  app-animated width / height changes in a hold, keyboard: |seam| ≤ 0.5, lateral ≤ 0.42, jumps ≤ 0.26 (the rotations' baseline);
+  `.slideBehind` (k 0 / 0.5 / 1) band scroll, fling, snap, width / spring / retarget / rotation at half cover: |seam| ≤ 0.5, the
+  drawn header top at `top0 − k·c` within 0.44 pt, worst one-frame step 0.12 of the move; the user's setup (appbanner:
+  `NavigationView`, 16:9 aspect, `.refit`, an aspect-fit image, `.stretch`, a linear fade) pull, refresh, rotation, rotation in
+  a hold, fade and a `.slideBehind` scroll: |seam| ≤ 0.5, jumps ≤ 0.25 (the rotation in a hold reads 1.1 for the header's height
+  only: a net 18 pt change across the rotation's own 66 pt excursion, smooth, its bottom edge 0.12); the lateral offset in
+  landscape is the image's own letterbox inside the full-width frame, not an edge misalignment (M8b-s7 handoff).
 - **Rigid layer groups for rotations.** A system rotation is laid out ONCE at the final size and Core Animation interpolates every layer change
   made inside UIKit's rotation block. Without a group SwiftUI pushes the content transform down to the leaf layers, so rows that enter, leave
   or are rebuilt land at once while the visible ones interpolate: the content tears and leaves the header (up to 94 pt covered). The content
@@ -865,7 +981,8 @@ screen recordings, `scripts/seam/`):
   (seam lab: 26 pt gap, 48 pt lateral); issued in the size change's own `withAnimation`, the command is dropped by the resize but its target
   moved the header offset `o′` in that animated transaction, so the header lands at its final frame at once (45 pt).
 
-**Snapping (kept; convention amended).** Only inside the band; positions as collapse progress (0 expanded, 1 collapsed; default `[0, 1]`).
+**Snapping (kept; convention amended).** Only inside the band; positions as collapse progress (0 expanded, 1 collapsed; default `[0, 1]`;
+under `.slideBehind` the covered fraction, D68).
 `.immediately` resolves the release target to the nearest position, velocity-aware, through the normal target pipeline after the user's
 target behavior (design M8b Q3), so `willEndDragging` sees the snapped target. `.afterFinishAccelerating` animates to the nearest position
 once deceleration ends inside the band. `state.snapHeader(to:animated:)` clamps `.height`/`.progress` to the range; called before the
@@ -881,6 +998,7 @@ stacks, `scrollTo` anchors (evaluated at the target), refresh-indicator placemen
 
 **Performance (amended tier table, S4.4).** The header builder runs once per cold change (install, resting height, width, Dynamic Type);
 the header's frame modifier is a leaf that updates every frame of collapse/stretch and never re-evaluates the header's body;
+the fade is a gradient leaf inside that leaf (per frame while the weight or the band moves, D70);
 `ZTronHeaderGeometryReader` content updates only when its derived value changes (every frame for the identity form, at most `steps + 1`
 times per full collapse for `quantizedProgress(steps:)`); header children without a reader and all content never update because of
 scrolling. Verify with render counters on both OS paths.
@@ -891,8 +1009,8 @@ scrolling. Verify with render counters on both OS paths.
 |---|---|
 | `ScalingHeaderScrollView { header } content: { content }` | `ZTronScrollView { content }.withScalingHeader(size: …) { _ in header }` |
 | `.height(min: a, max: b)` | `size: .fixed(min: a, max: b)`; no 150/350 defaults *(kept)*: pass them |
-| `.allowsHeaderGrowth()` | `scalingBehavior: .stretch` |
-| `.allowsHeaderCollapse()` | the default (shrink from the bottom); the slide-up mode is not offered |
+| `.allowsHeaderGrowth()` | `pull: .stretch` (2026-11-02; `scalingBehavior: .stretch` is the deprecated spelling) |
+| `.allowsHeaderCollapse()` | the default (`collapse: .compress`, shrink from the bottom); the slide-up mode is `collapse: .slideBehind(parallax: 1)` (D68) |
 | `.setHeaderSnapMode(.immediately)` + `.headerSnappingPositions(snapPositions: [0, 0.5, 1])` | `snap: .immediately(at: [1, 0.5, 0])` (positions inverted: ours are collapse progress) |
 | `.initialSnapPosition(initialSnapPosition: 0)` | `state.snapHeader(to: .collapsed, animated: false)` |
 | `.snapHeaderToState(state: $s, animated:)` | `state.snapHeader(to:animated:)` |

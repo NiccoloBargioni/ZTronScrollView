@@ -53,6 +53,9 @@ public enum ZTronHeaderScalingBehavior: Sendable {
     /// The header grows with the (rubber-banded) pull, its top edge pinned and its bottom edge on the content's top edge;
     /// a refresh indicator floats over the stretched band. Only when the vertical axis can bounce (scrollable content,
     /// `scrollBounceBehavior(.always)` or a refresher); inert on a scroll view without the vertical axis (a banner).
+    /// The growth is a render-time scale (D69): the header stays laid out at its resting height and is drawn scaled by
+    /// `(R + pull) / R` about its top centre, clipped to the scroll view's width, so every child grows with it (an
+    /// aspect-fit image too) and no body runs; while pulled, text and vector art in it are drawn as the scaled bitmap.
     case stretch
 }
 

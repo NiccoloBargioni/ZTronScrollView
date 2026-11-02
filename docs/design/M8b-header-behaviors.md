@@ -299,8 +299,13 @@ crossfade under `withAnimation { scrollTo }` through the band (a pixel column's 
   **Step 4:** per decision 3 it is clipped (drawing and touches) at the scroll view's own frame like the content, not at
   `top0`; so it draws under a bar only where the scroll view itself extends under it. The seam lab's scroll view is the
   safe-area rect, so its header is clipped at the safe-area top there; unit test `theHeaderIsClippedAtTheScrollViewsFrame`
-  (a scroll view below a 200 pt spacer, k 1, half covered: no header pixel above it). Not yet seen under a real navigation
-  bar (step 6's `appbanner` screen).
+  (a scroll view below a 200 pt spacer, k 1, half covered: no header pixel above it).
+  **Measured (step 6, 2026-11-02):** none under a real navigation bar. `HeaderUITests.testAppBannerSlideBehindStaysBelowTheBar`
+  (the user's setup in a `NavigationView` with an inline title, `.slideBehind(parallax: 1)`): the 38 pt band of the bar just
+  above the scroll view is pixel-identical at rest, half and fully covered on 27.0, 17.5 and 27.0 forced (worst diff 0.0)
+  while the image's own (accessibility) frame moves up by R (226 / 221 pt). Seam lab `-ZTronSeamAppBanner 1` slide1: 0 frames
+  with header red above the scroll view's top under the 27.0 glass bar (132 frames) and forced (130); on 17.5 the lab's blank
+  inline title draws no bar, 0 of 178 frames above the safe-area top. Decision 3 holds as built (clip at the scroll view's frame).
 - 15–16 `.slideBehind`: the unclipped-at-`top0` header and the content group both inside the scroll view's clip; blend isolation.
   **Measured (step 4):** the clip holds on the forced lane (the unit clip test on both paths; 17 seam scenarios PASS,
   |seam| ≤ 0.5 pt, lateral ≤ 0.3, jumps ≤ 0.23 = preferred). Blend isolation not pixel-measured; from the code: the 15–16
