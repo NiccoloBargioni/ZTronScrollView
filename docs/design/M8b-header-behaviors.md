@@ -257,7 +257,17 @@ crossfade under `withAnimation { scrollTo }` through the band (a pixel column's 
 ## 7. Risks to check on device / in the lab
 - Hit-testing through the content layer to a background header on the forced lane and 17.5 (a full-size element in the content
   chain would swallow the band); `ContentInteractionGate`'s `.disabled` must not reach the header.
+  **Measured (step 4, 2026-11-02):** none on 27.0, 17.5 and 27.0 forced (`HeaderUITests`
+  `testSlideBehindHeaderButtonTapsOnlyWhereUncovered`, 29/29 per lane): the header's button counts a tap half covered, not
+  with 12 pt left uncovered (the content takes it), and again uncovered; the part moved above the scroll view takes no
+  touches (the container's `contentShape`: the chrome's button under the 114 pt overflow works). The pan is attached after
+  the container's `contentShape`, so a drag on the uncovered header scrolls; the gate is inside the content chain, the
+  background slot outside it.
 - The `.background` slot's top edge at the safe-area top on 15 / forced (the overlay needed an explicit `.top` frame).
+  **Measured (step 4):** none: `HeaderSlideBehindTests` (both OS paths, 3 sizes x k 0 / 0.5 / 1 x rest / half / covered)
+  find the header at `top0 − k·p·R`; the seam lab's ruler (white bars in the header, `-ZTronSeamRuler 1`) reads the drawn
+  top at `top0 − k·c` within 0.44 pt on 17.5, 0.34 on 27.0, 0.33 forced (ScrollBand k 0 / 0.5 / 1, fling, snap, width /
+  spring / retarget at half cover; worst one-frame step 0.12 of the move), `top0` = the safe-area top on every lane.
 - A `clipShape` whose path animates inside a `compositingGroup()` during a system rotation of a stretch hold (CA interpolation of
   the mask), and the effect drawn per frame in an app-animated resize on 15–16.
   **Measured (step 3, 2026-11-01):** none on the forced lane (27.0, the 15–16 path): rotate holds |seam| ≤ 0.5 pt, lateral
@@ -266,12 +276,24 @@ crossfade under `withAnimation { scrollTo }` through the band (a pixel column's 
 - Implicit animation of the gradient stops under a transaction-driven scroll (lag): the `Animatable` modifier precedent says no;
   measure with the crossfade scenario.
 - `.slideBehind` under a translucent navigation bar: the header draws under the bar as it moves up (by design; confirm with the user).
+  **Step 4:** per decision 3 it is clipped (drawing and touches) at the scroll view's own frame like the content, not at
+  `top0`; so it draws under a bar only where the scroll view itself extends under it. The seam lab's scroll view is the
+  safe-area rect, so its header is clipped at the safe-area top there; unit test `theHeaderIsClippedAtTheScrollViewsFrame`
+  (a scroll view below a 200 pt spacer, k 1, half covered: no header pixel above it). Not yet seen under a real navigation
+  bar (step 6's `appbanner` screen).
 - 15–16 `.slideBehind`: the unclipped-at-`top0` header and the content group both inside the scroll view's clip; blend isolation.
+  **Measured (step 4):** the clip holds on the forced lane (the unit clip test on both paths; 17 seam scenarios PASS,
+  |seam| ≤ 0.5 pt, lateral ≤ 0.3, jumps ≤ 0.23 = preferred). Blend isolation not pixel-measured; from the code: the 15–16
+  content group (`compositingGroup()`) keeps a content child's `.blendMode` from reaching the header behind it, while 17+
+  (`geometryGroup()`) lets it (open item 29).
 - Readers scaled under `.stretch` (text inside a scaled stack is rasterised by the scale on 15–16: slight blur while pulled).
   **Measured (step 3, 2026-11-01):** on EVERY lane (17.5, 27.0, 27.0 forced) the pulled header is its layer's bitmap
   scaled: a 24 pt text's edge width grows 1.25× (17.5) to 1.8× (27.0) at s = 1.25. Transient (pull / refresh hold only);
   a re-raster would re-run the header body (S4), so it is a documented limit (open item 28).
 - Mode switch at runtime re-installs the header (`@State` lost) — acceptable? If not, both slots must share one host (harder).
+  **Step 4:** accepted (decision 4) and documented on `.slideBehind(parallax:backdrop:)`; the switch keeps the covered
+  fraction (the state's inset path now runs `keepProgress` when only the band changes) and runs no content body
+  (`aModeSwitchAndABackdropRunNoContentBody`, both paths).
 
 ## 8. Lead decisions on the open questions (2026-11-01)
 1. Type names: keep `ZTronHeaderScalingBehavior` as the `pull:` type (zero churn; the deprecated overload takes the same type).

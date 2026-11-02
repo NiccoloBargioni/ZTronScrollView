@@ -293,6 +293,13 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
    only 15-16). Transient (pull and refresh hold), images unaffected in kind. A re-raster would re-run the header body (S4).
    Options: accept and document in SPEC S10 (proposed); or a user opt-in that re-lays the header at the pulled height.
 
+29. **15–16: a content child's blend mode does not reach a `.slideBehind` header (2026-11-02, header behaviors step 4 / D68,
+   from the code, not pixel-measured, OPEN)**: the content scrolls over the header; on 15–16 its layer group is a
+   `compositingGroup()` (`ContentLayerGroup`, needed for rigid rotations), so a `.blendMode` inside the content composites
+   within the content, while on 17+ (`geometryGroup()`) it blends with the header behind. The mirror of SPEC S10 "15–16 layer
+   groups" for the header. Options: accept and document in S10 (proposed, with the step 6 amendment); or measure with a
+   pixel UI test on the forced lane first.
+
 ## Decisions (keep)
 - D1 Naming map in CLAUDE.md (ZoomScroll → ZTronScroll, `ztronScroll…` modifiers; matches ZTronPages' `ztronPage()`).
 - D2 Package, module and main type are all `ZTronScrollView`.
