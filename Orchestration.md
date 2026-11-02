@@ -10,6 +10,28 @@ checks DONE on the device (C, D21, D22, D25) · pinch overscroll rubber band (D2
 both paths; 17.5 both paths green except the known Q3 pager case) · M6 (a) + N-a done → next = step 4** · MC freeze
 blocked (user decision). **M8b/M8 designs amended 2026-10-19 per the user's three decisions (side session M8b-s0, D26): M8b-3 and
 M8-8 build from the amended SPEC S9/S10/S11 + `docs/design/M8b-refresh-header.md` §2–3 + `M8-chrome.md` §7b.**
+## RESUME HERE (2026-11-02 14:20, M8b-3 lead session, branch `claude/cool-stonebraker-0015c9`, pushed to origin)
+- State: header behaviors D68–D70 built and closed (`docs/progress/M8b-s7.md`, 55c1881); the user's rulings committed (13c46d0, see
+  Next step 6 (a)). Batch **M8b-s8** was launched and STOPPED by the user during its design phase (shutdown); nothing of it was
+  committed; its scratch worktrees, simulators and processes were removed. Tree clean at this commit.
+- Next: re-run batch M8b-s8 from the start. Its workflow script (persistent copy):
+  `~/Library/Application Support/Claude/side-session-notes/local_f8af3d20-fa63-46a8-9079-ddf859cc4879/m8b-s8-resume/m8b-s8-workflow.js`
+  (a new session cannot resume the old run id; run the script fresh, after re-pointing its `SP` / `S8` constants to the new
+  session's scratchpad and `BASE` to this commit; the old `/private/tmp` scratchpad is gone after a reboot, so its references to
+  `${SP}/api/notes.md`, `${SP}/fu/suites/step.sh`, `${SP}/fu/notes.md` must point to the copies in that same folder:
+  `api-notes-M8b-s7-builders.md`, `step.sh`, `fu-notes.md`; `QUEUE.md` there lists the batch contents).
+- Batch M8b-s8 contents (user rulings 2026-11-02; nothing is accepted as a limit): D63 becomes an enum parameter of
+  `withScalingHeader`, default = D63 (D75; D74 is SHEET's on main); FIX items 15 (b) (15–16 overflow-limited R lands in one frame,
+  incl. width, F6 rows), 27 (15–16 reveal after an instant resize), 28 (`.stretch` text blur, ALL lanes), 29 (15–16 blend modes vs a
+  `.slideBehind` header), 31 + 32 (`.stretch` `.system` spinner steps; proposed: centre the pull look in the band), 33 (17.5
+  `.preserve` re-catch arrow over the content: triage, then fix).
+- Machine rules: ONE demo UI suite at a time machine-wide via `mkdir "$(git rev-parse --git-common-dir)/ztron-ui-lane.lock"`
+  (owner file, trap release); seam-lab runs go through SeamLabUITests, so they take it too; unit runs one at a time per session.
+- M1 Mac (user): runs iOS 15.0 / 16.0 simulators; pending: Remote Login + an SSH connection in the Claude app + its macOS/Xcode
+  versions; then a read-only verification session there on the pushed branch (fixes stay on this Mac).
+- Merge notes (main moved to 71c9380+): `docs/progress/M8b-s7.md` merge section (250 pt/s release gate, BTN item 11, iOS 26+
+  hosting rule, renumber open items 27–33 if main uses them).
+
 ## Resume in a new session (cheapest path)
 1. Launch in `/Users/admin/Documents/ZTronScrollView` with the role's model (SPEC O2, l.897–918): Builder
    `claude --model sonnet --advisor opus`, Architect `claude --model fable`, Debugger `claude --model opus --effort high`.
