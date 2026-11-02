@@ -14,7 +14,9 @@ M8-8 build from the amended SPEC S9/S10/S11 + `docs/design/M8b-refresh-header.md
 - State: header behaviors D68–D70 built and closed (`docs/progress/M8b-s7.md`, 55c1881); the user's rulings committed (13c46d0, see
   Next step 6 (a)). Batch **M8b-s8** was launched and STOPPED by the user during its design phase (shutdown); nothing of it was
   committed; its scratch worktrees, simulators and processes were removed. Tree clean at this commit.
-- Next: re-run batch M8b-s8 from the start. Its workflow script (persistent copy):
+- 2026-11-02 14:35: batch M8b-s8 RE-LAUNCHED from base af2e66c (script `m8b-s8-workflow-r2.js` in the folder below, already
+  re-pointed). If it is no longer running and `docs/progress/M8b-s8.md` does not exist, re-run it from the start the same way.
+- How to re-run batch M8b-s8 from the start. Its workflow script (persistent copy):
   `~/Library/Application Support/Claude/side-session-notes/local_f8af3d20-fa63-46a8-9079-ddf859cc4879/m8b-s8-resume/m8b-s8-workflow.js`
   (a new session cannot resume the old run id; run the script fresh, after re-pointing its `SP` / `S8` constants to the new
   session's scratchpad and `BASE` to this commit; the old `/private/tmp` scratchpad is gone after a reboot, so its references to
