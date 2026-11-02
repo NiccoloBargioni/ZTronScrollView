@@ -2,7 +2,7 @@
 # M8b-3 R5 seam lab: records the simulator screen while one SeamLabUITests method drives the seam lab, then measures
 # the header/content seam per frame (scripts/seam/analyze.py).
 #
-# usage: scripts/seam/measure.sh <udid> <rotate|rotatel|width|pull|scroll|snap|kbrotate> <out-dir> -- <launch args...> [--forced]
+# usage: scripts/seam/measure.sh <udid> <rotate|rotatel|width|pull|scroll|snap|kbrotate|fling> <out-dir> -- <launch args...> [--forced]
 #   e.g. scripts/seam/measure.sh 7190…60FA rotate out/aspect-rest -- -ZTronHeaderSize aspect -ZTronSeamStart rest
 # env: ZS_SEAM_DD     derived-data path (default: <repo>/.dd/<udid>; one xcodebuild per path)
 #      ZS_SEAM_TIMEOUT seconds before the test run is killed as hung (default 1500)
@@ -10,7 +10,7 @@
 # Output in <out-dir>: rec.mov (the recording), meta.json, test.log, frames.csv, summary.json, worst-*.png.
 set -u
 root="$(cd "$(dirname "$0")/../.." && pwd)"
-udid="${1:?udid}"; test="${2:?rotate|rotatel|width|pull|scroll|snap|kbrotate}"; out="${3:?out-dir}"; shift 3
+udid="${1:?udid}"; test="${2:?rotate|rotatel|width|pull|scroll|snap|kbrotate|fling}"; out="${3:?out-dir}"; shift 3
 [ "${1:-}" = "--" ] && shift
 forced=""; args=()
 for a in "$@"; do
@@ -24,7 +24,8 @@ case "$test" in
   scroll) method="testScroll" ;;
   snap) method="testSnap" ;;
   kbrotate) method="testKeyboardRotate" ;;   # D64: keyboard up, rotation there and back, keyboard down (with kbreal)
-  *) echo "test must be rotate, rotatel, width, pull, scroll, snap or kbrotate" >&2; exit 2 ;;
+  fling) method="testFling" ;;   # a finger fling up, then one back (fdown / fv / fb / fd extras in baseline.sh)
+  *) echo "test must be rotate, rotatel, width, pull, scroll, snap, kbrotate or fling" >&2; exit 2 ;;
 esac
 mkdir -p "$out"; out="$(cd "$out" && pwd)"
 dd="${ZS_SEAM_DD:-$root/.dd/$udid}"

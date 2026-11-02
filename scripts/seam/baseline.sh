@@ -2,7 +2,7 @@
 # M8b-3 R5 seam lab: runs a list of scenarios through scripts/seam/measure.sh, one after the other, on one simulator.
 #
 # usage: scripts/seam/baseline.sh <udid> <out-root> <scenario>...
-#   scenario = <size>-<start>-<behavior>-<test>[-<extra>...], test = rotate | rotatel (from landscape) | width | pull | scroll | snap | kbrotate, extras (any order):
+#   scenario = <size>-<start>-<behavior>-<test>[-<extra>...], test = rotate | rotatel (from landscape) | width | pull | scroll | snap | kbrotate | fling, extras (any order):
 #              forced (the forced-fallback lane), capped | refit (-ZTronHeaderOverflow), ambient | glass | color | view
 #              (-ZTronHeaderBackground), marker (-ZTronSeamMarker 1: a cyan row at content y 320), refresh (-ZTronSeamRefresh 2.5:
 #              a refresher whose action holds 2.5 s, with pull: the refresh hold and its end), band (-ZTronSeamScrollBand 0.5:
@@ -47,6 +47,11 @@ for sc in "$@"; do
       kbreal) extra+=(-ZTronSeamKeyboard 1) ;;        # with width / kbrotate: seam.width toggles the system keyboard (D64)
       slide) extra+=(-ZTronSeamCollapse slideBehind) ;;      # D68: collapse .slideBehind (parallax 0.5): the header slides behind the content
       slide0|slide1) extra+=(-ZTronSeamCollapse "slideBehind:${x#slide}") ;;   # D68: parallax 0 (still) / 1 (with the content)
+      slidek*) v="${x#slidek}"; extra+=(-ZTronSeamCollapse "slideBehind:${v//p/.}") ;;   # slidek0p25 = parallax 0.25
+      fdown) extra+=(-ZTronSeamFlingFirst down) ;;          # with fling: the first fling goes down
+      fv[0-9]*) extra+=(-ZTronSeamFlingVel "${x#fv}") ;;    # with fling: the first fling's speed (pt/s, default 1500)
+      fb[0-9]*) extra+=(-ZTronSeamFlingBack "${x#fb}") ;;   # with fling: the second fling's speed (default 3000)
+      fd[0-9]*) extra+=(-ZTronSeamFlingDrag "${x#fd}") ;;   # with fling: the drag length (pt, default 80)
       ruler) extra+=(-ZTronSeamRuler 1) ;;   # D68: white position marks in the header (its top is clipped at the scroll view's frame as it slides up)
       fade) extra+=(-ZTronSeamFade split) ;;     # D70: a white split fade (rest from 0.5, collapse from 0, no pull fade); read with the fade tracker, not analyze.py
       fade1) extra+=(-ZTronSeamFade single) ;;   # D70: .linear(to: white, from: 0.5) in every state

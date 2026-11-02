@@ -164,4 +164,35 @@ final class SeamLabUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 2.5)
         info(app, "wide")
     }
+
+    private func arg(_ name: String, _ d: Double) -> Double {
+        if let i = seamArgs.firstIndex(of: name), i + 1 < seamArgs.count, let v = Double(seamArgs[i + 1]) { return v }
+        return d
+    }
+
+    /// A finger fling (a short fast drag, lifted at once) one way, then one the other way (the header behaviors' seamless
+    /// review; fixer round 1, S-RS-1: with `hold`, the content scrolled out of a `.stretch` hold and back).
+    /// `-ZTronSeamFlingFirst up|down` (default up), `-ZTronSeamFlingDrag <pt>` (80), `-ZTronSeamFlingVel <pt/s>` (1500),
+    /// `-ZTronSeamFlingBack <pt/s>` (3000, the second fling).
+    func testFling() {
+        let app = launch()
+        XCTAssertTrue(app.buttons["seam.width"].waitForExistence(timeout: 10))
+        Thread.sleep(forTimeInterval: 1.5)
+        let window = app.windows.firstMatch
+        let up = !seamArgs.contains("down")
+        let drag = CGFloat(arg("-ZTronSeamFlingDrag", 80))
+        func fling(_ upward: Bool, _ v: Double, _ tag: String) {
+            let start = window.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: upward ? 0.7 : 0.35))
+            let end = start.withOffset(CGVector(dx: 0, dy: upward ? -drag : drag))
+            print("SEAMLAB mark \(tag) \(Date().timeIntervalSince1970)")
+            start.press(forDuration: 0.05, thenDragTo: end, withVelocity: XCUIGestureVelocity(rawValue: CGFloat(v)),
+                        thenHoldForDuration: 0)
+        }
+        fling(up, arg("-ZTronSeamFlingVel", 1500), "fling1")
+        Thread.sleep(forTimeInterval: 3.0)
+        info(app, "after1")
+        fling(!up, arg("-ZTronSeamFlingBack", 3000), "fling2")
+        Thread.sleep(forTimeInterval: 3.0)
+        info(app, "after2")
+    }
 }
