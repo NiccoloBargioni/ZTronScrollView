@@ -47,8 +47,10 @@ enum RefreshIndicatorMath {
     ///   refreshing (the hold, the spinner's retraction) the placement in the gap is kept whatever the pull (open item 19):
     ///   with the gap closed or scrolled off the viewport the indicator draws nothing (`clip` empty), its box stays on
     ///   the content's edge.
-    static func placement(edge: Edge, style: ZTronRefreshStyle, overlay: Bool, refreshing: Bool, dragPosition: CGFloat,
-                          pull: CGFloat, length: CGFloat, viewport: CGSize, base: EdgeInsets,
+    ///   - band: with `overlay`, the `.stretch` band (`inStretchBand`, S-RS-1): the overlay's look, drawn only over the
+    ///     band the pull stretches, its far edge on the header's drawn bottom (see the branch).
+    static func placement(edge: Edge, style: ZTronRefreshStyle, overlay: Bool, band: Bool = false, refreshing: Bool,
+                          dragPosition: CGFloat, pull: CGFloat, length: CGFloat, viewport: CGSize, base: EdgeInsets,
                           header: CGFloat = 0, hold: CGFloat? = nil) -> RefreshPlacement? {
         let p = max(0, pull)
         let L = max(0, length)
@@ -70,7 +72,24 @@ enum RefreshIndicatorMath {
         let box: (CGFloat, CGFloat)
         let visible: (CGFloat, CGFloat)
         let region: (CGFloat, CGFloat)
-        if overlay {
+        if overlay, band {
+            // The `.stretch` band `[0, pull]` (S-RS-1, open item 30): the band is the header the pull stretches, its far
+            // end the header's drawn bottom, on the content's top. As an overlay it slides in from outside the base with
+            // the pull and sits at `[0, L]` once the band is `L` long, now also while refreshing: below that it stays on
+            // the band's far end, so a hold the content is scrolled out of (and a programmatic hold's opening) moves it
+            // with the content, clipped to the band, as open item 19 does in the gap. Before, it stayed at `[0, L]` while
+            // refreshing whatever the pull and was drawn over the content scrolled under it (seam lab: 168-275 frames).
+            // The box and the region are the gap's, so its layer exists off the screen and moves rigidly with the
+            // content (open items 18, 19); the same pixels as before under a pull and at the hold's rest (`H ≥ L`).
+            guard refreshing || pull > 0 else { return nil }
+            let s = pull
+            let H = max(0, hold ?? L)
+            center = min(s, L) - L / 2
+            opacity = refreshing ? 1 : Double(L > 0 ? min(1, p / L) : 1)
+            box = (s - max(s, L, H), s)
+            visible = (0, p)
+            region = (0, max(s, along))
+        } else if overlay {
             // Floats over the content: slides in from outside the base with the pull, sits at L when refreshing.
             center = -L / 2 + (refreshing ? L : min(p, L))
             // To the viewport's far edge, and never shorter than the indicator: a base beyond the viewport (a `.stretch`
@@ -139,6 +158,13 @@ extension RefreshIndicatorMath {
         guard edge == .top, let top = HeaderMath.refreshTop(m) else { return (base, overlay) }
         base.top = top.base
         return (base, overlay || top.overlay)
+    }
+
+    /// S-RS-1: whether the top indicator is drawn as the `.stretch` band's (`placement(band:)`): a vertical `.stretch` header
+    /// and a refresher with a hold (not `overlay:`, which keeps the content where it is and floats over it by choice).
+    static func inStretchBand(edge: Edge, metrics m: ScrollMetrics, overlay: Bool) -> Bool {
+        guard edge == .top, !overlay, let header = m.header, header.vertical else { return false }
+        return header.behavior == .stretch
     }
 }
 
@@ -312,14 +338,15 @@ struct RefreshEdgeIndicator: View {
                                               zoom: target?.targetZoom ?? sample.zoom, metrics: m,
                                               alignment: state.contentAlignment)
             let (base, overlay) = RefreshIndicatorMath.base(edge: edge, metrics: m, overlay: spec.overlay)
+            let band = RefreshIndicatorMath.inStretchBand(edge: edge, metrics: m, overlay: spec.overlay)
             let length = spec.configuration.indicatorHeight
             let hold = RefreshEngine.holdSize(edge: edge, config: spec.configuration, overlay: false)
             let refreshing = refresh.mode == .refreshing || (retract == .spinner && !overlay)
             // Whether any of the indicator is inside its clip at this pull (a hold scrolled away keeps its placement and
             // draws nothing: open item 19).
             let visible = RefreshIndicatorMath.placement(
-                edge: edge, style: spec.style, overlay: overlay, refreshing: refreshing, dragPosition: refresh.dragPosition,
-                pull: pull, length: length, viewport: m.viewportSize, base: base, hold: hold)
+                edge: edge, style: spec.style, overlay: overlay, band: band, refreshing: refreshing,
+                dragPosition: refresh.dragPosition, pull: pull, length: length, viewport: m.viewportSize, base: base, hold: hold)
                 .map { $0.visibleLength(vertical: edge == .top || edge == .bottom) > 0 } ?? false
             // What the content is drawn with while the resize is open (the transform host's `ResizeMath.resolve` inputs):
             // the box follows the drawn content's edge (open item 21).
@@ -336,7 +363,7 @@ struct RefreshEdgeIndicator: View {
             let baseAnimation = open ? nil : follow.animation(base: along, pull: pull, overlay: overlay,
                                                               insets: m.adjustedContentInset, follow: state.insetFollow)
             indicator(visible: visible, built: built).modifier(RefreshPlacementEffect(
-                pull: pull, edge: edge, style: spec.style, overlay: overlay, length: length, hold: hold,
+                pull: pull, edge: edge, style: spec.style, overlay: overlay, band: band, length: length, hold: hold,
                 refreshing: refreshing, refresh: refresh, retract: retract,
                 viewport: m.viewportSize, base: base, useGeometryGroup: state.usesGeometryGroup,
                 hasHeader: state.headerSpec != nil || m.header != nil, custom: spec.indicator != nil,
@@ -537,6 +564,8 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
     let edge: Edge
     let style: ZTronRefreshStyle
     let overlay: Bool
+    /// The `.stretch` band (`RefreshIndicatorMath.inStretchBand`): drawn over the band only, its box on the content's edge.
+    let band: Bool
     let length: CGFloat
     /// The gap the hold keeps open (`RefreshEngine.holdSize`): where a `.system` indicator rests against the content.
     let hold: CGFloat
@@ -597,8 +626,8 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
 
     @MainActor func body(content: Content) -> some View {
         let placement = RefreshIndicatorMath.placement(
-            edge: edge, style: style, overlay: overlay, refreshing: refreshing, dragPosition: refresh.dragPosition, pull: pull,
-            length: length, viewport: viewport, base: base, hold: hold)
+            edge: edge, style: style, overlay: overlay, band: band, refreshing: refreshing, dragPosition: refresh.dragPosition,
+            pull: pull, length: length, viewport: viewport, base: base, hold: hold)
         #if DEBUG
         let _ = RefreshTrace.leaf(edge: edge, pull: pull, refresh: refresh, retract: retract, placement: placement)
         #endif
@@ -658,7 +687,7 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
             // The drawn viewport's size, so the box's move is a function of the drawn size (open item 21).
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .modifier(RefreshResizeEffect(commit: resize, edge: edge, baseFollowsInset: baseFollowsInset,
-                                          part: .box(overlay: overlay), draw: draw))
+                                          part: .box(overlay: overlay && !band), draw: draw))
         }
         // The drawn viewport, laid out with nothing that the resize's commit changes (no committed base, no
         // committed margin): see the note above.
