@@ -134,9 +134,10 @@ Usage: not measured.
     (0.33), 17.5 137 / 0 (0.33). Controls as before: height04-hbottom 27.0 62/128 in place, 17.5 59/129, 0 over; forced
     rotate-hbottom 55/84, 0 over, 29 missing (was 54/84, 30); forced height04-hbottom-hoverlay 154/154, step 0.024. `kbreal`
     on 27.0: the keyboard covers the probe within 1-2 frames, nothing to judge.
-- **LOW recorded as open item 24** (not measured): D66's reveal also waits 0.3 s after an instant resize on the ungrouped
+- **LOW recorded as open item 27** (numbered 24 until 2026-11-02; renumbered because main's 24–26 belong to other sessions;
+  not measured): D66's reveal also waits 0.3 s after an instant resize on the ungrouped
   15-16 path. Nothing pure-SwiftUI tells it from a system rotation; an orientation heuristic would bring item 20 back for
-  single-axis system resizes (iPad, no lane). Orchestration item 24 has the options.
+  single-axis system resizes (iPad, no lane). Orchestration item 27 has the options.
 - **Tests:** unit 796 tests in 77 suites green on 27.0 and 17.5, 9 known issues, 0 feedback-loop warnings. Demo UI Refresh/Header/Proof/Resize
   (46 tests) on 27.0 preferred, 17.5 and 27.0 forced: 46/46 each, 0 failures (one lane at a time under the machine lock).
 - Notes and recordings: `scratchpad/fu/fx2/` (seam/k27, k27f, k175; logs/).
