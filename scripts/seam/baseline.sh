@@ -52,6 +52,7 @@ for sc in "$@"; do
       fade1) extra+=(-ZTronSeamFade single) ;;   # D70: .linear(to: white, from: 0.5) in every state
       fade2) extra+=(-ZTronSeamFade split2) ;;   # D70: the split with a black collapse state (two colours)
       longpull) extra+=(-ZTronSeamPullDrag 450) ;;   # D70: with pull, a 450 pt drag (the pull passes R / 2)
+      appbanner) extra+=(-ZTronSeamAppBanner 1) ;;   # D69: the user's setup (NavigationView + GeometryReader, .aspectRatio(16/9, min: 0), a red aspect-fit Image)
       info) extra+=(-ZTronSeamInfo 2) ;;              # diagnostics only (draws the state line over the lab): DEBUG event log
       band) extra+=(-ZTronSeamScrollBand 0.5) ;;
       combo) extra+=(-ZTronSeamScrollBand 0.5 -ZTronSeamWidthThenScroll 0.5) ;;

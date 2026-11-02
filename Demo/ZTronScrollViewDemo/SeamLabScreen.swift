@@ -51,6 +51,11 @@ import ZTronScrollView
 // colours: the over-operator pair). The seam analyzer does not apply to a faded header (its bottom rows are white);
 // fade recordings are read by the fade tracker (scratchpad b4/fade.py). SeamLabUITests reads `-ZTronSeamPullDrag <pt>`
 // (testPull's drag, default 220 pt from 55 % of the window's height; longer drags start at 25 %).
+// `-ZTronSeamAppBanner 1` (D69, the user's setup): the lab inside a `NavigationView` (inline, no title: an empty bar) and the
+// user's `GeometryReader`, the header `.aspectRatio(16/9, min: 0)` (whatever `-ZTronHeaderSize` says) whose content is the
+// user's chain on a pure red image: `Image(...).resizable().aspectRatio(16/9, contentMode: .fit).frame(maxWidth: .infinity)`.
+// With `-ZTronHeaderBehavior stretch -ZTronHeaderOverflow refit` it is the user's call (the fade is `-ZTronSeamFade`'s,
+// none by default: the seam analyzer reads an unfaded red header).
 
 enum SeamLab {
     static let red = Color(red: 1, green: 0, blue: 0)
@@ -61,6 +66,7 @@ enum SeamLab {
     static let cyan = Color(red: 0, green: 1, blue: 1)
 
     static var size: ZTronHeaderSize {
+        if appBanner { return .aspectRatio(16.0 / 9.0, min: 0) }
         switch HeaderDemo.argument("-ZTronHeaderSize", "fixed") {
         case "aspect": return .aspectRatio(16.0 / 9.0, min: 64)
         case "fit": return .fit(min: 64)
@@ -133,6 +139,14 @@ struct SeamLabScreen: View {
     @State private var retargetHeight: CGFloat? = nil
 
     var body: some View {
+        if SeamLab.appBanner {
+            NavigationView { lab.navigationBarTitleDisplayMode(.inline) }
+        } else {
+            lab
+        }
+    }
+
+    private var lab: some View {
         GeometryReader { g in
             ZStack(alignment: .bottomTrailing) {
                 // Laid out in the safe area like a native ScrollView: the library extends the viewport to the screen
@@ -393,7 +407,9 @@ struct SeamLabHeader: View {
     }
 
     @ViewBuilder private var content: some View {
-        if SeamLab.letterboxed {
+        if SeamLab.appBanner {
+            SeamLab.redImage.resizable().aspectRatio(16.0 / 9.0, contentMode: .fit).frame(maxWidth: .infinity)
+        } else if SeamLab.letterboxed {
             SeamLab.red
                 .aspectRatio(16.0 / 9.0, contentMode: .fit)
                 .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
@@ -482,4 +498,20 @@ nonisolated struct SeamLabDrawnHeight: GeometryEffect {
 extension SeamLab {
     static var fakeKeyboard: CGFloat? { Double(HeaderDemo.argument("-ZTronSeamFakeKeyboard", "")).map { CGFloat($0) } }
     static var realKeyboard: Bool { HeaderDemo.argument("-ZTronSeamKeyboard", "0") == "1" }
+}
+
+// MARK: The user's setup (D69)
+extension SeamLab {
+    /// `-ZTronSeamAppBanner 1` (see the file header).
+    static var appBanner: Bool { HeaderDemo.argument("-ZTronSeamAppBanner", "0") == "1" }
+    /// A pure red 16 × 9 picture (the user's `Image`, in the lab's colour).
+    static let redImage: Image = {
+        let space = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(data: nil, width: 16, height: 9, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return Image(systemName: "xmark") }
+        ctx.setFillColor(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 16, height: 9))
+        guard let cg = ctx.makeImage() else { return Image(systemName: "xmark") }
+        return Image(decorative: cg, scale: 1)
+    }()
 }

@@ -516,6 +516,126 @@ final class HeaderUITests: XCTestCase {
         assertNoBodies(info(app, "fade slide"), "fade slide")
     }
 
+    // MARK: app banner (D69's motivating setup)
+
+    /// One screenshot's pixels, read at points (sRGB 0…1).
+    private struct Pixels {
+        let width: Int, height: Int, scale: CGFloat, bytes: [UInt8]
+        func rgb(_ x: CGFloat, _ y: CGFloat) -> (r: CGFloat, g: CGFloat, b: CGFloat) {
+            let c = min(width - 1, max(0, Int(x * scale))), r = min(height - 1, max(0, Int(y * scale)))
+            let i = (r * width + c) * 4
+            return (CGFloat(bytes[i]) / 255, CGFloat(bytes[i + 1]) / 255, CGFloat(bytes[i + 2]) / 255)
+        }
+        func lum(_ x: CGFloat, _ y: CGFloat) -> CGFloat { let p = rgb(x, y); return (p.r + p.g + p.b) / 3 }
+    }
+
+    private func pixels(_ app: XCUIApplication) -> Pixels? {
+        guard let cg = XCUIScreen.main.screenshot().image.cgImage,
+              let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        let w = cg.width, h = cg.height
+        var px = [UInt8](repeating: 0, count: w * h * 4)
+        guard let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: space,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        return Pixels(width: w, height: h, scale: CGFloat(w) / app.windows.firstMatch.frame.width, bytes: px)
+    }
+
+    /// The x (points) of the picture's dark grid lines along the screen row `y`: the centres of the runs of pixels darker
+    /// than 0.3 (the snapshot's tiles are 0.5 or brighter, its lines 0.12).
+    private func gridLines(_ p: Pixels, y: CGFloat, from x0: CGFloat, to x1: CGFloat) -> [CGFloat] {
+        var out: [CGFloat] = [], run: [Int] = []
+        for c in Int(x0 * p.scale)..<Int(x1 * p.scale) {
+            if p.lum(CGFloat(c) / p.scale, y) < 0.3 { run.append(c); continue }
+            if !run.isEmpty { out.append((CGFloat(run.first!) + CGFloat(run.last!) + 1) / 2 / p.scale); run = [] }
+        }
+        return out
+    }
+
+    /// The y (points) where the screen column `x` turns from the picture (its fade ends on the dark app background) to the
+    /// light rows, scanning down from `y0`: the top of the first pixel brighter than 0.7.
+    private func lightEdge(_ p: Pixels, x: CGFloat, from y0: CGFloat, to y1: CGFloat) -> CGFloat? {
+        for r in Int(y0 * p.scale)..<Int(y1 * p.scale) where p.lum(x, (CGFloat(r) + 0.5) / p.scale) > 0.7 {
+            return CGFloat(r) / p.scale
+        }
+        return nil
+    }
+
+    /// The pixel probe: the picture's grid lines (5 vertical lines at x = (100k + 1) / 600 of its width, k = 1…5) are
+    /// scaled by `s` about the screen's centre and its bottom edge is at `bottom` (the light rows begin there).
+    private func checkDrawnImage(_ app: XCUIApplication, _ tag: String, top: CGFloat, bottom: CGFloat, width: CGFloat,
+                                 scale s: CGFloat) {
+        guard let p = pixels(app) else { XCTFail("\(tag): no screenshot"); return }
+        let lines = gridLines(p, y: top + 6, from: 4, to: width - 4)
+        let want = (1...5).map { k in width / 2 + ((CGFloat(100 * k + 1) / 600) * width - width / 2) * s }
+        let edge = lightEdge(p, x: width * 0.25, from: top + (bottom - top) * 0.75, to: bottom + 40)
+        print("HEADER \(path) appbanner pixels \(tag): lines \(lines.map { String(format: "%.2f", $0) }) want "
+              + "\(want.map { String(format: "%.2f", $0) }) edge \(edge.map { String(format: "%.2f", $0) } ?? "nil") want "
+              + String(format: "%.2f", bottom))
+        XCTAssertEqual(lines.count, 5, "\(tag): the picture's five grid lines")
+        for (got, w) in zip(lines, want) { XCTAssertEqual(got, w, accuracy: 1.5, "\(tag): a grid line scaled by \(s)") }
+        XCTAssertEqual(edge ?? -1, bottom, accuracy: 1.5, "\(tag): the drawn bottom edge")
+    }
+
+    /// The user's setup (D69, `-ZTronScreen appbanner`): `NavigationView` + `GeometryReader`, `.aspectRatio(16/9, min: 0)`,
+    /// `pull: .stretch`, `fade: .linear(to: appBackground)`, `.refit`, an aspect-fit 16:9 `Image` with `maxWidth: .infinity`,
+    /// through the current call and the deprecated `scalingBehavior:` one. A finger pull grows the drawn image (its probe's
+    /// largest bottom edge and width follow the largest pull); a held pull of 60 pt draws it scaled by (R + 60) / R about its
+    /// top centre (probe frame and pixels: the grid lines move out, the bottom edge moves down by 60 onto the content's top);
+    /// back at rest it is W × R again. No content body, no header builder run.
+    func testAppBannerPullGrowsTheImage() {
+        for call in ["current", "deprecated"] {
+            let app = launch("appbanner", ["-ZTronAppBannerCall", call])
+            let image = element(app, "appbanner.image")
+            XCTAssertTrue(image.waitForExistence(timeout: 5))
+            let width = app.windows.firstMatch.frame.width
+            let top = element(app, "header.scroller").frame.minY
+            let rest = image.frame
+            let row = element(app, "header.row.0")
+            print("HEADER \(path) appbanner \(call) rest image \(rest) scroller top \(top) row0 \(row.frame)")
+            XCTAssertEqual(rest.minY, top, accuracy: 1, "\(call): the image's top on the scroll view's top")
+            XCTAssertEqual(rest.width, width, accuracy: 1, "\(call): full width at rest")
+            XCTAssertEqual(rest.height, width * 9 / 16, accuracy: 1, "\(call): R = W · 9/16")
+            XCTAssertEqual(row.frame.minY, rest.maxY, accuracy: 1, "\(call): the content starts at the image's bottom")
+            let R = rest.height
+            checkDrawnImage(app, "\(call) rest", top: rest.minY, bottom: rest.maxY, width: width, scale: 1)
+
+            if call == "current" {
+                // A finger pull: the probe's largest drawn bottom edge / width follow the largest pull.
+                drag(app, from: (0.5, 0.3), to: (0.5, 0.6), hold: 0.6)
+                Thread.sleep(forTimeInterval: 1.5)
+                let i = info(app, "appbanner finger pull")
+                let g = i.double("smax")
+                XCTAssertGreaterThan(g, 20, "the finger pulled past the top")
+                XCTAssertEqual(i.double("bmax"), rest.maxY + g, accuracy: 1.5, "the drawn bottom edge moved down by the pull")
+                XCTAssertEqual(i.double("wmax"), width * (R + g) / R, accuracy: 1.5, "the drawn width grew by (R + g) / R")
+                XCTAssertEqual(image.frame.maxY, rest.maxY, accuracy: 0.5, "back at rest after the release")
+            }
+
+            // A held pull of 60 pt (programmatic): probe frame and pixels.
+            app.buttons["appbanner.pull"].tap()
+            Thread.sleep(forTimeInterval: 0.8)
+            let s = (R + 60) / R
+            let pulled = image.frame
+            let content = row.frame.minY
+            print("HEADER \(path) appbanner \(call) pulled image \(pulled) row0 top \(content)")
+            XCTAssertEqual(pulled.minY, rest.minY, accuracy: 1, "\(call): the top stays")
+            XCTAssertEqual(pulled.maxY, rest.maxY + 60, accuracy: 1, "\(call): the bottom edge moved down by the pull")
+            XCTAssertEqual(pulled.width, width * s, accuracy: 1, "\(call): wider by (R + g) / R")
+            XCTAssertEqual(pulled.midX, width / 2, accuracy: 1, "\(call): about the centre")
+            XCTAssertEqual(content, pulled.maxY, accuracy: 1, "\(call): the content's top on the image's bottom")
+            checkDrawnImage(app, "\(call) pulled 60", top: rest.minY, bottom: rest.maxY + 60, width: width, scale: s)
+            assertNoBodies(info(app, "appbanner \(call) pulled"), "appbanner \(call)")
+
+            app.buttons["appbanner.rest"].tap()
+            Thread.sleep(forTimeInterval: 0.8)
+            let back = image.frame
+            XCTAssertEqual(back.maxY, rest.maxY, accuracy: 0.5, "\(call): back at rest")
+            XCTAssertEqual(back.width, width, accuracy: 0.5, "\(call): full width again")
+            checkDrawnImage(app, "\(call) back", top: rest.minY, bottom: rest.maxY, width: width, scale: 1)
+            app.terminate()
+        }
+    }
+
     func testFitMeasuresTheNaturalHeight() {
         let app = launch("banner", ["-ZTronHeaderSize", "fit"])
         let width = element(app, "header.scroller").frame.width

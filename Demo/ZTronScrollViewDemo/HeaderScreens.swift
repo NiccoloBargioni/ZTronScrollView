@@ -72,6 +72,9 @@ enum HeaderDemo {
     @MainActor static var maxStretch: CGFloat = 0
     @MainActor static var maxHeight: CGFloat = 0
     @MainActor static var taps = 0
+    /// `-ZTronScreen appbanner`: the largest drawn bottom edge (global y) and width of the image its probe saw.
+    @MainActor static var maxBottom: CGFloat = 0
+    @MainActor static var maxWidth: CGFloat = 0
 
     /// The refresh action: `-ZTronLoadSeconds <s>` (default 0.6).
     static func load() async {
@@ -138,6 +141,8 @@ struct HeaderDemoChrome: View {
             HeaderDemo.maxStretch = 0
             HeaderDemo.maxHeight = 0
             HeaderDemo.taps = 0
+            HeaderDemo.maxBottom = 0
+            HeaderDemo.maxWidth = 0
         }
     }
 
@@ -147,9 +152,9 @@ struct HeaderDemoChrome: View {
         #endif
         voiceOver = VoiceOverTree.identifiers(prefix: "header.").joined(separator: ",")
         let g = state.headerGeometry
-        info = String(format: "y=%.1f p=%.4f h=%.1f R=%.3f smax=%.1f hmax=%.1f taps=%d phase=%d", state.contentOffset.y,
-                      g?.progress ?? -1, g?.height ?? -1, g?.restingHeight ?? -1, HeaderDemo.maxStretch, HeaderDemo.maxHeight,
-                      HeaderDemo.taps, state.phase.rawValue)
+        info = String(format: "y=%.1f p=%.4f h=%.1f R=%.3f smax=%.1f hmax=%.1f taps=%d phase=%d bmax=%.2f wmax=%.2f",
+                      state.contentOffset.y, g?.progress ?? -1, g?.height ?? -1, g?.restingHeight ?? -1, HeaderDemo.maxStretch,
+                      HeaderDemo.maxHeight, HeaderDemo.taps, state.phase.rawValue, HeaderDemo.maxBottom, HeaderDemo.maxWidth)
     }
 }
 
@@ -351,5 +356,115 @@ struct BannerTitle: View {
             Text("Banner").font(.system(size: 17 + 0.08 * h, weight: .bold)).foregroundColor(.white)
                 .accessibilityIdentifier("banner.title")
         }
+    }
+}
+
+// MARK: App banner (D69's motivating setup)
+
+/// Stand-in for the user's theme (`Color(source: self.theme, value: \.appBackground)`), as in ScalingHeaderAPITests.
+struct AppBannerTheme {
+    var appBackground = Color(red: 0.08, green: 0.09, blue: 0.11)
+}
+
+private extension Color {
+    init(source: AppBannerTheme, value: KeyPath<AppBannerTheme, Color>) { self = source[keyPath: value] }
+}
+
+/// `-ZTronScreen appbanner`: the user's setup from the D69 report (2026-11-01), as spelled: a `NavigationView` around a
+/// `GeometryReader` around the scroll view, `.aspectRatio(16/9, min: 0)`, `pull: .stretch`, `fade: .linear(to:
+/// appBackground)`, `overflow: .refit`, and an aspect-fit 16:9 `Image` with `maxWidth: .infinity`. Before D69 a pull grew
+/// the header's frame while the aspect-fit image inside it stayed W × W·9/16 (nothing visibly grew); now the image is drawn
+/// scaled by (R + g) / R about its top centre, its bottom edge on the content's top. `-ZTronAppBannerCall deprecated`
+/// makes the same call through the deprecated `scalingBehavior: .stretch` spelling (the user's literal call).
+/// The chrome (`HeaderDemoChrome`) floats over the bottom of the screen as an overlay, so the scroll view's layout is the
+/// user's; its `appbanner.pull` button holds a pull of 60 pt (`setContentOffset` past the top, unanimated: like UIKit, the
+/// offset stays until the next touch) and `appbanner.rest` puts the content back at the top. Test probe (HeaderUITests):
+/// an accessibility element overlaid on the image (`appbanner.image`, the image's frame), whose geometry reader records
+/// the largest drawn bottom edge and width it saw (`bmax`, `wmax` in `stateInfo`); a scroll delegate records the largest
+/// pull (`smax`).
+struct AppBannerScreen: View {
+    let theme = AppBannerTheme()
+    @State private var state = ZTronScrollState()
+    @State private var info = ""
+    @State private var snapshot: [String: Int] = [:]
+    @State private var probe = AppBannerPullProbe()
+
+    private static var deprecatedCall: Bool { HeaderDemo.argument("-ZTronAppBannerCall", "current") == "deprecated" }
+
+    var body: some View {
+        NavigationView {
+            GeometryReader { _ in
+                scroller
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("header.scroller")
+            }
+            .navigationTitle("About us")
+            .navigationBarTitleDisplayMode(.inline)
+            .overlay(alignment: .bottom) {
+                HeaderDemoChrome(state: state, info: $info, snapshot: $snapshot, extra: AnyView(HStack(spacing: 8) {
+                    Button("Pull") { pull(60) }.accessibilityIdentifier("appbanner.pull")
+                    Button("Rest") { pull(0) }.accessibilityIdentifier("appbanner.rest")
+                }))
+                    .padding(.vertical, 4)
+                    .frame(maxWidth: .infinity)
+                    .background(Color(white: 0.92))
+            }
+        }
+        .onAppear { state.delegate = probe }
+    }
+
+    private var scroller: ZTronScrollView<AppBannerContent> {
+        let base = ZTronScrollView(.vertical, state: state) { AppBannerContent() }
+        if Self.deprecatedCall {
+            return base.withScalingHeader(size: .aspectRatio(16.0/9.0, min: 0.0), scalingBehavior: .stretch,
+                                          fade: .linear(to: Color(source: self.theme, value: \.appBackground)), overflow: .refit,
+                                          header: { _ in Image("app.global.about.us.snapshot").resizable().aspectRatio(16.0/9.0, contentMode: .fit)
+                                              .overlay(AppBannerImageProbe())
+                                              .frame(maxWidth: .infinity) })
+        }
+        return base.withScalingHeader(size: .aspectRatio(16.0/9.0, min: 0.0), pull: .stretch,
+                                      fade: .linear(to: Color(source: self.theme, value: \.appBackground)), overflow: .refit,
+                                      header: { _ in Image("app.global.about.us.snapshot").resizable().aspectRatio(16.0/9.0, contentMode: .fit)
+                                          .overlay(AppBannerImageProbe())
+                                          .frame(maxWidth: .infinity) })
+    }
+
+    /// A pull of `g` pt, held: the offset `g` past the top edge, unanimated (0: back at the top; `Reset`'s
+    /// `snapHeader(to: .expanded)` leaves a view at or above rest where it is, S10 "Snapping").
+    private func pull(_ g: CGFloat) {
+        state.setContentOffset(CGPoint(x: 0, y: -state.adjustedContentInset.top - g), animated: false)
+    }
+}
+
+/// The rows (each counts its own body).
+struct AppBannerContent: View {
+    var body: some View {
+        VStack(spacing: 0) { ForEach(0..<40, id: \.self) { HeaderRow(index: $0) } }
+    }
+}
+
+/// Records the largest pull (the header's stretch) the scroll view reported.
+@MainActor
+final class AppBannerPullProbe: ZTronScrollViewDelegate {
+    func scrollViewDidScroll(_ state: ZTronScrollState) {
+        HeaderDemo.maxStretch = max(HeaderDemo.maxStretch, state.headerGeometry?.stretch ?? 0)
+    }
+}
+
+/// The test probe overlaid on the user's image: a childless accessibility element exactly as large as the image's frame
+/// (`appbanner.image`), whose reader records the largest global bottom edge and width (render-time scale included).
+struct AppBannerImageProbe: View {
+    var body: some View {
+        GeometryReader { g in
+            let f = g.frame(in: .global)
+            let _ = MainActor.assumeIsolated {
+                HeaderDemo.maxBottom = max(HeaderDemo.maxBottom, f.maxY)
+                HeaderDemo.maxWidth = max(HeaderDemo.maxWidth, f.width)
+            }
+            Color.clear
+        }
+        .accessibilityElement()
+        .accessibilityLabel("app banner image")
+        .accessibilityIdentifier("appbanner.image")
     }
 }
