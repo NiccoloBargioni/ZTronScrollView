@@ -48,6 +48,10 @@ for sc in "$@"; do
       slide) extra+=(-ZTronSeamCollapse slideBehind) ;;      # D68: collapse .slideBehind (parallax 0.5): the header slides behind the content
       slide0|slide1) extra+=(-ZTronSeamCollapse "slideBehind:${x#slide}") ;;   # D68: parallax 0 (still) / 1 (with the content)
       ruler) extra+=(-ZTronSeamRuler 1) ;;   # D68: white position marks in the header (its top is clipped at the scroll view's frame as it slides up)
+      fade) extra+=(-ZTronSeamFade split) ;;     # D70: a white split fade (rest from 0.5, collapse from 0, no pull fade); read with the fade tracker, not analyze.py
+      fade1) extra+=(-ZTronSeamFade single) ;;   # D70: .linear(to: white, from: 0.5) in every state
+      fade2) extra+=(-ZTronSeamFade split2) ;;   # D70: the split with a black collapse state (two colours)
+      longpull) extra+=(-ZTronSeamPullDrag 450) ;;   # D70: with pull, a 450 pt drag (the pull passes R / 2)
       info) extra+=(-ZTronSeamInfo 2) ;;              # diagnostics only (draws the state line over the lab): DEBUG event log
       band) extra+=(-ZTronSeamScrollBand 0.5) ;;
       combo) extra+=(-ZTronSeamScrollBand 0.5 -ZTronSeamWidthThenScroll 0.5) ;;

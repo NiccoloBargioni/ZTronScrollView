@@ -20,7 +20,8 @@ struct HeaderHost: View {
         let state = state, fit = spec.size.isFit
         // The header stack, built here (cold) and framed by the hot leaf: the content fills the live frame (top-aligned;
         // proposed no height, its ideal height: `.fit` measures through it), the background below it fills the same frame
-        // (an ambient copy is the same builder result, a second instance), the fade above it.
+        // (an ambient copy is the same builder result, a second instance). The fade is the leaf's (D70: crossfaded per
+        // frame from its live input).
         return built
             // `.fit`: the animated transaction of an update that reaches the header's content (its own animated change),
             // so a re-measurement adopts the new resting height in it. Reads only; never per frame on the clock (its
@@ -34,8 +35,7 @@ struct HeaderHost: View {
             .modifier(HeaderInteractionGate(state: state))
             .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .top)
             .background(HeaderBackgroundView(background: spec.background, copy: built))
-            .overlay(HeaderFade(fade: spec.fade))
-            .modifier(HeaderFrameModifier(state: state, size: spec.size, overflow: spec.overflow))
+            .modifier(HeaderFrameModifier(state: state, size: spec.size, overflow: spec.overflow, fade: spec.fade))
             .accessibilityElement(children: .contain)
             .accessibilitySortPriority(1)                // "precedes the content": announced before it
     }

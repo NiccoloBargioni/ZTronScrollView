@@ -13,7 +13,11 @@ import ZTronScrollView
 // Both take `-ZTronHeaderBackground ambient|glass|color|view|none` (ZTronHeaderBackground, default none),
 // `-ZTronHeaderCollapse compress|slide|slide0|slide1` (D68: `.compress`, default; `.slideBehind` with parallax 0.5, 0, 1;
 // a slide adds a `Cover` button, `snapHeader(to: .height(12))`) and `-ZTronHeaderBackdrop on|off` (with a slide, the
-// `backdrop:` color, white; default off: the rows' translucent tints show the header through them), and show
+// `backdrop:` color, white; default off: the rows' translucent tints show the header through them),
+// `-ZTronHeaderFade single|split|split2|none` (D70; profile default none, banner default single: `.linear(to: .black,
+// from: 0.4)`; split = rest that, collapse `.linear(to: .black, from: 0)`, pull nil; split2 = split with a pure red
+// collapse state, two colours) and `-ZTronHeaderPlain 1` (the profile header's background pure white: the fade's
+// pixels are the fade itself, HeaderUITests' pixel probe), and show
 // `content.body`, `header.builder`, `header.frame`, `refresh.actions`, `header.measure` and a `stateInfo` line
 // (`y`, `p` progress, `h` height, `R` resting, `smax` largest stretch, `taps` header button taps) after `Info`.
 
@@ -47,6 +51,20 @@ enum HeaderDemo {
     }
 
     static var slides: Bool { argument("-ZTronHeaderCollapse", "compress").hasPrefix("slide") }
+
+    /// `-ZTronHeaderFade single|split|split2|none` (D70), `fallback` when absent.
+    static func fade(_ fallback: String) -> ZTronHeaderFade? {
+        let rest = ZTronHeaderFade.Gradient.linear(to: .black, from: 0.4)
+        switch argument("-ZTronHeaderFade", fallback) {
+        case "single": return .linear(to: .black, from: 0.4)
+        case "split": return .init(rest: rest, collapse: .linear(to: .black, from: 0), pull: nil)
+        case "split2": return .init(rest: rest, collapse: .linear(to: Color(red: 1, green: 0, blue: 0), from: 0), pull: nil)
+        default: return nil
+        }
+    }
+
+    /// `-ZTronHeaderPlain 1`: the profile header's background is pure white.
+    static var plain: Bool { argument("-ZTronHeaderPlain", "0") == "1" }
 
     static let keys = ["content.body", "header.builder", "header.frame", "refresh.actions", "header.measure"]
 
@@ -195,7 +213,7 @@ struct ProfileScreen: View {
                 VStack(spacing: 0) { ForEach(0..<40, id: \.self) { HeaderRow(index: $0) } }
             }
             .withScalingHeader(size: .fixed(min: 64, max: 240), collapse: HeaderDemo.collapse, pull: .preserve, snap: snap,
-                               background: HeaderDemo.background) { header in
+                               fade: HeaderDemo.fade("none"), background: HeaderDemo.background) { header in
                 ProfileHeader(header: header)
             }
             .refresher(style: .system) { await HeaderDemo.load() }
@@ -212,7 +230,11 @@ struct ProfileHeader: View {
     let header: ZTronHeaderProxy
     var body: some View {
         ZStack(alignment: .bottom) {
-            LinearGradient(colors: [.indigo, .teal], startPoint: .top, endPoint: .bottom)
+            if HeaderDemo.plain {
+                Color.white
+            } else {
+                LinearGradient(colors: [.indigo, .teal], startPoint: .top, endPoint: .bottom)
+            }
             HStack(alignment: .bottom, spacing: 12) {
                 // The avatar shrinks with the collapse; the title fades. Each is its own reader: the header around them
                 // never re-runs.
@@ -283,7 +305,7 @@ struct BannerScreen: View {
             }
         }
         let current = base.withScalingHeader(size: size, collapse: HeaderDemo.collapse, pull: .stretch,
-                                             fade: .linear(to: .black, from: 0.4), background: HeaderDemo.background,
+                                             fade: HeaderDemo.fade("single"), background: HeaderDemo.background,
                                              overflow: overflow) { header in
             BannerHeader(header: header)
         }
@@ -291,7 +313,7 @@ struct BannerScreen: View {
         // The deprecated spelling (`scalingBehavior:` → `pull:`), kept so the demo compiles it (with its warning); the
         // collapse switch (D68) needs the current one.
         let headed = HeaderDemo.slides ? current
-            : base.withScalingHeader(size: size, scalingBehavior: .stretch, fade: .linear(to: .black, from: 0.4),
+            : base.withScalingHeader(size: size, scalingBehavior: .stretch, fade: HeaderDemo.fade("single"),
                                      background: HeaderDemo.background, overflow: overflow) { header in
                 BannerHeader(header: header)
             }

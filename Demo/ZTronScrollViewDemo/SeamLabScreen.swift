@@ -45,6 +45,12 @@ import ZTronScrollView
 // six white bars in the header (header y 20 + 40 i, 2 + 2 i pt tall, x 5–45 % of its width): the header's position read
 // from any bar left uncovered and unclipped (as it moves up, the header is clipped at the scroll view's frame, here the
 // safe-area top, like the content), so the parallax can be measured.
+// `-ZTronSeamFade single|split|split2` (D70; default none): a pure white fade over the red header (a pixel's opacity is
+// its green channel): single = `.linear(to: white, from: 0.5)` in every state; split = rest that, collapse
+// `.linear(to: white, from: 0)`, pull nil (full at a pull of R / 2); split2 = split with a pure black collapse state (two
+// colours: the over-operator pair). The seam analyzer does not apply to a faded header (its bottom rows are white);
+// fade recordings are read by the fade tracker (scratchpad b4/fade.py). SeamLabUITests reads `-ZTronSeamPullDrag <pt>`
+// (testPull's drag, default 220 pt from 55 % of the window's height; longer drags start at 25 %).
 
 enum SeamLab {
     static let red = Color(red: 1, green: 0, blue: 0)
@@ -246,7 +252,7 @@ extension SeamLabScreen {
         let base = ZTronScrollView(SeamLab.horizontal ? .horizontal : .vertical, state: state) { SeamLabContent() }
             .scrollIndicators(.hidden)
         var view = SeamLab.noHeader ? base : base
-            .withScalingHeader(size: SeamLab.size, collapse: SeamLab.collapse, pull: SeamLab.behavior,
+            .withScalingHeader(size: SeamLab.size, collapse: SeamLab.collapse, pull: SeamLab.behavior, fade: SeamLab.fade,
                                background: SeamLab.background, overflow: SeamLab.overflow) { [tall] _ in SeamLabHeader(tall: tall) }
         if let pull = SeamLab.pull { view = view.scalingHeaderPullBehavior(pull) }
         if SeamLab.hold {
@@ -267,6 +273,17 @@ extension SeamLabScreen {
 }
 
 extension SeamLab {
+    /// `-ZTronSeamFade single|split|split2` (D70, see the file header).
+    static var fade: ZTronHeaderFade? {
+        let white = Color(red: 1, green: 1, blue: 1), black = Color(red: 0, green: 0, blue: 0)
+        let rest = ZTronHeaderFade.Gradient.linear(to: white, from: 0.5)
+        switch HeaderDemo.argument("-ZTronSeamFade", "none") {
+        case "single": return .linear(to: white, from: 0.5)
+        case "split": return .init(rest: rest, collapse: .linear(to: white, from: 0), pull: nil)
+        case "split2": return .init(rest: rest, collapse: .linear(to: black, from: 0), pull: nil)
+        default: return nil
+        }
+    }
     /// `-ZTronSeamRuler 1` (D68): white position marks in the header.
     static var ruler: Bool { HeaderDemo.argument("-ZTronSeamRuler", "0") == "1" }
     /// `-ZTronSeamCollapse compress|slideBehind[:k]` (D68).

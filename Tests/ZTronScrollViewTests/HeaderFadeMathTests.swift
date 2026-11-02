@@ -154,6 +154,131 @@ import Testing
         #expect(HeaderFadeMath.endPoint(bandEnd: 10, frameHeight: 0) == UnitPoint(x: 0.5, y: 1))
     }
 
+    // MARK: D70 step 5: the overlay's input (`HeaderFadeOverlay`, the leaf's live input)
+
+    static func metrics(_ collapse: ZTronHeaderCollapseBehavior.Kind, behavior: ZTronHeaderScalingBehavior = .preserve,
+                        resting: CGFloat = 240) -> ScrollMetrics {
+        var m = ScrollMetrics()
+        m.viewportSize = CGSize(width: 402, height: 874)
+        m.safeAreaInsets = EdgeInsets(top: 62, leading: 0, bottom: 34, trailing: 0)
+        m.header = HeaderMetrics(min: collapse.isSlideBehind ? 0 : 64, resting: resting, behavior: behavior,
+                                 collapse: collapse, width: 402)
+        m.adjustedContentInset = EdgeInsets(top: 62 + resting, leading: 0, bottom: 34, trailing: 0)
+        return m
+    }
+
+    static func live(_ m: ScrollMetrics, o: CGFloat, fade: ZTronHeaderFade?) -> HeaderLiveInput {
+        HeaderFrameModifier.liveInput(size: .fixed(min: 64, max: 240), overflow: .uncapped, metrics: m, edges: .vertical,
+                                      target: CGPoint(x: 0, y: o - HeaderMath.base(m)), zoom: 1,
+                                      tracksPull: HeaderFadeMath.tracksPull(fade))
+    }
+
+    static let split = ZTronHeaderFade(rest: .linear(to: bg), collapse: .linear(to: bg, from: 0), pull: nil)
+
+    /// The pull is tracked only when the pull state differs from the rest one; untracked, the live input is today's bit
+    /// for bit (no field changes under an `.openGap` pull), and `geometry` (what the slot and the effects read) never
+    /// carries it.
+    @Test func thePullIsTrackedOnlyWhenThePullStateDiffers() {
+        #expect(HeaderFadeMath.tracksPull(nil) == false)
+        #expect(HeaderFadeMath.tracksPull(.linear(to: Self.bg, from: 0.4)) == false, ".linear: the same gradient pulled")
+        #expect(HeaderFadeMath.tracksPull(.init(rest: .linear(to: Self.bg), collapse: nil, pull: .linear(to: Self.bg))) == false)
+        #expect(HeaderFadeMath.tracksPull(Self.split), "the user's split: the pull fades the rest out")
+        #expect(HeaderFadeMath.tracksPull(.init(rest: nil, pull: .linear(to: Self.bg))))
+        let m = Self.metrics(.compress)
+        for o: CGFloat in [-150, -60, -0.5, 0, 30, 400] {
+            let tracked = Self.live(m, o: o, fade: Self.split), plain = Self.live(m, o: o, fade: .linear(to: Self.bg))
+            #expect(tracked.pull == max(0, -o) && plain.pull == 0, "o′ \(o): pull \(tracked.pull) / \(plain.pull)")
+            #expect(tracked.geometry == plain, "o′ \(o): the geometry's input is the untracked one")
+            #expect(plain.geometry == plain)
+        }
+        // An `.openGap` pull leaves the untracked input unchanged (no relayout for it), the tracked one moves.
+        var deep = Self.live(m, o: -100, fade: nil)
+        deep.offset = -40
+        #expect(deep == Self.live(m, o: -40, fade: nil), "untracked: only the offset differs under an .openGap pull")
+        var following = Self.live(m, o: 0, fade: Self.split)
+        following = following.at(offset: -75)
+        #expect(following.pull == 75 && following.geometry.pull == 0)
+        #expect(Self.live(m, o: .nan, fade: Self.split).pull == 0)
+    }
+
+    /// What the overlay draws at a live input IS the math at that input's progress and pull, on both collapse modes and at
+    /// every offset (including `at(offset:)`, the animation frames); the end point is the content's top edge under
+    /// `.slideBehind` (`1 − (1 − k)·p` of the frame), the frame's bottom under `.compress`.
+    @Test(arguments: [ZTronHeaderCollapseBehavior.Kind.compress, .slideBehind(parallax: 0.5), .slideBehind(parallax: 0),
+                      .slideBehind(parallax: 1)])
+    func theOverlayDrawsTheMathAtItsLiveInput(collapse: ZTronHeaderCollapseBehavior.Kind) throws {
+        let m = Self.metrics(collapse)
+        let header = try #require(m.header)
+        let two = ZTronHeaderFade(rest: .linear(to: .black, from: 0.4), collapse: .linear(to: .red, from: 0), pull: nil)
+        for fade in [Self.split, two, .linear(to: Self.bg, from: 0.4)] {
+            for o: CGFloat in [-200, -120, -60, -1, 0, 1, 44, 88, 120, 176, 239, 240, 500] {
+                let live = Self.live(m, o: o, fade: fade)
+                let g = HeaderMath.geometry(o: o, m: header)
+                let pull = HeaderFadeMath.tracksPull(fade) ? max(0, -o) : 0
+                let d = try #require(HeaderFadeOverlay.drawing(live, fade))
+                #expect(d.layers == HeaderFadeMath.layers(fade: fade, progress: g.progress, pull: pull, resting: 240),
+                        "\(collapse) o′ \(o)")
+                let k = collapse.parallax
+                // (k = 0 fully covered: the band is empty, the end point stays a thousandth below the start.)
+                #expect(abs(d.end.y - max(0.001, k.map { 1 - (1 - $0) * g.progress } ?? 1)) < 1e-9 && d.end.x == 0.5,
+                        "\(collapse) o′ \(o): end \(d.end)")
+                // An animation frame of a followed input draws what the leaf would draw at that offset.
+                let frame = Self.live(m, o: 0, fade: fade).at(offset: o)
+                #expect(HeaderFadeOverlay.drawing(frame, fade) == d, "\(collapse) o′ \(o): at(offset:)")
+            }
+        }
+        #expect(HeaderFadeOverlay.drawing(Self.live(m, o: 30, fade: nil), nil) == nil)
+        #expect(HeaderFadeOverlay.drawing(Self.live(m, o: 30, fade: .init(rest: nil)), .init(rest: nil)) == nil)
+        // The structure is fixed per fade: the same layer count at every offset (two layers iff the colours differ).
+        for o: CGFloat in [-100, 0, 100] {
+            #expect(HeaderFadeOverlay.drawing(Self.live(m, o: o, fade: two), two)?.layers.top != nil)
+            #expect(HeaderFadeOverlay.drawing(Self.live(m, o: o, fade: Self.split), Self.split)?.layers.top == nil)
+        }
+        // Unresolved metrics: still drawn by the fade alone (structure fixed), at rest.
+        let unresolved = HeaderLiveInput(size: .fixed(min: 64, max: 240), metrics: nil, tracksPull: true)
+        #expect(HeaderFadeOverlay.drawing(unresolved, Self.split)?.layers
+                    == HeaderFadeMath.layers(fade: Self.split, progress: 0, pull: 0, resting: 0))
+    }
+
+    /// D62 bit-stability: while a resize is open the overlay's progress and pull are the intent's anchor (not the realised
+    /// target, ulps apart), so the collapse crossfade (and the `.slideBehind` end point) draws the same before and after
+    /// the unanimated commit; the pull keeps its distance (its weight then follows the committed `R`, design note).
+    @Test func theCrossfadeIsBitStableAcrossTheUnanimatedCommit() throws {
+        for collapse in [ZTronHeaderCollapseBehavior.Kind.compress, .slideBehind(parallax: 0.5)] {
+            var m = Self.metrics(collapse, resting: 226.125)
+            m.resize.isOpen = true
+            m.resize.intent = ResizeIntent(normalizedCenter: CGPoint(x: 0.5, y: 0.5), scale: 1, atFit: true, header: .progress(0.5))
+            let band = try #require(m.header).band
+            let size = ZTronHeaderSize.aspectRatio(16.0 / 9.0, min: 64)
+            let before = HeaderFrameModifier.liveInput(size: size, overflow: .uncapped, metrics: m, edges: .vertical,
+                                                       target: CGPoint(x: 0, y: band / 2 - HeaderMath.base(m)), zoom: 1,
+                                                       held: band / 2, tracksPull: true)
+            var n = m
+            let resting: CGFloat = 241.0 * 9 / 16
+            n.viewportSize = CGSize(width: 241, height: 874)
+            n.header = HeaderMetrics(min: collapse.isSlideBehind ? 0 : 64, resting: resting, behavior: .preserve,
+                                     collapse: collapse, width: 241)
+            n.adjustedContentInset.top = 62 + resting
+            let nb = try #require(n.header).band
+            let after = HeaderFrameModifier.liveInput(size: size, overflow: .uncapped, metrics: n, edges: .vertical,
+                                                      target: CGPoint(x: 0, y: (nb / 2).nextUp - HeaderMath.base(n)), zoom: 1,
+                                                      held: before.offset, tracksPull: true)
+            #expect(before.progress == 0.5 && after.progress == 0.5 && before.pull == 0 && after.pull == 0)
+            #expect(HeaderFadeOverlay.drawing(before, Self.split) == HeaderFadeOverlay.drawing(after, Self.split),
+                    "\(collapse): the drawn crossfade across the commit")
+            // A pull hold: the anchor's distance on both sides.
+            m.resize.intent = ResizeIntent(normalizedCenter: CGPoint(x: 0.5, y: 0.5), scale: 1, atFit: true, header: .top(-60))
+            n.resize = m.resize
+            let held = HeaderFrameModifier.liveInput(size: size, overflow: .uncapped, metrics: m, edges: .vertical,
+                                                     target: CGPoint(x: 0, y: -60 - HeaderMath.base(m)), zoom: 1, held: -60,
+                                                     tracksPull: true)
+            let committed = HeaderFrameModifier.liveInput(size: size, overflow: .uncapped, metrics: n, edges: .vertical,
+                                                          target: CGPoint(x: 0, y: (-60).nextUp - HeaderMath.base(n)), zoom: 1,
+                                                          held: held.offset, tracksPull: true)
+            #expect(held.pull == 60 && committed.pull == 60 && held.offset == committed.offset, "\(collapse): \(held) / \(committed)")
+        }
+    }
+
     @Test func gradientStopsCarryTheOpacity() throws {
         let l = try #require(HeaderFadeMath.layers(fade: .linear(to: .red, from: 0.5), progress: 0, pull: 0, resting: 240))
         let stops = l.bottom.gradientStops

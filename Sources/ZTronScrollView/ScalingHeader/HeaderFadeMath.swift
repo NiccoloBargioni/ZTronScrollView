@@ -90,6 +90,14 @@ enum HeaderFadeMath {
         (1 - t) * alpha(fade.rest, at: u) + t * alpha(gradient(fade, partner), at: u)
     }
 
+    /// Whether the pull moves the crossfade: the pull state differs from the rest one (D70). Otherwise the live input
+    /// does not track the pull at all (`HeaderLiveInput.tracksPull`): `.linear(to:from:)` and a fade equal at rest and
+    /// pulled draw exactly as before, and an `.openGap` pull lays nothing out.
+    static func tracksPull(_ fade: ZTronHeaderFade?) -> Bool {
+        guard let fade else { return false }
+        return fade.pull != fade.rest
+    }
+
     /// Whether `fade` is drawn as two layers: the rest gradient and a partner both set, in different colors.
     static func twoLayers(_ fade: ZTronHeaderFade) -> Bool {
         guard let rest = fade.rest else { return false }

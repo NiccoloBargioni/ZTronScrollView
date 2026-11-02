@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// The header's hot leaf (design M8b §2.3, the `TransformHost` pattern of D10): its OWN body reads the target offset and
-/// the metrics and frames its `content` placeholder (the cold header stack: the user's header, its background and fade,
-/// built by `HeaderHost`) at the live frame. SwiftUI does not re-evaluate the placeholder when this body re-runs; it lays
+/// the metrics and frames its `content` placeholder (the cold header stack: the user's header and its background, built
+/// by `HeaderHost`) at the live frame, and draws the `fade:` over it (D70, `HeaderFadeOverlay`). SwiftUI does not re-evaluate the placeholder when this body re-runs; it lays
 /// it out again at the new proposal, a layout pass over the header subtree only. It wakes on `.target` (presentation
 /// writes never wake it): under a transaction it runs once inside the transaction, and finger and clock motion write the
 /// target every frame, so it then runs per frame.
@@ -19,29 +19,34 @@ import SwiftUI
 /// pull lays nothing out. `.slideBehind` (D68) keeps the height at `R(W, H)` and moves the header up by `k · p · R(W, H)`
 /// (the layout's own `R`: 16+ placement, 15 `HeaderTranslation`); its slot is the container's `.background`, behind the
 /// content. An animated resize then interpolates the header with the content; the unanimated resize commit changes
-/// nothing in the header while the progress is kept (D51).
+/// nothing in the header while the progress is kept (D51). The fade's crossfade (D70) reads the same live input (plus the
+/// pull, which only it reads), so it never lags the geometry.
 struct HeaderFrameModifier: ViewModifier {
     let state: ZTronScrollState
     let size: ZTronHeaderSize
     let overflow: ZTronHeaderOverflow
+    let fade: ZTronHeaderFade?
     @StateObject private var relay = ChannelRelay()
     @StateObject private var reporter = HeaderNaturalReporter()
 
     @ViewBuilder
     func body(content: Content) -> some View {
         let live = wake()
-        let visible = live.visibleHeight > 0.5
+        // The geometry's input (no fade pull): the slot, the frames and the effects never re-lay out for the fade.
+        let shape = live.geometry
+        let visible = shape.visibleHeight > 0.5
         let group = state.usesGeometryGroup
+        let fade = fade
         // The layout half: 16+ `HeaderSlotLayout` (fills the overlay, places the header at its live frame), 15 / forced
         // `HeaderFallbackFrame`. The branch is a `let` flag fixed at state creation (R6): the identity never changes.
         if state.usesLayoutProtocol, #available(iOS 16, *) {
-            HeaderSlotLayout(live: live, reporter: reporter) {
-                Self.chrome(content, live: live, visible: visible, group: group)
+            HeaderSlotLayout(live: shape, reporter: reporter) {
+                Self.chrome(content, live: live, fade: fade, visible: visible, group: group)
             }
         } else {
-            Self.chrome(content.modifier(HeaderFallbackFrame(live: live, state: state)), live: live, visible: visible,
-                        group: group)
-                .modifier(HeaderTranslation(live: live))
+            Self.chrome(content.modifier(HeaderFallbackFrame(live: shape, state: state)), live: live, fade: fade,
+                        visible: visible, group: group)
+                .modifier(HeaderTranslation(live: shape))
                 // The slot: the header at the top of the whole overlay. Without it a header exactly as tall as the
                 // region between the safe areas was placed against the bottom safe area (34 pt low; measured).
                 .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .top)
@@ -63,22 +68,26 @@ struct HeaderFrameModifier: ViewModifier {
         let zoom = metrics.header?.vertical == false ? storage.targetZoom : 1
         var live = Self.liveInput(size: size, overflow: overflow, metrics: metrics,
                                   edges: state.contentInsetAdjustmentBehavior.edges(for: state.scrollAxes),
-                                  target: storage.targetOffset, zoom: zoom, held: reporter.heldOffset)
+                                  target: storage.targetOffset, zoom: zoom, held: reporter.heldOffset,
+                                  tracksPull: HeaderFadeMath.tracksPull(fade))
         if live.followsOffset { reporter.heldOffset = live.offset }
         live.natural = state.headerNatural
         return live
     }
 
-    /// What the framed header carries on every path: the `.stretch` scale (D69), its own clip, its layer group and the
-    /// gates. The `.preserve` translation is the layout's (16+ placement, 15 `HeaderTranslation`), animated with the
-    /// header offset. The scale and the clip read the same `live` the leaf hands the slot in the same body (no frame lag)
-    /// and interpolate `o′` in a transaction-driven scroll exactly as the slot does.
-    static func chrome<V: View>(_ framed: V, live: HeaderLiveInput, visible: Bool, group: Bool) -> some View {
+    /// What the framed header carries on every path: the fade (D70, inside the scaled stack: it stretches with the
+    /// header), the `.stretch` scale (D69), its own clip, its layer group and the gates. The `.preserve` translation is the
+    /// layout's (16+ placement, 15 `HeaderTranslation`), animated with the header offset, and moves the fade with the
+    /// header. The fade, the scale and the clip read the same `live` the leaf hands the slot in the same body (no frame
+    /// lag) and interpolate `o′` in a transaction-driven scroll exactly as the slot does.
+    static func chrome<V: View>(_ framed: V, live: HeaderLiveInput, fade: ZTronHeaderFade?, visible: Bool,
+                                group: Bool) -> some View {
         framed
-            .modifier(HeaderStretchEffect(live: live))
+            .modifier(HeaderFadeOverlay(live: live, fade: fade))
+            .modifier(HeaderStretchEffect(live: live.geometry))
             // The scaled stack (wider than W, taller by g) clipped to `W × h_L · s` in the unscaled frame: sides cut, the
             // bottom edge on the content's top; the frame itself when nothing stretches (`.clipped()` before D69).
-            .clipShape(HeaderStretchClip(live: live))
+            .clipShape(HeaderStretchClip(live: live.geometry))
             // The header's own clip in its own layer group: Core Animation then interpolates it as the header's frame, not
             // pre-intersected with the container's clip (an uncapped header taller than the landscape viewport drew its
             // bottom edge at the container's clip, 40 pt above the content's top, all through a rotation).
@@ -98,16 +107,20 @@ struct HeaderFrameModifier: ViewModifier {
     /// - otherwise they follow the header offset `o′` (`HeaderLiveInput.offset`, the layout's animatable data), so a
     ///   transaction-driven scroll re-derives them per frame from the interpolated `o′`; `held` is the last followed `o′`,
     ///   kept as the animatable data while a resize is open.
+    /// - `tracksPull` (D70): the fade's pull weight reads `pull` (`HeaderFadeMath.tracksPull`); otherwise it stays 0.
     static func liveInput(size: ZTronHeaderSize, overflow: ZTronHeaderOverflow, metrics m: ScrollMetrics, edges: Edge.Set,
-                          target: CGPoint, zoom: CGFloat, held: CGFloat = 0) -> HeaderLiveInput {
-        guard let header = m.header else { return HeaderLiveInput(size: size, overflow: overflow, metrics: nil) }
-        var p: CGFloat = 0, stretch: CGFloat = 0, translation: CGFloat = 0
+                          target: CGPoint, zoom: CGFloat, held: CGFloat = 0, tracksPull: Bool = false) -> HeaderLiveInput {
+        guard let header = m.header else {
+            return HeaderLiveInput(size: size, overflow: overflow, metrics: nil, tracksPull: tracksPull)
+        }
+        var p: CGFloat = 0, stretch: CGFloat = 0, translation: CGFloat = 0, pull: CGFloat = 0
         var offset = held, follows = false
         if header.vertical, m.resize.isOpen, let anchor = m.resize.intent?.header {
             switch anchor {
             case let .top(x):
                 if header.behavior == .stretch { stretch = max(0, -x) }
                 translation = HeaderMath.translation(o: x, m: header)     // 0 with `.openGap` (D65)
+                pull = HeaderMath.pullDistance(o: x)
             case let .progress(q): p = q
             case .collapsed: p = header.band > 0 ? 1 : 0
             }
@@ -117,6 +130,7 @@ struct HeaderFrameModifier: ViewModifier {
             p = g.progress
             stretch = g.stretch
             translation = HeaderMath.translation(o: o, m: header)
+            pull = HeaderMath.pullDistance(o: o)
             offset = o
             follows = true
         }
@@ -125,7 +139,7 @@ struct HeaderFrameModifier: ViewModifier {
                                translation: translation, stateHeight: h,
                                committedContainer: HeaderMath.containerHeight(viewport: m.viewportSize, safe: m.safeAreaInsets,
                                                                               adjusted: edges, keyboard: m.keyboardExtension),
-                               offset: offset, followsOffset: follows)
+                               offset: offset, followsOffset: follows, pull: tracksPull ? pull : 0, tracksPull: tracksPull)
     }
 }
 
@@ -417,18 +431,56 @@ struct HeaderInteractionGate: ViewModifier {
     }
 }
 
-/// `fade:`: a gradient from clear (at `start · h`) to the color (at the bottom edge), laid out against the live frame:
-/// it follows the frame by layout and reads nothing. Draws the `rest` gradient (the per-state crossfade is D70's
-/// `HeaderFadeOverlay`; `.linear(to:from:)` is the same gradient in every state).
-struct HeaderFade: View {
-    let fade: ZTronHeaderFade.Gradient?
+/// D70, `fade:`: the header's fade, drawn per frame over the framed stack (in the chrome, inside the `.stretch` scale and
+/// moved with the header) from the leaf's live input: the rest gradient crossfaded with the collapse one by the progress
+/// (the covered fraction under `.slideBehind`) or with the pull one by `min(1, g / (R / 2))` (`HeaderFadeMath`). Its
+/// animatable data is the header offset `o′`, like the slot's, so a transaction-driven scroll re-derives the crossfade
+/// per frame in the same transaction and while a resize is open it is the intent's anchor (bit-stable across the
+/// unanimated commit). The `content` placeholder (the user's header) is never re-evaluated: only the gradient leaf is.
+/// The band ends at the frame's bottom (`.compress`) or at the content's top edge (`.slideBehind`, `R − (1 − k)·c` in
+/// the stack's frame: a fraction `1 − (1 − k)·p` of it, whatever `R`).
+nonisolated struct HeaderFadeOverlay: ViewModifier, Animatable {
+    var live: HeaderLiveInput
+    let fade: ZTronHeaderFade?
 
-    init(fade: ZTronHeaderFade?) { self.fade = fade?.rest }
+    var animatableData: CGFloat {
+        get { live.offset }
+        set { live = live.at(offset: newValue) }
+    }
+
+    @MainActor func body(content: Content) -> some View {
+        content.overlay(HeaderFadeGradient(drawing: Self.drawing(live, fade)))
+    }
+
+    /// What the gradient leaf draws at `live` (pure). `nil` exactly when the fade draws nothing in any state (no fade, or
+    /// every state nil): the drawn structure is fixed per fade value, never by the scroll position or the metrics.
+    static func drawing(_ live: HeaderLiveInput, _ fade: ZTronHeaderFade?) -> HeaderFadeDrawing? {
+        let m = live.metrics
+        guard let layers = HeaderFadeMath.layers(fade: fade, progress: live.progress, pull: live.pull,
+                                                 resting: m?.resting ?? 0) else { return nil }
+        let end = HeaderFadeMath.bandEnd(collapse: m?.collapse ?? .compress, progress: live.progress, layoutHeight: 1)
+        return HeaderFadeDrawing(layers: layers, end: HeaderFadeMath.endPoint(bandEnd: end, frameHeight: 1))
+    }
+}
+
+/// The fade's layers and the gradient's end point (its start is the frame's top centre).
+struct HeaderFadeDrawing: Equatable {
+    var layers: HeaderFadeLayers
+    var end: UnitPoint
+}
+
+/// The fade's gradient leaf: the bottom layer and, for a fade whose states have different colors, the top one over it.
+struct HeaderFadeGradient: View {
+    let drawing: HeaderFadeDrawing?
 
     var body: some View {
-        if let fade {
-            LinearGradient(colors: [fade.color.opacity(0), fade.color],
-                           startPoint: UnitPoint(x: 0.5, y: min(max(fade.start, 0), 1)), endPoint: .bottom)
+        if let d = drawing {
+            LinearGradient(stops: d.layers.bottom.gradientStops, startPoint: UnitPoint(x: 0.5, y: 0), endPoint: d.end)
+                .overlay(Group {
+                    if let top = d.layers.top {
+                        LinearGradient(stops: top.gradientStops, startPoint: UnitPoint(x: 0.5, y: 0), endPoint: d.end)
+                    }
+                })
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }

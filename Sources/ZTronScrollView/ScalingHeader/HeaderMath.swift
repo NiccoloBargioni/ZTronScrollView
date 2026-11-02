@@ -46,8 +46,24 @@ struct HeaderLiveInput: Equatable {
     /// data does not change at the resize commit.
     var offset: CGFloat = 0
     var followsOffset = false
+    /// D70: the pull `g = max(0, −o′)` (both pull behaviors), for the fade's pull weight only (`HeaderFadeOverlay`), and
+    /// whether it is tracked: only when the fade's pull state differs from its rest (`HeaderFadeMath.tracksPull`), so
+    /// every other configuration keeps today's input bit for bit (an `.openGap` pull then changes nothing in it). Like the
+    /// progress, the resize intent's anchor while a resize is open. The geometry consumers get `geometry` (no pull).
+    var pull: CGFloat = 0
+    var tracksPull = false
 
     var layoutDriven: Bool { metrics?.vertical == true }
+
+    /// The input without the fade's pull (`pull`, `tracksPull`): what the slot, the frames and the effects read, so a
+    /// tracked pull never re-lays the header out.
+    var geometry: HeaderLiveInput {
+        guard tracksPull else { return self }
+        var c = self
+        c.pull = 0
+        c.tracksPull = false
+        return c
+    }
 
     /// `k`, the `.slideBehind` parallax (D68), 0 under `.compress`: the layout moves the header by
     /// `HeaderMath.collapseTranslation(progress:parallax:layoutHeight:)` (`−k · p · h_L`, from its own `h_L`). Read from the
@@ -78,6 +94,7 @@ struct HeaderLiveInput: Equatable {
         c.stretch = g.stretch
         c.translation = HeaderMath.translation(o: o, m: m)
         c.stateHeight = Self.layoutHeight(m, progress: g.progress)
+        if c.tracksPull { c.pull = HeaderMath.pullDistance(o: o) }
         return c
     }
 }
@@ -217,6 +234,12 @@ enum HeaderMath {
     /// `c = clamp(o′, 0, band)`: how far the content has scrolled up over the header (NaN / ±∞ read as rest).
     static func covered(o oPrime: CGFloat, m: HeaderMetrics) -> CGFloat {
         min(max(oPrime.isFinite ? oPrime : 0, 0), m.band)
+    }
+
+    /// The pull past the top at `o′`, `g = max(0, −o′)`, whatever the pull behavior (NaN / ±∞ read as rest): the fade's
+    /// pull weight (D70).
+    static func pullDistance(o oPrime: CGFloat) -> CGFloat {
+        oPrime.isFinite ? max(0, -oPrime) : 0
     }
 
     /// The `.stretch` growth at `o′`: `g = max(0, −o′)` under `.stretch`, else 0.

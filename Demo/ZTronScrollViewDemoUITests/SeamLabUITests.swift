@@ -69,14 +69,19 @@ final class SeamLabUITests: XCTestCase {
 
     /// A pull past the top: press on the content, drag down 220 pt slowly, hold 1.5 s (the finger stays down), release (the
     /// content springs back). `.preserve`: the header moves down with the content (the gap opens above it); `.stretch`: it
-    /// grows. Either way its bottom edge stays on the content's top.
+    /// grows. Either way its bottom edge stays on the content's top. `-ZTronSeamPullDrag <pt>` (D70: a pull past half the
+    /// header's height) drags that far instead, from 25 % of the window's height when it is longer than 220 pt.
     func testPull() {
         let app = launch()
         XCTAssertTrue(app.buttons["seam.width"].waitForExistence(timeout: 10))
         Thread.sleep(forTimeInterval: 1.5)
         let window = app.windows.firstMatch
-        let start = window.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.55))
-        let end = start.withOffset(CGVector(dx: 0, dy: 220))
+        var drag: CGFloat = 220
+        if let i = seamArgs.firstIndex(of: "-ZTronSeamPullDrag"), i + 1 < seamArgs.count, let d = Double(seamArgs[i + 1]) {
+            drag = CGFloat(d)
+        }
+        let start = window.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: drag > 220 ? 0.25 : 0.55))
+        let end = start.withOffset(CGVector(dx: 0, dy: drag))
         print("SEAMLAB mark pull \(Date().timeIntervalSince1970)")
         start.press(forDuration: 0.1, thenDragTo: end, withVelocity: 300, thenHoldForDuration: 1.5)
         print("SEAMLAB mark release \(Date().timeIntervalSince1970)")
