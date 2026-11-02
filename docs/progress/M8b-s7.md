@@ -1,7 +1,8 @@
 # M8b-s7 handoff · 2026-11-02 · Opus 5.5 workflow builders b1–b5 (header behaviors, D68–D70)
 
 Status: done; not merged into main (the user merges). Branch `claude/cool-stonebraker-0015c9`, base 54f8650.
-Remaining: the user's device check of the `appbanner` screen, and decisions on open items 28, 29 and 30.
+Remaining: the user's device check of the `appbanner` screen, and decisions on open items 28 and 29 (30 fixed in the fixer
+round 1, below).
 
 Design: `docs/design/M8b-header-behaviors.md`. §7 holds each risk's measured result; §8 holds the lead decisions.
 Spec: SPEC S10 amended 2026-11-02. The amendment covers collapse modes, the pull scale, the split fade, the mode-switch
@@ -118,7 +119,7 @@ Values below are 27.0 preferred; forced is identical. 17.5 gives the same pictur
 ## Open
 - **28:** `.stretch` blurs header text while pulled (D69 limit). Proposed: accept and document.
 - **29:** on 15–16 a content child's blend mode does not reach a `.slideBehind` header. Judged from the code, not measured.
-- **30 (new, pre-existing):** a programmatic hold's opening under `.stretch` draws the indicator over the content.
+- **30 (new, pre-existing): FIXED in the fixer round 1** (below). Was: a programmatic hold's opening under `.stretch` drew the indicator over the content.
   - When it happens: the 0 → 60 pt animated inset, with the indicator drawn at its final place in the band from the first frame.
   - Measured: 13–17 frames, up to 40 pt below the header's bottom.
   - The M8b-s6 baseline before D68 shows the same thing.
@@ -127,6 +128,56 @@ Values below are 27.0 preferred; forced is identical. 17.5 gives the same pictur
   (forced). Re-run alone at load 8 it passed 3/3.
 - **Device check by the user** (Orchestration Next step 6): the `appbanner` pull, a refresh hold, rotation in a hold, and
   `.slideBehind` under their bar.
+
+## Fixer round 1 (2026-11-02, after the correctness and seamless reviews)
+HEAD before: 9170ca3. Commits: 2c6bba8 (S-RS-1), fbdc743 (C-RC-1, C-RC-3), 9ead301 (seam lab fling), then the docs commit.
+Notes: `scratchpad/api/fixer1/` (runners, recordings `seam/f27`, `f175`, `f27f`, analyses `an-*.txt`, `opening.txt`).
+
+- **S-RS-1 (HIGH, pre-existing since M8b-3) and open item 30: fixed** (`Refresh/RefreshIndicators.swift`).
+  - Cause: `HeaderMath.refreshTop` forces overlay placement under `.stretch`, and the overlay sat at `[top0 + R, + L]` while
+    refreshing whatever the pull. A hold the content was scrolled out of drew it over the content; a programmatic opening drew it
+    at its final place while the content slid down under it.
+  - Fix: `RefreshIndicatorMath.inStretchBand` (top edge, vertical `.stretch`, a refresher with a hold; an `overlay:` refresher,
+    which has no hold, keeps floating over the content) → `placement(band: true)`. The overlay's look, drawn only over the band:
+    centre `min(s, L) − L/2`, opacity as the overlay (`p/L`, 1 refreshing), clip `[0, max(0, s)]`. Box `(s − max(s, L, H), s)`
+    and region `(0, max(s, along))` are the gap's (item 19), and the resize box follows the content's drawn edge
+    (`.box(overlay: false)`). Unchanged: the retraction's `refreshing` (the overlay's), `RefreshBaseFollow` (overlay rule),
+    `baseFollowsInset` (true), `refreshTop`.
+  - Same frames and drawn part as before under a pull and at the hold's rest (`H ≥ L`). An over-pull past the hold (the
+    fling back's bounce) leaves the indicator at the band's top, as a pull does (up to 17 pt above its rest place against the
+    header's bottom, not over the content).
+  - Tests: `RefreshIndicatorTests.aStretchHoldScrolledAwayIsNeverDrawnOverTheContent` (both collapse modes, both looks, a
+    developer inset, `.preserve` control) and `theStretchBandKeepsTheOverlaysLookAndClipsToTheBand`.
+- **Seam lab** (new `testFling`, `measure.sh … fling`, extras `fdown` / `fv` / `fb` / `fd` / `slidek<k>`; `probeover.py`: probe
+  frames over the content, app frames only). Probe over the content, frames (before = the seamless review, 9170ca3):
+
+| scenario | 27.0 | 17.5 | forced | before 27.0 / 17.5 / forced |
+|---|---|---|---|---|
+| `aspect-rest-stretch-fling-hold` (compress) | 0 | 0 | 0 | 168 / 170 / 275 |
+| `…-fling-hold-slide1` | 0 | 0 | 0 | 169 / 168 / 168 |
+| `fixed-rest-stretch-fling-hold-slidek0p25` | 0 | – | – | 168 / – / – |
+| `…-fling-refit-hold-appbanner` | 0 | 0 | 0 | 169 / – / – |
+| `fixed-rest-preserve-fling-hold` (control) | 0 | – | – | 0 |
+| rotate-uncapped-hold, appbanner rotate-hold slide, width-hold, height 0.4, pull-refresh | 0 | 0 | 0 | (opening, item 30) |
+
+  - Hold opening (`probe.py --window=-80,40`, frames before the stimulus): the probe stays 20.3–20.8 pt inside the band on every
+    `.stretch` hold scenario and lane, 0 frames below the header's bottom (before, 27.0: 9–11 frames, up to 37 pt).
+  - Width-hold / height 0.4 probe deviation 0.67 / 0.33 pt (27.0), 0.50 / 0.17 (17.5), 0.67 / 0.33 (forced); before 58 pt on 27.0
+    (the opening).
+  - Seam (`table.py`) unchanged against the earlier lanes: gap ≤ 0.5 everywhere; rotate-hold 0.5 / lat 0.1 / hJ 0.25 on all three;
+    appbanner rotate-hold lat 34 (letterbox) / hJ 1.08–1.09 (normalisation, as before); width-hold lat ≤ 0.4, hJ ≤ 0.08; forced
+    compress fling-hold hJ = cJ 2.46 (the reviewer's run: 2.46; header and content step together). No motion gaps inside a
+    stimulus (`fu/gaps3.py`). Loads: 27.0 lane 4–234 (first scenario at 234, its result matches the others), 17.5 4–110, forced 3–90.
+- **C-RC-1 (LOW): fixed.** The `withScalingHeader` doc comment states the `.slideBehind` exceptions (top edge moves up with the
+  parallax; the content's top edge ends the uncovered part) and the `.stretch` indicator going up with a scrolled hold.
+- **C-RC-2 (LOW): fixed in SPEC S10.** Banners under `.slideBehind`: D15's zoomed vertical pan covers them (`c > 0`).
+- **C-RC-3 (LOW): fixed.** `HeaderMath.warning(…, collapse:)`: under `.slideBehind`, `.fixed(min:max:)` with `min > max` notes a
+  header of height `max` (`min` is ignored), not a fixed header of height `min` (`HeaderMathTests`).
+- **S-RS-2 (LOW, pre-existing): recorded, not fixed.** The 15/16 path's width change with `.capped(0.25)` lands the header's width and
+  height in one frame (29.3 pt seam, 159.3 pt lateral). Item 15 (b) / F6 mechanism; numbers added to SPEC S10 ("Known limit
+  (review d16)") and Orchestration item 15 (b). Its fix is item 15 (b)'s cold slot-level reader.
+- Tests: unit full 839 tests / 82 suites green on 27.0 and 17.5 (9 known issues). Demo UI Refresh + Header + Proof (`scripts/test-demo-ui.sh`, machine-wide UI lock): 38/38 on 27.0
+  preferred, 17.5 and 27.0 forced (Header 16, Refresh 16, Proof 6).
 
 ## Merge notes (main is ahead; do not merge from here)
 - **Release gate:** main has a 250 pt/s release gate (UIKit's release counts moves only, BTN-s2) and BTN open item 11. Re-run

@@ -705,7 +705,10 @@ height; `min`; `band = max(0, R − min)`;
   - **Switching `collapse:` at run time** between `.compress` and `.slideBehind` moves the header to the other slot: its builder
     runs once more and its `@State` starts over (lead decision 2026-11-01: accepted, documented on the parameter); the content
     keeps its identity and state, the covered fraction is kept.
-  - **Banners** (no vertical axis): `.slideBehind` only changes the z-order (nothing covers it), `c ≡ 0`.
+  - **Banners** (no vertical axis): `.slideBehind` changes the z-order; scrolling along the view's axis never covers the banner
+    (`c = 0`). Only D15's zoomed pan moves it: zoomed content taller than the unobscured height that pans vertically gives
+    `o′ > 0` (`headerOffset`), so the banner moves up by `k·c` behind the content, which covers it, as a vertical header's
+    collapse does (amended 2026-11-02, fixer round 1, C-RC-2; the design's "only D15's zoomed pan moves it").
   - **15–16:** the content's layer group is a `compositingGroup()` (rigid rotations, "15–16 layer groups" below), so a content
     child's `.blendMode` composites within the content and does not reach a `.slideBehind` header behind it (17+ `geometryGroup()`
     lets it; open item 29, from the code).
@@ -720,7 +723,7 @@ height; `min`; `band = max(0, R − min)`;
   commit and interpolated with the drawn size in an app-animated resize; during an open resize `g` is the anchor's. Readers see
   the drawn values: `ZTronHeaderGeometry.height` is `R − c + g`, and a reader inside the header is scaled with it (a title sized
   from `height` grows twice: size it from `restingHeight` for an unscaled size). The refresh hold `H` scales the header by
-  `(R + H)/R` and the indicator floats over the scaled band (placement unchanged). Measured: the user's setup grows the image
+  `(R + H)/R` and the indicator floats over the scaled band (placement unchanged; drawn only over the band since S-RS-1, "Refresh with the header"). Measured: the user's setup grows the image
   (`HeaderStretchScaleTests.theUsersAspectFitImageGrowsWithThePull`, both OS paths; `HeaderUITests.testAppBannerPullGrowsTheImage`,
   27.0 / 17.5 / forced: a finger pull of 100.7 pt drew the image's bottom 100.7 pt lower and 1.445× wider, a held 60 pt pull
   drew its grid lines scaled by `(R + 60)/R` within 0.15 pt and its bottom edge on the content's top, through the current and
@@ -796,6 +799,16 @@ the indicator goes there and comes back with it: its box (the clip's size) is it
 and the content, and an overlay clip is never shorter than the indicator. (Amended 2026-10-27, open item 18: before, SwiftUI drew no
 layer for an indicator whose place was outside the viewport, so it vanished on the way out and, on the way back, was drawn at once at
 its final place over the header still shrinking; the box is laid out, not translated, so a `withAnimation` resize still animates it.) Load-more at the bottom is unaffected by the header.
+**(Amended 2026-11-02, header behaviors fixer round 1, S-RS-1.)** Under `.stretch` (a refresher with a hold; an `overlay:` refresher
+keeps floating over the content by choice) the indicator is drawn only over the stretched band `[top0 + R, top0 + R + g]`: at
+`[top0 + R, … + L]` while the band is at least `L` long, below that on the band's far end, the header's drawn bottom (the content's top),
+now also while refreshing; its box and region are the gap's (open item 19), so it moves rigidly with the content and keeps its layer
+off the screen. A hold the content is scrolled out of goes up with the content, clipped to the band (nothing drawn once the content is at
+or above rest), and a programmatic hold's opening is drawn on the content's top as it slides down (open item 30). The same frames as
+before under a pull, at the hold's rest (`H ≥ L`) and in the retraction. Before, it stayed at `[top0 + R, … + L]` while refreshing
+whatever the pull, over the content for the whole time the content was away from the hold's rest (seam lab, a finger fling out of a
+held refresh and back: 168 frames on 27.0, 170 on 17.5, 168–275 forced, all collapse modes; now 0) and over the content's top during
+a programmatic opening (13–17 frames, up to 40 pt; now 0: the probe keeps its place against the header's bottom within 0.5 pt).
 **(Amended 2026-10-27, M8b-s6.)** During an app-driven animated resize while refreshing, the indicator is drawn at the presented
 geometry: its placement is computed in the committed geometry (the resize commit is unanimated) with the pull taken from the target,
 and a render-time transform (`RefreshResizeEffect`, a `GeometryEffect`) moves it by the presented − committed difference at the drawn
@@ -974,6 +987,11 @@ screen recordings, `scripts/seam/`):
   (`capped(f)` is `f · H`) and a per-frame `GeometryReader` is ruled out (S4.6). Rotations are seamless there (laid out once, inside UIKit's
   block); the default `.uncapped` is unaffected. Measured (M8b-s6, forced lane, top-pinned height change to 0.4 of the screen):
   `.capped` 70 pt at rest and 35 pt half collapsed, `.refit` (height to 0.25) 31 pt, each in one frame (hJ 1.0); 16+ seamless (≤ 0.5 pt).
+  A width change lands the same way, the header's width with it (header behaviors review, S-RS-2, 2026-11-02): `.aspectRatio(16/9)`
+  `.capped(0.25)` half covered, width 402 → 241 pt (easeInOut 1.2 s): in the first frame the header takes its final 68 pt height
+  and 242 pt width (left edge on the content's) while the content animates for 1.1 s: seam 29.3 pt closing to 0 over about 65
+  frames, lateral 159.3 pt, hJ 1.00, the same under `.compress` and `.slideBehind(parallax: 1)`; 27.0 0.2 / 0.5 pt and 17.5 0.2 /
+  0.3 pt; widening back seamless on all lanes (0.17 pt).
   A cold slot-level `GeometryReader` around the frame leaf (its closure runs on resizes only, not on motion) could give the 15 path
   `H`; not done (it restructures the 15 header host).
 - Known limit (open, M8b-s4): a scroll command that overlaps an open animated resize is not seamless. Issued while the resize animates, the
