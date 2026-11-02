@@ -36,6 +36,8 @@ for sc in "$@"; do
       noheader) extra+=(-ZTronSeamNoHeader 1) ;;   # no scaling header (open item 19: the hold's gap leaves the screen in a rotation)
       htop|hbottom|hleading|htrailing) extra+=(-ZTronSeamHoldEdge "${x#h}") ;;   # with hold: the held refresher's edge (an end edge scrolls there first)
       hoverlay) extra+=(-ZTronSeamHoldOverlay 1) ;;   # with hold: overlay placement (the indicator floats over the content)
+      hsys[0-9]*) extra+=(-ZTronSeamHoldSystem "${x#hsys}") ;;   # with hold: the built-in .system indicator (L 60), holdOffset <digits> (R1-RC1-1; spinner.py)
+      hend*) v="${x#hend}"; extra+=(-ZTronSeamHoldEnd "${v//p/.}") ;;   # with hold: the refresh ends <s> s after it began (hend5p5 = 5.5)
       sticky) extra+=(-ZTronSeamSticky 1) ;;   # a white 120 x 16 pt bar in an .overlay(alignment: .bottom) of the header (probe.py) (M8b-s6)
       vbottom) extra+=(-ZTronSeamBottomPinned 1) ;;   # with height<digits>: bottom-pinned, the TOP inset goes 62 -> 0 (M8b-s6 close)
       vboth) extra+=(-ZTronSeamBoth 1) ;;             # with height<digits>: the width animates to 60 % too
