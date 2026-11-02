@@ -51,7 +51,7 @@ import ZTronScrollView
 // colours: the over-operator pair). The seam analyzer does not apply to a faded header (its bottom rows are white);
 // fade recordings are read by the fade tracker (scratchpad b4/fade.py). SeamLabUITests reads `-ZTronSeamPullDrag <pt>`
 // (testPull's drag, default 220 pt from 55 % of the window's height; longer drags start at 25 %).
-// `-ZTronSeamAppBanner 1` (D69, the user's setup): the lab inside a `NavigationView` (inline, no title: an empty bar) and the
+// `-ZTronSeamAppBanner 1` (D69, the user's setup): the lab inside a `NavigationView` (an inline bar with a blank title) and the
 // user's `GeometryReader`, the header `.aspectRatio(16/9, min: 0)` (whatever `-ZTronHeaderSize` says) whose content is the
 // user's chain on a pure red image: `Image(...).resizable().aspectRatio(16/9, contentMode: .fit).frame(maxWidth: .infinity)`.
 // With `-ZTronHeaderBehavior stretch -ZTronHeaderOverflow refit` it is the user's call (the fade is `-ZTronSeamFade`'s,
@@ -140,7 +140,8 @@ struct SeamLabScreen: View {
 
     var body: some View {
         if SeamLab.appBanner {
-            NavigationView { lab.navigationBarTitleDisplayMode(.inline) }
+            // A no-break space as the title: the bar is shown (an empty title shows none on 27.0) with no glyph in it.
+            NavigationView { lab.navigationTitle("\u{00A0}").navigationBarTitleDisplayMode(.inline) }
         } else {
             lab
         }

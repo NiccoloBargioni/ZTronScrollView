@@ -375,7 +375,8 @@ private extension Color {
 /// appBackground)`, `overflow: .refit`, and an aspect-fit 16:9 `Image` with `maxWidth: .infinity`. Before D69 a pull grew
 /// the header's frame while the aspect-fit image inside it stayed W × W·9/16 (nothing visibly grew); now the image is drawn
 /// scaled by (R + g) / R about its top centre, its bottom edge on the content's top. `-ZTronAppBannerCall deprecated`
-/// makes the same call through the deprecated `scalingBehavior: .stretch` spelling (the user's literal call).
+/// makes the same call through the deprecated `scalingBehavior: .stretch` spelling (the user's literal call);
+/// `-ZTronAppBannerCollapse slide|slide0|slide1` adds `collapse: .slideBehind` (parallax 0.5, 0, 1) to the current one.
 /// The chrome (`HeaderDemoChrome`) floats over the bottom of the screen as an overlay, so the scroll view's layout is the
 /// user's; its `appbanner.pull` button holds a pull of 60 pt (`setContentOffset` past the top, unanimated: like UIKit, the
 /// offset stays until the next touch) and `appbanner.rest` puts the content back at the top. Test probe (HeaderUITests):
@@ -390,6 +391,15 @@ struct AppBannerScreen: View {
     @State private var probe = AppBannerPullProbe()
 
     private static var deprecatedCall: Bool { HeaderDemo.argument("-ZTronAppBannerCall", "current") == "deprecated" }
+    /// `-ZTronAppBannerCollapse compress|slide|slide0|slide1` (D68; the current call only): `collapse:` (default compress).
+    private static var collapse: ZTronHeaderCollapseBehavior {
+        switch HeaderDemo.argument("-ZTronAppBannerCollapse", "compress") {
+        case "slide": return .slideBehind
+        case "slide0": return .slideBehind(parallax: 0)
+        case "slide1": return .slideBehind(parallax: 1)
+        default: return .compress
+        }
+    }
 
     var body: some View {
         NavigationView {
@@ -422,7 +432,7 @@ struct AppBannerScreen: View {
                                               .overlay(AppBannerImageProbe())
                                               .frame(maxWidth: .infinity) })
         }
-        return base.withScalingHeader(size: .aspectRatio(16.0/9.0, min: 0.0), pull: .stretch,
+        return base.withScalingHeader(size: .aspectRatio(16.0/9.0, min: 0.0), collapse: Self.collapse, pull: .stretch,
                                       fade: .linear(to: Color(source: self.theme, value: \.appBackground)), overflow: .refit,
                                       header: { _ in Image("app.global.about.us.snapshot").resizable().aspectRatio(16.0/9.0, contentMode: .fit)
                                           .overlay(AppBannerImageProbe())

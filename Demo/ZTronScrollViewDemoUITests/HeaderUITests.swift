@@ -636,6 +636,45 @@ final class HeaderUITests: XCTestCase {
         }
     }
 
+    /// D68 risk 5 under a real navigation bar (the appbanner screen, `collapse: .slideBehind(parallax: 1)`): as the header
+    /// slides up with the content it is clipped at the scroll view's frame, so nothing of it is drawn over the bar: the bar's
+    /// pixels are the same at rest, half covered (the header moved up by R/2, more than the bar's height) and covered.
+    func testAppBannerSlideBehindStaysBelowTheBar() {
+        let app = launch("appbanner", ["-ZTronAppBannerCollapse", "slide1"])
+        let image = element(app, "appbanner.image")
+        XCTAssertTrue(image.waitForExistence(timeout: 5))
+        let width = app.windows.firstMatch.frame.width
+        let top = element(app, "header.scroller").frame.minY
+        let rest = image.frame
+        XCTAssertEqual(rest.minY, top, accuracy: 1)
+        // The bar's band: from 40 pt above the scroll view's top (below the status bar) to 2 pt above it.
+        func bar() -> [CGFloat] {
+            guard let p = pixels(app) else { return [] }
+            var out: [CGFloat] = []
+            var y = top - 40
+            while y < top - 2 {
+                var x: CGFloat = 4
+                while x < width - 4 { let c = p.rgb(x, y); out += [c.r, c.g, c.b]; x += 2 }
+                y += 1
+            }
+            return out
+        }
+        let atRest = bar()
+        XCTAssertFalse(atRest.isEmpty)
+        for (tag, button) in [("half", "header.half"), ("covered", "header.collapse")] {
+            app.buttons[button].tap()
+            Thread.sleep(forTimeInterval: 1.0)
+            // Fully covered, the header is hidden from accessibility (h_v ≤ 0.5): no frame to read.
+            let movedTop = image.exists ? image.frame.minY : -.infinity
+            let now = bar()
+            let worst = zip(atRest, now).map { abs($0 - $1) }.max() ?? 1
+            print("HEADER \(path) appbanner slide1 \(tag): image top \(movedTop) scroller top \(top) bar worst diff \(worst)")
+            XCTAssertLessThan(movedTop, top - 54, "\(tag): the header moved up past the bar's height (\(movedTop))")
+            XCTAssertLessThan(worst, 0.06, "\(tag): nothing of the header is drawn over the bar")
+        }
+        assertNoBodies(info(app, "appbanner slide1"), "appbanner slide1")
+    }
+
     func testFitMeasuresTheNaturalHeight() {
         let app = launch("banner", ["-ZTronHeaderSize", "fit"])
         let width = element(app, "header.scroller").frame.width
