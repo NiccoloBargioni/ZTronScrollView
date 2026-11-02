@@ -51,7 +51,7 @@ Wave 1 ≈ 20–25 points.
 | 10 | `confident-babbage-6acfe7` (DBG-s8) | D47 (keeps the number; main cites it) | after 9 | merge with resolution | 2.5 |
 | 11 | `cool-stonebraker-0015c9` (M8b-3) | D61–D66 | D63 + the M8b-3 session finishing its round | merge (clean today); re-read its header / refresh lanes under D49 rev 2 and the D34/D37 observer | 3–4 |
 | 12 | `dbg-refresh-reversal`, `unruffled-hopper-8214fb` (DBG-s10/s11) | — | P1 / P2; the session rebases onto 11 | merge after 11 | 2–3 |
-| 13 | `keen-lichterman-cfa1e6` + `upbeat-mendeleev-3a9d67` (UIKITPAN U2, PAGES follow-up) | D60 | after 3 and 9 (UIKIT-pan §9 Q7) | merge; U3 waits for the D67 decision (row 16) | 2 |
+| 13 | `keen-lichterman-cfa1e6` + `upbeat-mendeleev-3a9d67` (UIKITPAN U2, PAGES follow-up) | D60 | after 3 and 9 (UIKIT-pan §9 Q7) | merge; U3 no longer waits on row 16 (refused, D74), but SHEET-s4 may widen its scenarios | 2 |
 
 Wave 2 ≈ 13–15 points.
 
@@ -68,7 +68,7 @@ Delete `beautiful-dubinsky-9c14c5` after 14. Wave 3 ≈ 12–17 points.
 
 | # | Branch | Decision needed | ≈ pts once decided |
 |---|---|---|---|
-| 16 | `sweet-payne-efd027` (SHEET-s3) | Its D47 → renumber (D67 if still free): exclusive pan from iOS 18 for vertical views in a sheet, at the cost of native horizontal pagers on 18.x. Blocks UIKITPAN U3 | 6 |
+| 16 | `sweet-payne-efd027` (SHEET-s3) | **Refused (user, 2026-11-02, D74), not merged.** It made the pan exclusive from iOS 18 for vertical views, at the cost of native horizontal pagers on 18.x. The SHEET-s4 parity evaluation replaces it and may reuse its probes and tests | 0 |
 | 17 | `dreamy-gagarin-5b45a9` (FIRSTLAYOUT-s1) | D48: a size change in the first run-loop turn counts as the first layout (S7). After row 1 (shared initial-offset line) | 8–10 |
 | 18 | `laughing-archimedes-87d9f9` (PARITY-s2) | D56: `ZTronScrollGeometry` in SwiftUI `ScrollGeometry` terms (behaviour-visible). D58 changes no code and does not block | 5 |
 | 19 | `intelligent-williamson-0ad6d9` (spike Q3-s2) | PAGES-s0 question 8, and its spike target breaks NESTED-mixed R1 ("the ArbitrationSpike target keeps depending on the contract only") | 2–3 |
