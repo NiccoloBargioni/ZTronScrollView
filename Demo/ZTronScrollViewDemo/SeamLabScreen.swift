@@ -36,8 +36,8 @@ import ZTronScrollView
 // (no action) 0.8 s after launch, so every later stimulus runs during a refresh hold (M8b-s6); `-ZTronSeamHoldEdge
 // top|bottom|leading|trailing` and `-ZTronSeamHoldOverlay 1` pick its edge and placement (open item 19);
 // `-ZTronSeamHoldSystem <H>` makes it the built-in `.system` indicator (L 60) with `holdOffset` H instead (R1-RC1-1, header
-// behaviors fixer round 2: a gray spinner, scripts/seam/spinner.py), `-ZTronSeamHoldEnd <s>` ends the refresh `s` seconds
-// after it began (its retraction).
+// behaviors fixer round 2: a gray spinner, scripts/seam/spinner.py), `-ZTronSeamHoldEnd <s>` ends the refresh (`endRefreshing`)
+// `s` seconds after it began (its retraction).
 // Resize variants (M8b-s6 close, the verifier's break probes): `-ZTronSeamBottomPinned 1` (the height change is bottom-pinned:
 // the scroll view's top leaves the top safe area), `-ZTronSeamBoth 1` (height and width together), `-ZTronSeamSpring 1` (a
 // bouncy spring instead of easeInOut), `-ZTronSeamRetarget <s>` (the toggle again `s` seconds into the change), and
@@ -242,6 +242,9 @@ struct SeamLabScreen: View {
                 try? await Task.sleep(nanoseconds: 300_000_000)
             }
             state.beginRefreshing(edge: edge)
+            guard let end = SeamLab.holdEnd else { return }
+            try? await Task.sleep(nanoseconds: UInt64(end * 1_000_000_000))
+            state.endRefreshing(edge: edge)
         }
     }
 }
@@ -274,13 +277,12 @@ extension SeamLabScreen {
                                background: SeamLab.background, overflow: SeamLab.overflow) { [tall] _ in SeamLabHeader(tall: tall) }
         if let pull = SeamLab.pull { view = view.scalingHeaderPullBehavior(pull) }
         if SeamLab.hold {
-            let holdFor = UInt64((SeamLab.holdEnd ?? 1000) * 1_000_000_000)
             if let ho = SeamLab.holdSystem {
                 // R1-RC1-1: the built-in `.system` indicator (L 60) with `holdOffset` ho.
                 return view.refresher(style: .system, overlay: SeamLab.holdOverlay,
                                       configuration: ZTronRefreshConfiguration(indicatorHeight: 60, holdOffset: ho,
                                                                                allowedEdges: Edge.Set(SeamLab.holdEdge))) {
-                    try? await Task.sleep(nanoseconds: holdFor)
+                    try? await Task.sleep(nanoseconds: 1_000_000_000_000)
                 }
             }
             // A held refresh with a white probe as its indicator (centred in the indicator's frame), on the edge
@@ -288,7 +290,7 @@ extension SeamLabScreen {
             return view.refresher(refreshView: { _ in Color.white.frame(width: 20, height: 20) },
                                   overlay: SeamLab.holdOverlay,
                                   configuration: ZTronRefreshConfiguration(allowedEdges: Edge.Set(SeamLab.holdEdge))) {
-                try? await Task.sleep(nanoseconds: holdFor)
+                try? await Task.sleep(nanoseconds: 1_000_000_000_000)
             }
         }
         guard let seconds = SeamLab.refreshSeconds else { return view }
@@ -495,7 +497,7 @@ extension SeamLab {
     static var holdOverlay: Bool { HeaderDemo.argument("-ZTronSeamHoldOverlay", "0") == "1" }
     /// `-ZTronSeamHoldSystem <H>` (with `-ZTronSeamHold 1`): the built-in `.system` indicator, `holdOffset` H (R1-RC1-1).
     static var holdSystem: CGFloat? { Double(HeaderDemo.argument("-ZTronSeamHoldSystem", "")).map { CGFloat($0) } }
-    /// `-ZTronSeamHoldEnd <s>` (with `-ZTronSeamHold 1`): the held refresh's action returns after `s` seconds.
+    /// `-ZTronSeamHoldEnd <s>` (with `-ZTronSeamHold 1`): `endRefreshing` `s` seconds after the hold began.
     static var holdEnd: Double? { Double(HeaderDemo.argument("-ZTronSeamHoldEnd", "")) }
 }
 
