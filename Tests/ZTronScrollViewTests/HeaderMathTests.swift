@@ -89,8 +89,14 @@ import Testing
 
     @Test func degenerateRangesAreFixedHeadersThatStillStretch() {
         let m = try! #require(HeaderMath.metrics(size: .fixed(min: 300, max: 200), width: 402, natural: nil, behavior: .stretch))
-        #expect(HeaderMath.warning(size: .fixed(min: 300, max: 200), width: 402, natural: nil) != nil,
+        #expect(HeaderMath.warning(size: .fixed(min: 300, max: 200), width: 402, natural: nil)?.contains("height 300") == true,
                 "both bounds given the wrong way: DEBUG warning")
+        // C-RC-3: `.slideBehind` ignores `min`, so the same size resolves to R = max (200): the note says so.
+        let slide = HeaderMath.metrics(size: .fixed(min: 300, max: 200), width: 402, natural: nil,
+                                       collapse: .slideBehind(parallax: 0.5))
+        let slideNote = HeaderMath.warning(size: .fixed(min: 300, max: 200), width: 402, natural: nil,
+                                           collapse: .slideBehind(parallax: 0.5))
+        #expect(slide?.resting == 200 && slideNote?.contains("ignores min, a header of height 200") == true, "\(String(describing: slideNote))")
         #expect(m.resting == 300 && m.band == 0)
         #expect(HeaderMath.geometry(o: 50, m: m).progress == 0 && HeaderMath.height(o: 50, m: m) == 300)
         #expect(HeaderMath.height(o: -30, m: m) == 330, ".stretch still grows")

@@ -193,12 +193,18 @@ enum HeaderMath {
 
     #if DEBUG
     /// The DEBUG warning for a degenerate `size` or `overflow` (the first that applies), `nil` when there is none or the
-    /// size does not resolve (`metrics(…)` is `nil`). Never on the layout path.
+    /// size does not resolve (`metrics(…)` is `nil`). Never on the layout path. `collapse`: `.slideBehind` ignores `min`
+    /// (`metrics(…)`), so `min > max` resolves to `R = max` there, not to a fixed header of height `min` (C-RC-3).
     static func warning(size: ZTronHeaderSize, width: CGFloat, natural: CGFloat?, containerHeight: CGFloat = 0,
-                        overflow: ZTronHeaderOverflow = .uncapped) -> String? {
+                        overflow: ZTronHeaderOverflow = .uncapped,
+                        collapse: ZTronHeaderCollapseBehavior.Kind = .compress) -> String? {
         switch size {
         case let .fixed(min, max):
-            if min > max { return "withScalingHeader: .fixed(min: \(min), max: \(max)) has min > max: a fixed header of height \(min)" }
+            if min > max {
+                return collapse.isSlideBehind
+                    ? "withScalingHeader: .fixed(min: \(min), max: \(max)) has min > max: .slideBehind ignores min, a header of height \(max)"
+                    : "withScalingHeader: .fixed(min: \(min), max: \(max)) has min > max: a fixed header of height \(min)"
+            }
         case let .aspectRatio(ratio, _):
             guard width > 0, width.isFinite else { return nil }
             if !(ratio > 0 && ratio.isFinite) { return "withScalingHeader: .aspectRatio(\(ratio)) needs a positive ratio (width / height)" }
@@ -381,7 +387,8 @@ enum HeaderMath {
 
     /// The top refresh indicator's base with a vertical header (SPEC S10 "Refresh with the header"): `.stretch` → the top
     /// of the band it grows into (`top0 + R`), overlay placement forced (there is no gap: the indicator floats over the
-    /// stretched band); `.preserve` `.followContent` → `top0`, the gap `[top0, top0 + pull]` a pull opens above the header
+    /// stretched band, drawn only over it and on its far end once it is shorter than the indicator, also while
+    /// refreshing: `RefreshIndicatorMath.inStretchBand`, S-RS-1); `.preserve` `.followContent` → `top0`, the gap `[top0, top0 + pull]` a pull opens above the header
     /// that moves down with the content (D61), placement as the refresher says. `nil` (the plain base, `aci.top − hold`,
     /// which follows the adjusted inset in a resize) without a vertical header and for `.preserve` `.openGap` (D65): the
     /// header stays still and the gap `[top0 + ci.top + R, … + pull]` opens below it, exactly where the plain base is.

@@ -42,7 +42,7 @@ struct HeaderSizing: Equatable {
                                          containerHeight: containerHeight, overflow: overflow)
         #if DEBUG
         if let warning = HeaderMath.warning(size: size, width: width, natural: natural, containerHeight: containerHeight,
-                                            overflow: overflow) {
+                                            overflow: overflow, collapse: collapse.kind) {
             HeaderDiagnostics.note(warning)
         }
         if let requested = collapse.requestedParallax, let k = collapse.parallax {

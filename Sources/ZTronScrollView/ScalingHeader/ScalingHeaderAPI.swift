@@ -7,7 +7,8 @@ extension ZTronScrollView {
     ///
     /// The header precedes the content: its resting height is reserved in `adjustedContentInset.top` (the content starts
     /// below it, also on a horizontal scroll view, where it is a fixed banner) and its top edge is pinned below the safe
-    /// area. Its reactions are split by scroll direction:
+    /// area (except under `.slideBehind`, which moves it up with the parallax as the content covers it). Its reactions are
+    /// split by scroll direction:
     /// - `collapse:`, as the content scrolls up over it: `.compress` (the default) draws it above the content and shrinks
     ///   it from the bottom to the size's `min`; `.slideBehind` keeps its height, draws it behind the content, which
     ///   slides over it, and moves it up with a parallax (``ZTronHeaderCollapseBehavior``). `.slideBehind` needs the
@@ -19,15 +20,18 @@ extension ZTronScrollView {
     ///   and the gap opens between its bottom edge and the content; `.followContent` moves the header down with the
     ///   content and the gap opens above it. `.stretch` grows it with the pull.
     ///
-    /// Its bottom edge stays on the content's top edge in collapse, pulls (except an `.openGap` pull, whose gap is the
-    /// point), refresh holds, snaps, `scrollTo`, rotations and app-driven animated resizes, with the known limits below.
+    /// Its bottom edge stays on the content's top edge in collapse (under `.compress`; under `.slideBehind` the content's
+    /// top edge is where its uncovered part ends, and its own bottom edge is under the content), pulls (except an
+    /// `.openGap` pull, whose gap is the point), refresh holds, snaps, `scrollTo`, rotations and app-driven animated
+    /// resizes, with the known limits below.
     /// Content shorter than the viewport is top-aligned under the header.
     ///
     /// The builder runs once per cold change (install, a parent rebuild), never while scrolling: it receives a
     /// ``ZTronHeaderProxy`` and its children read the live geometry through ``ZTronHeaderGeometryReader``. No body in the
     /// header runs because it collapses or stretches; its subtree is laid out again at the live frame (a layout pass) every
-    /// frame of a collapse. Refresh is S9's `refresher(…)` (with `.stretch` the indicator floats over the stretched band,
-    /// with `.preserve` it sits in the gap: below the header with `.openGap`, above it with `.followContent`).
+    /// frame of a collapse. Refresh is S9's `refresher(…)` (with `.stretch` the indicator floats over the stretched band
+    /// and goes up with it when the content is scrolled during a refresh, with `.preserve` it sits in the gap: below the
+    /// header with `.openGap`, above it with `.followContent`).
     ///
     /// Known limits (SPEC S10 "Seamless edges", "Natural height", "15–16 layer groups"):
     /// - iOS 15–16: on an app-driven animated resize (Split View, Stage Manager, a `withAnimation` size change), a `.fit`
