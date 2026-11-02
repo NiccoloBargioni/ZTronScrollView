@@ -16,6 +16,12 @@ M8-8 build from the amended SPEC S9/S10/S11 + `docs/design/M8b-refresh-header.md
   committed; its scratch worktrees, simulators and processes were removed. Tree clean at this commit.
 - 2026-11-02 14:35: batch M8b-s8 RE-LAUNCHED from base af2e66c (script `m8b-s8-workflow-r2.js` in the folder below, already
   re-pointed). If it is no longer running and `docs/progress/M8b-s8.md` does not exist, re-run it from the start the same way.
+- 2026-11-02 16:05: USER RULING D76 (Decisions): `.stretch` content becomes an enum option, default `.keepTextMagnified`,
+  still to be made crisp. Workflow `d76-magnified-eval` (script `d76-eval-workflow.js` in the folder below) evaluates crisp
+  magnification beside M8b-s8 (pure SwiftUI, then a scoped UIKit path; nothing of it is built before the user accepts it).
+  M8b-s8 is stopped when it reaches its plan stage and resumed in the same session with `m8b-s8-workflow-r3.js` (designers
+  cached; the architect, builders, reviewers and closer carry the D76 ruling). In a new session: run the evaluation script
+  fresh, then r3 fresh (its designers re-run).
 - How to re-run batch M8b-s8 from the start. Its workflow script (persistent copy):
   `~/Library/Application Support/Claude/side-session-notes/local_f8af3d20-fa63-46a8-9079-ddf859cc4879/m8b-s8-resume/m8b-s8-workflow.js`
   (a new session cannot resume the old run id; run the script fresh, after re-pointing its `SP` / `S8` constants to the new
@@ -326,7 +332,7 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
    watch closes one turn in for both); an orientation-flip heuristic would give single-axis system resizes (iPad Split View /
    Stage Manager, Core Animation-interpolated, no iPad lane) back the item 20 symptom (drawn over the content), which is worse
    than a late reveal. Options: accept; or reveal at once when the size change is single-axis and measure on an iPad lane first.
-28. **USER 2026-11-02: FIX (no animation skips or 15–16 look differences are accepted as limits); scheduled in M8b-s8.** **`.stretch` pull blurs text in the header while pulled (2026-11-01, header behaviors step 3 / D69, measured, OPEN; user
+28. **USER 2026-11-02: FIX (no animation skips or 15–16 look differences are accepted as limits); scheduled in M8b-s8.** **USER RULING 2026-11-02 (D76): an option, not a look change: default `.keepTextMagnified` (magnified as with D69, made crisp); the layout grow that keeps text at its point size is the other case.** **`.stretch` pull blurs text in the header while pulled (2026-11-01, header behaviors step 3 / D69, measured, OPEN; user
    decision)**: the stretch is a render-time scale (D69), so Core Animation scales the header layer's bitmap: a 24 pt
    text's edge width grows 1.25x (17.5) to 1.8x (27.0, forced) at s = 1.25 (seam lab `-ZTronSeamHeaderText 1`, all lanes, not
    only 15-16). Transient (pull and refresh hold), images unaffected in kind. A re-raster would re-run the header body (S4).
@@ -732,6 +738,17 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
   layout). SPEC S10 `fade:` paragraph. Final (closer, 2026-11-02): no review finding; design risk 4 (gradient lag) none on 27.0 /
   17.5 / forced (opacity error ≤ 0.023, steps equal the model within 0.01); the resize step found in step 5 fixed (c0a3342). Not
   merged into main.
+- D76 (user, 2026-11-02, on the M8b-s8 i28 design) `.stretch`'s header content is an OPTION, not a look change: an enum
+  parameter of `withScalingHeader` (beside D75's), default `.keepTextMagnified` (the user's name) = D69's look, the whole header
+  (text, symbols, controls, images) magnified by `s` while pulled. The other case (name proposed by the batch) is the i28 design:
+  the stack laid out at `(W·s, h_L·s)`, top-centred and clipped, so text keeps its point size and stays crisp while the aspect-fit
+  image grows exactly as with D69. The default must still be crisp: open item 28 stays a FIX for `.keepTextMagnified`. The i28
+  designer found no pure-SwiftUI lever that re-rasterizes a magnified leaf (group changes, `\.displayScale`, `drawingGroup`
+  variants; `drawingGroup` draws platform views as placeholders, which D74's rule refuses). So workflow `d76-magnified-eval`
+  evaluates pure SwiftUI once more, then a scoped UIKit raster path (D31's pattern: active only for `.stretch` +
+  `.keepTextMagnified` while pulled, 100 % line coverage, capability + force flag, `scripts/check-uikit-scope.sh`). SPEC S2 / S16
+  and the CLAUDE.md non-negotiables change only after the user accepts that evaluated design. Docs: the i28 design (grow) and
+  `d76-magnified.md` (evaluation), committed under `docs/design/` by the batch.
 - D16 (user, 2026-10-18) Physics and the post-rotation re-centering are generated and tested by **Fable 5.1**
   (builder agents with model fable). Re-centering ports ZTronMapKit's normalized-centre discipline
   (ContentGeometry: capture before resize, restore = centre × newContentSize − newViewport/2, clamp, centre smaller
