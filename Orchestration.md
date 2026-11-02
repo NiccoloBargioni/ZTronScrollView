@@ -121,13 +121,10 @@ physics 111 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-
    scripts, coverage chased to 100 % on 27.0 and 17.5 with `-ZTronForceUIKitObserver`; (c) docs. Open questions answered (R1–R6 in the design note).
 6. [ ] **M8b header behaviors (D68–D70): the user decides, checks on a device, then merges** — built 2026-11-02, closed 2026-11-02
    (`docs/progress/M8b-s7.md`, branch `claude/cool-stonebraker-0015c9` at the closer's docs commit; not merged into main). Next, in order:
-   (a) **user decisions** (open items): **32** (NEW; re-grabbing the content during a `.stretch` `.system` spinner's retraction steps
-   the spinner `(L − s)/2` and its opacity `1 → s/L` in one frame, default configuration; proposed: centre the `.system` pull look in
-   the band, which also removes **31**, but changes the measured pull look of every `.stretch` `.system` refresher), **31** (a
-   `.stretch` `.system` trigger below `indicatorHeight`; proposed: accept, or the fix of 32), **28** (`.stretch` blurs header text
-   while pulled; proposed: accept and document), **29** (15–16 content blend modes do not reach a `.slideBehind` header; proposed:
-   accept, or measure on the forced lane first), **27** (15–16: D66's reveal delays an instant resize; accept, or an iPad lane
-   first); item 33 needs triage, not a decision; 30 was fixed in fixer round 1 (with the reviewer's S-RS-1);
+    (a) **USER RULINGS 2026-11-02 (done deciding): every open item here is FIXED, none is accepted as a limit** ("Animations skip are
+    not acceptable"; 28 and 29 "will be fixed"): batch **M8b-s8** = items 15 (b), 27, 28, 29, 31, 32, 33 (triage, then fix if ours),
+    and D63 becomes an enum parameter of `withScalingHeader` defaulting to D63 (item 15 (a); D75 if free). The 15–16 fixes are to
+    be confirmed on real iOS 15.0 / 16.0 on the user's M1 Mac once its SSH connection exists (branch pushed to origin for it);
    (b) the user runs the `appbanner` screen (or their own banner) on a device: pull (the image grows from its top centre, its bottom
    on the content), a refresh hold, scrolling during a refresh, rotation in a hold, `.slideBehind` under their bar;
    (c) the user merges into main with the merge notes in M8b-s7 (main's 250 pt/s release gate and its re-derived `HeaderStateTests`,
@@ -193,7 +190,7 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
 8. N-a/N-b handoffs: `docs/progress/NESTED-s1.md`, `NESTED-s2.md` (N-b done 2026-10-20; SPEC S11/S12 amendment + parity row written). Still open: user device check of the pager + zoomer on `.innerWhenZoomed` incl. a second finger landing during an outer-owned drag (not scriptable in XCUITest), ZTronPages adoption (R6), three-level phase 2. **User 2026-10-25:** stays open until ZTronPages exists.
 9. M6 s3 leftovers (`docs/progress/M6-s3.md`): R5 on 17.5 (SwiftUI's `scrollPosition(id:)` reported 0 in the aligned comparison, only ours is asserted there); `scrollTo(point:)` is an offset, not SwiftUI's content-space point (untested against native); native `ScrollPosition` bridge exercised on 18+ only through a hosted `ScrollView` (edge); lazy content (R2) is M9's; the full demo UI suite was not re-run (TargetsUITests only). **User 2026-10-25: compare against native** — behavioural parity is mission-critical wherever the native version shows no defect (R5 on 17.5, `scrollTo(point:)` vs SwiftUI's content-space point, the `ScrollPosition` bridge). Comparison session proposed.
 10. **Sheets (SHEET-s1, 2026-10-21, `docs/design/SHEET-spike.md`, `docs/progress/SHEET-s1.md`)**: inside a `.sheet` a drag that starts on a `ZTronScrollView` never moves or dismisses the sheet (content always wins at every detent; not ZTron-specific: any recognized SwiftUI `DragGesture` / `SpatialEventGesture` does the same; header / grabber drags still work). Pure-SwiftUI fix measured: mask the gestures with `including: .subviews` per detent (`ztronScrollYieldsToSheet(_:)`, ~1–1.5 %); live top-edge hand-off needs UIKit. DECIDED (user, 2026-10-21): both: the limitation text + parity rows are written (SPEC S8/S11/S12 amendment 2026-10-21, D36) and `ztronScrollYieldsToSheet(_:)` goes to a builder session. **BUILT (SHEET-s2, 2026-10-21, `docs/progress/SHEET-s2.md`)**: the flag masks pan / observer / pinch / double tap with `.subviews` (iOS 18+ `isEnabled:`), a drag / pinch in flight ends like a cancelled touch, a deceleration settles on its own; `SheetUITests` Y1–Y6 + `SheetYieldTests` green on 27.0 + 17.5 (preferred, forced, `--uikit`); open: the user's real 15/16 run. Found on the way: SwiftUI `.scrollDisabled` did not stop a `ZTronScrollView` (`.ztronScrollDisabled` did) — FIXED by DBG-s6 (D38; the reader never ran), and the "9 pt residual offset" was the harness readout resizing the viewport, not the library. **CLOSED (user, 2026-10-25): OK** — `ztronScrollYieldsToSheet(_:)` merged into main (cdca45e, unit 673/673 on 27.0 + 17.5).
-15. **Scaling header limits (M8b-s4…s6, D62, SPEC S10 "Seamless edges")**: (a) **D63 needs the user's yes**: under a scaling header, content that fits is top-aligned vertically (alternative: the header follows the centred content, a gap above it, `.stretch` grows by the pad at rest); (b) 15/16 path only: an overflow-limited `R` (`.capped` / `.refit`) lands in one frame at the commit of an app-driven animated resize (forced lane 70 / 35 / 31 pt, 84 pt `.fixed`, 115 pt landscape; a width change lands the width too: `.capped(0.25)` half covered,
+15. **Scaling header limits (M8b-s4…s6, D62, SPEC S10 "Seamless edges")**: (a) **USER RULING 2026-11-02: D63 becomes an enum parameter of `withScalingHeader`, default = D63's behaviour (D75 if free; scheduled in M8b-s8)**; was "D63 needs the user's yes": under a scaling header, content that fits is top-aligned vertically (alternative: the header follows the centred content, a gap above it, `.stretch` grows by the pad at rest); (b) **USER 2026-11-02: FIX (no animation skips or 15–16 look differences are accepted as limits); scheduled in M8b-s8.** 15/16 path only: an overflow-limited `R` (`.capped` / `.refit`) lands in one frame at the commit of an app-driven animated resize (forced lane 70 / 35 / 31 pt, 84 pt `.fixed`, 115 pt landscape; a width change lands the width too: `.capped(0.25)` half covered,
 402 → 241 pt, seam 29.3 pt and lateral 159.3 pt in one frame, closing over 1.1 s, `.compress` and `.slideBehind(1)` alike, S-RS-2 of the
 header behaviors review, 2026-11-02), and a `.fit` header inside the band steps on app-driven resizes; rotations are seamless there; possible fix: a cold slot-level reader (resizes only) around the 15-path frame; (c) a scroll command issued while an animated resize is open (`combo`) is not seamless (the M5 intervention snaps the content); (d) `compositingGroup` cost on a real iOS 15/16 device unmeasured; (e) `ZTronScrollState.stepDrawn` is a heuristic over the last three drawn sizes (bounded by the step it misjudges).
 16. **Keyboard and the scaling header (D64, 2026-10-27)**: (a) iOS 15/16 runtimes unverified on this host: the 15 path (the probe in the viewport preference) is measured on the 27.0 forced lane, the 16+ path (`KeyboardProbeLayout`) on 17.5 and 27.0; (b) with an engaged limit the header can be taller than the region above the keyboard (landscape `.capped(0.5)`: 191 pt over 178 pt; `.refit` 382 pt): the content is reachable by scrolling (the header collapses); a direct consequence of D64; (c) not the header, seen before D64 too: while the keyboard animates, the container's clip follows its frame (SwiftUI animates it in the keyboard's curve, the keyboard moves on its own), so for several frames a band of the background shows between the content's last row and the keyboard's top (seam lab, 17.5 and 27.0).
@@ -295,7 +292,7 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
    26 bad -> 146 / 0, forced 26 -> 139 / 0, 17.5 26 -> 146 / 0; overlay 137 / 0, 119 / 0, 137 / 0 (worst 0.67 pt); controls
    unchanged (height04-hbottom, forced rotate-hbottom, forced height04-hbottom-hoverlay). Test
    `RefreshIndicatorLayerTests.anAnimatedSafeAreaInsetSlidesTheHoldWithTheFrame` (c5ffc4a 4/4 fail, fix 4/4).
-27. **15–16: D66's reveal also delays an instant resize (2026-11-01, review LOW, not measured, OPEN; user decision)** (numbered 24
+27. **USER 2026-11-02: FIX (no animation skips or 15–16 look differences are accepted as limits); scheduled in M8b-s8.** **15–16: D66's reveal also delays an instant resize (2026-11-01, review LOW, not measured, OPEN; user decision)** (numbered 24
    on this branch until 2026-11-02, renumbered because main's 24–26 belong to other sessions; main reserves 27 for it): 18620ed's reveal (opacity
    0 for 0.3 s, then a 0.15 s fade) follows every resize the watch closes undrawn, and an instant (unanimated) resize closes
    undrawn exactly as a system rotation does ("never animated": SwiftUI lays out the final state once in both). So on the
@@ -305,13 +302,13 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
    watch closes one turn in for both); an orientation-flip heuristic would give single-axis system resizes (iPad Split View /
    Stage Manager, Core Animation-interpolated, no iPad lane) back the item 20 symptom (drawn over the content), which is worse
    than a late reveal. Options: accept; or reveal at once when the size change is single-axis and measure on an iPad lane first.
-28. **`.stretch` pull blurs text in the header while pulled (2026-11-01, header behaviors step 3 / D69, measured, OPEN; user
+28. **USER 2026-11-02: FIX (no animation skips or 15–16 look differences are accepted as limits); scheduled in M8b-s8.** **`.stretch` pull blurs text in the header while pulled (2026-11-01, header behaviors step 3 / D69, measured, OPEN; user
    decision)**: the stretch is a render-time scale (D69), so Core Animation scales the header layer's bitmap: a 24 pt
    text's edge width grows 1.25x (17.5) to 1.8x (27.0, forced) at s = 1.25 (seam lab `-ZTronSeamHeaderText 1`, all lanes, not
    only 15-16). Transient (pull and refresh hold), images unaffected in kind. A re-raster would re-run the header body (S4).
    Options: accept and document in SPEC S10 (proposed); or a user opt-in that re-lays the header at the pulled height.
 
-29. **15–16: a content child's blend mode does not reach a `.slideBehind` header (2026-11-02, header behaviors step 4 / D68,
+29. **USER 2026-11-02: FIX (no animation skips or 15–16 look differences are accepted as limits); scheduled in M8b-s8.** **15–16: a content child's blend mode does not reach a `.slideBehind` header (2026-11-02, header behaviors step 4 / D68,
    from the code, not pixel-measured, OPEN; user decision)**: the content scrolls over the header; on 15–16 its layer group is a
    `compositingGroup()` (`ContentLayerGroup`, needed for rigid rotations), so a `.blendMode` inside the content composites
    within the content, while on 17+ (`geometryGroup()`) it blends with the header behind. The mirror of SPEC S10 "15–16 layer
@@ -339,7 +336,7 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
    `.stretch` band's indicator item 19's treatment (box far edge on the header's drawn bottom, clipped to `[top0, top0 + g]`);
    or accept for programmatic openings.~~
 
-31. **A `.stretch` pull that triggers below `indicatorHeight` moves the `.system` spinner at the trigger (2026-11-02, header
+31. **USER 2026-11-02: FIX (no animation skips or 15–16 look differences are accepted as limits); scheduled in M8b-s8.** **A `.stretch` pull that triggers below `indicatorHeight` moves the `.system` spinner at the trigger (2026-11-02, header
    behaviors fixer round 2 / R1-RC1-1, from the math, not pixel-measured, OPEN, non-default configuration; user decision)**: the R1-RC1-1 fix centres
    a refreshing `.system` spinner in the `.stretch` band (`min(g, L)/2`), while the pull's look stays the overlay's (on the band's far
    end, `g − L/2`). The two agree from `g ≥ L` on, so with the default `triggerDistance` 100 ≥ `indicatorHeight` 60 nothing moves at
@@ -351,7 +348,7 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
    fixer round 2 and pre-existing (recheck 2, non-default): the band's `.default` retraction with `holdOffset` H < L still steps
    its opacity `1 → H/L` at the refresh's end.
 
-32. **Re-grabbing the content during a `.stretch` `.system` spinner's retraction steps it (2026-11-02, header behaviors recheck 2 /
+32. **USER 2026-11-02: FIX (no animation skips or 15–16 look differences are accepted as limits); scheduled in M8b-s8.** **Re-grabbing the content during a `.stretch` `.system` spinner's retraction steps it (2026-11-02, header behaviors recheck 2 /
    RC2-1, LOW, measured, introduced by fixer round 2 (e0d2a8b), OPEN; user decision; default configuration)**: `holdsPlacement` keeps
    the band's centred `.system` placement through the retraction after `endRefreshing`; a finger catching the content during that
    retraction (the engine emits `retract(nil)`, mode `.pulling`) switches the leaf to the pull look in one frame: the spinner moves
@@ -366,7 +363,7 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
    the pull look of every `.stretch` `.system` refresher); keep the band look through a re-grab until the pull passes it; or accept.
    Recordings `scratchpad/api/recheck2/seam/{g27,g175,g27f}` (scratch lab source `recheck2/src`), crops `recheck2/px/regrab-stretch.png`.
 
-33. **17.5 `.preserve`: after a re-catch the spring back draws the pull-look arrow over the content (2026-11-02, header behaviors
+33. **USER 2026-11-02: FIX (no animation skips or 15–16 look differences are accepted as limits); scheduled in M8b-s8.** **17.5 `.preserve`: after a re-catch the spring back draws the pull-look arrow over the content (2026-11-02, header behaviors
    recheck 2, measured on 17.5 only, pre-existing, OPEN; needs triage)**: in the `.preserve` control of the 17.5 re-grab lane
    (`recheck2/seam/g175`, the scratch lab's 4 s `resetAnimation`, a fling down after `endRefreshing`) the
    arrow is drawn 1.3–10 pt over the content in frames 334–341 while the content springs back after the catch; 27.0 shows 0 such
@@ -604,7 +601,7 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
   resize; the M5 resize progress is no longer clamped (spring overshoot, additive retargets) and a safe-area-only step shifts the open
   transition. Rejected after measuring: a render-time mask edge (spike B, `spike/seam-b-render-mask`: masks sticky overlays) and the
   state-driven height (one-frame jumps of 35–90 pt). Spikes A / C: `spike/seam-a-layout-header`, `spike/seam-c-rigid-group`. Limits: open item 15.
-- D63 (2026-10-27, review d16 fixer; PENDING user confirmation, open item 15 (a)) Under a scaling header, content smaller than the
+- D63 (2026-10-27, review d16 fixer; USER RULING 2026-11-02: an option, not a yes/no: an enum parameter of `withScalingHeader` whose default is this behaviour; open item 15 (a)) Under a scaling header, content smaller than the
   viewport is top-aligned vertically (horizontal alignment kept), whatever `defaultScrollAnchor(_:for: .alignment)` or the zoom
   default says, so it starts at the header's bottom edge (centred, it sat 119 pt below the header). One computed
   `ZTronScrollState.contentAlignment` feeds ContentTransform, ResizeMath and RefreshMath. SPEC S6 / S10 "Content that fits".
