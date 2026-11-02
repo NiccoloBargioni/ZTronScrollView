@@ -179,12 +179,60 @@ Notes: `scratchpad/api/fixer1/` (runners, recordings `seam/f27`, `f175`, `f27f`,
 - Tests: unit full 839 tests / 82 suites green on 27.0 and 17.5 (9 known issues). Demo UI Refresh + Header + Proof (`scripts/test-demo-ui.sh`, machine-wide UI lock): 38/38 on 27.0
   preferred, 17.5 and 27.0 forced (Header 16, Refresh 16, Proof 6).
 
+## Fixer round 2 (2026-11-02, after the re-check of round 1)
+HEAD before: 469f301. Commits: e0d2a8b (R1-RC1-1), 05bc64f + 2860977 (seam lab `hsys` / `hend`, `spinner.py`), then the docs
+commit. Notes: `scratchpad/api/fixer2/` (runners, recordings `seam/s27`, `s27b`, `s175`, `s27f`, host check `math/`).
+
+- **R1-RC1-1 (LOW, introduced by S-RS-1): fixed** (`Refresh/RefreshIndicators.swift`).
+  - Cause: the band placement kept the indicator on the band's far end while refreshing (`[s − L, s]`), so the built-in
+    `.system` spinner (20 pt, centred in `L`) was cut at the band's start when `holdOffset` H < `L/2 + 10` (40 at L 60):
+    H 30 drew 10 of its 20 pt, H ≤ 20 nothing, for the whole refresh. The `.preserve` gap centres it.
+  - Fix: while refreshing, a `.system` spinner in the band is centred, `min(s, L)/2` (the gap's place up to `L`, `[0, L]`
+    beyond, as before). Scrolled away it follows the gap's rule: on with the content's edge until it sits `H − rest` before it,
+    then rigid, at its rest place in the box (a rotation interpolates it there). The leaf's `refreshing` is now
+    `RefreshIndicatorMath.holdsPlacement`: it also keeps the `.system` band's placement through the spinner's retraction, so
+    the refresh's end moves nothing (the centre would have jumped `(L − H)/2`) and no longer drops the opacity to `H/L` in one
+    frame. Unchanged: the pull's look, `.default`, `overlay:` refreshers, the gap.
+  - At the default H = L 60 the rest is the same pixels; a hold partly scrolled away (0 < s < 60) now draws the spinner
+    centred in the band instead of on its far end, and the end's retraction keeps it centred and opaque instead of on the
+    far end fading `s/L` (the gap's `.system` retraction).
+  - Host check (`fixer2/math`, HEAD vs fix): rest drawn 20 pt for H 20–100 (before 0 / 5 / 10 at H 20 / 25 / 30); scrolled
+    away: largest step 1.5 × the content's, 0 pt over the content, rigid tail at the rest's place for H 20–100; end: 0 centre
+    / opacity step (before: opacity 0.33–0.67 for H 20–40); pull look identical (0 pt).
+  - Residual: a non-default `triggerDistance` below `indicatorHeight` moves the spinner `(L − g)/2` at the trigger (open item
+    31, from the math).
+  - Tests: `RefreshIndicatorTests.aShortStretchHoldCentresTheSystemSpinnerInTheBand` (H 10–100: centred, whole, the gap's
+    frame for H ≤ L, no step and rigid when scrolled away, the retraction kept, `holdsPlacement` table, no move at a trigger
+    ≥ L); `aStretchHoldScrolledAwayIsNeverDrawnOverTheContent` and `theStretchBandKeepsTheOverlaysLookAndClipsToTheBand`
+    follow the centred `.system` spinner (`.default` still rigid / on the far end).
+- **Seam lab:** `hsys<H>` (`-ZTronSeamHoldSystem`: the built-in `.system` indicator, L 60, `holdOffset` H, instead of the
+  white probe), `hend<s>` (`-ZTronSeamHoldEnd`: `endRefreshing` `s` seconds after the hold began; the hold's action never
+  runs, because `beginRefreshing` runs none), `scripts/seam/spinner.py` (the gray spinner against reference columns: drawn
+  height and place at the rest, frames over the content, one-frame jumps, vanishings; it reproduces recheck1's pre-fix
+  0 / 10 pt). Spinner at the hold's rest (drawn pt / centre in the band):
+
+| scenario | 27.0 | 17.5 | forced | before (27.0, recheck1) |
+|---|---|---|---|---|
+| `aspect-rest-stretch-fling-hold-hsys20` | 20 / 10.0 | 20 / 9.3 | 20 / 10.0 | 0 / – |
+| `…-hsys30` | 20 / 15.3 | 20 / 15.3 | 20 / 15.3 | 10 / 5.0 |
+| `…-hsys60-hend1p5` | 20 / 30.0 | 20 / 29.3 | 20 / 30.0 | 20 / 30 (math: unchanged at H = L) |
+| `aspect-rest-preserve-fling-hold-hsys30-hend1p5` (control) | 20 / 15.3 | 20 / 14.7 | 20 / 15.3 | 20 / 15.3 |
+
+  - Every recording (27.0: 11, 17.5: 5, forced: 5, incl. `hsys20-slide1`, `hsys30-hend1p5`, `hsys20-hend1p5`): 0 frames over
+    the content, 0 one-frame jumps (> 4 pt + 1.5 × the content's move), 0 vanishings. The end's retraction (`hend1p5`): the
+    spinner stays centred and whole down to a 20 pt band, then `min(20, band)`, gone with the band (27.0: 30 → 0 in 0.28 s).
+  - Seams (`table.py`) as recheck1: `.stretch` gap ≤ 0.5, hJ / cJ ≤ 0.32 (fling rows), ovl 70–79 = the compress fling
+    analyzer artefact; `.preserve` control gap 30 = the hold's open gap. Loads ≤ 97.
+- **Tests:** unit `RefreshIndicatorTests` + `RefreshRetractTests` + `RefreshIndicatorLayerTests` 50 tests / 3 suites green on
+  27.0 and 17.5 (8 known issues: the headerless layer test's). Demo UI Refresh + Header + Proof (machine-wide UI lock): 38/38
+  on 27.0 preferred, 17.5 and 27.0 forced (loads 2–17).
+
 ## Merge notes (main is ahead; do not merge from here)
 - **Release gate:** main has a 250 pt/s release gate (UIKit's release counts moves only, BTN-s2) and BTN open item 11. Re-run
   `HeaderUITests` + `RefreshUITests` after the merge. The appbanner finger pull holds before it releases.
 - **iOS 26+ hosting rule:** `HostingViews.track` is absent on this branch. `HeaderStretchScaleTests`, `HeaderSlideBehindTests`
   and `HeaderFadeHostedTests` host `UIHostingController` directly. Wire them through the helper.
-- **Open item numbers:** our item 24 is main's 27. Items 28–30 here follow on from it; renumber after main's.
+- **Open item numbers:** our item 24 is main's 27. Items 28–31 here follow on from it; renumber after main's.
 - **D-numbers:** D68–D70 are ours. D71 is DBG-s12's (another branch); D72 and D73 are on main.
 
 ## Traps for the next builder

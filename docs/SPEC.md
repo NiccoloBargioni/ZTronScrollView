@@ -809,6 +809,18 @@ before under a pull, at the hold's rest (`H ≥ L`) and in the retraction. Befor
 whatever the pull, over the content for the whole time the content was away from the hold's rest (seam lab, a finger fling out of a
 held refresh and back: 168 frames on 27.0, 170 on 17.5, 168–275 forced, all collapse modes; now 0) and over the content's top during
 a programmatic opening (13–17 frames, up to 40 pt; now 0: the probe keeps its place against the header's bottom within 0.5 pt).
+**(Amended 2026-11-02, header behaviors fixer round 2, R1-RC1-1.)** In the band a built-in `.system` spinner is centred while
+refreshing and while it retracts after the refresh: at `min(g, L)/2` from the band's start (the `.preserve` gap's place up to `L`,
+`[top0 + R, … + L]` beyond, as before); scrolled away it goes on with the content's edge until it sits where the hold rests it,
+then moves rigidly with the content (the gap's rule, open item 19). Before, it sat on the band's far end while refreshing, so a
+`holdOffset` below `L/2 + 10` (40 at the default `L` 60) cut the 20 pt spinner at the band's start for the whole refresh (H 30: 10 pt
+of it drawn, H ≤ 20: none), and the refresh's end dropped its opacity to `H/L` in one frame. The pull's look (the overlay's, on the
+band's far end), `.default` and `overlay:` refreshers are unchanged, and so is everything at the default `holdOffset` except a hold
+partly scrolled away (centred instead of on the far end). Seam lab (`hsys<H>`, `hend<s>`, `scripts/seam/spinner.py`), 27.0, 17.5
+and forced: at the hold's rest 20 pt drawn, centred, for H 20 / 30 / 60 (before, 27.0: 0 / 10 / 20); 0 frames over the content, 0
+one-frame jumps, 0 vanishings through the opening, the fling out of the hold and back and the end's retraction; seams unchanged. Known limit: with a
+non-default `triggerDistance` below `indicatorHeight`, a pull that triggers at a band `g < L` moves the spinner by `(L − g)/2` at the
+trigger, in the frame of the overlay's existing opacity step `g/L → 1` (open item 31).
 **(Amended 2026-10-27, M8b-s6.)** During an app-driven animated resize while refreshing, the indicator is drawn at the presented
 geometry: its placement is computed in the committed geometry (the resize commit is unanimated) with the pull taken from the target,
 and a render-time transform (`RefreshResizeEffect`, a `GeometryEffect`) moves it by the presented − committed difference at the drawn
