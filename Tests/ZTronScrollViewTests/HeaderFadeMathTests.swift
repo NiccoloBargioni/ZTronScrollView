@@ -240,9 +240,29 @@ import Testing
                     == HeaderFadeMath.layers(fade: Self.split, progress: 0, pull: 0, resting: 0))
     }
 
+    /// The pull weight's `R` is the one the gradient leaf is given (its animated layout height), not the committed one: an
+    /// app-animated resize during a hold moves the weight with the drawn frame (seam lab b4: the committed `R` stepped it
+    /// in one frame). The reader exists exactly when the fade draws something in some state.
+    @Test func thePullWeightIsTheGivenLayoutHeight() throws {
+        let m = Self.metrics(.compress)
+        let live = Self.live(m, o: -60, fade: Self.split)
+        for r: CGFloat in [240, 226.125, 181, 135.5625, 120, 64] {
+            let d = try #require(HeaderFadeOverlay.drawing(live, Self.split, resting: r))
+            #expect(d.layers == HeaderFadeMath.layers(fade: Self.split, progress: 0, pull: 60, resting: r), "R \(r)")
+            #expect(d.end == UnitPoint(x: 0.5, y: 1))
+        }
+        #expect(HeaderFadeOverlay.drawing(live, Self.split) == HeaderFadeOverlay.drawing(live, Self.split, resting: 240),
+                "the convenience is the committed R")
+        #expect(HeaderFadeOverlay.drawing(live, Self.split, resting: 181) != HeaderFadeOverlay.drawing(live, Self.split, resting: 240))
+        #expect(HeaderFadeMath.draws(nil) == false && HeaderFadeMath.draws(.init(rest: nil)) == false)
+        #expect(HeaderFadeMath.draws(Self.split) && HeaderFadeMath.draws(.init(rest: nil, pull: .linear(to: Self.bg))))
+        #expect(HeaderFadeMath.draws(.linear(to: Self.bg, from: 1)), "a no-op gradient keeps its (fixed) structure")
+    }
+
     /// D62 bit-stability: while a resize is open the overlay's progress and pull are the intent's anchor (not the realised
     /// target, ulps apart), so the collapse crossfade (and the `.slideBehind` end point) draws the same before and after
-    /// the unanimated commit; the pull keeps its distance (its weight then follows the committed `R`, design note).
+    /// the unanimated commit; the pull keeps its distance (its weight's `R` is the leaf's animated layout height, which the
+    /// unanimated commit does not move).
     @Test func theCrossfadeIsBitStableAcrossTheUnanimatedCommit() throws {
         for collapse in [ZTronHeaderCollapseBehavior.Kind.compress, .slideBehind(parallax: 0.5)] {
             var m = Self.metrics(collapse, resting: 226.125)

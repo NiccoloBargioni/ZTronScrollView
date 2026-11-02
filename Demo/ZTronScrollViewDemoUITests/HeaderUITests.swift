@@ -399,6 +399,123 @@ final class HeaderUITests: XCTestCase {
         assertNoBodies(info(app, "ambient"), "ambient")
     }
 
+    // MARK: fade (D70)
+
+    /// One screen column (x in points) from `y0` to `y1` as sRGB (0…1) per pixel row, from a screenshot (the pattern of
+    /// RefreshUITests' blend check): `(y in points, r, g, b)`.
+    private func column(_ app: XCUIApplication, x: CGFloat, from y0: CGFloat, to y1: CGFloat)
+        -> [(y: CGFloat, r: CGFloat, g: CGFloat, b: CGFloat)] {
+        guard let cg = XCUIScreen.main.screenshot().image.cgImage,
+              let space = CGColorSpace(name: CGColorSpace.sRGB) else { return [] }
+        let w = cg.width, h = cg.height
+        var px = [UInt8](repeating: 0, count: w * h * 4)
+        guard let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: space,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return [] }
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        let scale = CGFloat(w) / app.windows.firstMatch.frame.width
+        let col = min(w - 1, max(0, Int(x * scale)))
+        return (max(0, Int(y0 * scale))..<min(h, Int(y1 * scale))).map { row in
+            let i = (row * w + col) * 4
+            return ((CGFloat(row) + 0.5) / scale, CGFloat(px[i]) / 255, CGFloat(px[i + 1]) / 255, CGFloat(px[i + 2]) / 255)
+        }
+    }
+
+    /// The demo's split (`-ZTronHeaderFade split|split2`): rest `.linear(to: .black, from: 0.4)`, collapse from 0 (black;
+    /// split2 pure red), pull nil. The opacity at band position `u` with weight `t` toward the collapse state (`pull`:
+    /// toward the nil pull state).
+    private func splitAlpha(_ u: CGFloat, t: CGFloat, pull: Bool = false) -> CGFloat {
+        let rest = max(0, (u - 0.4) / 0.6), partner = pull ? 0 : min(max(u, 0), 1)
+        return (1 - t) * rest + t * partner
+    }
+
+    /// Checks the fade over the plain white profile header down the column at `x`, rows `[from, to)` in points, the band
+    /// `[bandTop, bandEnd]`: black over white reads `1 − α` (split2: the red top layer's share `b = R − G` and the
+    /// coverage `1 − G`). Returns the worst opacity error.
+    @discardableResult
+    private func checkFade(_ app: XCUIApplication, _ tag: String, x: CGFloat, from: CGFloat, to: CGFloat, bandTop: CGFloat,
+                           bandEnd: CGFloat, t: CGFloat, pull: Bool = false, twoColours: Bool = false) -> CGFloat {
+        let rows = column(app, x: x, from: from + 2, to: to - 2)
+        var worst: CGFloat = 0, worstShare: CGFloat = 0
+        for p in rows {
+            let u = (p.y - bandTop) / (bandEnd - bandTop)
+            let want = splitAlpha(u, t: t, pull: pull)
+            if twoColours {
+                worst = max(worst, abs((1 - p.g) - want))
+                worstShare = max(worstShare, abs((p.r - p.g) - t * min(max(u, 0), 1)))
+            } else {
+                worst = max(worst, abs((1 - (p.r + p.g + p.b) / 3) - want))
+            }
+        }
+        print("HEADER \(path) fade \(tag): \(rows.count) rows \(from)…\(to), band \(bandTop)…\(bandEnd), t \(t), worst \(worst)"
+              + (twoColours ? " share \(worstShare)" : ""))
+        XCTAssertGreaterThan(rows.count, 20, "\(tag): rows measured")
+        XCTAssertLessThan(worst, 0.05, "\(tag): the drawn opacity is the crossfade (worst \(worst))")
+        if twoColours { XCTAssertLessThan(worstShare, 0.05, "\(tag): the collapse colour's share (worst \(worstShare))") }
+        return worst
+    }
+
+    /// D70 on screen (every path, the forced lane's pixel pattern): the split fade over a plain white profile header,
+    /// read from screenshots. At rest the rest gradient; half collapsed half of each (one gradient, no dip); collapsed the
+    /// collapse gradient over the 64 pt header; in an `.openGap` refresh hold the rest fades out by `min(1, g / 120)` (the
+    /// nil pull state, full at half the 240 pt header); two colours (split2) at half: coverage and the red share; under
+    /// `.slideBehind` half covered the band ends at the content's top. No content body, no builder run.
+    func testSplitFadeCrossfadesByScrollDirection() {
+        var app = launch("profile", ["-ZTronHeaderFade", "split", "-ZTronHeaderPlain", "1", "-ZTronLoadSeconds", "4"])
+        let box = element(app, "header.box")
+        XCTAssertTrue(box.waitForExistence(timeout: 3))
+        var f = box.frame
+        let x = f.midX + 40
+        checkFade(app, "rest", x: x, from: f.minY, to: f.maxY, bandTop: f.minY, bandEnd: f.maxY, t: 0)
+        app.buttons["header.half"].tap()
+        Thread.sleep(forTimeInterval: 1.0)
+        f = box.frame
+        XCTAssertEqual(f.height, 152, accuracy: 1)
+        checkFade(app, "half", x: x, from: f.minY, to: f.maxY, bandTop: f.minY, bandEnd: f.maxY, t: 0.5)
+        app.buttons["header.collapse"].tap()
+        Thread.sleep(forTimeInterval: 1.0)
+        f = box.frame
+        XCTAssertEqual(f.height, 64, accuracy: 1)
+        checkFade(app, "collapsed", x: x, from: f.minY, to: f.maxY, bandTop: f.minY, bandEnd: f.maxY, t: 1)
+        app.buttons["header.expand"].tap()
+        Thread.sleep(forTimeInterval: 1.0)
+        let a11y = element(app, "ztron.refresh.a11y.top")
+        drag(app, from: (0.5, 0.05), to: (0.5, 0.95), hold: 0.4)
+        let holding = Date().addingTimeInterval(3)
+        while Date() < holding, (a11y.value as? String) == "Idle" { Thread.sleep(forTimeInterval: 0.1) }
+        Thread.sleep(forTimeInterval: 0.6)
+        f = box.frame
+        let row = element(app, "header.row.0").frame
+        let g = row.minY - f.maxY
+        XCTAssertGreaterThan(g, 20, "the hold's gap opened below the still header")
+        checkFade(app, "hold g \(g)", x: x, from: f.minY, to: f.maxY, bandTop: f.minY, bandEnd: f.maxY,
+                  t: min(1, g / 120), pull: true)
+        let end = Date().addingTimeInterval(8)
+        while Date() < end, (a11y.value as? String) != "Idle" { Thread.sleep(forTimeInterval: 0.2) }
+        Thread.sleep(forTimeInterval: 1.0)
+        assertNoBodies(info(app, "fade split"), "fade split")
+        app.terminate()
+
+        app = launch("profile", ["-ZTronHeaderFade", "split2", "-ZTronHeaderPlain", "1"])
+        app.buttons["header.half"].tap()
+        Thread.sleep(forTimeInterval: 1.0)
+        f = element(app, "header.box").frame
+        checkFade(app, "split2 half", x: x, from: f.minY, to: f.maxY, bandTop: f.minY, bandEnd: f.maxY, t: 0.5,
+                  twoColours: true)
+        assertNoBodies(info(app, "fade split2"), "fade split2")
+        app.terminate()
+
+        app = launch("profile", ["-ZTronHeaderFade", "split", "-ZTronHeaderPlain", "1", "-ZTronHeaderCollapse", "slide"])
+        app.buttons["header.half"].tap()
+        Thread.sleep(forTimeInterval: 1.0)
+        // Read together: the scroller's top (the header is clipped there), the moved header, the content's top.
+        let top = element(app, "header.scroller").frame.minY
+        f = element(app, "header.box").frame
+        let content = element(app, "header.row.0").frame.minY
+        XCTAssertEqual(f.minY, top - 60, accuracy: 1, "up by k · c")
+        checkFade(app, "slide half", x: x, from: top, to: content, bandTop: f.minY, bandEnd: content, t: 0.5)
+        assertNoBodies(info(app, "fade slide"), "fade slide")
+    }
+
     func testFitMeasuresTheNaturalHeight() {
         let app = launch("banner", ["-ZTronHeaderSize", "fit"])
         let width = element(app, "header.scroller").frame.width

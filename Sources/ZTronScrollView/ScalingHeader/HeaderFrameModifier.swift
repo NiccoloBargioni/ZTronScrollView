@@ -439,6 +439,12 @@ struct HeaderInteractionGate: ViewModifier {
 /// unanimated commit). The `content` placeholder (the user's header) is never re-evaluated: only the gradient leaf is.
 /// The band ends at the frame's bottom (`.compress`) or at the content's top edge (`.slideBehind`, `R − (1 − k)·c` in
 /// the stack's frame: a fraction `1 − (1 − k)·p` of it, whatever `R`).
+///
+/// The pull weight's `R` is the stack's own LAYOUT height (a pull means `p = 0`, so the frame is `R(W, H)` on every path
+/// and in both modes; the `.stretch` scale comes after), read by a `GeometryReader` and animated by the gradient leaf
+/// (`HeaderFadeGradient.layoutHeight`): an app-animated resize during a pull or a refresh hold interpolates it with the
+/// drawn frame in the same transaction, and the unanimated commit changes nothing (the committed `R` stepped the weight
+/// to the new size's in one frame, seam lab b4). A fade that draws nothing has no reader.
 nonisolated struct HeaderFadeOverlay: ViewModifier, Animatable {
     var live: HeaderLiveInput
     let fade: ZTronHeaderFade?
@@ -449,17 +455,31 @@ nonisolated struct HeaderFadeOverlay: ViewModifier, Animatable {
     }
 
     @MainActor func body(content: Content) -> some View {
-        content.overlay(HeaderFadeGradient(drawing: Self.drawing(live, fade)))
+        let live = live, fade = fade
+        return content.overlay(Group {
+            if HeaderFadeMath.draws(fade) {
+                GeometryReader { g in
+                    HeaderFadeGradient(live: live, fade: fade, layoutHeight: g.size.height)
+                }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+        })
     }
 
-    /// What the gradient leaf draws at `live` (pure). `nil` exactly when the fade draws nothing in any state (no fade, or
-    /// every state nil): the drawn structure is fixed per fade value, never by the scroll position or the metrics.
-    static func drawing(_ live: HeaderLiveInput, _ fade: ZTronHeaderFade?) -> HeaderFadeDrawing? {
-        let m = live.metrics
-        guard let layers = HeaderFadeMath.layers(fade: fade, progress: live.progress, pull: live.pull,
-                                                 resting: m?.resting ?? 0) else { return nil }
-        let end = HeaderFadeMath.bandEnd(collapse: m?.collapse ?? .compress, progress: live.progress, layoutHeight: 1)
+    /// What the gradient leaf draws at `live` with the pull weight's `R` = `resting` (pure). `nil` exactly when the fade
+    /// draws nothing in any state (no fade, or every state nil): the drawn structure is fixed per fade value, never by the
+    /// scroll position or the metrics.
+    static func drawing(_ live: HeaderLiveInput, _ fade: ZTronHeaderFade?, resting: CGFloat) -> HeaderFadeDrawing? {
+        guard let layers = HeaderFadeMath.layers(fade: fade, progress: live.progress, pull: live.pull, resting: resting)
+        else { return nil }
+        let end = HeaderFadeMath.bandEnd(collapse: live.metrics?.collapse ?? .compress, progress: live.progress, layoutHeight: 1)
         return HeaderFadeDrawing(layers: layers, end: HeaderFadeMath.endPoint(bandEnd: end, frameHeight: 1))
+    }
+
+    /// `drawing(_:_:resting:)` with the committed `R` (what the layout height is at rest).
+    static func drawing(_ live: HeaderLiveInput, _ fade: ZTronHeaderFade?) -> HeaderFadeDrawing? {
+        drawing(live, fade, resting: live.metrics?.resting ?? 0)
     }
 }
 
@@ -470,20 +490,28 @@ struct HeaderFadeDrawing: Equatable {
 }
 
 /// The fade's gradient leaf: the bottom layer and, for a fade whose states have different colors, the top one over it.
-struct HeaderFadeGradient: View {
-    let drawing: HeaderFadeDrawing?
+/// Animatable on the stack's layout height (the pull weight's `R`, see `HeaderFadeOverlay`): a size change in an animated
+/// transaction interpolates it with the frame.
+nonisolated struct HeaderFadeGradient: View, Animatable {
+    let live: HeaderLiveInput
+    let fade: ZTronHeaderFade?
+    var layoutHeight: CGFloat
 
-    var body: some View {
-        if let d = drawing {
-            LinearGradient(stops: d.layers.bottom.gradientStops, startPoint: UnitPoint(x: 0.5, y: 0), endPoint: d.end)
-                .overlay(Group {
-                    if let top = d.layers.top {
-                        LinearGradient(stops: top.gradientStops, startPoint: UnitPoint(x: 0.5, y: 0), endPoint: d.end)
-                    }
-                })
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-        }
+    var animatableData: CGFloat {
+        get { layoutHeight }
+        set { layoutHeight = newValue }
+    }
+
+    @MainActor var body: some View {
+        let d = HeaderFadeOverlay.drawing(live, fade, resting: layoutHeight)
+        let bottom = d?.layers.bottom.gradientStops ?? [], top = d?.layers.top?.gradientStops
+        let end = d?.end ?? UnitPoint(x: 0.5, y: 1)
+        return LinearGradient(stops: bottom, startPoint: UnitPoint(x: 0.5, y: 0), endPoint: end)
+            .overlay(Group {
+                if let top {
+                    LinearGradient(stops: top, startPoint: UnitPoint(x: 0.5, y: 0), endPoint: end)
+                }
+            })
     }
 }
 

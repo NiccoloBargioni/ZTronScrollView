@@ -90,6 +90,12 @@ enum HeaderFadeMath {
         (1 - t) * alpha(fade.rest, at: u) + t * alpha(gradient(fade, partner), at: u)
     }
 
+    /// Whether `fade` draws anything in some state (a fade whose states are all nil draws nothing, like no fade).
+    static func draws(_ fade: ZTronHeaderFade?) -> Bool {
+        guard let fade else { return false }
+        return fade.rest != nil || fade.collapse != nil || fade.pull != nil
+    }
+
     /// Whether the pull moves the crossfade: the pull state differs from the rest one (D70). Otherwise the live input
     /// does not track the pull at all (`HeaderLiveInput.tracksPull`): `.linear(to:from:)` and a fade equal at rest and
     /// pulled draw exactly as before, and an `.openGap` pull lays nothing out.
