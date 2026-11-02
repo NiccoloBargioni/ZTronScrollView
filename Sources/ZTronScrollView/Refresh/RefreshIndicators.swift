@@ -76,7 +76,7 @@ enum RefreshIndicatorMath {
             // The `.stretch` band `[0, pull]` (S-RS-1, open item 30): the band is the header the pull stretches, its far
             // end the header's drawn bottom, on the content's top. As an overlay it slides in from outside the base with
             // the pull and sits at `[0, L]` once the band is `L` long, now also while refreshing: below that it stays on
-            // the band's far end, so a hold the content is scrolled out of (and a programmatic hold's opening) moves it
+            // the band's far end (a refreshing `.system` spinner: centred in the band, R1-RC1-1), so a hold the content is scrolled out of (and a programmatic hold's opening) moves it
             // with the content, clipped to the band, as open item 19 does in the gap. Before, it stayed at `[0, L]` while
             // refreshing whatever the pull and was drawn over the content scrolled under it (seam lab: 168-275 frames).
             // The box and the region are the gap's, so its layer exists off the screen and moves rigidly with the
@@ -84,7 +84,18 @@ enum RefreshIndicatorMath {
             guard refreshing || pull > 0 else { return nil }
             let s = pull
             let H = max(0, hold ?? L)
-            center = min(s, L) - L / 2
+            if refreshing, style == .system {
+                // R1-RC1-1: the 20 pt spinner is centred in the band, as in the gap (`s/2`), up to `L` (then `[0, L]`
+                // as above: the same place once the band is `L` long, so a refresh triggered by a pull starts there).
+                // On the far end a hold shorter than `L/2 + 10` (40 at the default L 60) cut it at the band's start, and
+                // one of 20 or less hid it for the whole refresh. Also in its retraction (the leaf's `refreshing`), so
+                // the refresh's end moves nothing. Scrolled away it goes on with the content's edge until it sits where
+                // the hold rests it (`H − rest` before the edge), then moves rigidly with the content, as the gap's.
+                let rest = min(H, L) / 2
+                center = s > 0 ? min(s, L) / 2 : s - min(H - rest, -s / 2)
+            } else {
+                center = min(s, L) - L / 2
+            }
             opacity = refreshing ? 1 : Double(L > 0 ? min(1, p / L) : 1)
             box = (s - max(s, L, H), s)
             visible = (0, p)
@@ -165,6 +176,14 @@ extension RefreshIndicatorMath {
     static func inStretchBand(edge: Edge, metrics m: ScrollMetrics, overlay: Bool) -> Bool {
         guard edge == .top, !overlay, let header = m.header, header.vertical else { return false }
         return header.behavior == .stretch
+    }
+
+    /// The `refreshing` the leaf hands `placement`: refreshing, or the spinner's retraction after a refresh in the gap and,
+    /// for `.system`, in the `.stretch` band (R1-RC1-1: centred there while refreshing, so the refresh's end moves nothing,
+    /// as in the gap). An overlay's retraction (and the band's `.default` one) has the pull's look.
+    static func holdsPlacement(mode: ZTronRefreshState.Mode, retract: RefreshEngine.RetractLook?, overlay: Bool, band: Bool,
+                               style: ZTronRefreshStyle) -> Bool {
+        mode == .refreshing || (retract == .spinner && (!overlay || (band && style == .system)))
     }
 }
 
@@ -341,7 +360,8 @@ struct RefreshEdgeIndicator: View {
             let band = RefreshIndicatorMath.inStretchBand(edge: edge, metrics: m, overlay: spec.overlay)
             let length = spec.configuration.indicatorHeight
             let hold = RefreshEngine.holdSize(edge: edge, config: spec.configuration, overlay: false)
-            let refreshing = refresh.mode == .refreshing || (retract == .spinner && !overlay)
+            let refreshing = RefreshIndicatorMath.holdsPlacement(mode: refresh.mode, retract: retract, overlay: overlay,
+                                                                 band: band, style: spec.style)
             // Whether any of the indicator is inside its clip at this pull (a hold scrolled away keeps its placement and
             // draws nothing: open item 19).
             let visible = RefreshIndicatorMath.placement(

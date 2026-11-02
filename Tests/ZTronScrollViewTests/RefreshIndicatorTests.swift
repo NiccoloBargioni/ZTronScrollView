@@ -167,7 +167,7 @@ struct RefreshIndicatorTests {
                 let band = RefreshIndicatorMath.inStretchBand(edge: .top, metrics: m, overlay: false)
                 #expect(band == (behavior == .stretch))
                 let A = HeaderMath.base(m), top0 = HeaderMath.top0(m)
-                var last: CGFloat?
+                var last: (minY: CGFloat, pull: CGFloat)?
                 for o in stride(from: CGFloat(-60), through: 300, by: 5) {
                     let offset = CGPoint(x: 0, y: o - A)
                     let contentTop = -offset.y
@@ -191,8 +191,17 @@ struct RefreshIndicatorTests {
                         #expect(p.frame == CGRect(x: 0, y: 302, width: 402, height: 60), "\(label): rests where it did")
                         #expect(p.visibleLength(vertical: true) == 60)
                     }
-                    if let last { #expect(abs(p.frame.minY - last - (-5)) < 1e-9, "\(label): moves with the content, no jump") }
-                    last = p.frame.minY
+                    if let last {
+                        let step = p.frame.minY - last.minY
+                        if style == .default || (last.pull <= -60 && pull <= -60) {
+                            #expect(abs(step - (-5)) < 1e-9, "\(label): moves with the content, no jump")
+                        } else {
+                            // R1-RC1-1: `.system` is centred in the band (half the content's speed), then catches up with
+                            // the content's edge (1.5 times) until it sits where the hold rests it (30 pt before the edge).
+                            #expect(step <= 0 && step >= -7.5 - 1e-9, "\(label): step \(step), no jump")
+                        }
+                    }
+                    last = (p.frame.minY, pull)
                 }
             }
         }
@@ -202,7 +211,8 @@ struct RefreshIndicatorTests {
     /// refreshing: slides in from the base, opacity `p/L`, nothing at rest) and a hold at rest are the same frames and the
     /// same drawn part as before; the band only adds the clip to `[0, pull]` and the box on the band's far end. An
     /// `overlay:` refresher (no hold, over the content by choice) is not in the band. A programmatic hold's opening
-    /// (open item 30: the pull goes 0 → H on the clock while refreshing) is drawn on the band's far end, never past it.
+    /// (open item 30: the pull goes 0 → H on the clock while refreshing) is drawn on the band's far end (`.default`) or
+    /// centred in the band (a `.system` spinner, R1-RC1-1), never past the far end.
     @Test func theStretchBandKeepsTheOverlaysLookAndClipsToTheBand() {
         func both(_ refreshing: Bool, _ pull: CGFloat, hold: CGFloat = 60) -> (RefreshPlacement?, RefreshPlacement?) {
             let a = RefreshIndicatorMath.placement(edge: .top, style: .system, overlay: true, refreshing: refreshing,
@@ -226,10 +236,15 @@ struct RefreshIndicatorTests {
         #expect(oRest!.frame == bRest!.frame && drawn(oRest!) == drawn(bRest!) && bRest!.opacity == 1, "the hold at rest")
         let (oBig, bBig) = both(true, 100, hold: 100)
         #expect(oBig!.frame == bBig!.frame && drawn(oBig!) == drawn(bBig!), "a larger hold rests at the band's top, as before")
-        // The opening: the band's far end is the content's top; the indicator never passes it.
+        // The opening: the band's far end is the content's top; the indicator never passes it. `.default` rides the far
+        // end; a `.system` spinner is centred in the band (R1-RC1-1).
         for pull in stride(from: CGFloat(0), through: 60, by: 4) {
             let b = both(true, pull).1!
-            #expect(b.frame.maxY == 50 + pull && b.visibleLength(vertical: true) == pull, "opening at \(pull)")
+            #expect(b.frame.midY == 50 + pull / 2 && b.visibleLength(vertical: true) == pull, "opening at \(pull)")
+            let d = RefreshIndicatorMath.placement(edge: .top, style: .default, overlay: true, band: true, refreshing: true,
+                                                   dragPosition: 0.5, pull: pull, length: 60, viewport: viewport, base: base,
+                                                   hold: 60)!
+            #expect(d.frame.maxY == 50 + pull && d.visibleLength(vertical: true) == pull, ".default opening at \(pull)")
         }
         // Not in the band: an `overlay:` refresher (no hold), no header, a `.preserve` header, a banner, the other edges.
         var h = HeaderMathTests.banner
@@ -241,6 +256,79 @@ struct RefreshIndicatorTests {
                                                     overlay: false))
         h.vertical = false
         #expect(!RefreshIndicatorMath.inStretchBand(edge: .top, metrics: HeaderMathTests.metrics(h, hold: 60), overlay: false))
+    }
+
+    /// R1-RC1-1 (fixer round 2 of the header behaviors): under `.stretch` a `.system` refresher with a `holdOffset` below
+    /// `L/2 + 10` (L 60: below 40) had its 20 pt spinner on the band's far end (`[s − L, s]`), cut at the band's start for the
+    /// whole refresh: H 30 drew 10 of its 20 pt, H 25 5, H ≤ 20 nothing. It is centred in the band now, as in the `.preserve`
+    /// gap (the same frame and drawn part for `H ≤ L`), at the band's top for a longer hold, as before. Scrolled away it goes
+    /// on with the content (never over it, no step) and then moves rigidly with it, its place in the box the rest's (a
+    /// rotation interpolates it there); the refresh's end keeps the placement through the spinner's retraction
+    /// (`holdsPlacement`), so nothing moves or fades in one frame. `.default` and the pull's look are unchanged.
+    @Test func aShortStretchHoldCentresTheSystemSpinnerInTheBand() {
+        let L: CGFloat = 60, spinner: CGFloat = 20
+        func band(_ style: ZTronRefreshStyle = .system, refreshing: Bool = true, at s: CGFloat, hold H: CGFloat) -> RefreshPlacement {
+            RefreshIndicatorMath.placement(edge: .top, style: style, overlay: true, band: true, refreshing: refreshing,
+                                           dragPosition: 1, pull: s, length: L, viewport: viewport, base: base, hold: H)!
+        }
+        /// The built-in spinner's drawn part (20 pt centred in the frame, inside the box and the region).
+        func drawn(_ p: RefreshPlacement) -> (top: CGFloat, length: CGFloat) {
+            let a = max(p.frame.midY - spinner / 2, p.box.minY, p.region.minY)
+            return (a, max(0, min(p.frame.midY + spinner / 2, p.box.maxY, p.region.maxY) - a))
+        }
+        for H: CGFloat in [10, 20, 25, 30, 40, 60, 100] {
+            let rest = band(at: H, hold: H)
+            #expect(rest.frame.midY == 50 + min(H, L) / 2 && rest.opacity == 1, "H \(H): centred, \(rest.frame)")
+            #expect(drawn(rest).length == min(spinner, H), "H \(H): the spinner drawn \(drawn(rest).length) pt")
+            if H <= L {
+                let gap = RefreshIndicatorMath.placement(edge: .top, style: .system, overlay: false, refreshing: true,
+                                                         dragPosition: 1, pull: H, length: L, viewport: viewport, base: base,
+                                                         hold: H)!
+                #expect(rest.frame == gap.frame && rest.clip == gap.clip && rest.box == gap.box, "H \(H): the gap's")
+            }
+            #expect(band(.default, at: H, hold: H).frame.maxY == 50 + min(H, L), "H \(H): .default on the far end")
+            // Scrolled away: no step, never below the content's edge, then rigid at the rest's place in its box.
+            var last = rest
+            for s in stride(from: H - 1, through: -400, by: -1) {
+                let p = band(at: s, hold: H)
+                let step = p.frame.midY - last.frame.midY
+                #expect(step <= 0 && step >= -1.5 - 1e-9, "H \(H) s \(s): step \(step)")
+                let d = drawn(p)
+                #expect(d.length == 0 || d.top + d.length <= 50 + s + 1e-9, "H \(H) s \(s): drawn below the content's edge")
+                last = p
+            }
+            #expect(abs((last.frame.midY - last.box.minY) - (rest.frame.midY - rest.box.minY)) < 1e-9,
+                    "H \(H): far away at the rest's place in its box")
+            // The refresh's end at rest, then the spinner's retraction with the content: the placement is kept.
+            let retracting = RefreshIndicatorMath.holdsPlacement(mode: .notRefreshing, retract: .spinner, overlay: true,
+                                                                 band: true, style: .system)
+            var prev = rest
+            for s in stride(from: H, through: 0, by: -0.5) {
+                let p = band(refreshing: retracting, at: s, hold: H)
+                #expect(abs(p.frame.midY - prev.frame.midY) <= 0.5 && p.opacity == 1, "H \(H) retracting at \(s)")
+                prev = p
+            }
+        }
+        // The leaf's rule: the gap and the `.system` band keep the hold's placement through the spinner's retraction; an
+        // overlay, the band's `.default` and a pull's retraction do not.
+        let cases: [(overlay: Bool, band: Bool, style: ZTronRefreshStyle, keeps: Bool)] = [
+            (false, false, .default, true), (false, false, .system, true), (true, true, .system, true),
+            (true, true, .default, false), (true, false, .system, false), (true, false, .default, false),
+        ]
+        for c in cases {
+            #expect(RefreshIndicatorMath.holdsPlacement(mode: .notRefreshing, retract: .spinner, overlay: c.overlay,
+                                                        band: c.band, style: c.style) == c.keeps, "\(c)")
+            #expect(!RefreshIndicatorMath.holdsPlacement(mode: .notRefreshing, retract: .pull, overlay: c.overlay,
+                                                         band: c.band, style: c.style), "\(c)")
+            #expect(!RefreshIndicatorMath.holdsPlacement(mode: .notRefreshing, retract: nil, overlay: c.overlay,
+                                                         band: c.band, style: c.style), "\(c)")
+            #expect(RefreshIndicatorMath.holdsPlacement(mode: .refreshing, retract: nil, overlay: c.overlay, band: c.band,
+                                                        style: c.style), "\(c)")
+        }
+        // A refresh triggered by a pull of at least L starts where the pull left it; the pull's look is the overlay's.
+        for s: CGFloat in [60, 75, 100, 220] {
+            #expect(band(refreshing: false, at: s, hold: 60).frame == band(at: s, hold: 60).frame, "trigger at \(s)")
+        }
     }
 
     /// D66: a resize that began with nothing of the indicator visible (its last frame with the resize closed) hides it
