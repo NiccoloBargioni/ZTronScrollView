@@ -41,6 +41,7 @@ struct DemoApp: App {
             case "calibrate": CalibrateScreen()
             case "resize": ResizeScreen()
             case "sheet": SheetScreen()
+            case "mixed": MixedTopologyScreen()
             case "scrollDisabled": ScrollDisabledScreen()
             case "buttonDrag": ButtonDragScreen()
             default: ProofScreen()
