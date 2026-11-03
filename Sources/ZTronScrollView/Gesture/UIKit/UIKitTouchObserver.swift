@@ -83,10 +83,11 @@ final class UIKitTouchObserverRecognizer: UIGestureRecognizer, UIGestureRecogniz
         !(event.allTouches ?? []).contains { !touches.contains($0) && $0.phase != .ended && $0.phase != .cancelled }
     }
 
-    /// The hit view or one of its superviews is a `UIPickerView` (`Picker(.wheel)`) or a `UIDatePicker` (`DatePicker`).
+    /// The hit view or one of its superviews is a wheel: a `UIPickerView` (`Picker(.wheel)`) or a `UIDatePicker` in its wheels
+    /// style (`DatePicker(.wheel)`). A compact or graphical `UIDatePicker` is not: a vertical drag that starts on it scrolls.
     static func isInPicker(_ view: UIView?) -> Bool {
         var v = view
-        while let c = v, !(c is UIPickerView || c is UIDatePicker) { v = c.superview }
+        while let c = v, !isWheel(c) { v = c.superview }
         #if DEBUG
         // Measurement only (PICKER-s1): the class names from the hit view up (to the picker), observed, never matched.
         var names: [String] = [], c = view
@@ -98,6 +99,10 @@ final class UIKitTouchObserverRecognizer: UIGestureRecognizer, UIGestureRecogniz
         ZTronRenderCounters.notes[v == nil ? "picker.miss" : "picker.chain"] = names.joined(separator: ">")
         #endif
         return v != nil
+    }
+
+    static func isWheel(_ view: UIView) -> Bool {
+        view is UIPickerView || (view as? UIDatePicker)?.datePickerStyle == .wheels
     }
 
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }

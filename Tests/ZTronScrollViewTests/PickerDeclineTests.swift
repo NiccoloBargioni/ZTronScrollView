@@ -234,11 +234,21 @@ struct PickerDeclineTests {
         #expect(UIKitTouchObserverRecognizer.isInPicker(picker))
     }
 
-    @Test func aViewInsideADatePickerIsInAPicker() {
+    @Test func aViewInsideAWheelsDatePickerIsInAPicker() {
         let picker = UIDatePicker(), leaf = UIView()
         picker.preferredDatePickerStyle = .wheels
         picker.addSubview(leaf)
+        #expect(picker.datePickerStyle == .wheels)
         #expect(UIKitTouchObserverRecognizer.isInPicker(leaf))
+    }
+
+    /// Compact and graphical date pickers do not turn under a vertical drag: it scrolls, as in a native `ScrollView`.
+    @Test(arguments: [UIDatePickerStyle.compact, .inline]) func aCompactOrGraphicalDatePickerIsNot(style: UIDatePickerStyle) {
+        let picker = UIDatePicker(), leaf = UIView()
+        picker.preferredDatePickerStyle = style
+        picker.addSubview(leaf)
+        #expect(picker.datePickerStyle == style)
+        #expect(!UIKitTouchObserverRecognizer.isInPicker(leaf))
     }
 
     @Test func anyOtherViewIsNot() {

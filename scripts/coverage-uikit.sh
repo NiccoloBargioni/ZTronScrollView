@@ -30,7 +30,8 @@ if [ "$run" = 1 ]; then
   mkdir -p "$out" && out="$(cd "$out" && pwd)"   # absolute: the demo run starts from Demo/
   suites=(-only-testing:ZTronScrollViewTests/TouchObserverCoreTests -only-testing:ZTronScrollViewTests/TouchObserverSpatialEquivalenceTests
           -only-testing:ZTronScrollViewTests/UIKitObserverGatingTests -only-testing:ZTronScrollViewTests/UIKitObserverShellTests
-          -only-testing:ZTronScrollViewTests/UIKitPanCoreTests)   # D60's pure core (U2); U3 rewrites this gate for regions
+          -only-testing:ZTronScrollViewTests/UIKitPanCoreTests    # D60's pure core (U2); U3 rewrites this gate for regions
+          -only-testing:ZTronScrollViewTests/PickerProbeRuleTests)   # PICKER-s1's probe rule (the report itself: a --picker UI lane, --dd)
   ZS_DEST="$dest" scripts/test.sh -derivedDataPath "$out/dd-unit" -enableCodeCoverage YES "${suites[@]}" || { echo "unit run failed"; exit 1; }
   scripts/test-demo-ui.sh "$dest" -derivedDataPath "$out/dd-ui" -enableCodeCoverage YES \
     -only-testing:ZTronScrollViewDemoUITests/UIKitObserverUITests || { echo "UI run failed"; exit 1; }

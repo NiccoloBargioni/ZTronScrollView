@@ -68,7 +68,8 @@ final class UIKitControlsUITests: XCTestCase {
                 if kv.count == 2 { out[kv[0]] = kv[1] }
             }
             if out["y"] != nil {
-                print("UICTL info \(s) | \(app.staticTexts["pickerChain"].value as? String ?? "")")
+                let chain = app.staticTexts["pickerChain"].value as? String
+                print("UICTL info \(s) | \(chain ?? "")")
                 return out
             }
         }
@@ -148,6 +149,19 @@ final class UIKitControlsUITests: XCTestCase {
     }
 
     // MARK: DatePicker
+
+    /// A vertical drag that starts on the compact date picker scrolls the content, as in a native `ScrollView`: only a wheel
+    /// takes a vertical drag (PICKER-s1's rule must leave compact and graphical date pickers alone).
+    func testCompactDatePickerDragScrollsTheContent() {
+        let app = launch()
+        let compact = app.datePickers["ctl.date.compact"]
+        XCTAssertTrue(compact.waitForExistence(timeout: 5))
+        let a = compact.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        a.press(forDuration: 0.05, thenDragTo: a.withOffset(CGVector(dx: 0, dy: -120)), withVelocity: .slow, thenHoldForDuration: 0.3)
+        let y = offsetY(app) ?? 0
+        XCTAssertGreaterThan(y, 40, "the drag scrolled the content (y=\(y))")
+        XCTAssertEqual(values(app)["compact"], "2026-03-15", "the drag did not change the date")
+    }
 
     /// Compact style: a tap opens the calendar popover, a tap on a day sets the date.
     func testCompactDatePickerPicksADay() {
