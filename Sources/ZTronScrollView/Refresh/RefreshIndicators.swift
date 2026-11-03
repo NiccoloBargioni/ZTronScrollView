@@ -547,9 +547,10 @@ final class RefreshLookSwitch: ObservableObject {
 /// them inside its body: while the weight animated, the place in the box stayed where the switch found it as the box went
 /// on with the content, so a switch at a trigger (nothing to animate but the leaf's pull a frame behind the engine's) moved
 /// the arrow with the content up to 8 pt off the band's centre for the 0.15 s (seam lab 27.0, `rtrig40` / `rtrig30`). Here
-/// the body depends on nothing but the weight and the switch (fixed for its duration): the shift is layout (padding inside
-/// the placement's frame, no geometry effect), the opacity a factor; the frame, the opacity and the place are the leaf's,
-/// outside, with the update's own transaction. The content keeps the update's own transaction too
+/// the body depends on nothing but the weight and the switch (fixed for its duration): the shift is layout (the glyph's
+/// centre guides, which the placement's frame aligns: no geometry effect, and the glyph is offered the placement's size as
+/// without a switch), the opacity a factor; the frame, the opacity and the place are the leaf's, outside, with the
+/// update's own transaction. The content keeps the update's own transaction too
 /// (`RefreshTransactionStash.restore`): a custom indicator's change is drawn as without the switch.
 nonisolated struct RefreshLookFade: ViewModifier, Animatable {
     /// Animated from the previous target to `look.target` in the switch's cross-fade; at the target otherwise.
@@ -579,19 +580,20 @@ nonisolated struct RefreshLookFade: ViewModifier, Animatable {
         k > 0 ? CGPoint(x: p.x + shift.width * k, y: p.y + shift.height * k) : p
     }
 
-    /// The shift as layout: padding of twice its length on the side it moves away from (the placement's frame centres what
-    /// it holds), none outside a switch.
-    static func padding(shift: CGSize, remaining k: CGFloat) -> EdgeInsets {
-        guard k > 0 else { return EdgeInsets() }
-        let dx = 2 * shift.width * k, dy = 2 * shift.height * k
-        return EdgeInsets(top: max(0, dy), leading: max(0, dx), bottom: max(0, -dy), trailing: max(0, -dx))
+    /// The drawn shift from the placement's place: `k` of the switch's (zero outside a switch).
+    static func offset(shift: CGSize, remaining k: CGFloat) -> CGSize {
+        k > 0 ? CGSize(width: shift.width * k, height: shift.height * k) : .zero
     }
 
     func body(content: Content) -> some View {
         let k = Self.remaining(weight: weight, target: look.target)
+        let d = Self.offset(shift: look.shift, remaining: k)
+        // The placement's frame (outside) puts the glyph's centre guides on its centre: with the guides `d` before the
+        // glyph's centre, the glyph is drawn `d` away from it.
         content
             .transaction { t in stash.restore(&t) }
-            .padding(Self.padding(shift: look.shift, remaining: k))
+            .alignmentGuide(HorizontalAlignment.center) { $0[HorizontalAlignment.center] - d.width }
+            .alignmentGuide(VerticalAlignment.center) { $0[VerticalAlignment.center] - d.height }
             .opacity(Self.factor(from: look.from, remaining: k))
     }
 }

@@ -503,11 +503,9 @@ struct RefreshIndicatorTests {
             let k = RefreshLookFade.remaining(weight: w, target: begin.target)
             let y = RefreshLookFade.position(.zero, shift: begin.shift, remaining: k).y
             let o = RefreshLookFade.opacity(refreshing(30).opacity, from: begin.from, remaining: k)
-            // Drawn as layout inside the placement's frame (which centres it) and as a factor on the placement's opacity.
-            let pad = RefreshLookFade.padding(shift: begin.shift, remaining: k)
-            #expect(abs((pad.top - pad.bottom) / 2 - y) < 1e-9 && pad.leading == 0 && pad.trailing == 0,
-                    "the padding moves the centre by the drawn shift: \(pad)")
-            #expect(min(pad.top, pad.bottom) == 0, "padding on one side only")
+            // Drawn as layout inside the placement's frame (the glyph's centre guides) and as a factor on the placement's opacity.
+            let d = RefreshLookFade.offset(shift: begin.shift, remaining: k)
+            #expect(d.width == 0 && abs(d.height - y) < 1e-12, "the guides move the glyph by the drawn shift: \(d)")
             #expect(abs(refreshing(30).opacity * RefreshLookFade.factor(from: begin.from, remaining: k) - o) < 1e-12)
             if frame == 0 {
                 #expect(abs(y - begin.shift.height) < 1e-9, "the first frame draws it where the pull look did")
@@ -523,7 +521,7 @@ struct RefreshIndicatorTests {
         }
         #expect(RefreshLookFade.remaining(weight: 0, target: 0) == 0)
         #expect(RefreshLookFade.position(CGPoint(x: 3, y: 4), shift: begin.shift, remaining: 0) == CGPoint(x: 3, y: 4))
-        #expect(RefreshLookFade.padding(shift: begin.shift, remaining: 0) == EdgeInsets(), "outside a switch: no padding")
+        #expect(RefreshLookFade.offset(shift: begin.shift, remaining: 0) == .zero, "outside a switch: not moved")
         #expect(RefreshLookFade.factor(from: begin.from, remaining: 0) == 1, "outside a switch: opacity factor 1")
         for p in [0.0, 0.3, 0.5, 1.0] {
             #expect(RefreshLookFade.opacity(p, from: begin.from, remaining: 0) == p, "outside a switch: the placement's opacity")
