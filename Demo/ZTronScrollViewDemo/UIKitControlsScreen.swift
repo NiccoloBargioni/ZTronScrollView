@@ -166,7 +166,7 @@ struct UIKitControlsScreen: View {
                     .border(Color.gray)
             } else if Self.native {
                 ScrollView(.vertical) {
-                    UIKitControlsContent(model: model)
+                    content
                         .background(GeometryReader { g in
                             Color.clear.preference(key: NativeOffsetKey.self, value: -g.frame(in: .named("nativeScroll")).minY)
                         })

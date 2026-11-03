@@ -150,16 +150,16 @@ final class UIKitControlsUITests: XCTestCase {
 
     // MARK: DatePicker
 
-    /// A vertical drag that starts on the compact date picker scrolls the content, as in a native `ScrollView`: only a wheel
-    /// takes a vertical drag (PICKER-s1's rule must leave compact and graphical date pickers alone).
-    func testCompactDatePickerDragScrollsTheContent() {
+    /// Measurement (PICKER-s1), not a parity assertion yet: a vertical drag that starts on the compact date picker. 27.0
+    /// native stays at y = 0; ZTron scrolls (the decline covers wheels only). The lane logs record `y` per OS and lane.
+    func testCompactDatePickerDragMeasure() {
         let app = launch()
         let compact = app.datePickers["ctl.date.compact"]
         XCTAssertTrue(compact.waitForExistence(timeout: 5))
         let a = compact.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         a.press(forDuration: 0.05, thenDragTo: a.withOffset(CGVector(dx: 0, dy: -120)), withVelocity: .slow, thenHoldForDuration: 0.3)
-        let y = offsetY(app) ?? 0
-        XCTAssertGreaterThan(y, 40, "the drag scrolled the content (y=\(y))")
+        let y = offsetY(app) ?? -1
+        print("UICTL measure compactDrag y=\(y)")
         XCTAssertEqual(values(app)["compact"], "2026-03-15", "the drag did not change the date")
     }
 
@@ -270,9 +270,29 @@ final class UIKitControlsUITests: XCTestCase {
     func testWheelsPagerDatePicker() { wheelDate(.pager) }
     func testWheelsPagerPicker() { wheelPicker(.pager) }
 
-    /// A horizontal swipe that starts on the wheel picker of page 0: the wheel's pan fails across its axis, so the pager pages
-    /// (native) and the wheel keeps its value. The decline's 45° cone leaves such a drag to the scroll views.
-    func testWheelsPagerHorizontalSwipeOnTheWheelPages() {
+    /// Sanity of the readouts (native ones included): a drag on the fillers scrolls, a swipe on page 0's fillers pages.
+    func testWheelsPlainFillerDragScrolls() {
+        let app = launchWheels(.plain)
+        let f = app.staticTexts["Filler 1"]
+        XCTAssertTrue(f.waitForExistence(timeout: 5))
+        let a = f.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        a.press(forDuration: 0.05, thenDragTo: a.withOffset(CGVector(dx: 0, dy: -250)), withVelocity: .slow, thenHoldForDuration: 0.3)
+        XCTAssertGreaterThan(Int(info(app)["y"] ?? "") ?? 0, 100, "a filler drag scrolls the content")
+    }
+
+    func testWheelsPagerFillerSwipePages() {
+        let app = launchWheels(.pager)
+        let f = app.staticTexts["Filler 1"]
+        XCTAssertTrue(f.waitForExistence(timeout: 5))
+        let a = f.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        a.press(forDuration: 0.05, thenDragTo: a.withOffset(CGVector(dx: -220, dy: 0)), withVelocity: .fast, thenHoldForDuration: 0)
+        Thread.sleep(forTimeInterval: 1.0)
+        XCTAssertGreaterThan(Int(info(app)["ox"] ?? "") ?? 0, 100, "a filler swipe pages")
+    }
+
+    /// Measurement (PICKER-s1): a horizontal swipe that starts on page 0's wheel picker. 27.0 native neither pages nor turns
+    /// the wheel (ox = 0, pick = 0); ZTron's 45° cone pages. The lane logs record `ox` and `pick` per OS and lane.
+    func testWheelsPagerHorizontalSwipeOnTheWheelMeasure() {
         let app = launchWheels(.pager)
         let wheel = element(app, "ctl.picker.wheel")
         XCTAssertTrue(wheel.waitForExistence(timeout: 5))
@@ -280,8 +300,7 @@ final class UIKitControlsUITests: XCTestCase {
         a.press(forDuration: 0.05, thenDragTo: a.withOffset(CGVector(dx: -220, dy: 0)), withVelocity: .fast, thenHoldForDuration: 0)
         Thread.sleep(forTimeInterval: 1.0)
         let i = info(app)
-        XCTAssertGreaterThan(Int(i["ox"] ?? "") ?? 0, 100, "the pager paged")
-        XCTAssertEqual(values(app)["pick"], "0", "the wheel did not turn")
+        print("UICTL measure wheelSwipe ox=\(i["ox"] ?? "?") pick=\(values(app)["pick"] ?? "?")")
     }
 
     // MARK: Menu
