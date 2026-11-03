@@ -883,8 +883,12 @@ Coexistence with a delegate object:
   - A tap on a Button in the content fires. A pan that starts on a Button scrolls and doesn't fire it.
   - These keep working inside the content: Toggle, Slider (horizontal drag vs. vertical scroll), TextField, a nested horizontal native ScrollView, and (27+) swipe-action and reorderable rows.
     `UIKitControlsUITests` (DBG-s4) adds Stepper (tap, hold), `Picker(.segmented)` (tap), `DatePicker` (compact, wheel turns), Menu (tap, press-drag-release) and ColorPicker. Known
-    limitations of a pure-SwiftUI pan, expected failures in that suite: a drag across a segmented control is cancelled (the pan's recognizer begins after 10 pt and
-    cancels the touch of the touch-based `UISegmentedControl`; taps work), and a vertical drag on a wheel picker also scrolls the content (50 pt on 18+, 1 pt on 17.5).
+    limitation of a pure-SwiftUI pan, an expected failure in that suite: a drag across a segmented control is cancelled (the pan's recognizer begins after 10 pt and
+    cancels the touch of the touch-based `UISegmentedControl`; taps work). A vertical drag on a wheel picker also scrolls the content (50 pt on 18+, 1 pt on 17.5): a
+    **required fix, not a limitation** (D84: a `Picker(.wheel)` / `DatePicker(.wheel)` absorbs a drag that starts on it, as in a native `ScrollView`, on every OS and in
+    every topology), expected failures naming open items 37 (18.x and below), 38 (nested inner, pager page, view that holds scroll views) and 39 (26+). On 26+ D40's
+    plain `.gesture` pan absorbs it but freezes a drag that starts on a SwiftUI Button (an ancestor `.gesture` gets no touch while the press lives), and
+    `.highPriorityGesture` breaks the UIKit slider and the wheel, so the non-shared pan stays `.simultaneousGesture` (D86, applying D74) until the picker fix after U3.
   - **Inside SwiftUI's own `ScrollView`** (DBG-s8, D47; `design/NESTED-arbitration.md` §6.1). **Below iOS 26** both pans follow the finger: the page scrolls under a drag that starts on a ZTron view (60 pt: 50 pt on 17.5 and 18.5) and the
     view's pan sees almost nothing (its gesture space moves with the page: a vertical list in a vertical page does not scroll, a horizontal carousel works). **From iOS 26, in an app linked against the 26 SDK**, UIKit gives the touch to
     the first recognizer that begins and a tie (both begin in the same touch sample) to the SwiftUI one, whose win drops the page's pan for the rest of the touch: **the ZTron view takes every drag that starts on it, also a vertical one

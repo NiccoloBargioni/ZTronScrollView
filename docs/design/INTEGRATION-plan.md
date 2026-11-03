@@ -17,6 +17,8 @@ evidence and hunk-level resolution notes, are in the appendix. Nothing was merge
   the next free numbers are D67 and D72; open items 10 and 11 are reused by several branch families, renumber by merge
   order. After wave 1 (INTEG-s1): D67 is DBG-s11 part 2 (0e2c03d), D72 / D73 and open items 24–26 are used;
   next free D76 and open item 34 (2026-11-02: D74 = SHEET-s3 refused; D75 and items 27–33 are M8b-3's on cool-stonebraker, 27 = the reveal item D66).
+  After wave 2 (INTEG-s2, 2026-11-03): D85 (on `claude/integ-wave-1-60dda2` bde9dd7 only) and D86 are used, open item 39 is D86's and
+  40 is reserved for M9-s1 (its 36 collides with M8b-s8 s1's): next free D87 and open item 41.
 - Verification: build; unit `ZTronScrollViewTests` on 27.0 and 17.5; contract and physics when touched. Any change to
   `GestureAttach` / `PanGestureAdapter.swift` → the whole demo UI suite on 27.0 preferred, `--forced`, `--uikit` and
   17.5 preferred, `--forced`, plus the OS-specific lanes named per branch (18.5 / 18.6, 26.5). Private simulator clones,
@@ -47,11 +49,11 @@ Wave 1 ≈ 20–25 points.
 
 | # | Branch | D | Needs | Action | ≈ pts |
 |---|---|---|---|---|---|
-| 9 | `sharp-banach-dadf23` **stage B** (tip) | D40 | **accepted (user, 2026-11-03, D84)** (parity fix: a native ScrollView yields to a wheel picker; from 26 the pan is a `.gesture`; the 18.x and nested cases are open items 37 / 38) | merge; the D36 yield mask goes into all three `.adaptive` attachments (appendix) | 3 |
-| 10 | `confident-babbage-6acfe7` (DBG-s8) | D47 (keeps the number; main cites it) | after 9 | merge with resolution | 2.5 |
+| 9 | `sharp-banach-dadf23` **stage B** (tip) | D40 | **accepted (user, 2026-11-03, D84)** (parity fix: a native ScrollView yields to a wheel picker; from 26 the pan is a `.gesture`; the 18.x and nested cases are open items 37 / 38) | **accepted (D84), not landed as the 26+ default (D86); reference for items 37–39** (INTEG-s2 kept the branch and D85 at `claude/integ-wave-1-60dda2` bde9dd7) | 3 |
+| 10 | `confident-babbage-6acfe7` (DBG-s8) | D47 (keeps the number; main cites it) | after 9 | **Done** 2026-11-03 (INTEG-s2, without row 9: cherry-picks 6980bc7 = b84302c's demo part, 15dd33b = 0d00c02, 1bc7ba0 = a0ba8de; fix-up ecbc1ce) | 2.5 |
 | 11 | `cool-stonebraker-0015c9` (M8b-3) | D61–D66 | D63 + the M8b-3 session finishing its round | merge (clean today); re-read its header / refresh lanes under D49 rev 2 and the D34/D37 observer | 3–4 |
 | 12 | `dbg-refresh-reversal`, `unruffled-hopper-8214fb` (DBG-s10/s11) | — | P1 / P2; the session rebases onto 11 | merge after 11 | 2–3 |
-| 13 | `keen-lichterman-cfa1e6` + `upbeat-mendeleev-3a9d67` (UIKITPAN U2, PAGES follow-up) | D60 | after 3 and 9 (UIKIT-pan §9 Q7) | merge; U3 no longer waits on row 16 (refused, D74), but SHEET-s4 may widen its scenarios | 2 |
+| 13 | `keen-lichterman-cfa1e6` + `upbeat-mendeleev-3a9d67` (UIKITPAN U2, PAGES follow-up) | D60 | after 3 and 9 (UIKIT-pan §9 Q7) | **Done** 2026-11-03 (INTEG-s2: 34d1868 keen-lichterman, 82a420a upbeat-mendeleev, fix-up ecbc1ce); U3 no longer waits on row 16 (refused, D74), but SHEET-s4 may widen its scenarios | 2 |
 
 Wave 2 ≈ 13–15 points.
 
