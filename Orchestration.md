@@ -26,6 +26,15 @@ M8-8 build from the amended SPEC S9/S10/S11 + `docs/design/M8b-refresh-header.md
   M8b-s8 (with D76's crisp path if accepted). M8b-s8's plan is committed (febf007, 10 steps); its builders run (same run ID,
   r3). The Mac slept 2026-11-02 18:30 → 11-03 10:12 (dark wakes only) and the batch crawled; a 24 h `caffeinate` now keeps it
   awake. The plan's other questions (§9 2–5) went unanswered: their defaults are built.
+- 2026-11-03 23:55: USER ACCEPTED D76's crisp path (Decisions, D76): the scoped UIKit raster engine of `d76-magnified.md` (in the
+  folder below until M8b-s9 commits it under `docs/design/`; §11 = the skeptic's re-measurement, verdict "partly", its measured
+  repairs folded into §5). Built in M8b-s9 with D77′; one S2 / S14 / S16 / F6 / CLAUDE.md amendment names all three scoped UIKit
+  exceptions (D31, D77′, D76). Its four open gaps are closed beside M8b-s8 by workflow `d76-gaps` (script `d76-gaps-workflow.js`
+  in the folder below; one spike at a time; results go to `d76-magnified.md` §12):
+  - the probes' accessibility elements (D77′'s probe too);
+  - one text size at ×1.29;
+  - the redraw cost at large pulls;
+  - 17.5's 1/255 after a release.
 - How to re-run batch M8b-s8 from the start. Its workflow script (persistent copy):
   `~/Library/Application Support/Claude/side-session-notes/local_f8af3d20-fa63-46a8-9079-ddf859cc4879/m8b-s8-resume/m8b-s8-workflow.js`
   (a new session cannot resume the old run id; run the script fresh, after re-pointing its `SP` / `S8` constants to the new
@@ -336,7 +345,7 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
    watch closes one turn in for both); an orientation-flip heuristic would give single-axis system resizes (iPad Split View /
    Stage Manager, Core Animation-interpolated, no iPad lane) back the item 20 symptom (drawn over the content), which is worse
    than a late reveal. Options: accept; or reveal at once when the size change is single-axis and measure on an iPad lane first.
-28. **USER 2026-11-02: FIX (no animation skips or 15–16 look differences are accepted as limits); scheduled in M8b-s8.** **USER RULING 2026-11-02 (D76): an option, not a look change: default `.keepTextMagnified` (magnified as with D69, made crisp); the layout grow that keeps text at its point size is the other case.** **`.stretch` pull blurs text in the header while pulled (2026-11-01, header behaviors step 3 / D69, measured, OPEN; user
+28. **USER ACCEPTED 2026-11-03 (D76): the fix is the scoped UIKit raster engine of `d76-magnified.md`, built in M8b-s9.** **USER 2026-11-02: FIX (no animation skips or 15–16 look differences are accepted as limits); scheduled in M8b-s8.** **USER RULING 2026-11-02 (D76): an option, not a look change: default `.keepTextMagnified` (magnified as with D69, made crisp); the layout grow that keeps text at its point size is the other case.** **`.stretch` pull blurs text in the header while pulled (2026-11-01, header behaviors step 3 / D69, measured, OPEN; user
    decision)**: the stretch is a render-time scale (D69), so Core Animation scales the header layer's bitmap: a 24 pt
    text's edge width grows 1.25x (17.5) to 1.8x (27.0, forced) at s = 1.25 (seam lab `-ZTronSeamHeaderText 1`, all lanes, not
    only 15-16). Transient (pull and refresh hold), images unaffected in kind. A re-raster would re-run the header body (S4).
@@ -755,6 +764,18 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
   `.keepTextMagnified` while pulled, 100 % line coverage, capability + force flag, `scripts/check-uikit-scope.sh`). SPEC S2 / S16
   and the CLAUDE.md non-negotiables change only after the user accepts that evaluated design. Docs: the i28 design (grow) and
   `d76-magnified.md` (evaluation), committed under `docs/design/` by the batch.
+  **ACCEPTED (user, 2026-11-03): the crisp path is the scoped UIKit raster engine.**
+  - Where: `Sources/ZTronScrollView/ScalingHeader/UIKit/`.
+  - What it does: while the header is drawn magnified, its drawn layers get `contentsScale` = native·s and its platform views
+    `contentScaleFactor` = native·s; every value is restored exactly at rest.
+  - Gating: capability `.headerRasterDensity`, DEBUG flag `-ZTronForceRasterDensityOff`, 100 % line coverage and the scope gate.
+  - Measured: text goes from ×1.37–1.79 of native to ×0.89–1.04; 0 px at rest on 27.0.
+  - Rule text: `d76-magnified.md` §5, with §11.5's repairs. M8b-s9 applies it as one amendment together with D77′'s probe.
+  - §11's open gaps are build acceptance items, not limits:
+    - the probes add nothing to the accessibility tree;
+    - A1: inside native text's own ±0.12 pt envelope at every size and frame;
+    - A9 counts the redraw;
+    - 17.5 is 0 px at rest after a release.
 - D77 (user, 2026-11-03, on the M8b-s8 i29 design) Item 29 takes the PUBLIC route (the design's D77′): on the 15–16 path one
   layer group G around the content and the `.slideBehind` slot, plus a 0 × 0 `UIViewRepresentable` probe that turns off the public
   `allowsGroupOpacity` on G's layer and on the header's group. It fixes item 29 and makes 15–16 fades equal 17+. G moves every
