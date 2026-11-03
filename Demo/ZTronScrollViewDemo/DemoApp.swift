@@ -45,6 +45,9 @@ struct DemoApp: App {
             case "mixedProbe": MixedProbeScreen()
             case "scrollDisabled": ScrollDisabledScreen()
             case "buttonDrag": ButtonDragScreen()
+            case "uikitPanPage": UIKitPanPageScreen()
+            case "uikitPanPager": UIKitPanPagerScreen()
+            case "uikitPanDetect": UIKitPanDetectScreen()
             default: ProofScreen()
             }
         }

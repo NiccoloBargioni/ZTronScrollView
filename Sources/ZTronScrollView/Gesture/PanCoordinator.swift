@@ -226,6 +226,7 @@ final class PanCoordinator: ObservableObject {
         case .touchesEnded: name = "up"
         case .frame: name = "frame"
         case .cancelled: name = "cancel"
+        case .declined: name = "declined"
         }
         ZTronRenderCounters.increment("pan.ev.\(name)")
         #endif
@@ -251,6 +252,11 @@ final class PanCoordinator: ObservableObject {
         // The catch's interrupt() changes what the recognition sample must read.
         if effects.contains(.catchMotion) { apply(effects, env: env); effects = []; env = environment() }
         apply(effects, env: env)
+        // D60 §2 "Decline", in every session state: a nested container passes over this view for the rest of the
+        // sequence (an external arbiter is not told).
+        if case .declined = incoming, let token = participant?.token {
+            (participant?.arbiter as? NestedScrollArbiter)?.participantDeclined(token)
+        }
         // The converted lift was both the drag's end and the last finger up: the session is over, as after a real
         // `.dragEnded` + `.touchesEnded` pair.
         if endsSynthesizedPan, case let .touchesEnded(time) = incoming {
@@ -301,6 +307,23 @@ final class PanCoordinator: ObservableObject {
 
     /// The held release is being applied: `.release` must not be held again.
     private var isHandlingHeldRelease = false
+    /// A release is held for a finger that may still be down (D29). Internal for the tests.
+    var hasHeldRelease: Bool { heldRelease != nil }
+
+    /// Container role: the inner view this view yielded the swipe to declined it after this view's ask (D60, called
+    /// by `nestedArbiter`). The swipe becomes this view's drag from its current sample.
+    func reviveAfterParticipantDeclined() {
+        let env = environment()
+        apply(session.revive(env: env), env: env)
+    }
+
+    private func releaseSettings() -> ReleaseSettings {
+        var release = ReleaseSettings()
+        release.rate = state.decelerationRate == .fast ? .fast : .normal
+        release.isPagingEnabled = state.isPagingEnabled
+        release.displayScale = settings.displayScale
+        return release
+    }
 
     private func apply(_ effects: [PanEffect], env: PanEnvironment) {
         var queue = effects
@@ -341,10 +364,7 @@ final class PanCoordinator: ObservableObject {
                 heldRelease = (r, env)
             case let .release(r):
                 if pendingBegin { pendingBegin = false; state.beginDragging() }
-                var release = ReleaseSettings()
-                release.rate = state.decelerationRate == .fast ? .fast : .normal
-                release.isPagingEnabled = state.isPagingEnabled
-                release.displayScale = settings.displayScale
+                let release = releaseSettings()
                 // The refresh hold opens (or its reset closes) BEFORE the release reads the bounds: an over-pulled release
                 // springs to the hold position, a late reset springs back to rest.
                 let boundsChanged = refresh?.lift(isScrollEnabled: env.isScrollEnabled, cancelled: r.zeroVelocity) ?? false
@@ -353,6 +373,14 @@ final class PanCoordinator: ObservableObject {
             case .endSequence:
                 pendingBegin = false; pinchOwnedPan = false; state.endTracking()
                 refresh?.sequenceEnded(isScrollEnabled: env.isScrollEnabled)
+            case .settle:
+                // D60: the catch stopped the motion and the UIKit pan declined the touch, so no drag follows. The motion
+                // settles from where it stopped, as a zero-velocity release without drag callbacks (willBeginDragging
+                // never fired); the touch's own end still closes the sequence.
+                caughtUndecided = false
+                let p = env.presentationOffset
+                state.endDrag(ReleaseRequest(origin: p, dragStart: p, liftTime: .nan, zeroVelocity: true), tracker: tracker,
+                              env: env, settings: releaseSettings(), notifiesDrag: false)
             case let .askOwner(start, translation, touchCount):
                 // Once per sequence, at the hysteresis. `owner` is from our side: `.participant` = we drag.
                 // Participant role first (our container's arbiter), then container role: an inner under the touch

@@ -75,9 +75,10 @@ struct ReleaseSettings: Equatable {
 extension ZTronScrollState {
     /// Lift: runs the whole release (design §5). `tracker` holds finger locations (offset velocity = -finger velocity). Delegate order: didScroll (pending) -> willEndDragging ->
     /// didEndDragging(willDecelerate:) -> [willBeginDecelerating, clock...]. Returns the motions it started.
+    /// `notifiesDrag == false` (the D60 settle of a declined catch, no drag began) skips willEndDragging and didEndDragging.
     @discardableResult
     func endDrag(_ r: ReleaseRequest, tracker: PointVelocityTracker, env: PanEnvironment,
-                 settings: ReleaseSettings) -> (x: AxisMotion, y: AxisMotion) {
+                 settings: ReleaseSettings, notifiesDrag: Bool = true) -> (x: AxisMotion, y: AxisMotion) {
         flushPendingScroll()
         let lift = r.liftTime.isFinite ? r.liftTime : now()
         // UIKit's 250 pt/s gate (BTN-s2) applies to natural releases only: a scroll-target behavior (or the paging knob)
@@ -116,7 +117,7 @@ extension ZTronScrollState {
             decision.snapsY = true
         }
         var proposed = decision.proposed
-        notifyWillEndDragging(velocity: CGPoint(x: vx / 1000, y: vy / 1000), target: &proposed)
+        if notifiesDrag { notifyWillEndDragging(velocity: CGPoint(x: vx / 1000, y: vy / 1000), target: &proposed) }
         let targetX = (decision.snapsX || proposed.x != natural.x) ? proposed.x : nil
         let targetY = (decision.snapsY || proposed.y != natural.y) ? proposed.y : nil
         // The motion runs on the state clock. `lift` is a gesture event time, which may use another time base
@@ -125,7 +126,7 @@ extension ZTronScrollState {
         let mx = ReleasePipeline.motion(ix, target: targetX, at: start)
         let my = ReleasePipeline.motion(iy, target: targetY, at: start)
         let willDecelerate = mx.willDecelerate || my.willDecelerate
-        notifyDidEndDragging(willDecelerate: willDecelerate)
+        if notifiesDrag { notifyDidEndDragging(willDecelerate: willDecelerate) }
         if willDecelerate {
             beginDeceleration(x: mx, y: my, at: start, displayScale: settings.displayScale)
         } else {
