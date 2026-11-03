@@ -88,6 +88,27 @@ final class SeamLabUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 2.0)
     }
 
+    /// M8b-s8 s1 (open item 32): testPull's pull, held 1 s and released, then a second drag at once that grabs the content
+    /// during its retraction (on the clock: the release spring) and pulls `-ZTronSeamRegrabDrag <pt>` (default 40) more, held
+    /// 0.3 s and let go. With a refresher whose action returns under the finger (`rdur0p2`) the first release retracts the
+    /// spinner (the refresh is over), so the second drag re-grabs the spinner's retraction.
+    func testPullRegrab() {
+        let app = launch()
+        XCTAssertTrue(app.buttons["seam.width"].waitForExistence(timeout: 10))
+        Thread.sleep(forTimeInterval: 1.5)
+        let window = app.windows.firstMatch
+        let drag = CGFloat(arg("-ZTronSeamPullDrag", 220))
+        let start = window.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: drag > 220 ? 0.25 : 0.55))
+        print("SEAMLAB mark pull \(Date().timeIntervalSince1970)")
+        start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: drag)), withVelocity: 300,
+                    thenHoldForDuration: 1.0)
+        let again = window.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5))
+        again.press(forDuration: 0.05, thenDragTo: again.withOffset(CGVector(dx: 0, dy: arg("-ZTronSeamRegrabDrag", 40))),
+                    withVelocity: 300, thenHoldForDuration: 0.3)
+        print("SEAMLAB mark regrab released \(Date().timeIntervalSince1970)")
+        Thread.sleep(forTimeInterval: 2.0)
+    }
+
     /// A transaction-driven scroll (`withAnimation { state.scroll(to:) }`, easeInOut 1.2 s) from rest to y = 400 (through
     /// the collapse band and past it), then back to rest.
     func testScroll() {

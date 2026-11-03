@@ -37,7 +37,9 @@ import ZTronScrollView
 // top|bottom|leading|trailing` and `-ZTronSeamHoldOverlay 1` pick its edge and placement (open item 19);
 // `-ZTronSeamHoldSystem <H>` makes it the built-in `.system` indicator (L 60) with `holdOffset` H instead (R1-RC1-1, header
 // behaviors fixer round 2: a gray spinner, scripts/seam/spinner.py), `-ZTronSeamHoldEnd <s>` ends the refresh (`endRefreshing`)
-// `s` seconds after it began (its retraction).
+// `s` seconds after it began (its retraction). M8b-s8 s1: `-ZTronSeamHoldDefault <H>` is the built-in `.default` indicator
+// instead (a ring, then the spinner), and `-ZTronSeamRefreshTrigger <T>` the `-ZTronSeamRefresh` refresher's trigger
+// distance (default 60; below the indicator's 60 pt the `.system` pull look hands over to the refreshing look, open item 31).
 // Resize variants (M8b-s6 close, the verifier's break probes): `-ZTronSeamBottomPinned 1` (the height change is bottom-pinned:
 // the scroll view's top leaves the top safe area), `-ZTronSeamBoth 1` (height and width together), `-ZTronSeamSpring 1` (a
 // bouncy spring instead of easeInOut), `-ZTronSeamRetarget <s>` (the toggle again `s` seconds into the change), and
@@ -277,9 +279,9 @@ extension SeamLabScreen {
                                background: SeamLab.background, overflow: SeamLab.overflow) { [tall] _ in SeamLabHeader(tall: tall) }
         if let pull = SeamLab.pull { view = view.scalingHeaderPullBehavior(pull) }
         if SeamLab.hold {
-            if let ho = SeamLab.holdSystem {
-                // R1-RC1-1: the built-in `.system` indicator (L 60) with `holdOffset` ho.
-                return view.refresher(style: .system, overlay: SeamLab.holdOverlay,
+            if let (style, ho) = SeamLab.holdBuiltIn {
+                // R1-RC1-1: the built-in `.system` indicator (L 60) with `holdOffset` ho; M8b-s8 s1: or the `.default` one.
+                return view.refresher(style: style, overlay: SeamLab.holdOverlay,
                                       configuration: ZTronRefreshConfiguration(indicatorHeight: 60, holdOffset: ho,
                                                                                allowedEdges: Edge.Set(SeamLab.holdEdge))) {
                     try? await Task.sleep(nanoseconds: 1_000_000_000_000)
@@ -294,8 +296,10 @@ extension SeamLabScreen {
             }
         }
         guard let seconds = SeamLab.refreshSeconds else { return view }
-        // Trigger at 60 pt: the 220 pt drag of testPull crosses it under the rubber band and fires while pulling.
-        return view.refresher(style: .system, configuration: ZTronRefreshConfiguration(triggerDistance: 60)) {
+        // Trigger at 60 pt (`-ZTronSeamRefreshTrigger <T>`): the 220 pt drag of testPull crosses it under the rubber band and
+        // fires while pulling.
+        return view.refresher(style: .system,
+                              configuration: ZTronRefreshConfiguration(triggerDistance: SeamLab.refreshTrigger)) {
             try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
         }
     }
@@ -366,6 +370,9 @@ extension SeamLab {
     static var refreshSeconds: Double? {
         Double(HeaderDemo.argument("-ZTronSeamRefresh", "")).map { max(0, $0) }
     }
+    /// `-ZTronSeamRefreshTrigger <T>` (M8b-s8 s1, open item 31): the `-ZTronSeamRefresh` refresher's `triggerDistance`
+    /// (default 60 = its `indicatorHeight`; below it the `.system` pull look hands over to the refreshing look).
+    static var refreshTrigger: CGFloat { CGFloat(Double(HeaderDemo.argument("-ZTronSeamRefreshTrigger", "60")) ?? 60) }
 }
 
 /// `-ZTronSeamInfo 1` (diagnostics only, it draws over the lab): the state's geometry twice a second as an accessibility
@@ -497,6 +504,14 @@ extension SeamLab {
     static var holdOverlay: Bool { HeaderDemo.argument("-ZTronSeamHoldOverlay", "0") == "1" }
     /// `-ZTronSeamHoldSystem <H>` (with `-ZTronSeamHold 1`): the built-in `.system` indicator, `holdOffset` H (R1-RC1-1).
     static var holdSystem: CGFloat? { Double(HeaderDemo.argument("-ZTronSeamHoldSystem", "")).map { CGFloat($0) } }
+    /// `-ZTronSeamHoldDefault <H>` (with `-ZTronSeamHold 1`, M8b-s8 s1): the built-in `.default` indicator, `holdOffset` H.
+    static var holdDefault: CGFloat? { Double(HeaderDemo.argument("-ZTronSeamHoldDefault", "")).map { CGFloat($0) } }
+    /// The built-in indicator of the held refresher, if one of the two arguments asks for it (`.system` first).
+    static var holdBuiltIn: (ZTronRefreshStyle, CGFloat)? {
+        if let h = holdSystem { return (.system, h) }
+        if let h = holdDefault { return (.default, h) }
+        return nil
+    }
     /// `-ZTronSeamHoldEnd <s>` (with `-ZTronSeamHold 1`): `endRefreshing` `s` seconds after the hold began.
     static var holdEnd: Double? { Double(HeaderDemo.argument("-ZTronSeamHoldEnd", "")) }
 }

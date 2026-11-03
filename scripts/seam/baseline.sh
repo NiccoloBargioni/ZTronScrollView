@@ -2,7 +2,7 @@
 # M8b-3 R5 seam lab: runs a list of scenarios through scripts/seam/measure.sh, one after the other, on one simulator.
 #
 # usage: scripts/seam/baseline.sh <udid> <out-root> <scenario>...
-#   scenario = <size>-<start>-<behavior>-<test>[-<extra>...], test = rotate | rotatel (from landscape) | width | pull | scroll | snap | kbrotate | fling, extras (any order):
+#   scenario = <size>-<start>-<behavior>-<test>[-<extra>...], test = rotate | rotatel (from landscape) | width | pull | scroll | snap | kbrotate | fling | regrab, extras (any order):
 #              forced (the forced-fallback lane), capped | refit (-ZTronHeaderOverflow), ambient | glass | color | view
 #              (-ZTronHeaderBackground), marker (-ZTronSeamMarker 1: a cyan row at content y 320), refresh (-ZTronSeamRefresh 2.5:
 #              a refresher whose action holds 2.5 s, with pull: the refresh hold and its end), band (-ZTronSeamScrollBand 0.5:
@@ -38,6 +38,9 @@ for sc in "$@"; do
       hoverlay) extra+=(-ZTronSeamHoldOverlay 1) ;;   # with hold: overlay placement (the indicator floats over the content)
       hsys[0-9]*) extra+=(-ZTronSeamHoldSystem "${x#hsys}") ;;   # with hold: the built-in .system indicator (L 60), holdOffset <digits> (R1-RC1-1; spinner.py)
       hend*) v="${x#hend}"; extra+=(-ZTronSeamHoldEnd "${v//p/.}") ;;   # with hold: endRefreshing <s> s after the hold began (hend1p5 = 1.5; the hold opens ~3 s before the first fling)
+      hdef[0-9]*) extra+=(-ZTronSeamHoldDefault "${x#hdef}") ;;   # with hold: the built-in .default indicator (L 60), holdOffset <digits> (M8b-s8 s1; handover.py --steps)
+      rtrig[0-9]*) extra+=(-ZTronSeamRefreshTrigger "${x#rtrig}") ;;   # with refresh / rdur: the refresher's triggerDistance (default 60 = L; open item 31, handover.py)
+      rdur*) v="${x#rdur}"; extra+=(-ZTronSeamRefresh "${v//p/.}") ;;   # instead of refresh: the refresher's action takes <s> s (rdur0p2 = 0.2: it returns under the finger; with regrab)
       sticky) extra+=(-ZTronSeamSticky 1) ;;   # a white 120 x 16 pt bar in an .overlay(alignment: .bottom) of the header (probe.py) (M8b-s6)
       vbottom) extra+=(-ZTronSeamBottomPinned 1) ;;   # with height<digits>: bottom-pinned, the TOP inset goes 62 -> 0 (M8b-s6 close)
       vboth) extra+=(-ZTronSeamBoth 1) ;;             # with height<digits>: the width animates to 60 % too
