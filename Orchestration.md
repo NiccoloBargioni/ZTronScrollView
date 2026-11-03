@@ -22,6 +22,10 @@ M8-8 build from the amended SPEC S9/S10/S11 + `docs/design/M8b-refresh-header.md
   M8b-s8 is stopped when it reaches its plan stage and resumed in the same session with `m8b-s8-workflow-r3.js` (designers
   cached; the architect, builders, reviewers and closer carry the D76 ruling). In a new session: run the evaluation script
   fresh, then r3 fresh (its designers re-run).
+- 2026-11-03 10:40: USER RULING D77 (Decisions): item 29 takes the public route, route P is documented, both in M8b-s9 after
+  M8b-s8 (with D76's crisp path if accepted). M8b-s8's plan is committed (febf007, 10 steps); its builders run (same run ID,
+  r3). The Mac slept 2026-11-02 18:30 → 11-03 10:12 (dark wakes only) and the batch crawled; a 24 h `caffeinate` now keeps it
+  awake. The plan's other questions (§9 2–5) went unanswered: their defaults are built.
 - How to re-run batch M8b-s8 from the start. Its workflow script (persistent copy):
   `~/Library/Application Support/Claude/side-session-notes/local_f8af3d20-fa63-46a8-9079-ddf859cc4879/m8b-s8-resume/m8b-s8-workflow.js`
   (a new session cannot resume the old run id; run the script fresh, after re-pointing its `SP` / `S8` constants to the new
@@ -338,7 +342,9 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
    only 15-16). Transient (pull and refresh hold), images unaffected in kind. A re-raster would re-run the header body (S4).
    Options: accept and document in SPEC S10 (proposed); or a user opt-in that re-lays the header at the pulled height.
 
-29. **USER 2026-11-02: FIX (no animation skips or 15–16 look differences are accepted as limits); scheduled in M8b-s8.** **15–16: a content child's blend mode does not reach a `.slideBehind` header (2026-11-02, header behaviors step 4 / D68,
+29. **USER RULING 2026-11-03 (D77): the public route (G + a probe turning off the public `allowsGroupOpacity`), built in
+   M8b-s9; route P documented, not built; the three pre-existing 15–16 blend differences only P closes stay by this ruling.**
+   **USER 2026-11-02: FIX (no animation skips or 15–16 look differences are accepted as limits); scheduled in M8b-s8.** **15–16: a content child's blend mode does not reach a `.slideBehind` header (2026-11-02, header behaviors step 4 / D68,
    from the code, not pixel-measured, OPEN; user decision)**: the content scrolls over the header; on 15–16 its layer group is a
    `compositingGroup()` (`ContentLayerGroup`, needed for rigid rotations), so a `.blendMode` inside the content composites
    within the content, while on 17+ (`geometryGroup()`) it blends with the header behind. The mirror of SPEC S10 "15–16 layer
@@ -749,6 +755,19 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
   `.keepTextMagnified` while pulled, 100 % line coverage, capability + force flag, `scripts/check-uikit-scope.sh`). SPEC S2 / S16
   and the CLAUDE.md non-negotiables change only after the user accepts that evaluated design. Docs: the i28 design (grow) and
   `d76-magnified.md` (evaluation), committed under `docs/design/` by the batch.
+- D77 (user, 2026-11-03, on the M8b-s8 i29 design) Item 29 takes the PUBLIC route (the design's D77′): on the 15–16 path one
+  layer group G around the content and the `.slideBehind` slot, plus a 0 × 0 `UIViewRepresentable` probe that turns off the public
+  `allowsGroupOpacity` on G's layer and on the header's group. It fixes item 29 and makes 15–16 fades equal 17+. G moves every
+  content leaf per frame (+1.1–1.5 ms per step at 100 rows, +11–15 ms at 1 000–1 500 non-lazy rows, 27.0 sim under load,
+  i29 §6.5), accepted with the route. NOT built: route P (the probe also turns off the PRIVATE `allowsGroupBlending` by key;
+  15–16 equals 17+ in every pixel at no per-frame cost; App Review 2.5.1 risk for every linking app). By this ruling the three
+  pre-existing 15–16 blend differences only P closes stay (a content blend against what is behind the scroll view, a header's
+  own blend, an indicator's blend under a header): a recorded decision, not a known limit. The user asked that route P be
+  DOCUMENTED for a future switch: mechanism, measurements, spike patch and switch steps go into the repo
+  (`docs/design/D77-route-P.md`, the patch under `docs/design/spikes/`), and SPEC S10 points to it. The probe needs the S16 /
+  CLAUDE.md scoped-UIKit exception (accepted with the route; verbatim text written by the build batch). Built in M8b-s9 after
+  M8b-s8 closes, together with D76's crisp `.keepTextMagnified` if the user accepts that design; then the custom headerless
+  indicator is grouped (i29 §5.5) to close item 27's 15–16 rotation-start residual.
 - D16 (user, 2026-10-18) Physics and the post-rotation re-centering are generated and tested by **Fable 5.1**
   (builder agents with model fable). Re-centering ports ZTronMapKit's normalized-centre discipline
   (ContentGeometry: capture before resize, restore = centre × newContentSize − newViewport/2, clamp, centre smaller
