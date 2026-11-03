@@ -470,8 +470,9 @@ struct RefreshIndicatorTests {
     /// The look switch (M8b-s8 s1): `beginRefreshing()` while the pull look is drawn (a pull let go below the trigger, going
     /// back with the content) switched to the refreshing look in one frame: in the band the glyph jumped from the far end to
     /// the centre (15 pt at a 30 pt band) and the opacity from `p / L` to 1. The leaf's tracker decides the switch once, on
-    /// the update where `refreshing` turns on, with the shift from the refreshing look's place to where the pull look drew it;
-    /// the weight then animates to its new target with the look's cross-fade, so the glyph glides and fades in over 0.15 s.
+    /// the update where `refreshing` turns on, with the shift from the refreshing look's place to where the pull look drew it
+    /// and the opacity it drew; the weight then animates to its new target with the look's cross-fade and every frame draws
+    /// the glyph that far (`RefreshLookFade`), so it glides and fades in over 0.15 s.
     @Test func aBeginWhileThePullLookIsDrawnGlidesToTheRefreshingLook() {
         let T: CGFloat = 100
         func pulled(_ s: CGFloat) -> RefreshPlacement { pullLook(at: s, trigger: T)! }
@@ -485,29 +486,40 @@ struct RefreshIndicatorTests {
         #expect(begin.switching && begin.target == 0)
         #expect(begin.shift.width == 0 && begin.shift.height == pulled(30).frame.midY - refreshing(30).frame.midY)
         #expect(begin.shift.height == -15, "from the far end (0) to the centre (15)")
+        #expect(begin.from == pulled(30).opacity, "the opacity the pull look drew")
         #expect(sw.look(edge: .top, refreshing: true, pull: 30, drawn: refreshing(30)) { nil } == begin,
                 "the same update evaluated again: the same decision")
         // The hold's reveal moves the content: the same switch animates on, nothing new is decided.
         let next = sw.look(edge: .top, refreshing: true, pull: 33, drawn: refreshing(33)) { Issue.record("read off a switch"); return nil }
         #expect(!next.switching && next.target == begin.target && next.shift == begin.shift)
-        // The glyph's place along the cross-fade: from the pull look's to the refreshing look's, monotonic, 60 Hz steps under
-        // half of the move; at the end the identity (bit for bit: the leaf draws as without a switch).
-        var last: CGFloat?
+        // The glyph's place and opacity along the cross-fade: from the pull look's to the refreshing look's, monotonic, 60 Hz
+        // steps under half of the change; at the end the identity and the placement's opacity (bit for bit: the leaf draws as
+        // without a switch).
+        #expect(pulled(30).opacity == 0.5 && refreshing(30).opacity == 1)
+        var last: (y: CGFloat, o: Double)?
         for frame in 0...9 {
             let progress = easeOut(min(1, Double(frame) / 60 / 0.15))
             let w = CGFloat(1 - progress)                                   // from the old target (1) to the new (0)
-            let t = RefreshLookShift(weight: w, target: begin.target, shift: begin.shift).effectValue(size: CGSize(width: 400, height: 60))
-            let y = t.m32                                                      // the translation's y
-            if frame == 0 { #expect(abs(y - begin.shift.height) < 1e-9, "the first frame draws it where the pull look did") }
-            if let last {
-                #expect(y >= last - 1e-9, "monotonic (\(last) → \(y))")
-                #expect(y - last < 0.5 * abs(begin.shift.height), "no step of half the move or more: \(y - last)")
+            let k = RefreshLookFade.remaining(weight: w, target: begin.target)
+            let y = RefreshLookFade.position(.zero, shift: begin.shift, remaining: k).y
+            let o = RefreshLookFade.opacity(refreshing(30).opacity, from: begin.from, remaining: k)
+            if frame == 0 {
+                #expect(abs(y - begin.shift.height) < 1e-9, "the first frame draws it where the pull look did")
+                #expect(abs(o - 0.5) < 1e-9, "at the pull look's opacity")
             }
-            last = y
+            if let last {
+                #expect(y >= last.y - 1e-9, "monotonic (\(last.y) → \(y))")
+                #expect(y - last.y < 0.5 * abs(begin.shift.height), "no step of half the move or more: \(y - last.y)")
+                #expect(o >= last.o - 1e-12, "the opacity: monotonic (\(last.o) → \(o))")
+                #expect(o - last.o < 0.5 * 0.5, "no opacity step of half the change or more: \(o - last.o)")
+            }
+            last = (y, o)
         }
-        #expect(RefreshLookShift(weight: 0, target: 0, shift: begin.shift).effectValue(size: .zero) == ProjectionTransform())
-        // The opacity: SwiftUI animates the plain opacity with the same curve, from the pull look's to 1.
-        #expect(pulled(30).opacity == 0.5 && refreshing(30).opacity == 1)
+        #expect(RefreshLookFade.remaining(weight: 0, target: 0) == 0)
+        #expect(RefreshLookFade.position(CGPoint(x: 3, y: 4), shift: begin.shift, remaining: 0) == CGPoint(x: 3, y: 4))
+        for p in [0.0, 0.3, 0.5, 1.0] {
+            #expect(RefreshLookFade.opacity(p, from: begin.from, remaining: 0) == p, "outside a switch: the placement's opacity")
+        }
         // A second begin later (after the refresh, the pull look drawn again) switches back the other way.
         _ = sw.look(edge: .top, refreshing: false, pull: 20, drawn: pulled(20)) { nil }
         let again = sw.look(edge: .top, refreshing: true, pull: 20, drawn: refreshing(20)) { pulled(20) }

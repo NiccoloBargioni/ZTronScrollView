@@ -480,13 +480,12 @@ final class BuiltRefreshIndicator: ObservableObject {
 /// step 5): a `beginRefreshing()` while the indicator goes back with the content after a pull let go below the trigger (a
 /// `.pull` retraction; an overlay's spinner retraction too). The leaf went from the pull look (its place: the band's far end,
 /// an overlay's slide-in; its opacity `p / L`, the gap's `dragPosition`) to the refreshing look (centred, opacity 1) in one
-/// frame, while the glyph itself cross-fades over 0.15 s (`modeAnimated`). Now the switch follows that cross-fade: the
-/// opacity animates to 1 and the glyph glides from where the pull look drew it to the refreshing look's place
-/// (`RefreshLookShift`: a weight animated to its target, `|weight − target|` of the shift; nothing once it is there). The
-/// switch is decided on the update where the leaf's `refreshing` turns on while the pull look was drawn, and repeated for
-/// the same pull (a body run twice). Every other update keeps the weight at its target: the leaf draws as before, bit for
-/// bit. A pull that reaches the trigger switches with nothing to animate (the same place and opacity 1: open item 31).
-/// Never publishes.
+/// frame. Now the switch follows the glyph's own cross-fade (`modeAnimated`, 0.15 s): the glyph glides from where the pull
+/// look drew it to the refreshing look's place and its opacity goes from the pull look's to the refreshing look's
+/// (`RefreshLookFade`: a weight animated to its target in that cross-fade, drawn frame by frame). The switch is decided on
+/// the update where the leaf's `refreshing` turns on while the pull look was drawn, and repeated for the same pull (a body
+/// run twice). Every other update keeps the weight at its target: the leaf draws as before, bit for bit. A pull that
+/// reaches the trigger switches with nothing to animate (the same place and opacity 1: open item 31). Never publishes.
 @MainActor
 final class RefreshLookSwitch: ObservableObject {
     struct Look: Equatable {
@@ -494,7 +493,9 @@ final class RefreshLookSwitch: ObservableObject {
         var target: CGFloat = 1
         /// From the refreshing look's place to the pull look's at the switch, in the viewport (y down).
         var shift: CGSize = .zero
-        /// This update is the switch: the leaf animates the weight and the opacity with the look's cross-fade.
+        /// The opacity the pull look drew on the frame before the switch (where the switch's opacity starts).
+        var from: Double = 1
+        /// This update is the switch: the leaf animates the weight with the look's cross-fade.
         var switching = false
     }
 
@@ -517,6 +518,7 @@ final class RefreshLookSwitch: ObservableObject {
             if max(abs(shift.width), abs(shift.height)) > 1e-6 || abs(from - to.opacity) > 1e-6 {
                 current.target = 1 - current.target
                 current.shift = shift
+                current.from = from
                 current.switching = true
                 switchPull = pull
                 #if DEBUG
@@ -530,30 +532,78 @@ final class RefreshLookSwitch: ObservableObject {
     }
 }
 
-/// Shifts the glyph by `|weight − target|` of `shift`: the identity once the weight is at its target (every update but a
-/// look switch's animation, `RefreshLookSwitch`). Render-time, so the per-frame updates of the pull (the hold's reveal
-/// moving the content) leave the weight's animation alone: they change neither the weight nor its target.
-nonisolated struct RefreshLookShift: GeometryEffect {
+/// The indicator in its box: its frame, its opacity and its place, with the look switch drawn frame by frame
+/// (`RefreshLookSwitch`). The weight is animated to its target in the switch's cross-fade and every frame of that animation
+/// runs this body with the weight it reached, which draws the glyph `k` = `|weight − target|` of the way back: placed `k` of
+/// the switch's shift away and at the opacity `k` of the way from the placement's to the pull look's (`from`). `k` is 0 on
+/// every update but a switch's animation: the placement's place and opacity, bit for bit.
+///
+/// Open item 36: the switch animated a shift (an animatable `GeometryEffect`) and the plain opacity in the cross-fade.
+/// SwiftUI resolves its ancestors' animations at the leaves: the spinner the cross-fade inserts is a new leaf and started at
+/// their end values (no glide; a compositing group around the glyph resolved them at the group). With the glyphs in a
+/// `ZStack` (`BuiltInRefreshIndicator`) the indicator was not drawn at all on the 1-2 frames after the switch (27.0: 16 of
+/// 20 runs, with or without a group, with the shift and the opacity animated or drawn frame by frame through a
+/// `GeometryEffect`; 0 of 4 with the switch unanimated). Here the shift is the place's (`.position`, the modifier every pull
+/// moves frame by frame) and the opacity a plain value on every frame: no animation of theirs to resolve and nothing new to
+/// draw at the switch (0 of 3 runs). The content keeps the update's own transaction (`RefreshTransactionStash.restore`): a
+/// custom indicator's change is drawn as without the switch.
+nonisolated struct RefreshLookFade: ViewModifier, Animatable {
+    /// Animated from the previous target to `look.target` in the switch's cross-fade; at the target otherwise.
     var weight: CGFloat
-    let target: CGFloat
-    let shift: CGSize
+    let look: RefreshLookSwitch.Look
+    /// The placement's frame size and its centre in the box.
+    let size: CGSize
+    let position: CGPoint
+    /// The placement's opacity this frame (D66's 0 while hidden for a resize).
+    let opacity: Double
+    /// D66 (`RefreshResizeReveal`): hidden at once (`hide`), or shown in the reveal's own animation after the system's
+    /// transition (`reveal`; the frame that reveals is the resize's close, written without animation).
+    let hide: Bool
+    let reveal: Animation?
+    let stash: RefreshTransactionStash
 
     var animatableData: CGFloat {
         get { weight }
         set { weight = newValue }
     }
 
-    func effectValue(size: CGSize) -> ProjectionTransform {
-        let k = abs(weight - target)
-        guard k > 0 else { return ProjectionTransform() }
-        return ProjectionTransform(CGAffineTransform(translationX: shift.width * k, y: shift.height * k))
+    /// What is left of the switch: 1 at its start, 0 at its end and outside a switch.
+    static func remaining(weight: CGFloat, target: CGFloat) -> CGFloat { min(1, abs(weight - target)) }
+
+    /// The drawn opacity: the pull look's (`from`) at the switch's start, the placement's at its end and outside a switch.
+    static func opacity(_ opacity: Double, from: Double, remaining k: CGFloat) -> Double {
+        k > 0 ? opacity + (from - opacity) * Double(k) : opacity
+    }
+
+    /// The drawn place: `k` of the switch's shift away from the placement's.
+    static func position(_ p: CGPoint, shift: CGSize, remaining k: CGFloat) -> CGPoint {
+        k > 0 ? CGPoint(x: p.x + shift.width * k, y: p.y + shift.height * k) : p
+    }
+
+    func body(content: Content) -> some View {
+        let k = Self.remaining(weight: weight, target: look.target)
+        let hide = hide, reveal = reveal
+        let p = Self.position(position, shift: look.shift, remaining: k)
+        content
+            .transaction { t in stash.restore(&t) }
+            .frame(width: size.width, height: size.height)
+            .opacity(Self.opacity(opacity, from: look.from, remaining: k))
+            .transaction { t in
+                if hide {
+                    t.animation = nil
+                } else if let reveal {
+                    t.disablesAnimations = false
+                    t.animation = reveal
+                }
+            }
+            .position(x: p.x, y: p.y)
     }
 }
 
 /// The transaction of the update that animates a look switch, as it was before the switch's animation replaced it: the
-/// indicator's content gets it back (`restore`), so only the glyph's place and opacity take the cross-fade. Written by the
-/// outer `.transaction` of the same update (which runs first: the inner one reads what it hands down), cleared by it on
-/// every other update.
+/// indicator's content gets it back (`restore`), so only the switch's weight takes the cross-fade (`RefreshLookFade`).
+/// Written by the outer `.transaction` of the same update (which runs first: the inner one reads what it hands down),
+/// cleared by it on every other update.
 nonisolated final class RefreshTransactionStash: @unchecked Sendable {
     private var animation: Animation?
     private var disablesAnimations = false
@@ -820,27 +870,20 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
             ZStack(alignment: .topLeading) {
                 ZStack(alignment: .topLeading) {
                     content
-                        // The look switch animates the glyph's place and opacity only: its content keeps the update's own
-                        // transaction (a custom indicator's change is drawn as without the switch).
-                        .transaction { t in stash.restore(&t) }
-                        .modifier(RefreshLookShift(weight: look.target, target: look.target, shift: look.shift))
-                        .frame(width: placement.frame.width, height: placement.frame.height)
-                        .opacity(hideForResize ? 0 : placement.opacity)
-                        // D66: hidden at once; shown after the system's transition, in the reveal's own animation
-                        // (the frame that reveals is the resize's close, written without animation). The look switch
-                        // (M8b-s8 s1): the opacity and the shift's weight in the look's cross-fade.
+                        // The frame, the opacity (D66's hide and reveal) and the place, with the look switch's part drawn
+                        // frame by frame (M8b-s8 s1).
+                        .modifier(RefreshLookFade(
+                            weight: look.target, look: look, size: placement.frame.size,
+                            position: CGPoint(x: placement.frame.midX - box.minX, y: placement.frame.midY - box.minY),
+                            opacity: hideForResize ? 0 : placement.opacity, hide: hideForResize,
+                            reveal: revealNow ? RefreshResizeReveal.afterTransition : nil, stash: stash))
+                        // The look switch: its weight in the look's cross-fade (not during D66's hide or reveal).
                         .transaction { t in
                             stash.clear()
-                            if hideForResize {
-                                t.animation = nil
-                            } else if revealNow {
-                                t.disablesAnimations = false
-                                t.animation = RefreshResizeReveal.afterTransition
-                            } else if look.switching {
+                            if look.switching, !hideForResize, !revealNow {
                                 stash.override(&t, with: RefreshLookSwitch.crossFade)
                             }
                         }
-                        .position(x: placement.frame.midX - box.minX, y: placement.frame.midY - box.minY)
                 }
                 .frame(width: max(0, box.width), height: max(0, box.height), alignment: .topLeading)
                 .clipped()
@@ -1108,7 +1151,23 @@ enum RefreshTrace {
 #endif
 
 /// The built-in look. `.system`: an arrow that turns with the pull, then the system spinner (the UIRefreshControl idiom);
-/// `.default`: a ring that fills with the pull, then the spinner. The mode switch is animated by `modeAnimated`.
+/// `.default`: a ring that fills with the pull, then the spinner. The mode switch is animated by `modeAnimated`: the pull's
+/// glyph and the spinner cross-fade in 0.15 s.
+///
+/// M8b-s8 s1 (open item 36): the cross-fade was never drawn, and neither was the look switch of a `beginRefreshing()` during a
+/// retraction (`RefreshLookSwitch`): both landed in one frame (seam lab, every lane: the arrow at full intensity on one frame,
+/// the spinner at full on the next; the begin's glyph from the band's far end to its centre and from opacity `p / L` to 1).
+/// - A `Group` hands its modifiers to each of its children, so `.animation(_:value:)` sat on the branch itself and the branch
+///   swap ran in the update's own transaction (no animation). The `ZStack` takes the modifier as one view: the swap runs in the
+///   cross-fade (the glyphs' opacity transitions).
+/// - SwiftUI resolves the opacity and the geometry animations of a view's ancestors at its leaves: the glyph a switch inserts
+///   is a new leaf and started at the end values of the switch's animated opacity and shift (NSLog: the weight 1, 1, 1,
+///   0.82 … 0.02; red test squares beside the glyph with the same animation, persistent leaves, faded over 8-10 frames). The
+///   switch is now drawn frame by frame (`RefreshLookFade`): no animation of an ancestor to resolve, the inserted spinner
+///   draws where the glyph is.
+/// - Both glyphs are laid out in the same 24 pt square: in a stack that took the spinner's size, the arrow kept its place
+///   as laid out before (its own height) through the cross-fade, 0.67-1 pt off the centre until it had faded (27.0, every
+///   trigger).
 struct BuiltInRefreshIndicator: View {
     let refresh: ZTronRefreshState
     let edge: Edge
@@ -1116,28 +1175,40 @@ struct BuiltInRefreshIndicator: View {
     var spinner = false
 
     var body: some View {
-        Group {
+        ZStack {
             if refresh.modeAnimated == .refreshing || spinner {
                 ProgressView()
+                    .frame(width: Self.side, height: Self.side)
+                    .transition(.opacity)
             } else {
-                switch refresh.style {
-                case .system:
-                    Image(systemName: Self.arrow(edge))
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundColor(.secondary)
-                        .rotationEffect(.degrees(Double(refresh.dragPosition) * 180))
-                case .default:
-                    ZStack {
-                        Circle().stroke(Color.secondary.opacity(0.25), lineWidth: 3)
-                        Circle().trim(from: 0, to: refresh.dragPosition)
-                            .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                            .rotationEffect(.degrees(-90))
-                    }
-                    .frame(width: 24, height: 24)
-                }
+                pullGlyph
+                    .frame(width: Self.side, height: Self.side)
+                    .transition(.opacity)
             }
         }
         .animation(.easeOut(duration: 0.15), value: refresh.modeAnimated)
+    }
+
+    /// The square both glyphs are laid out in (the `.default` ring's; the spinner is 20 pt, the arrow under it).
+    private static let side: CGFloat = 24
+
+    /// The pull's look: the arrow (`.system`) or the ring (`.default`), turned or filled by the drag position.
+    @ViewBuilder private var pullGlyph: some View {
+        switch refresh.style {
+        case .system:
+            Image(systemName: Self.arrow(edge))
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundColor(.secondary)
+                .rotationEffect(.degrees(Double(refresh.dragPosition) * 180))
+        case .default:
+            ZStack {
+                Circle().stroke(Color.secondary.opacity(0.25), lineWidth: 3)
+                Circle().trim(from: 0, to: refresh.dragPosition)
+                    .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+            .frame(width: 24, height: 24)
+        }
     }
 
     private static func arrow(_ edge: Edge) -> String {
