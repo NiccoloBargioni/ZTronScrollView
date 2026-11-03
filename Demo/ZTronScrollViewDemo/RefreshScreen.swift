@@ -59,6 +59,8 @@ struct RefreshSectionView: View {
     @State private var trace = ""
     @State private var snapshot: [String: Int] = [:]
     @State private var rows = 20
+    /// `-ZTronRefreshBeginAfterRelease`: armed until the first release (a reference: the observer never re-renders the view).
+    @State private var beginArmed = SeamLabFlag(true)
     private static let keys = ["refresh.actions", "content.body", "refresh.host.body", "chromeLeaf.body"]
 
     /// The simulated load: half a second plus the minimum visible time of the configuration.
@@ -156,10 +158,32 @@ struct RefreshSectionView: View {
                 .refreshable { await load() }
                 .frame(height: 360)
         default:
-            ZTronScrollView(.vertical, state: state) { column(40) }
-                .refresher(style: .system) { await load() }
-                .frame(height: 360)
+            if let delay = Self.beginAfterRelease {
+                // M8b-s8 s1: `beginRefreshing()` `delay` ms after the first release (the indicator of a pull let go below the
+                // trigger is going back with the content: the pull look switches to the refreshing look).
+                let state = state, armed = beginArmed
+                ZTronScrollView(.vertical, state: state) { column(40) }
+                    .refresher(style: .system) { await load() }
+                    .onScrollPhaseChange { old, new in
+                        guard armed.value, old == .interacting || old == .tracking, new == .decelerating || new == .animating
+                        else { return }
+                        armed.value = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + delay / 1000) { state.beginRefreshing() }
+                    }
+                    .frame(height: 360)
+            } else {
+                ZTronScrollView(.vertical, state: state) { column(40) }
+                    .refresher(style: .system) { await load() }
+                    .frame(height: 360)
+            }
         }
+    }
+
+    /// `-ZTronRefreshBeginAfterRelease <ms>` (the `system` section): `beginRefreshing()` that long after the first release.
+    static var beginAfterRelease: Double? {
+        let a = ProcessInfo.processInfo.arguments
+        guard let i = a.firstIndex(of: "-ZTronRefreshBeginAfterRelease"), i + 1 < a.count else { return nil }
+        return Double(a[i + 1])
     }
 
     private func column(_ n: Int) -> some View {

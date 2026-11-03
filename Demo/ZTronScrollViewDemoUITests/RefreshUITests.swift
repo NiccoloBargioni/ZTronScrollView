@@ -9,9 +9,10 @@ final class RefreshUITests: XCTestCase {
 
     override func setUp() { continueAfterFailure = false }
 
-    private func launch(_ section: String) -> XCUIApplication {
+    private func launch(_ section: String, _ extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-ZTronScreen", "refresh", "-ZTronRefreshSection", section] + (forced ? ["-ZTronForceAllFallbacks"] : [])
+        app.launchArguments = ["-ZTronScreen", "refresh", "-ZTronRefreshSection", section] + extra
+            + (forced ? ["-ZTronForceAllFallbacks"] : [])
         app.launch()
         app.buttons["Reset"].tap()
         Thread.sleep(forTimeInterval: 1.0)
@@ -315,6 +316,41 @@ final class RefreshUITests: XCTestCase {
         let held = info(app, "begin")
         XCTAssertEqual(held.counters["refresh.actions"], 0, "beginRefreshing runs no action (UIKit parity)")
         XCTAssertLessThan(held.double("y"), -30, "the indicator is revealed: the content holds below the top")
+        app.buttons["refresh.end"].tap()
+        XCTAssertTrue(waitFor(4, "Idle again") { mode(app) == "Idle" })
+        Thread.sleep(forTimeInterval: 1.0)
+        XCTAssertEqual(info(app, "end").double("y"), 0, accuracy: 2)
+    }
+
+    /// M8b-s8 s1: `beginRefreshing()` while the indicator of a pull let go below the trigger goes back with the content (the
+    /// demo calls it 60 ms after the release). The pull look switches to the refreshing look once (`rf switch`), in the look's
+    /// own cross-fade instead of one frame: the trace shows the retraction, the begin's effects and one switch from the
+    /// pull look's opacity (the gap's `.system`: `dragPosition`) between them; the refresh then holds like any begin and no
+    /// action runs.
+    func testABeginWhileThePullGoesBackSwitchesTheLookOnce() {
+        let app = launch("system", ["-ZTronRefreshBeginAfterRelease", "60"])
+        XCTAssertTrue(a11y(app).waitForExistence(timeout: 3))
+        drag(app, from: (0.5, 0.08), to: (0.5, 0.36), hold: 0.2)          // about 45 pt of pull, under the 100 pt trigger
+        XCTAssertTrue(waitFor(3, "Refreshing") { mode(app) == "Refreshing" }, "the begin during the retraction refreshes")
+        Thread.sleep(forTimeInterval: 1.0)
+        let t = readTrace(app, "begin while retracting")
+        // Effects print as `retract(Optional(….RetractLook.pull))`, `retract(nil)`, `mode(….Mode.refreshing, animated: true)`.
+        guard let retract = t.lines.indices.first(where: { t.lines[$0].contains("fx top retract(") && t.lines[$0].contains(".pull)") })
+        else { return XCTFail("the pull never went back with the content") }
+        guard let end = t.index("fx top retract(nil)", after: retract) else { return XCTFail("the begin never took over") }
+        guard let begin = t.lines.indices.first(where: { $0 > end && t.lines[$0].contains("fx top mode(") && t.lines[$0].contains("refreshing") })
+        else { return XCTFail("no refreshing mode after the retraction") }
+        let switches = t.lines.indices.filter { t.lines[$0].contains("rf switch top") }
+        XCTAssertEqual(switches.count, 1, "one switch, animated (\(switches.map { t.lines[$0] }))")
+        if let s = switches.first {
+            XCTAssertGreaterThan(s, begin, "the switch follows the begin's mode change")
+            let from = Double(t.lines[s].components(separatedBy: " ").first { $0.hasPrefix("from=") }?.dropFirst(5) ?? "") ?? -1
+            XCTAssertTrue(from > 0 && from < 1, "from the pull look's opacity (\(from)), not the refreshing look's")
+        }
+        let held = info(app, "begin while retracting")
+        XCTAssertEqual(held.counters["refresh.actions"], 0, "beginRefreshing runs no action")
+        XCTAssertEqual(held.counters["content.body"], 0)
+        XCTAssertLessThan(held.double("y"), -30, "revealed at the hold")
         app.buttons["refresh.end"].tap()
         XCTAssertTrue(waitFor(4, "Idle again") { mode(app) == "Idle" })
         Thread.sleep(forTimeInterval: 1.0)

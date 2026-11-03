@@ -459,6 +459,97 @@ struct RefreshIndicatorTests {
         }
     }
 
+    /// `.easeOut` (cubic-bezier 0, 0, 0.58, 1) at time fraction `x`, as SwiftUI draws the look's cross-fade.
+    func easeOut(_ x: Double) -> Double {
+        func bez(_ t: Double, _ p1: Double, _ p2: Double) -> Double { 3 * (1 - t) * (1 - t) * t * p1 + 3 * (1 - t) * t * t * p2 + t * t * t }
+        var lo = 0.0, hi = 1.0
+        for _ in 0..<60 { let m = (lo + hi) / 2; if bez(m, 0, 0.58) < x { lo = m } else { hi = m } }
+        return bez((lo + hi) / 2, 0, 1)
+    }
+
+    /// The look switch (M8b-s8 s1): `beginRefreshing()` while the pull look is drawn (a pull let go below the trigger, going
+    /// back with the content) switched to the refreshing look in one frame: in the band the glyph jumped from the far end to
+    /// the centre (15 pt at a 30 pt band) and the opacity from `p / L` to 1. The leaf's tracker decides the switch once, on
+    /// the update where `refreshing` turns on, with the shift from the refreshing look's place to where the pull look drew it;
+    /// the weight then animates to its new target with the look's cross-fade, so the glyph glides and fades in over 0.15 s.
+    @Test func aBeginWhileThePullLookIsDrawnGlidesToTheRefreshingLook() {
+        let T: CGFloat = 100
+        func pulled(_ s: CGFloat) -> RefreshPlacement { pullLook(at: s, trigger: T)! }
+        func refreshing(_ s: CGFloat) -> RefreshPlacement { pullLook(refreshing: true, at: s, trigger: T)! }
+        let sw = RefreshLookSwitch()
+        var look = sw.look(edge: .top, refreshing: false, pull: 34, drawn: pulled(34)) { Issue.record("read off a switch"); return nil }
+        #expect(!look.switching && look.target == 1 && look.shift == .zero, "the pull look: nothing to do")
+        look = sw.look(edge: .top, refreshing: false, pull: 30, drawn: pulled(30)) { Issue.record("read off a switch"); return nil }
+        // The begin: `refreshing` turns on at a 30 pt band.
+        let begin = sw.look(edge: .top, refreshing: true, pull: 30, drawn: refreshing(30)) { pulled(30) }
+        #expect(begin.switching && begin.target == 0)
+        #expect(begin.shift.width == 0 && begin.shift.height == pulled(30).frame.midY - refreshing(30).frame.midY)
+        #expect(begin.shift.height == -15, "from the far end (0) to the centre (15)")
+        #expect(sw.look(edge: .top, refreshing: true, pull: 30, drawn: refreshing(30)) { nil } == begin,
+                "the same update evaluated again: the same decision")
+        // The hold's reveal moves the content: the same switch animates on, nothing new is decided.
+        let next = sw.look(edge: .top, refreshing: true, pull: 33, drawn: refreshing(33)) { Issue.record("read off a switch"); return nil }
+        #expect(!next.switching && next.target == begin.target && next.shift == begin.shift)
+        // The glyph's place along the cross-fade: from the pull look's to the refreshing look's, monotonic, 60 Hz steps under
+        // half of the move; at the end the identity (bit for bit: the leaf draws as without a switch).
+        var last: CGFloat?
+        for frame in 0...9 {
+            let progress = easeOut(min(1, Double(frame) / 60 / 0.15))
+            let w = CGFloat(1 - progress)                                   // from the old target (1) to the new (0)
+            let t = RefreshLookShift(weight: w, target: begin.target, shift: begin.shift).effectValue(size: CGSize(width: 400, height: 60))
+            let y = t.m32                                                      // the translation's y
+            if frame == 0 { #expect(abs(y - begin.shift.height) < 1e-9, "the first frame draws it where the pull look did") }
+            if let last {
+                #expect(y >= last - 1e-9, "monotonic (\(last) → \(y))")
+                #expect(y - last < 0.5 * abs(begin.shift.height), "no step of half the move or more: \(y - last)")
+            }
+            last = y
+        }
+        #expect(RefreshLookShift(weight: 0, target: 0, shift: begin.shift).effectValue(size: .zero) == ProjectionTransform())
+        // The opacity: SwiftUI animates the plain opacity with the same curve, from the pull look's to 1.
+        #expect(pulled(30).opacity == 0.5 && refreshing(30).opacity == 1)
+        // A second begin later (after the refresh, the pull look drawn again) switches back the other way.
+        _ = sw.look(edge: .top, refreshing: false, pull: 20, drawn: pulled(20)) { nil }
+        let again = sw.look(edge: .top, refreshing: true, pull: 20, drawn: refreshing(20)) { pulled(20) }
+        #expect(again.switching && again.target == 1 && again.shift.height == -20)
+    }
+
+    /// No switch to animate: a pull that reaches the trigger (the same place and opacity 1, also below the indicator's
+    /// length: open item 31), a leaf that drew nothing before, the gap's `.default` (the same look), the refreshing look
+    /// held through a spinner's retraction (open item 32's carry: `refreshing` never turns off). The gap's `.system`
+    /// switches its opacity only.
+    @Test func aSwitchHappensOnlyWhenTheLookChanges() {
+        for T: CGFloat in [40, 60, 100] {
+            let sw = RefreshLookSwitch()
+            _ = sw.look(edge: .top, refreshing: false, pull: T - 0.5, drawn: pullLook(at: T - 0.5, trigger: T)) { nil }
+            _ = sw.look(edge: .top, refreshing: false, pull: T, drawn: pullLook(at: T, trigger: T)) { nil }
+            let fire = sw.look(edge: .top, refreshing: true, pull: T, drawn: pullLook(refreshing: true, at: T, trigger: T)) {
+                self.pullLook(at: T, trigger: T)
+            }
+            #expect(!fire.switching && fire.target == 1, "T \(T): the trigger switches in place")
+        }
+        let fresh = RefreshLookSwitch()
+        #expect(!fresh.look(edge: .top, refreshing: true, pull: 0, drawn: pullLook(refreshing: true, at: 0, trigger: 100)) { nil }.switching,
+                "a leaf that drew nothing before (a begin from rest)")
+        let gapDefault = RefreshLookSwitch()
+        _ = gapDefault.look(edge: .top, refreshing: false, pull: 30, drawn: pullLook(.default, overlay: false, band: false, at: 30, trigger: 100)) { nil }
+        #expect(!gapDefault.look(edge: .top, refreshing: true, pull: 30,
+                                 drawn: pullLook(.default, overlay: false, band: false, refreshing: true, at: 30, trigger: 100)) {
+            self.pullLook(.default, overlay: false, band: false, at: 30, trigger: 100)
+        }.switching, "the gap's .default draws the same look")
+        let gapSystem = RefreshLookSwitch()
+        _ = gapSystem.look(edge: .top, refreshing: false, pull: 30, drawn: pullLook(overlay: false, band: false, at: 30, trigger: 100)) { nil }
+        let opacityOnly = gapSystem.look(edge: .top, refreshing: true, pull: 30,
+                                         drawn: pullLook(overlay: false, band: false, refreshing: true, at: 30, trigger: 100)) {
+            self.pullLook(overlay: false, band: false, at: 30, trigger: 100)
+        }
+        #expect(opacityOnly.switching && opacityOnly.shift == .zero, "the gap's .system: the opacity only (0.3 → 1)")
+        let carried = RefreshLookSwitch()
+        for s: CGFloat in [40, 30, 20, 25, 35] {
+            #expect(!carried.look(edge: .top, refreshing: true, pull: s, drawn: pullLook(refreshing: true, at: s, trigger: 100)) { nil }.switching)
+        }
+    }
+
     /// D66: a resize that began with nothing of the indicator visible (its last frame with the resize closed) hides it
     /// until the resize is drawn frame by frame (`.animating`: shown at once) or closes without that (a system rotation:
     /// `.revealing` once, shown after the transition). A resize that began visible never hides.

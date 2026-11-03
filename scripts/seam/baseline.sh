@@ -41,6 +41,8 @@ for sc in "$@"; do
       hdef[0-9]*) extra+=(-ZTronSeamHoldDefault "${x#hdef}") ;;   # with hold: the built-in .default indicator (L 60), holdOffset <digits> (M8b-s8 s1; handover.py --steps)
       rtrig[0-9]*) extra+=(-ZTronSeamRefreshTrigger "${x#rtrig}") ;;   # with refresh / rdur: the refresher's triggerDistance (default 60 = L; open item 31, handover.py)
       rdur*) v="${x#rdur}"; extra+=(-ZTronSeamRefresh "${v//p/.}") ;;   # instead of refresh: the refresher's action takes <s> s (rdur0p2 = 0.2: it returns under the finger; with regrab)
+      rbegin[0-9]*) extra+=(-ZTronSeamBeginAfterRelease "${x#rbegin}") ;;   # with refresh: beginRefreshing() <ms> after the first release (the look switch during a retraction, M8b-s8 s1)
+      pd[0-9]*) extra+=(-ZTronSeamPullDrag "${x#pd}") ;;   # with pull / regrab: the drag length (pt, default 220)
       sticky) extra+=(-ZTronSeamSticky 1) ;;   # a white 120 x 16 pt bar in an .overlay(alignment: .bottom) of the header (probe.py) (M8b-s6)
       vbottom) extra+=(-ZTronSeamBottomPinned 1) ;;   # with height<digits>: bottom-pinned, the TOP inset goes 62 -> 0 (M8b-s6 close)
       vboth) extra+=(-ZTronSeamBoth 1) ;;             # with height<digits>: the width animates to 60 % too

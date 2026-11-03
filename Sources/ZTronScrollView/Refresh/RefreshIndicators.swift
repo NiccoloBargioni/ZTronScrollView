@@ -359,9 +359,11 @@ struct RefreshEdgeIndicator: View {
     @StateObject private var reveal = RefreshResizeReveal()
     /// Whether this frame's base move follows an app-animated inset change (`RefreshBaseFollow`).
     @StateObject private var follow = RefreshBaseFollow()
+    /// The pull look → refreshing look switch of a `beginRefreshing()` during a retraction (`RefreshLookSwitch`).
+    @StateObject private var lookSwitch = RefreshLookSwitch()
 
     var body: some View {
-        let built = built, reveal = reveal
+        let built = built, reveal = reveal, lookSwitch = lookSwitch
         return ChromeLeaf(state, channels: [.offset, .metrics]) { sample in
             let m = sample.metrics
             // While an app-driven animated resize is open (M8b-s6), `m` is the committed geometry and the content is drawn
@@ -382,11 +384,18 @@ struct RefreshEdgeIndicator: View {
                                                                  band: band, style: spec.style)
             // Whether any of the indicator is inside its clip at this pull (a hold scrolled away keeps its placement and
             // draws nothing: open item 19).
-            let visible = RefreshIndicatorMath.placement(
+            let drawn = RefreshIndicatorMath.placement(
                 edge: edge, style: spec.style, overlay: overlay, band: band, refreshing: refreshing,
                 dragPosition: refresh.dragPosition, pull: pull, length: length, viewport: m.viewportSize, base: base, hold: hold,
                 trigger: spec.configuration.triggerDistance)
-                .map { $0.visibleLength(vertical: edge == .top || edge == .bottom) > 0 } ?? false
+            let visible = drawn.map { $0.visibleLength(vertical: edge == .top || edge == .bottom) > 0 } ?? false
+            // The switch to the refreshing look while the pull look is drawn (M8b-s8 s1): where the pull look drew it.
+            let look = lookSwitch.look(edge: edge, refreshing: refreshing, pull: pull, drawn: drawn) {
+                RefreshIndicatorMath.placement(
+                    edge: edge, style: spec.style, overlay: overlay, band: band, refreshing: false,
+                    dragPosition: refresh.dragPosition, pull: pull, length: length, viewport: m.viewportSize, base: base,
+                    hold: hold, trigger: spec.configuration.triggerDistance)
+            }
             // What the content is drawn with while the resize is open (the transform host's `ResizeMath.resolve` inputs):
             // the box follows the drawn content's edge (open item 21).
             let draw = target.map {
@@ -408,7 +417,7 @@ struct RefreshEdgeIndicator: View {
                 hasHeader: state.headerSpec != nil || m.header != nil, custom: spec.indicator != nil,
                 resize: m.resize, baseFollowsInset: edge != .top || HeaderMath.refreshTop(m)?.overlay != false, draw: draw,
                 reveal: reveal.look(open: open, visible: visible, animating: sample.phase == .animating),
-                baseAnimation: baseAnimation))
+                baseAnimation: baseAnimation, look: look, stash: lookSwitch.stash))
         }
     }
 
@@ -464,6 +473,106 @@ final class BuiltRefreshIndicator: ObservableObject {
         let view = build()
         last = (view, state)
         return view
+    }
+}
+
+/// The switch from the pull look to the refreshing look while the pull look is drawn (M8b-s8 s1, refresh design §4 and §6
+/// step 5): a `beginRefreshing()` while the indicator goes back with the content after a pull let go below the trigger (a
+/// `.pull` retraction; an overlay's spinner retraction too). The leaf went from the pull look (its place: the band's far end,
+/// an overlay's slide-in; its opacity `p / L`, the gap's `dragPosition`) to the refreshing look (centred, opacity 1) in one
+/// frame, while the glyph itself cross-fades over 0.15 s (`modeAnimated`). Now the switch follows that cross-fade: the
+/// opacity animates to 1 and the glyph glides from where the pull look drew it to the refreshing look's place
+/// (`RefreshLookShift`: a weight animated to its target, `|weight − target|` of the shift; nothing once it is there). The
+/// switch is decided on the update where the leaf's `refreshing` turns on while the pull look was drawn, and repeated for
+/// the same pull (a body run twice). Every other update keeps the weight at its target: the leaf draws as before, bit for
+/// bit. A pull that reaches the trigger switches with nothing to animate (the same place and opacity 1: open item 31).
+/// Never publishes.
+@MainActor
+final class RefreshLookSwitch: ObservableObject {
+    struct Look: Equatable {
+        /// The weight's target, flipped by every switch.
+        var target: CGFloat = 1
+        /// From the refreshing look's place to the pull look's at the switch, in the viewport (y down).
+        var shift: CGSize = .zero
+        /// This update is the switch: the leaf animates the weight and the opacity with the look's cross-fade.
+        var switching = false
+    }
+
+    /// The look's own cross-fade (`BuiltInRefreshIndicator`'s `modeAnimated` animation).
+    nonisolated static let crossFade = Animation.easeOut(duration: 0.15)
+
+    let stash = RefreshTransactionStash()
+    private var current = Look()
+    /// The previous update: the leaf's `refreshing` and the opacity it drew (nil: nothing drawn).
+    private var last: (refreshing: Bool, opacity: Double?)?
+    private var switchPull: CGFloat?
+
+    /// `drawn`: this update's placement (the leaf's `refreshing`); `pullLook`: the pull look at this pull, read only at a switch.
+    func look(edge: Edge, refreshing: Bool, pull: CGFloat, drawn: RefreshPlacement?,
+              pullLook: () -> RefreshPlacement?) -> Look {
+        defer { last = (refreshing, drawn?.opacity) }
+        if refreshing, let last, !last.refreshing, let from = last.opacity, let to = drawn, let pulled = pullLook() {
+            let shift = CGSize(width: pulled.frame.midX - to.frame.midX, height: pulled.frame.midY - to.frame.midY)
+            // Something to animate (a pull that reaches the trigger switches in place, at opacity 1: rounding only).
+            if max(abs(shift.width), abs(shift.height)) > 1e-6 || abs(from - to.opacity) > 1e-6 {
+                current.target = 1 - current.target
+                current.shift = shift
+                current.switching = true
+                switchPull = pull
+                #if DEBUG
+                RefreshTrace.event("switch \(edge) pull=\(RefreshTrace.f(pull)) shift=\(RefreshTrace.f(shift.width)),\(RefreshTrace.f(shift.height)) from=\(RefreshTrace.f(CGFloat(from)))")
+                #endif
+                return current
+            }
+        }
+        if current.switching, !(refreshing && pull == switchPull) { current.switching = false }
+        return current
+    }
+}
+
+/// Shifts the glyph by `|weight − target|` of `shift`: the identity once the weight is at its target (every update but a
+/// look switch's animation, `RefreshLookSwitch`). Render-time, so the per-frame updates of the pull (the hold's reveal
+/// moving the content) leave the weight's animation alone: they change neither the weight nor its target.
+nonisolated struct RefreshLookShift: GeometryEffect {
+    var weight: CGFloat
+    let target: CGFloat
+    let shift: CGSize
+
+    var animatableData: CGFloat {
+        get { weight }
+        set { weight = newValue }
+    }
+
+    func effectValue(size: CGSize) -> ProjectionTransform {
+        let k = abs(weight - target)
+        guard k > 0 else { return ProjectionTransform() }
+        return ProjectionTransform(CGAffineTransform(translationX: shift.width * k, y: shift.height * k))
+    }
+}
+
+/// The transaction of the update that animates a look switch, as it was before the switch's animation replaced it: the
+/// indicator's content gets it back (`restore`), so only the glyph's place and opacity take the cross-fade. Written by the
+/// outer `.transaction` of the same update (which runs first: the inner one reads what it hands down), cleared by it on
+/// every other update.
+nonisolated final class RefreshTransactionStash: @unchecked Sendable {
+    private var animation: Animation?
+    private var disablesAnimations = false
+    private var overridden = false
+
+    func override(_ t: inout Transaction, with animation: Animation) {
+        self.animation = t.animation
+        disablesAnimations = t.disablesAnimations
+        overridden = true
+        t.disablesAnimations = false
+        t.animation = animation
+    }
+
+    func clear() { overridden = false }
+
+    func restore(_ t: inout Transaction) {
+        guard overridden else { return }
+        t.animation = animation
+        t.disablesAnimations = disablesAnimations
     }
 }
 
@@ -634,6 +743,10 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
 
     /// The animation of an app-animated inset change this frame's base move follows (`RefreshBaseFollow`), else nil.
     let baseAnimation: Animation?
+    /// The pull look → refreshing look switch (`RefreshLookSwitch`): the glyph's shift and whether this update animates it.
+    let look: RefreshLookSwitch.Look
+    /// The update's own transaction, kept for the indicator's content while the switch animates its place and opacity.
+    let stash: RefreshTransactionStash
 
     var animatableData: CGFloat {
         get { pull }
@@ -697,6 +810,7 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
                                   group: RefreshIndicatorGroup.Kind) -> some View {
         let ungrouped = group == .none
         let hideForResize = ungrouped && reveal == .hidden, revealNow = ungrouped && reveal == .revealing
+        let look = look, stash = stash
         #if DEBUG
         let _ = Self.noteGate(ungrouped)
         #endif
@@ -706,16 +820,24 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
             ZStack(alignment: .topLeading) {
                 ZStack(alignment: .topLeading) {
                     content
+                        // The look switch animates the glyph's place and opacity only: its content keeps the update's own
+                        // transaction (a custom indicator's change is drawn as without the switch).
+                        .transaction { t in stash.restore(&t) }
+                        .modifier(RefreshLookShift(weight: look.target, target: look.target, shift: look.shift))
                         .frame(width: placement.frame.width, height: placement.frame.height)
                         .opacity(hideForResize ? 0 : placement.opacity)
                         // D66: hidden at once; shown after the system's transition, in the reveal's own animation
-                        // (the frame that reveals is the resize's close, written without animation)
+                        // (the frame that reveals is the resize's close, written without animation). The look switch
+                        // (M8b-s8 s1): the opacity and the shift's weight in the look's cross-fade.
                         .transaction { t in
+                            stash.clear()
                             if hideForResize {
                                 t.animation = nil
                             } else if revealNow {
                                 t.disablesAnimations = false
                                 t.animation = RefreshResizeReveal.afterTransition
+                            } else if look.switching {
+                                stash.override(&t, with: RefreshLookSwitch.crossFade)
                             }
                         }
                         .position(x: placement.frame.midX - box.minX, y: placement.frame.midY - box.minY)

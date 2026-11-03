@@ -130,6 +130,8 @@ struct SeamLabScreen: View {
         return s
     }()
     @State private var narrow = false
+    /// `-ZTronSeamBeginAfterRelease`: armed until the first release (a reference: the phase observer never re-renders the lab).
+    @State private var beginArmed = SeamLabFlag(true)
     /// `-ZTronSeamFitGrow 1`: `seam.width` toggles the header's content between 16:9 and 4:3 instead (review d16).
     @State private var tall = false
     @State private var far = false
@@ -298,11 +300,26 @@ extension SeamLabScreen {
         guard let seconds = SeamLab.refreshSeconds else { return view }
         // Trigger at 60 pt (`-ZTronSeamRefreshTrigger <T>`): the 220 pt drag of testPull crosses it under the rubber band and
         // fires while pulling.
-        return view.refresher(style: .system,
+        view = view.refresher(style: .system,
                               configuration: ZTronRefreshConfiguration(triggerDistance: SeamLab.refreshTrigger)) {
             try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
         }
+        // M8b-s8 s1: `-ZTronSeamBeginAfterRelease <ms>`: `beginRefreshing()` that long after the first release (a pull let go
+        // below the trigger is going back with the content: the pull look switches to the refreshing look).
+        guard let delay = SeamLab.beginAfterRelease else { return view }
+        let state = state, armed = beginArmed
+        return view.onScrollPhaseChange { old, new in
+            guard armed.value, old == .interacting || old == .tracking, new == .decelerating || new == .animating else { return }
+            armed.value = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay / 1000) { state.beginRefreshing() }
+        }
     }
+}
+
+/// A mutable flag the lab's closures share without re-rendering it.
+final class SeamLabFlag {
+    var value: Bool
+    init(_ value: Bool) { self.value = value }
 }
 
 extension SeamLab {
@@ -514,6 +531,8 @@ extension SeamLab {
     }
     /// `-ZTronSeamHoldEnd <s>` (with `-ZTronSeamHold 1`): `endRefreshing` `s` seconds after the hold began.
     static var holdEnd: Double? { Double(HeaderDemo.argument("-ZTronSeamHoldEnd", "")) }
+    /// `-ZTronSeamBeginAfterRelease <ms>` (with `-ZTronSeamRefresh`): `beginRefreshing()` that long after the first release.
+    static var beginAfterRelease: Double? { Double(HeaderDemo.argument("-ZTronSeamBeginAfterRelease", "")) }
 }
 
 /// Reads the presented (animated) frame height every frame (`-ZTronSeamRetargetNear`).
