@@ -543,15 +543,14 @@ final class RefreshLookSwitch: ObservableObject {
 /// at their end values (no glide; a compositing group around the glyph resolved them at the group). With the glyphs in a
 /// `ZStack` (`BuiltInRefreshIndicator`) the indicator was not drawn at all on the 1-2 frames after the switch (27.0: 16 of
 /// 20 runs, with or without a group, the shift and the opacity animated or drawn frame by frame through a `GeometryEffect`;
-/// 0 of 4 with the switch unanimated). (2) This modifier then carried the placement's frame, opacity and place and drew
-/// them inside its body: while the weight animated, the place in the box stayed where the switch found it as the box went
-/// on with the content, so a switch at a trigger (nothing to animate but the leaf's pull a frame behind the engine's) moved
-/// the arrow with the content up to 8 pt off the band's centre for the 0.15 s (seam lab 27.0, `rtrig40` / `rtrig30`). Here
-/// the body depends on nothing but the weight and the switch (fixed for its duration): the shift is layout (the glyph's
-/// centre guides, which the placement's frame aligns: no geometry effect, and the glyph is offered the placement's size as
-/// without a switch), the opacity a factor; the frame, the opacity and the place are the leaf's, outside, with the
-/// update's own transaction. The content keeps the update's own transaction too
-/// (`RefreshTransactionStash.restore`): a custom indicator's change is drawn as without the switch.
+/// 0 of 4 with the switch unanimated). (2) The body depends on nothing but the weight and the switch (fixed for its
+/// duration): the shift is layout (the glyph's centre guides, which the placement's frame aligns: no geometry effect, and
+/// the glyph is offered the placement's size as without a switch; a padding shrank a flexible custom indicator's proposal),
+/// the opacity a factor; the frame, the opacity and the place are the leaf's, outside, with the update's own transaction.
+/// The 8 pt drift with the content after a trigger below `indicatorHeight` (seam lab 27.0, `rtrig40` / `rtrig30`) was not
+/// this modifier's (NSLog: no switch at those triggers, `k` 0, the place fresh every frame) but the fading arrow's
+/// (`RefreshGlyphBoundary`). The content keeps the update's own transaction too (`RefreshTransactionStash.restore`): a
+/// custom indicator's change is drawn as without the switch.
 nonisolated struct RefreshLookFade: ViewModifier, Animatable {
     /// Animated from the previous target to `look.target` in the switch's cross-fade; at the target otherwise.
     var weight: CGFloat
@@ -1157,6 +1156,16 @@ enum RefreshTrace {
 }
 #endif
 
+/// A geometry boundary around the built-in glyphs (open item 39). The glyph the cross-fade removes keeps the geometry it was
+/// last laid out with until it has faded, resolved against the nearest geometry boundary above it; without one inside the
+/// box that was the box's layer group (`RefreshIndicatorGroup`), which moves with the content: after a trigger below
+/// `indicatorHeight` the fading arrow stayed where the trigger found it in the box and went on with the content, up to 8 pt
+/// off the band's centre for the 0.15 s (seam lab 27.0, `rtrig40` / `rtrig30`), while its placement moved as it should.
+/// Under this boundary the fading glyph follows its placement. An identity effect: nothing is moved or drawn differently.
+nonisolated struct RefreshGlyphBoundary: GeometryEffect {
+    func effectValue(size: CGSize) -> ProjectionTransform { ProjectionTransform() }
+}
+
 /// The built-in look. `.system`: an arrow that turns with the pull, then the system spinner (the UIRefreshControl idiom);
 /// `.default`: a ring that fills with the pull, then the spinner. The mode switch is animated by `modeAnimated`: the pull's
 /// glyph and the spinner cross-fade in 0.15 s.
@@ -1175,6 +1184,7 @@ enum RefreshTrace {
 /// - Both glyphs are laid out in the same 24 pt square: in a stack that took the spinner's size, the arrow kept its place
 ///   as laid out before (its own height) through the cross-fade, 0.67-1 pt off the centre until it had faded (27.0, every
 ///   trigger).
+/// - The glyphs sit under `RefreshGlyphBoundary`: the arrow the cross-fade removes follows its placement while it fades.
 struct BuiltInRefreshIndicator: View {
     let refresh: ZTronRefreshState
     let edge: Edge
@@ -1194,6 +1204,7 @@ struct BuiltInRefreshIndicator: View {
             }
         }
         .animation(.easeOut(duration: 0.15), value: refresh.modeAnimated)
+        .modifier(RefreshGlyphBoundary())
     }
 
     /// The square both glyphs are laid out in (the `.default` ring's; the spinner is 20 pt, the arrow under it).
