@@ -16,6 +16,19 @@ enum PanGestureMode: String {
     }
 }
 
+/// Spike PICKER-s1 (open items 37-39, D84): a drag that starts on a wheel / date picker is the picker's, as in a native
+/// `ScrollView`. The D31 window recognizer (probe-only on 17+) flags a sequence whose first finger lands inside a
+/// `UIPickerView` / `UIDatePicker`; the coordinator then drops that sequence's vertical drag. The attach is untouched (D86).
+/// Off unless the build defines `ZTRON_PICKER_DECLINE` (`scripts/test-demo-ui.sh --picker`): no default-path change
+/// without the user's OK.
+enum PickerDecline {
+    #if ZTRON_PICKER_DECLINE
+    static let isOn = true
+    #else
+    static let isOn = false
+    #endif
+}
+
 /// Thin SwiftUI layer: builds the gestures, forwards `PanEvent`s to the coordinator. No logic.
 struct PanGestureAdapter: ViewModifier {
     @ObservedObject var coordinator: PanCoordinator
@@ -74,7 +87,8 @@ struct PanGestureAdapter: ViewModifier {
             .modifier(PinchGestureAttach(pinch: PinchGestureAdapter.gesture(coordinator: coordinator, observer: observer),
                                          doubleTap: tap, yields: yields))
             .modifier(CatchArmingProbe(state: gated ? coordinator.state : nil, arming: arming, observer: observer))
-            .modifier(UIKitObserverAttach(enabled: uikit, coordinator: coordinator, catchState: observer))
+            .modifier(UIKitObserverAttach(enabled: uikit || PickerDecline.isOn, feedsCore: uikit, coordinator: coordinator,
+                                          catchState: observer))
             .onChangeCompat(of: yields) { yielding in
                 // The masked gestures are cancelled by SwiftUI without `onEnded`: forget what they left behind, then end
                 // a sequence in flight like a cancelled touch.
@@ -247,9 +261,11 @@ struct GatedGestureAttach<P: Gesture>: ViewModifier {
 }
 
 /// iOS 15-16 observer path (D31): a zero-size anchor at the viewport's top-leading corner installs the window recognizer
-/// (`Gesture/UIKit/UIKitTouchObserver.swift`). Anywhere else the content passes through.
+/// (`Gesture/UIKit/UIKitTouchObserver.swift`). `feedsCore: false` = the probe-only recognizer of `PickerDecline` (17+).
+/// Anywhere else the content passes through.
 struct UIKitObserverAttach: ViewModifier {
     let enabled: Bool
+    var feedsCore = true
     let coordinator: PanCoordinator
     let catchState: CatchObserverState
 
@@ -258,7 +274,7 @@ struct UIKitObserverAttach: ViewModifier {
         #if canImport(UIKit) && os(iOS)
         if enabled {
             content.background(alignment: .topLeading) {
-                UIKitTouchObserverAnchor(coordinator: coordinator, catchState: catchState)
+                UIKitTouchObserverAnchor(coordinator: coordinator, catchState: catchState, feedsCore: feedsCore)
                     .frame(width: 0, height: 0).allowsHitTesting(false)
             }
         } else {

@@ -13,14 +13,17 @@ final class UIKitControlsUITests: XCTestCase {
     private var native: Bool { ProcessInfo.processInfo.environment["ZS_NATIVE"] == "1" }
     /// `-ZTronPanGestureMode` (DEBUG): `ZS_PAN_MODE=gesture|high` runs the lane with another attach style, as in `PanUITests`.
     private var mode: String? { ProcessInfo.processInfo.environment["ZS_PAN_MODE"] }
+    /// `ZS_PICKER=1` (`scripts/test-demo-ui.sh --picker`): the build defines `ZTRON_PICKER_DECLINE` (spike PICKER-s1), so the
+    /// required fixes of open items 37-39 are asserted, not expected to fail.
+    private var picker: Bool { ProcessInfo.processInfo.environment["ZS_PICKER"] == "1" }
 
     override func setUp() { continueAfterFailure = false }
 
-    private func launch() -> XCUIApplication {
+    private func launch(_ extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-ZTronScreen", "uikitControls"] + (forced ? ["-ZTronForceAllFallbacks"] : [])
             + (uikit ? ["-ZTronForceUIKitObserver"] : []) + (native ? ["-ZTronNativeScroll"] : [])
-            + (mode.map { ["-ZTronPanGestureMode", $0] } ?? [])
+            + (mode.map { ["-ZTronPanGestureMode", $0] } ?? []) + extra
         app.launch()
         return app
     }
@@ -51,14 +54,25 @@ final class UIKitControlsUITests: XCTestCase {
     }
 
     /// The scroll offset (`Info` prints it; a popover or sheet still open swallows the first tap, hence the retries).
-    private func offsetY(_ app: XCUIApplication) -> Int? {
+    private func offsetY(_ app: XCUIApplication) -> Int? { info(app)["y"].flatMap { Int($0) } }
+
+    /// Every `key=value` of the `Info` line (`y`, the outer `ox` / `oy`, the picker probe's `hit` / `miss` / `decl`).
+    private func info(_ app: XCUIApplication) -> Values {
         for _ in 0..<3 {
             app.buttons["Info"].tap()
             Thread.sleep(forTimeInterval: 0.3)
             let s = app.staticTexts["stateInfo"].value as? String ?? ""
-            if let y = s.components(separatedBy: " ").first(where: { $0.hasPrefix("y=") }).flatMap({ Int($0.dropFirst(2)) }) { return y }
+            var out: Values = [:]
+            for pair in s.components(separatedBy: " ") {
+                let kv = pair.components(separatedBy: "=")
+                if kv.count == 2 { out[kv[0]] = kv[1] }
+            }
+            if out["y"] != nil {
+                print("UICTL info \(s) | \(app.staticTexts["pickerChain"].value as? String ?? "")")
+                return out
+            }
         }
-        return nil
+        return [:]
     }
 
     private func assertStayedAtTop(_ app: XCUIApplication, _ what: String, file: StaticString = #filePath, line: UInt = #line) {
@@ -76,7 +90,7 @@ final class UIKitControlsUITests: XCTestCase {
     /// A required fix that has not landed yet (D84: not a limitation): asserted on the native baseline, an expected failure on the
     /// ZTron lanes that names its open item, until that item is fixed.
     private func requiredFix(_ item: String, strict: Bool = true, _ assertion: () -> Void) {
-        if native { assertion() } else { XCTExpectFailure("required fix, \(item)", strict: strict, failingBlock: assertion) }
+        if native || picker { assertion() } else { XCTExpectFailure("required fix, \(item)", strict: strict, failingBlock: assertion) }
     }
 
     private func steps(_ v: Values) -> Int { Int(v["stepper"] ?? "") ?? -1 }
@@ -166,6 +180,94 @@ final class UIKitControlsUITests: XCTestCase {
         requiredFix(item + "; the wheel must absorb it as in a native ScrollView", strict: false) {
             assertStayedAtTop(app, "a wheel drag")
         }
+    }
+
+    // MARK: Wheels in every topology (PICKER-s1, open items 37-39)
+
+    private enum Topology: String { case plain, nested, pager }
+
+    private func launchWheels(_ t: Topology) -> XCUIApplication {
+        launch(["-ZTronControlsWheels", "-ZTronControlsTopology", t.rawValue])
+    }
+
+    private func element(_ app: XCUIApplication, _ id: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: id).firstMatch
+    }
+
+    /// The drag is the wheel's: neither the scroll view nor its outer moved (open item 37 below 26, 39 on 26+, 38 nested / paged).
+    private func assertNothingScrolled(_ app: XCUIApplication, _ t: Topology, _ what: String, file: StaticString = #filePath, line: UInt = #line) {
+        let i = info(app)
+        let item = t != .plain ? "open item 38 (D84)"
+            : ProcessInfo.processInfo.isOperatingSystemAtLeast(OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0))
+            ? "open item 39 (D84, D86)" : "open item 37 (D84)"
+        requiredFix(item + ": \(what) in the \(t.rawValue) topology must not scroll (as in a native ScrollView)", strict: false) {
+            XCTAssertEqual(i["y"], "0", "\(what) did not scroll the content", file: file, line: line)
+            XCTAssertEqual(i["ox"], "0", "\(what) did not move the outer along x", file: file, line: line)
+            XCTAssertEqual(i["oy"], "0", "\(what) did not move the outer along y", file: file, line: line)
+        }
+    }
+
+    private func dragUp(_ el: XCUIElement) {
+        let a = el.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        a.press(forDuration: 0.05, thenDragTo: a.withOffset(CGVector(dx: 0, dy: -60)), withVelocity: .slow, thenHoldForDuration: 0.3)
+    }
+
+    private func wheelDate(_ t: Topology) {
+        let app = launchWheels(t)
+        let month = app.datePickers["ctl.date.wheel"].pickerWheels.matching(NSPredicate(format: "NOT (value MATCHES %@)", "[0-9]+")).firstMatch
+        XCTAssertTrue(month.waitForExistence(timeout: 5), "the date picker has a month wheel")
+        dragUp(month)
+        let v = waitValues(app) { $0["wheel"] != "2026-03-15" }
+        XCTAssertGreaterThan(v["wheel"] ?? "", "2026-03-15", "dragging the month wheel up turns it to a later month")
+        assertNothingScrolled(app, t, "a month wheel drag")
+    }
+
+    private func wheelPicker(_ t: Topology) {
+        let app = launchWheels(t)
+        let wheel = element(app, "ctl.picker.wheel")
+        XCTAssertTrue(wheel.waitForExistence(timeout: 5), "the wheel picker exists")
+        dragUp(wheel)
+        let v = waitValues(app) { $0["pick"] != "0" }
+        XCTAssertGreaterThan(Int(v["pick"] ?? "") ?? 0, 0, "dragging the wheel picker up picks a later item")
+        assertNothingScrolled(app, t, "a wheel picker drag")
+    }
+
+    /// The decline is per sequence and only for picker touches: a slider drag still moves the slider, never the content.
+    private func slider(_ t: Topology) {
+        let app = launchWheels(t)
+        let s = element(app, "ctl.slider")
+        XCTAssertTrue(s.waitForExistence(timeout: 5))
+        s.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5))
+            .press(forDuration: 0.05, thenDragTo: s.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5)), withVelocity: .slow,
+                   thenHoldForDuration: 0.2)
+        let v = waitValues(app) { (Int($0["slider"] ?? "") ?? 0) >= 40 }
+        XCTAssertGreaterThanOrEqual(Int(v["slider"] ?? "") ?? 0, 40, "the slider follows the drag")
+        let i = info(app)
+        XCTAssertEqual(i["y"], "0", "a slider drag does not scroll the content")
+        XCTAssertEqual(i["oy"], "0", "a slider drag does not move the outer")
+    }
+
+    func testWheelsPlainDatePicker() { wheelDate(.plain) }
+    func testWheelsPlainPicker() { wheelPicker(.plain) }
+    func testWheelsPlainSlider() { slider(.plain) }
+    func testWheelsNestedDatePicker() { wheelDate(.nested) }
+    func testWheelsNestedPicker() { wheelPicker(.nested) }
+    func testWheelsNestedSlider() { slider(.nested) }
+    func testWheelsPagerDatePicker() { wheelDate(.pager) }
+    func testWheelsPagerPicker() { wheelPicker(.pager) }
+
+    /// A horizontal swipe that starts on the wheel picker of page 0: the wheel's pan fails across its axis, so the pager pages
+    /// (native) and the wheel keeps its value. The decline's 45° cone leaves such a drag to the scroll views.
+    func testWheelsPagerHorizontalSwipeOnTheWheelPages() {
+        let app = launchWheels(.pager)
+        let wheel = element(app, "ctl.picker.wheel")
+        XCTAssertTrue(wheel.waitForExistence(timeout: 5))
+        let a = wheel.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5))
+        a.press(forDuration: 0.05, thenDragTo: a.withOffset(CGVector(dx: -220, dy: 0)), withVelocity: .fast, thenHoldForDuration: 0)
+        Thread.sleep(forTimeInterval: 1.0)
+        let i = info(app)
+        XCTAssertGreaterThan(Int(i["ox"] ?? "") ?? 0, 100, "the pager paged")
+        XCTAssertEqual(values(app)["pick"], "0", "the wheel did not turn")
     }
 
     // MARK: Menu

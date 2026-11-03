@@ -59,6 +59,12 @@ final class PanCoordinator: ObservableObject {
     /// change. Held until the observer says the fingers are gone (`touchesEnded`: released then, from the current
     /// time) or that two are down again (`fingerCountChanged(≥ 2)` / `.began`: dropped, the pinch takes over).
     private var heldRelease: (request: ReleaseRequest, env: PanEnvironment)?
+    /// Picker decline (spike PICKER-s1, open items 37-39, `PickerDecline`): the window probe saw this sequence's first
+    /// finger land inside a `UIPickerView` / `UIDatePicker`. Read once, at the first drag sample.
+    private var sequenceBeganOnPicker = false
+    /// The picker owns this sequence's drag: its drag samples never reach the session (cleared at its `.dragEnded` or by
+    /// the next sequence).
+    private(set) var declinedForPicker = false
     #if DEBUG
     var effectsLog: [PanEffect] = []
     var pinchLog: [PinchEffect] = []
@@ -177,6 +183,7 @@ final class PanCoordinator: ObservableObject {
         if yieldsToSheet {
             guard case .cancelled = incoming else { return }
         }
+        if pickerAbsorbs(incoming) { return }
         var event = incoming
         #if DEBUG
         if case .touchDown = incoming, state.headerSpec?.behavior == .stretch, !peekEnvironment().bouncesY {
@@ -281,6 +288,36 @@ final class PanCoordinator: ObservableObject {
             (participant?.arbiter as? NestedScrollArbiter)?.participantSequenceEnded()
         default: break
         }
+    }
+
+    /// The window probe (`UIKitTouchObserverRecognizer`) at a sequence's first finger down: `onPicker` = its hit view sits
+    /// inside a `UIPickerView` / `UIDatePicker` (spike PICKER-s1).
+    func touchSequenceBegan(onPicker: Bool) {
+        sequenceBeganOnPicker = onPicker
+        declinedForPicker = false
+    }
+
+    /// True = `incoming` is a drag sample of a sequence the picker under the finger owns: dropped. A wheel turns along y,
+    /// so the first sample decides with UIKit's cross-axis cone (45°, U1 C2): within it of vertical the picker's own pan
+    /// takes the drag and this view declines the sequence (a caught motion settles, a nested container passes over this
+    /// view, D60); a flatter drag fails the picker's pan and stays this view's.
+    private func pickerAbsorbs(_ incoming: PanEvent) -> Bool {
+        if declinedForPicker {
+            switch incoming {
+            case .dragChanged: return true
+            case .dragEnded: declinedForPicker = false; return true
+            default: return false
+            }
+        }
+        guard sequenceBeganOnPicker, case let .dragChanged(translation, _, _) = incoming else { return false }
+        sequenceBeganOnPicker = false
+        guard abs(translation.height) >= abs(translation.width) else { return false }
+        #if DEBUG
+        ZTronRenderCounters.increment("picker.declined")
+        #endif
+        declinedForPicker = true
+        handle(.declined)
+        return true
     }
 
     /// The system cancelled the gesture (or the view went away) while a sequence is active.
