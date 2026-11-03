@@ -73,6 +73,12 @@ final class UIKitControlsUITests: XCTestCase {
         if native { assertion() } else { XCTExpectFailure(reason, strict: strict, failingBlock: assertion) }
     }
 
+    /// A required fix that has not landed yet (D84: not a limitation): asserted on the native baseline, an expected failure on the
+    /// ZTron lanes that names its open item, until that item is fixed.
+    private func requiredFix(_ item: String, strict: Bool = true, _ assertion: () -> Void) {
+        if native { assertion() } else { XCTExpectFailure("required fix, \(item)", strict: strict, failingBlock: assertion) }
+    }
+
     private func steps(_ v: Values) -> Int { Int(v["stepper"] ?? "") ?? -1 }
 
     // MARK: Stepper
@@ -141,7 +147,9 @@ final class UIKitControlsUITests: XCTestCase {
     }
 
     /// Wheel style: a vertical drag on the month wheel turns it. The wheel is a UIKit scroll view, so the drag is its own: a native
-    /// `ScrollView` stays put, the ZTron scroll view follows the finger too (y = 50 on 18+, 1 on 17.5; DBG-s4 Open 3).
+    /// `ScrollView` stays put, the ZTron scroll view follows the finger too (y = 50 on 18+, 1 on 17.5; DBG-s4 Open 3). The wheel
+    /// must absorb the drag (D84), so this is a required fix, not a limitation: open item 39 on 26+ (D86 keeps the pan simultaneous
+    /// there), open item 37 on 18.x and below; not strict, as before, so the expectation holds on every lane until the fix lands.
     func testWheelDatePickerTurnsTheMonthWheel() {
         let app = launch()
         // The month is the one wheel whose value is not a number (the wheel order and the month names follow the locale).
@@ -152,7 +160,10 @@ final class UIKitControlsUITests: XCTestCase {
         let v = waitValues(app) { $0["wheel"] != "2026-03-15" }
         XCTAssertNotEqual(v["wheel"], "2026-03-15", "dragging the month wheel up changes the date")
         XCTAssertGreaterThan(v["wheel"] ?? "", "2026-03-15", "up is later")
-        knownLimitation("the content follows a drag on a UIKit scroll view (DBG-s4 Open 3)", strict: false) {
+        let item = ProcessInfo.processInfo.isOperatingSystemAtLeast(OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0))
+            ? "open item 39 (D84, D86): on 26+ a drag that starts on the wheel also scrolls the content (y = 50)"
+            : "open item 37 (D84): below 26 a drag that starts on the wheel also scrolls the content (y = 50 on 18.x, 1 on 17.5)"
+        requiredFix(item + "; the wheel must absorb it as in a native ScrollView", strict: false) {
             assertStayedAtTop(app, "a wheel drag")
         }
     }

@@ -230,6 +230,23 @@ struct UIKitPanDeclineTests {
         #expect(r.arbiter.containerOwner(ofDragFrom: start, translation: steep(1), touchCount: 1) == .participant)
     }
 
+    /// D73 with D60: the lazy sequence a decline began is superseded by the outer's next real touch-down like any lazy
+    /// one, and the supersede gives the declined view its frame back, so the new sequence finds it again; the
+    /// declined touch's late end does not close the outer's own sequence.
+    @Test(arguments: OSPath.allCases) func aLazyDeclineIsSupersededByTheOutersTouchDown(path: OSPath) {
+        let r = make(path)
+        r.inner.coord.handle(.touchDown(location: start, time: r.clock.t, touchCount: 1))
+        r.inner.coord.handle(.declined)
+        #expect(r.arbiter.containerOwner(ofDragFrom: start, translation: steep(1), touchCount: 1) == .container)
+        r.arbiter.beginSequence()
+        #expect(r.arbiter.isSequenceActive && r.arbiter.currentOwner == nil)
+        #expect(r.arbiter.containerOwner(ofDragFrom: start, translation: steep(1), touchCount: 1) == .participant)
+        r.inner.coord.handle(.touchesEnded(time: r.clock.t))
+        #expect(r.arbiter.isSequenceActive && r.arbiter.currentOwner == .participant)
+        r.arbiter.endSequence()
+        #expect(!r.arbiter.isSequenceActive)
+    }
+
     /// No container to tell: a scroll-disabled outer arbitrates nothing; unknown tokens are ignored.
     @Test(arguments: OSPath.allCases) func declinesTheArbiterCannotUseChangeNothing(path: OSPath) {
         let r = make(path)

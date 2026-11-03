@@ -27,11 +27,11 @@ enum MixedProbeLog {
 }
 
 struct ProbeInstaller: UIViewRepresentable {
-    func makeUIView(context: Context) -> ProbeAnchor { ProbeAnchor() }
-    func updateUIView(_ v: ProbeAnchor, context: Context) {}
+    func makeUIView(context: Context) -> MixedProbeAnchor { MixedProbeAnchor() }
+    func updateUIView(_ v: MixedProbeAnchor, context: Context) {}
 }
 
-final class ProbeAnchor: UIView {
+final class MixedProbeAnchor: UIView {
     private var logger: ProbeTouchLogger?
 
     override func didMoveToWindow() {
