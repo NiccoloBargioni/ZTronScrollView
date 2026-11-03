@@ -538,7 +538,7 @@ final class RefreshLookSwitch: ObservableObject {
 /// `k` of the way from the placement's (1 while refreshing) to the pull look's (`from`). `k` is 0 on every update but a
 /// switch's animation: nothing moved, opacity 1, the placement's frame, place and opacity (outside, `boxes`) bit for bit.
 ///
-/// Open item 39. (1) The switch animated a shift (an animatable `GeometryEffect`) and the plain opacity in the cross-fade:
+/// Open item 41. (1) The switch animated a shift (an animatable `GeometryEffect`) and the plain opacity in the cross-fade:
 /// SwiftUI resolves its ancestors' animations at the leaves, so the spinner the cross-fade inserts is a new leaf and started
 /// at their end values (no glide; a compositing group around the glyph resolved them at the group). With the glyphs in a
 /// `ZStack` (`BuiltInRefreshIndicator`) the indicator was not drawn at all on the 1-2 frames after the switch (27.0: 16 of
@@ -1156,7 +1156,7 @@ enum RefreshTrace {
 }
 #endif
 
-/// A geometry boundary around the built-in glyphs (open item 39). The glyph the cross-fade removes keeps the geometry it was
+/// A geometry boundary around the built-in glyphs (open item 41). The glyph the cross-fade removes keeps the geometry it was
 /// last laid out with until it has faded, resolved against the nearest geometry boundary above it; without one inside the
 /// box that was the box's layer group (`RefreshIndicatorGroup`), which moves with the content: after a trigger below
 /// `indicatorHeight` the fading arrow stayed where the trigger found it in the box and went on with the content, up to 8 pt
@@ -1170,7 +1170,7 @@ nonisolated struct RefreshGlyphBoundary: GeometryEffect {
 /// `.default`: a ring that fills with the pull, then the spinner. The mode switch is animated by `modeAnimated`: the pull's
 /// glyph and the spinner cross-fade in 0.15 s.
 ///
-/// M8b-s8 s1 (open item 39): the cross-fade was never drawn, and neither was the look switch of a `beginRefreshing()` during a
+/// M8b-s8 s1 (open item 41): the cross-fade was never drawn, and neither was the look switch of a `beginRefreshing()` during a
 /// retraction (`RefreshLookSwitch`): both landed in one frame (seam lab, every lane: the arrow at full intensity on one frame,
 /// the spinner at full on the next; the begin's glyph from the band's far end to its centre and from opacity `p / L` to 1).
 /// - A `Group` hands its modifiers to each of its children, so `.animation(_:value:)` sat on the branch itself and the branch
