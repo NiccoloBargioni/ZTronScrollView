@@ -47,7 +47,7 @@ Wave 1 ≈ 20–25 points.
 
 | # | Branch | D | Needs | Action | ≈ pts |
 |---|---|---|---|---|---|
-| 9 | `sharp-banach-dadf23` **stage B** (tip) | D40 | user ack (parity fix: a native ScrollView yields to a wheel picker; from 26 the pan is a `.gesture`) | merge; the D36 yield mask goes into all three `.adaptive` attachments (appendix) | 3 |
+| 9 | `sharp-banach-dadf23` **stage B** (tip) | D40 | **accepted (user, 2026-11-03, D84)** (parity fix: a native ScrollView yields to a wheel picker; from 26 the pan is a `.gesture`; the 18.x and nested cases are open items 37 / 38) | merge; the D36 yield mask goes into all three `.adaptive` attachments (appendix) | 3 |
 | 10 | `confident-babbage-6acfe7` (DBG-s8) | D47 (keeps the number; main cites it) | after 9 | merge with resolution | 2.5 |
 | 11 | `cool-stonebraker-0015c9` (M8b-3) | D61–D66 | D63 + the M8b-3 session finishing its round | merge (clean today); re-read its header / refresh lanes under D49 rev 2 and the D34/D37 observer | 3–4 |
 | 12 | `dbg-refresh-reversal`, `unruffled-hopper-8214fb` (DBG-s10/s11) | — | P1 / P2; the session rebases onto 11 | merge after 11 | 2–3 |
