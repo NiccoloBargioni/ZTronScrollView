@@ -49,11 +49,22 @@ enum RefreshIndicatorMath {
     ///   the content's edge.
     ///   - band: with `overlay`, the `.stretch` band (`inStretchBand`, S-RS-1): the overlay's look, drawn only over the
     ///     band the pull stretches, its far edge on the header's drawn bottom (see the branch).
+    ///   - trigger: the trigger distance `T` (`configuration.triggerDistance`): the band's and the overlay's pull look read
+    ///     the drag position at THIS pull, `min(1, p / T)` as the engine's `progress(for:)`, so they are a function of the
+    ///     drawn pull (open item 31); `nil` draws the pull look of a trigger at least `length` long (today's).
     static func placement(edge: Edge, style: ZTronRefreshStyle, overlay: Bool, band: Bool = false, refreshing: Bool,
                           dragPosition: CGFloat, pull: CGFloat, length: CGFloat, viewport: CGSize, base: EdgeInsets,
-                          header: CGFloat = 0, hold: CGFloat? = nil) -> RefreshPlacement? {
+                          header: CGFloat = 0, hold: CGFloat? = nil, trigger: CGFloat? = nil) -> RefreshPlacement? {
         let p = max(0, pull)
         let L = max(0, length)
+        // Open item 31 (M8b-s8, L2): the band's and the overlay's pull look reach the refreshing look (opacity 1, the overlay
+        // at `[0, L]`, the band's `.system` centred) at the trigger, also when it is shorter than the indicator (`T < L`):
+        // they follow `max(p / L, drag)` instead of `p / L`, `drag` the drag position at this pull. With `T ≥ L` (every
+        // default) `drag ≤ p / L` on every pull, so `reach` is nil and every expression is today's, bit for bit.
+        let reach: CGFloat? = trigger.flatMap { T in
+            let drag: CGFloat = p > 0 ? (T > 0 ? min(1, p / T) : 1) : 0
+            return L > 0 && drag > p / L ? drag : nil
+        }
         let vertical = edge == .top || edge == .bottom
         let along = vertical ? viewport.height : viewport.width
         let crossStart = vertical ? base.leading : base.top
@@ -93,21 +104,27 @@ enum RefreshIndicatorMath {
                 // the hold rests it (`H − rest` before the edge), then moves rigidly with the content, as the gap's.
                 let rest = min(H, L) / 2
                 center = s > 0 ? min(s, L) / 2 : s - min(H - rest, -s / 2)
+            } else if style == .system, let reach {
+                // Open item 31 (M8b-s8, C8): the pull look slides in from the band's far end as before and hands over to
+                // the refreshing look's centre by the trigger: `+ (L·drag − p)/2` reaches `min(s, L)/2` exactly at
+                // `p = T` and stays on it past it (`.armed` included). Continuous and monotone in the pull; only for `T < L`.
+                center = min(s, L) - L / 2 + max(0, L * reach - p) / 2
             } else {
                 center = min(s, L) - L / 2
             }
-            opacity = refreshing ? 1 : Double(L > 0 ? min(1, p / L) : 1)
+            opacity = refreshing ? 1 : Double(reach ?? (L > 0 ? min(1, p / L) : 1))
             box = (s - max(s, L, H), s)
             visible = (0, p)
             region = (0, max(s, along))
         } else if overlay {
-            // Floats over the content: slides in from outside the base with the pull, sits at L when refreshing.
-            center = -L / 2 + (refreshing ? L : min(p, L))
+            // Floats over the content: slides in from outside the base with the pull, sits at L when refreshing (and, open
+            // item 31, by the trigger when it is shorter than the indicator).
+            center = -L / 2 + (refreshing ? L : reach.map { L * $0 } ?? min(p, L))
             // To the viewport's far edge, and never shorter than the indicator: a base beyond the viewport (a `.stretch`
             // band below the landscape screen) keeps the indicator, off-screen, where a rotation's interpolation finds it
             // (open item 18). Past the far edge the container's clip bounds the drawing anyway.
             let clipEnd = max(0, along - b, center + L / 2)
-            opacity = refreshing ? 1 : Double(L > 0 ? min(1, p / L) : 1)
+            opacity = refreshing ? 1 : Double(reach ?? (L > 0 ? min(1, p / L) : 1))
             guard clipEnd > 0, center + L / 2 > 0, center - L / 2 < clipEnd else { return nil }
             box = (0, clipEnd)
             visible = box
@@ -178,12 +195,13 @@ extension RefreshIndicatorMath {
         return header.behavior == .stretch
     }
 
-    /// The `refreshing` the leaf hands `placement`: refreshing, or the spinner's retraction after a refresh in the gap and,
-    /// for `.system`, in the `.stretch` band (R1-RC1-1: centred there while refreshing, so the refresh's end moves nothing,
-    /// as in the gap). An overlay's retraction (and the band's `.default` one) has the pull's look.
+    /// The `refreshing` the leaf hands `placement`: refreshing, or the spinner's retraction after a refresh (and a pull that
+    /// grabbed it again, which carries it: open item 32) in the gap and in the `.stretch` band (R1-RC1-1: centred there while
+    /// refreshing, so the refresh's end moves nothing, as in the gap; M8b-s8 L3: for every style, so the band's `.default`
+    /// end no longer fades to `H/L` in one frame). An overlay's retraction has the pull's look.
     static func holdsPlacement(mode: ZTronRefreshState.Mode, retract: RefreshEngine.RetractLook?, overlay: Bool, band: Bool,
                                style: ZTronRefreshStyle) -> Bool {
-        mode == .refreshing || (retract == .spinner && (!overlay || (band && style == .system)))
+        mode == .refreshing || (retract == .spinner && (!overlay || band))
     }
 }
 
@@ -366,7 +384,8 @@ struct RefreshEdgeIndicator: View {
             // draws nothing: open item 19).
             let visible = RefreshIndicatorMath.placement(
                 edge: edge, style: spec.style, overlay: overlay, band: band, refreshing: refreshing,
-                dragPosition: refresh.dragPosition, pull: pull, length: length, viewport: m.viewportSize, base: base, hold: hold)
+                dragPosition: refresh.dragPosition, pull: pull, length: length, viewport: m.viewportSize, base: base, hold: hold,
+                trigger: spec.configuration.triggerDistance)
                 .map { $0.visibleLength(vertical: edge == .top || edge == .bottom) > 0 } ?? false
             // What the content is drawn with while the resize is open (the transform host's `ResizeMath.resolve` inputs):
             // the box follows the drawn content's edge (open item 21).
@@ -384,7 +403,7 @@ struct RefreshEdgeIndicator: View {
                                                               insets: m.adjustedContentInset, follow: state.insetFollow)
             indicator(visible: visible, built: built).modifier(RefreshPlacementEffect(
                 pull: pull, edge: edge, style: spec.style, overlay: overlay, band: band, length: length, hold: hold,
-                refreshing: refreshing, refresh: refresh, retract: retract,
+                trigger: spec.configuration.triggerDistance, refreshing: refreshing, refresh: refresh, retract: retract,
                 viewport: m.viewportSize, base: base, useGeometryGroup: state.usesGeometryGroup,
                 hasHeader: state.headerSpec != nil || m.header != nil, custom: spec.indicator != nil,
                 resize: m.resize, baseFollowsInset: edge != .top || HeaderMath.refreshTop(m)?.overlay != false, draw: draw,
@@ -589,6 +608,8 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
     let length: CGFloat
     /// The gap the hold keeps open (`RefreshEngine.holdSize`): where a `.system` indicator rests against the content.
     let hold: CGFloat
+    /// The trigger distance: the band's and the overlay's pull look follow the drag position at the drawn pull (open item 31).
+    let trigger: CGFloat
     let refreshing: Bool
     let refresh: ZTronRefreshState
     let retract: RefreshEngine.RetractLook?
@@ -647,7 +668,7 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
     @MainActor func body(content: Content) -> some View {
         let placement = RefreshIndicatorMath.placement(
             edge: edge, style: style, overlay: overlay, band: band, refreshing: refreshing, dragPosition: refresh.dragPosition,
-            pull: pull, length: length, viewport: viewport, base: base, hold: hold)
+            pull: pull, length: length, viewport: viewport, base: base, hold: hold, trigger: trigger)
         #if DEBUG
         let _ = RefreshTrace.leaf(edge: edge, pull: pull, refresh: refresh, retract: retract, placement: placement)
         #endif

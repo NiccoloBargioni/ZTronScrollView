@@ -168,4 +168,34 @@ if T is not None:
                            "rampStep": round(mr[0] / total, 3) if total > 0 else None}
         j0 = max(0, kT - k0 - 6)
         out["aroundTrigger"] = series[j0:j0 + 14]
+
+# Item 32 (test `regrab`, or `--regrab`): after the first release (the band leaves its highest value) the spinner goes back
+# with the content, is grabbed again (the band rises once more) and goes back again. The spinner's look and placement are
+# kept all the way: the refreshing glyph (h = 20 pt) centred in the band, drawn min(band, h). Reports the re-grab (the first
+# frame whose band rises again by more than 0.5 pt), `vanish` (frames with a band of 4+ pt and at most 1 pt drawn),
+# `shortfall` (the largest min(band, h) - drawn over frames with a band of 2+ pt), `centre` (the largest
+# |drawn centre - min(band, L)/2| over frames drawing 4+ pt) and `minDrawnFrom20` (the least drawn while the band is 20+).
+if meta.get("test") == "regrab" or "--regrab" in args:
+    kmax = max(range(len(rows)), key=lambda k: rows[k]["band"])
+    top = rows[kmax]["band"]
+    k1 = next((k for k in range(kmax, len(rows)) if rows[k]["band"] < top - 1), None)
+    g = {"release": None}
+    if k1 is not None:
+        g["release"] = rows[k1]["frame"]
+        kr = next((k for k in range(k1 + 1, len(rows)) if rows[k]["band"] > rows[k - 1]["band"] + 0.5), None)
+        if kr is not None:
+            g["regrab"] = {"frame": rows[kr]["frame"], "band": round(rows[kr - 1]["band"], 2),
+                           "drawn": round(rows[kr - 1]["n"], 2)}
+        hh = 20.0
+        win = [r for r in rows[k1:] if r["band"] >= 2]
+        van = [r["frame"] for r in win if r["band"] >= 4 and r["n"] <= 1]
+        g["vanish"] = {"frames": len(van), "first": van[0] if van else None}
+        sf = max(((min(r["band"], hh) - r["n"], r["frame"], round(r["band"], 2)) for r in win), default=None)
+        if sf: g["shortfall"] = {"max": round(sf[0], 2), "frame": sf[1], "band": sf[2]}
+        ce = max(((abs(r["c"] - min(r["band"], L) / 2), r["frame"]) for r in win if r["n"] >= 4), default=None)
+        if ce: g["centre"] = {"max": round(ce[0], 2), "frame": ce[1]}
+        m20 = [r["n"] for r in win if r["band"] >= 21]
+        g["minDrawnFrom20"] = round(min(m20), 2) if m20 else None
+        g["maxBandAfterRegrab"] = round(max((r["band"] for r in rows[kr:]), default=0), 2) if kr is not None else None
+    out["regrab"] = g
 print(json.dumps(out))

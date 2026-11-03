@@ -130,6 +130,65 @@ struct RefreshEngineTests {
         #expect(e.handle(.sample(input(130, t: 3))).contains(.trigger), "the next pull is a new pull")
     }
 
+    /// Open item 32 (M8b-s8): a finger that grabs the content again while the spinner goes back with it keeps the spinner's
+    /// look (no `.retract(nil)`: the coordinator's retraction stays `.spinner`, so the indicator keeps the refreshing placement)
+    /// until this pull fires, lifts, is pushed back to rest, ends or is cancelled. A `.pull` retraction's re-grab is unchanged.
+    @Test func aReGrabbedSpinnerKeepsItsLookUntilThePullEnds() {
+        /// An early return lifted past the minimum visible time: the spinner retracts with the content; a finger grabs it at 70.
+        func regrabbed() -> RefreshEngine {
+            var e = RefreshEngine(config: ZTronRefreshConfiguration(), edge: .top)
+            _ = e.handle(.sample(input(130, t: 0)))
+            _ = e.handle(.done(input(140, t: 0.6)))
+            _ = e.handle(.lift(input(160, t: 2), cancelled: false))
+            #expect(e.handle(.sample(input(80, tracking: false, t: 2.2))) == [.progress(0.8)])
+            #expect(e.retractLook == .spinner)
+            #expect(e.handle(.sample(input(70, t: 2.3))) == [.mode(.pulling, animated: false), .progress(0.7)],
+                    "no .retract(nil): the spinner's look is carried through the re-grab")
+            #expect(e.phase == .pulling && e.mode == .pulling && e.retractLook == nil)
+            return e
+        }
+        // Lifted below the trigger: it goes back with the content as a spinner again, and only this pull carries it.
+        var a = regrabbed()
+        #expect(a.handle(.sample(input(45, t: 2.4))) == [.progress(0.45)])
+        #expect(a.handle(.lift(input(45, t: 2.5), cancelled: false)) == [.mode(.notRefreshing, animated: true), .retract(.spinner)])
+        #expect(a.phase == .retracting(.spinner, until: 5.5))
+        #expect(a.handle(.sample(input(0.2, tracking: false, t: 2.9))) == [.progress(0), .retract(nil)])
+        #expect(a.handle(.sample(input(40, t: 4))) == [.mode(.pulling, animated: false), .progress(0.4)])
+        #expect(a.handle(.lift(input(40, t: 4.1), cancelled: false)) == [.mode(.notRefreshing, animated: true), .retract(.pull)],
+                "a later pull is a plain pull")
+        // Pulled to the trigger: the refreshing look takes over in the same place (the carry ends with the mode change).
+        var b = regrabbed()
+        #expect(b.handle(.sample(input(100, t: 2.4))) ==
+                [.progress(1), .mode(.refreshing, animated: true), .retract(nil), .trigger, .announce("Refreshing")])
+        #expect(b.phase == .triggered && b.firedThisPull)
+        #expect(b.handle(.lift(input(110, t: 2.6), cancelled: false)) == [.hold(60, reveal: false)])
+        // Pushed back to rest (or past it) under the finger: an ordinary reset, and the carry ends.
+        var c = regrabbed()
+        #expect(c.handle(.sample(input(-4, t: 2.4))) == [.progress(0), .mode(.notRefreshing, animated: true), .retract(nil)])
+        #expect(c.phase == .idle)
+        #expect(c.handle(.lift(input(-4, t: 2.5), cancelled: false)) == [])
+        // Cancelled (the view went, a programmatic cancel).
+        var d = regrabbed()
+        #expect(d.handle(.cancel) == [.retract(nil), .progress(0), .mode(.notRefreshing, animated: false)])
+        #expect(d.phase == .idle && d.handle(.cancel) == [])
+        // Lifted at rest (the lift's rest guard), the touch ending without a lift, the pull disabled under the finger.
+        var g = regrabbed()
+        #expect(g.handle(.lift(input(0.3, t: 2.5), cancelled: false)) ==
+                [.progress(0), .mode(.notRefreshing, animated: true), .retract(nil)])
+        var s = regrabbed()
+        #expect(s.handle(.sequenceEnd(input(70, tracking: false, t: 2.5))) ==
+                [.progress(0), .mode(.notRefreshing, animated: true), .retract(nil)])
+        var z = regrabbed()
+        #expect(z.handle(.sample(input(70, enabled: false, t: 2.4))) ==
+                [.progress(0), .mode(.notRefreshing, animated: true), .retract(nil)])
+        // A `.pull` retraction's re-grab is unchanged: the pull's own look starts again at once.
+        var p = RefreshEngine(config: ZTronRefreshConfiguration(), edge: .top)
+        _ = p.handle(.sample(input(70, t: 1)))
+        #expect(p.handle(.lift(input(70, t: 2), cancelled: false)) == [.mode(.notRefreshing, animated: true), .retract(.pull)])
+        #expect(p.handle(.sample(input(60, t: 2.2))) == [.retract(nil), .mode(.pulling, animated: false), .progress(0.6)])
+        #expect(p.handle(.lift(input(60, t: 2.4), cancelled: false)) == [.mode(.notRefreshing, animated: true), .retract(.pull)])
+    }
+
     @Test func aLiftBeforeTheMinimumVisibleTimeOpensTheHoldForTheTimeThatIsMissing() {
         var e = RefreshEngine(config: ZTronRefreshConfiguration(minimumVisibleTime: 0.5), edge: .top)
         _ = e.handle(.sample(input(130, t: 10)))

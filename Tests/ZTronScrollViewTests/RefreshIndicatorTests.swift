@@ -309,11 +309,11 @@ struct RefreshIndicatorTests {
                 prev = p
             }
         }
-        // The leaf's rule: the gap and the `.system` band keep the hold's placement through the spinner's retraction; an
-        // overlay, the band's `.default` and a pull's retraction do not.
+        // The leaf's rule: the gap and the band keep the hold's placement through the spinner's retraction (M8b-s8 L3: the
+        // band's `.default` too); an overlay and a pull's retraction do not.
         let cases: [(overlay: Bool, band: Bool, style: ZTronRefreshStyle, keeps: Bool)] = [
             (false, false, .default, true), (false, false, .system, true), (true, true, .system, true),
-            (true, true, .default, false), (true, false, .system, false), (true, false, .default, false),
+            (true, true, .default, true), (true, false, .system, false), (true, false, .default, false),
         ]
         for c in cases {
             #expect(RefreshIndicatorMath.holdsPlacement(mode: .notRefreshing, retract: .spinner, overlay: c.overlay,
@@ -328,6 +328,134 @@ struct RefreshIndicatorTests {
         // A refresh triggered by a pull of at least L starts where the pull left it; the pull's look is the overlay's.
         for s: CGFloat in [60, 75, 100, 220] {
             #expect(band(refreshing: false, at: s, hold: 60).frame == band(at: s, hold: 60).frame, "trigger at \(s)")
+        }
+    }
+
+    // MARK: Open items 31 and 32 (M8b-s8)
+
+    /// The pull look the leaf draws for `T` (the drag position the engine reports at that pull, `progress(for:)`, for the
+    /// trigger `dragT`, default `T`).
+    func pullLook(_ style: ZTronRefreshStyle = .system, overlay: Bool = true, band: Bool = true, refreshing: Bool = false,
+                  at s: CGFloat, trigger T: CGFloat?, dragT: CGFloat? = nil, hold: CGFloat = 60) -> RefreshPlacement? {
+        let p = max(0, s), t = dragT ?? T ?? 60
+        let drag = p > 0 ? (t > 0 ? min(1, p / t) : 1) : 0
+        return RefreshIndicatorMath.placement(edge: .top, style: style, overlay: overlay, band: band, refreshing: refreshing,
+                                              dragPosition: drag, pull: s, length: 60, viewport: viewport, base: base,
+                                              hold: hold, trigger: T)
+    }
+
+    /// Open item 31: with a trigger shorter than the indicator (T < L 60) the band's `.system` pull look slid in from the
+    /// band's far end until the trigger and the refreshing look then drew the spinner centred: a 15 / 10 / 5 pt step at
+    /// T 30 / 40 / 50, with the opacity going 0.50 / 0.67 / 0.83 → 1 in one frame. C8's handover reaches the refreshing
+    /// look's centre `min(s, L)/2` and opacity 1 exactly at the trigger, stays on it past it, and moves monotonically.
+    @Test(arguments: [CGFloat(30), 40, 50]) func theBandsSystemPullLookHandsOverToTheRefreshingLookAtAShortTrigger(T: CGFloat) {
+        let L: CGFloat = 60
+        var last: RefreshPlacement?
+        for s in stride(from: CGFloat(0.25), through: 120, by: 0.25) {
+            let pull = pullLook(at: s, trigger: T)!, refreshing = pullLook(refreshing: true, at: s, trigger: T)!
+            let c = pull.frame.midY - 50
+            if s < T {
+                // Slides in from the far end, closing the distance to the centre by the trigger.
+                #expect(c >= min(s, L) - L / 2 - 1e-9 && c <= min(s, L) / 2 + 1e-9, "T \(T) s \(s): centre \(c)")
+                #expect(abs(pull.opacity - Double(s / T)) < 1e-9, "T \(T) s \(s): opacity \(pull.opacity) = s / T")
+            } else {
+                #expect(abs(c - min(s, L) / 2) < 1e-9 && pull.opacity == 1, "T \(T) s \(s): the refreshing look's place")
+                #expect(abs(pull.frame.midY - refreshing.frame.midY) < 1e-9 && pull.clip == refreshing.clip,
+                        "T \(T) s \(s): the switch to refreshing moves nothing")
+            }
+            if let last {
+                let step = c - (last.frame.midY - 50)
+                #expect(step >= -1e-9 && step <= 0.25 * (0.5 + L / (2 * T)) + 1e-9, "T \(T) s \(s): step \(step)")
+                #expect(pull.opacity >= last.opacity - 1e-12 && pull.opacity - last.opacity <= 0.25 / T + 1e-9,
+                        "T \(T) s \(s): opacity \(last.opacity) → \(pull.opacity)")
+            }
+            last = pull
+        }
+        // At the trigger itself: the pull look (just below) and the refreshing look (fired at T) agree.
+        let below = pullLook(at: T - 0.01, trigger: T)!, fired = pullLook(refreshing: true, at: T, trigger: T)!
+        #expect(abs(fired.frame.midY - below.frame.midY) < 0.02 && abs(fired.opacity - below.opacity) < 0.001)
+        // `.default` keeps its position (glued to the content's edge); its opacity reaches 1 at the trigger too.
+        for s: CGFloat in [5, 20, T - 1, T, 45, 90] {
+            let d = pullLook(.default, at: s, trigger: T)!
+            #expect(d.frame.maxY == 50 + min(s, L) && abs(d.opacity - Double(min(1, max(s / L, s / T)))) < 1e-9, "default \(s)")
+        }
+    }
+
+    /// Open item 31's analog in an overlay (`refresher(overlay: true)`), T 40: it slid in to `[0, L]` only at `p = L` and
+    /// jumped there (20 pt) at the trigger; now it reaches `[0, L]` and opacity 1 at the trigger.
+    @Test func theOverlaysPullLookReachesTheRefreshingLookAtAShortTrigger() {
+        let T: CGFloat = 40, L: CGFloat = 60
+        let rest = pullLook(band: false, refreshing: true, at: 0, trigger: T)!
+        var last = pullLook(band: false, at: 0.5, trigger: T)!
+        for s in stride(from: CGFloat(1), through: 100, by: 0.5) {
+            let p = pullLook(band: false, at: s, trigger: T)!
+            #expect(abs(p.frame.midY - (50 - L / 2 + L * min(1, s / T))) < 1e-9 && abs(p.opacity - Double(min(1, s / T))) < 1e-9,
+                    "s \(s)")
+            #expect(p.frame.midY >= last.frame.midY && p.frame.midY - last.frame.midY <= 0.5 * L / T + 1e-9, "s \(s)")
+            if s >= T { #expect(p.frame == rest.frame && p.opacity == 1, "s \(s): at [0, L] from the trigger on") }
+            last = p
+        }
+    }
+
+    /// Every default (`T ≥ L`): the pull looks are today's, bit for bit, in the band, the overlay and the gap.
+    @Test func aTriggerAtLeastTheIndicatorLongChangesNothing() {
+        let L: CGFloat = 60
+        for T: CGFloat in [60, 61, 80, 100, 150, 1000] {
+            for s: CGFloat in [-30, 0, 5, 20, 40, 59.5, 60, 90, 300] {
+                for style in [ZTronRefreshStyle.system, .default] {
+                    for (overlay, band) in [(true, true), (true, false), (false, false)] {
+                        for refreshing in [false, true] {
+                            let new = pullLook(style, overlay: overlay, band: band, refreshing: refreshing, at: s, trigger: T)
+                            let head = pullLook(style, overlay: overlay, band: band, refreshing: refreshing, at: s, trigger: nil,
+                                                dragT: T)
+                            #expect(new == head, "T \(T) s \(s) \(style) overlay \(overlay) band \(band) refreshing \(refreshing)")
+                        }
+                    }
+                }
+                // Today's expressions (09226f4), literally: the slide-in from the far end and `p / L`.
+                let p = max(0, s)
+                if s > 0, let b = pullLook(at: s, trigger: T) {
+                    #expect(b.frame.midY == 50 + (min(s, L) - L / 2) && b.opacity == Double(min(1, p / L)), "band T \(T) s \(s)")
+                }
+                if let o = pullLook(band: false, at: s, trigger: T) {
+                    #expect(o.frame.midY == 50 + (-L / 2 + min(p, L)) && o.opacity == Double(min(1, p / L)), "overlay T \(T) s \(s)")
+                }
+            }
+        }
+    }
+
+    /// Open item 32: the spinner going back with the content in the band, grabbed again. The engine carries the spinner's
+    /// look through the new pull (`mode` `.pulling`, the retraction still `.spinner`), so the leaf keeps the refreshing
+    /// placement: no move, opacity 1 (without the carry the pull look took over: −25 / −20 / −15 / −7.5 pt, opacity
+    /// 1 → 0.17 / 0.33 / 0.50 / 0.75 at s 10 / 20 / 30 / 45). In the gap too (its opacity went 1 → s / T).
+    @Test(arguments: [ZTronRefreshStyle.system, .default]) func aReGrabbedSpinnerKeepsItsPlacement(style: ZTronRefreshStyle) {
+        for (overlay, band) in [(true, true), (false, false)] {
+            let retracting = RefreshIndicatorMath.holdsPlacement(mode: .notRefreshing, retract: .spinner, overlay: overlay,
+                                                                 band: band, style: style)
+            let carried = RefreshIndicatorMath.holdsPlacement(mode: .pulling, retract: .spinner, overlay: overlay, band: band,
+                                                              style: style)
+            #expect(retracting && carried, "\(style) band \(band): the spinner's look holds the placement")
+            for s: CGFloat in [10, 20, 30, 45] {
+                for T: CGFloat in [40, 100] {
+                    let before = pullLook(style, overlay: overlay, band: band, refreshing: retracting, at: s, trigger: T)!
+                    let after = pullLook(style, overlay: overlay, band: band, refreshing: carried, at: s, trigger: T)!
+                    #expect(after == before && after.opacity == 1, "\(style) band \(band) s \(s) T \(T)")
+                }
+            }
+        }
+    }
+
+    /// The band's `.default` refresh end (pre-existing, found by the M8b-s8 design): the spinner's retraction drew the pull's
+    /// look, whose opacity is `p / L`: 1 → H / L (0.33 / 0.50 / 0.75 at H 20 / 30 / 45) in one frame. L3 keeps the
+    /// refreshing placement through the retraction for every style: nothing moves, the opacity stays 1.
+    @Test(arguments: [CGFloat(20), 30, 45]) func theBandsDefaultEndKeepsItsOpacity(H: CGFloat) {
+        let held = pullLook(.default, refreshing: true, at: H, trigger: 100, hold: H)!
+        let keeps = RefreshIndicatorMath.holdsPlacement(mode: .notRefreshing, retract: .spinner, overlay: true, band: true,
+                                                        style: .default)
+        for s in stride(from: H, through: 0.5, by: -0.5) {
+            let end = pullLook(.default, refreshing: keeps, at: s, trigger: 100, hold: H)!
+            #expect(end.opacity == 1, "H \(H) s \(s): opacity \(end.opacity)")
+            if s == H { #expect(end == held, "H \(H): the end moves nothing") }
         }
     }
 

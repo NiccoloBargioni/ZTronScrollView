@@ -96,6 +96,13 @@ struct RefreshEngine: Equatable {
     /// `UIRefreshControl` keeps a refresh that ends mid-drag on screen until the touch ends (S9: "animate back to rest
     /// unless the user is tracking"); the speed of the pull must not decide whether the indicator is held.
     private var returnedUnderFinger = false
+    /// Open item 32 (M8b-s8): a finger that grabs the content again while the spinner goes back with it (a `.spinner`
+    /// retraction) keeps the spinner look: the coordinator's retraction stays `.spinner` (no `.retract(nil)`) while this pull
+    /// is below the trigger, so the indicator keeps the refreshing placement and the spinner instead of switching to the
+    /// pull's look (its place and opacity) in one frame. It ends when this pull fires (the refreshing look takes over in the
+    /// same place), at the lift (the pull retracts with the carried look), at a cancel, when the pull ends at or below 0
+    /// and in the lift's rest guard (`.retract(nil)` then). A `.pull` retraction's re-grab is unchanged.
+    private var carried: RetractLook?
 
     init(config: ZTronRefreshConfiguration, edge: Edge, overlay: Bool = false) {
         self.config = config
@@ -168,10 +175,11 @@ struct RefreshEngine: Equatable {
                     // Not (or no longer) pulling: back to rest without a trigger.
                     phase = .idle
                     reset(&fx)
+                    dropCarried(&fx)
                 }
                 return
             }
-            if case .retracting = phase { phase = .idle; fx.append(.retract(nil)) }      // a new pull takes over
+            if case let .retracting(look, _) = phase { takeOver(look, &fx) }             // a new pull takes over
             sequenceActive = true
             let p = progress(for: i.pull)
             if phase == .idle { phase = .pulling; setMode(.pulling, animated: false, &fx) }
@@ -198,7 +206,7 @@ struct RefreshEngine: Equatable {
         case .idle, .pulling, .armed, .retracting:
             // The lift is a position too: a crossing between two samples still counts, a pull below the trigger disarms.
             if i.enabled, !cancelled, i.pull > 0, progress(for: i.pull) >= 1, !firedThisPull {
-                if case .retracting = phase { phase = .idle; fx.append(.retract(nil)) }
+                if case let .retracting(look, _) = phase { takeOver(look, &fx) }
                 sequenceActive = true
                 setProgress(1, &fx)
                 fire(i, &fx)
@@ -223,6 +231,7 @@ struct RefreshEngine: Equatable {
         case .pulling, .armed:
             phase = .idle
             reset(&fx)
+            dropCarried(&fx)
         case .triggered:
             endTouchWhileTriggered(i, reveal: true, &fx)
         case let .finishing(until):
@@ -259,6 +268,7 @@ struct RefreshEngine: Equatable {
 
     private mutating func cancel(_ fx: inout [Effect]) {
         if case .retracting = phase { fx.append(.retract(nil)) }
+        dropCarried(&fx)
         phase = .idle
         firedThisPull = false
         sequenceActive = false
@@ -280,6 +290,7 @@ struct RefreshEngine: Equatable {
         phase = .triggered
         setProgress(1, &fx)                                       // stays 1 while refreshing
         setMode(.refreshing, animated: true, &fx)
+        dropCarried(&fx)                                          // the refreshing look takes over, in the same place
         fx.append(.trigger)
         fx.append(.announce("Refreshing"))
     }
@@ -344,9 +355,25 @@ struct RefreshEngine: Equatable {
         guard i.enabled, i.pull > Self.retractedPull else {
             phase = .idle
             reset(&fx)
+            dropCarried(&fx)
             return
         }
-        retract(.pull, i, &fx)
+        let look = carried ?? .pull                               // a re-grabbed spinner goes back as a spinner again
+        carried = nil
+        retract(look, i, &fx)
+    }
+
+    /// A new pull takes over from a retraction: a `.spinner` look is carried through it (open item 32), a `.pull` one ends.
+    private mutating func takeOver(_ look: RetractLook, _ fx: inout [Effect]) {
+        phase = .idle
+        if look == .spinner { carried = .spinner } else { fx.append(.retract(nil)) }
+    }
+
+    /// The carried spinner look ends with this pull.
+    private mutating func dropCarried(_ fx: inout [Effect]) {
+        guard carried != nil else { return }
+        carried = nil
+        fx.append(.retract(nil))
     }
 
     /// The indicator stays while the content comes back: not refreshing any more, `progress` following the pull.

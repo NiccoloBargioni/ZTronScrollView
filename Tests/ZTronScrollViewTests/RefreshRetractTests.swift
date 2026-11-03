@@ -86,9 +86,10 @@ struct RefreshRetractTests {
         _ = e.handle(.done(input(140, t: 0.6)))
         _ = e.handle(.lift(input(150, t: 2), cancelled: false))                    // the early return: retracting
         #expect(e.retractLook == .spinner)
-        // A catch on the content that is still pulled past the trigger, lifted without moving: a position, like any lift.
+        // A catch on the content that is still pulled past the trigger, lifted without moving: a position, like any lift. The
+        // spinner's look is carried until the refreshing look takes over (open item 32): one update, the same place.
         #expect(e.handle(.lift(input(125, t: 2.2), cancelled: false)) ==
-                [.retract(nil), .mode(.refreshing, animated: true), .trigger, .announce("Refreshing"), .hold(60, reveal: false)])
+                [.mode(.refreshing, animated: true), .retract(nil), .trigger, .announce("Refreshing"), .hold(60, reveal: false)])
         #expect(e.phase == .refreshing(since: 2.2))
     }
 
@@ -342,6 +343,48 @@ struct RefreshRetractTests {
         await r.pumpTasks()
         r.settle()
         #expect(r.gate.started == 1 && r.hold.top == 60)
+    }
+
+    /// Open item 32 (M8b-s8): the spinner going back with the content on the clock, grabbed again. The coordinator's retraction
+    /// stays `.spinner` through the new pull (the leaf keeps the refreshing placement: no jump, no vanish), the lift sends it
+    /// back as a spinner, and a pull to the trigger turns it into the refreshing look in the same place.
+    @Test(arguments: OSPath.allCases) func aReGrabbedSpinnerKeepsItsLookThroughThePull(path: OSPath) async {
+        func retractingSpinner() async -> RefreshRig {
+            let r = RefreshRig(path, configs: [.top: ZTronRefreshConfiguration(minimumVisibleTime: 0, resetAnimation: .uikit)])
+            r.pullAndRelease(to: 140)
+            await r.pumpTasks()
+            r.settle()
+            await r.completeAction()                                      // the clock animates the content back to rest
+            r.tick(6)
+            #expect(r.engine().retractLook == .spinner && r.pull() > 5, "mid way back: \(r.pull())")
+            return r
+        }
+        let r = await retractingSpinner()
+        r.touchDown()
+        r.drag(CGSize(width: 0, height: 20))
+        #expect(r.state.isTracking && r.engine().phase == .pulling && r.refreshState().mode == .pulling)
+        #expect(r.refresh.retractions[.top] == .spinner, "the spinner's look is carried: \(String(describing: r.refresh.retractions[.top]))")
+        let held = r.pull()
+        #expect(held > 5 && abs(r.visibleIndicator() - min(held, 60)) < 0.01, "drawn as the spinner, glued to the content")
+        let pullAtLift = r.pull()
+        r.lift()
+        #expect(r.engine().retractLook == .spinner && r.refresh.retractions[.top] == .spinner, "back as a spinner again")
+        let frames = r.retractFrames()
+        expectAGradualRetraction(frames, look: .spinner, from: min(pullAtLift, 60), "re-grabbed spinner")
+        #expect(r.engine().phase == .idle && r.refresh.retractions[.top] == nil && abs(r.offset.y) < 0.5)
+        #expect(r.gate.started == 1 && r.announcements == ["Refreshing", "Refresh complete"])
+        // Pulled on to the trigger: the refreshing look takes over, the retraction ends with it.
+        let f = await retractingSpinner()
+        f.touchDown()
+        f.drag(CGSize(width: 0, height: 20))
+        #expect(f.refresh.retractions[.top] == .spinner)
+        f.drag(CGSize(width: 0, height: 600))
+        #expect(f.refresh.triggerSerial == 2 && f.engine().phase == .triggered && f.refreshState().mode == .refreshing)
+        #expect(f.refresh.retractions[.top] == nil)
+        f.lift()
+        await f.pumpTasks()
+        f.settle()
+        #expect(f.gate.started == 2 && f.hold.top == 60)
     }
 
     @Test(arguments: OSPath.allCases) func beginRefreshingWhileTheIndicatorRetractsIsNotSwallowed(path: OSPath) {
