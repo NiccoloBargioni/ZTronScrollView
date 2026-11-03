@@ -270,9 +270,9 @@ Open:
 - Not scriptable in XCUITest: a second finger landing during an active pan. The probe forces the same reset (`-ZTronProbeResetAfter 1`),
   and real second touches came only from pinch and two-finger tap. It is a device check.
 - 15 / 16 runs (window route, dismissal only on 15) are the user's: no runtime on this host.
-- D40 / SHEET-s3 still block U3 only (unchanged).
+- D40 / SHEET-s3 still block U3 only (unchanged). Settled since: D40 accepted (D84) but not landed as the 26+ default (D86, INTEG-s2 2026-11-03), SHEET-s3 refused (D74).
 
-Next: U2 core per docs/design/UIKIT-pan.md at 9e6d448 (U1 corrections folded in there).
+Next: U2 core per docs/design/UIKIT-pan.md at 9e6d448 (U1 corrections folded in there; C2 = option (b), per-OS cones 45° / 85° (26.x) / 65° (27.0+), user 2026-10-28).
 
 Tests: harness only. `TEST_RUNNER_ZS_UKP=1 scripts/test-demo-ui.sh 'platform=iOS Simulator,id=<udid>'
 -only-testing:ZTronScrollViewDemoUITests/UIKitPanProbeUITests[/testQn_…]`, then `scripts/uikitpan-table.py <dir-of-.ukp> --summary`.
