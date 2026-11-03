@@ -819,12 +819,26 @@ band's far end), `.default` and `overlay:` refreshers are unchanged, and so is e
 partly scrolled away (centred instead of on the far end) and the end's retraction (centred and opaque, as the gap's, instead of on
 the far end fading `s/L`). Seam lab (`hsys<H>`, `hend<s>`, `scripts/seam/spinner.py`), 27.0, 17.5
 and forced: at the hold's rest 20 pt drawn, centred, for H 20 / 30 / 60 (before, 27.0: 0 / 10 / 20); 0 frames over the content, 0
-one-frame jumps, 0 vanishings through the opening, the fling out of the hold and back and the end's retraction; seams unchanged. Known limit: with a
-non-default `triggerDistance` below `indicatorHeight`, a pull that triggers at a band `g < L` moves the spinner by `(L − g)/2` at the
-trigger, in the frame of the overlay's existing opacity step `g/L → 1` (open item 31). Known limit (re-check 2, default
-configuration): a finger that catches the content during the `.system` spinner's retraction switches it to the pull look in one
-frame, `(L − s)/2` toward the band's start with its opacity `1 → s/L` (27.0: drawn 20 → 0 pt; 17.5 / forced: a 15–17 pt step
-against the content); the `.preserve` gap has no step (open item 32).
+one-frame jumps, 0 vanishings through the opening, the fling out of the hold and back and the end's retraction; seams unchanged. A
+trigger below `indicatorHeight` and a finger that catches the spinner's retraction: the amendment of 2026-11-03 below.
+**(Amended 2026-11-03, M8b-s8 s1, open items 31, 32 and 41.)** In the `.stretch` band the `.system` pull look hands over to the
+refreshing look by the trigger: its centre is `min(s, L) − L/2 + max(0, L·d − p)/2` from the band's start (`p = max(0, s)`,
+`d = min(1, p/T)` the drag position, `T` the `triggerDistance`): the slide-in look above for `T ≥ L` (every default: `L·d ≤ p`),
+`min(s, L)/2` from `p = T` on, continuous and monotone in the pull. The band's and the overlay's pull opacity is
+`min(1, max(p/L, d))`, 1 at the trigger (the overlay's centre `−L/2 + L·min(1, max(p/L, d))`). The slide-in look stays the band's
+`.system` pull look (a centred one is not built). A finger that catches the content while the refreshing look retracts after
+`endRefreshing` keeps that look (the engine carries it: the spinner, centred and opaque) until the pull fires again, the finger
+lifts (the retraction goes on with the look), the pull is cancelled or the content is back at rest; the refreshing placement holds
+through the end's retraction for every built-in style in the band, so the `.default` ring no longer drops to `H/L` at the end of a
+hold `H < L`. The arrow → spinner cross-fade (0.15 s) is drawn, and a `beginRefreshing()` while the pull look is drawn (the
+content going back after a pull let go below the trigger) switches to the refreshing look in it: the glyph glides from the pull
+look's place and opacity to the refreshing look's. Seam lab (`scripts/seam/handover.py`, `spinner.py`), 27.0 / 17.5 / forced: a
+trigger at 40 or 30 (`rtrig40`, `rtrig30`) moves the drawn centre against its predicted place by at most 0.67–1.17 pt in a frame
+(before 9.7–10.3 pt at the trigger; the same measurement reads 0.67–1.0 on unchanged default pulls), the centre stays within 1 pt
+of band/2 from the trigger on, and the largest one-frame opacity rise is 0.21–0.40 of the rise to the trigger (before 0.60–0.84);
+a catch of the retraction (`regrab-rdur0p2`) hides the spinner on 0 frames (before 26 / 26 / 30); a begin glides in 8–10 frames,
+its largest step 0.21–0.29 of the 11 pt (before all of it in one frame); 0 frames over the content, 0 jumps, 0 vanishings; a
+default pull's frames as before.
 **(Amended 2026-10-27, M8b-s6.)** During an app-driven animated resize while refreshing, the indicator is drawn at the presented
 geometry: its placement is computed in the committed geometry (the resize commit is unanimated) with the pull taken from the target,
 and a render-time transform (`RefreshResizeEffect`, a `GeometryEffect`) moves it by the presented − committed difference at the drawn

@@ -381,32 +381,35 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
    `.stretch` band's indicator item 19's treatment (box far edge on the header's drawn bottom, clipped to `[top0, top0 + g]`);
    or accept for programmatic openings.~~
 
-31. **USER 2026-11-02: FIX (no animation skips or 15–16 look differences are accepted as limits); scheduled in M8b-s8.** **A `.stretch` pull that triggers below `indicatorHeight` moves the `.system` spinner at the trigger (2026-11-02, header
-   behaviors fixer round 2 / R1-RC1-1, from the math, not pixel-measured, OPEN, non-default configuration; user decision)**: the R1-RC1-1 fix centres
-   a refreshing `.system` spinner in the `.stretch` band (`min(g, L)/2`), while the pull's look stays the overlay's (on the band's far
-   end, `g − L/2`). The two agree from `g ≥ L` on, so with the default `triggerDistance` 100 ≥ `indicatorHeight` 60 nothing moves at
-   the trigger. A `triggerDistance` below `indicatorHeight` that fires at a band `g < L` moves the spinner by `(L − g)/2` in the
-   trigger's frame (`g` 40: 10 pt), the same frame as the overlay's existing opacity step `g/L → 1` and the arrow → spinner
-   crossfade. Before the fix: no move, only the opacity step. Options: accept (proposed: trigger below the indicator is unusual,
-   and the frame already steps); centre the `.system` pull look in the band too (the gap's `.system` look, but changes the measured
-   pull look of every `.stretch` `.system` refresher; it also removes item 32); or animate the switch. Related, kept on purpose in
-   fixer round 2 and pre-existing (recheck 2, non-default): the band's `.default` retraction with `holdOffset` H < L still steps
-   its opacity `1 → H/L` at the refresh's end.
+31. ~~**A `.stretch` pull that triggers below `indicatorHeight` moves the `.system` spinner at the trigger** (2026-11-02, header
+   behaviors fixer round 2 / R1-RC1-1, non-default configuration; USER 2026-11-02: fix, scheduled in M8b-s8)~~ **FIXED 2026-11-03
+   (M8b-s8 s1, 8e0f364; drawn as measured once item 41 was fixed, 782513b; no D-number, plan C8)**: the band's `.system` pull look
+   hands over to the refreshing look by the trigger (`center = min(s, L) − L/2 + max(0, L·dragPosition − p)/2`: the slide-in look
+   for `T ≥ L`, `min(s, L)/2` from `p = T` on) and the band's / overlay's pull opacity is `min(1, max(p/L, dragPosition))` (L2: 1
+   at the trigger). The designer's centred pull look (L1) is not built: an established look stays (plan §9 Q3 offers it as an
+   option). Seam lab (`scripts/seam/handover.py`; 27.0 / 17.5 / forced, two runs where two numbers): `rtrig40` largest
+   |Δcentre − Δpredicted| 0.83, 0.83 / 0.92, 0.67 / 1.0 pt (before, 61c7e21 lab on 88828d7: 9.67 / 10.33 / 9.67, at the
+   trigger), centre − band/2 from the trigger on ≤ 0.33 / 1.0 / 0.67 (before 10.0 / 10.33 / 10.0), largest one-frame opacity
+   rise 0.31, 0.21 / 0.29, 0.29 / 0.40 of the rise to the trigger (before 0.60 / 0.62 / 0.60); `rtrig30` 1.17, 1.0 / 1.0 / 1.0
+   (before 10.33 / 10.0 / 10.0), centre ≤ 0.33 / 0.67 / 0.0, opacity rise 0.36, 0.34 / 0.30 / 0.27 (before 0.82 / 0.84 / 0.82);
+   0 frames over the content, 0 jumps, 0 vanishings on every run. The 1.17 is one pre-trigger frame of a 6 pt band step; the
+   same measurement reads 0.67–1.0 on the before's unchanged default pulls. Default trigger (`pull-refresh`): per band the
+   drawn centre and height equal the before's (27.0: all; 17.5 / forced: 1–2 bands one pixel row apart, as two runs of the same
+   code are). Was: the spinner moved `(L − T)/2` (10 pt at T 40) and the opacity stepped `T/L → 1` in the trigger's frame.
+   Real 15/16 (M1 Mac lane): math (`RefreshIndicatorMath`), the same on every OS; check `rtrig40` / `rtrig30` (no centre step,
+   opacity 1 at the trigger).
 
-32. **USER 2026-11-02: FIX (no animation skips or 15–16 look differences are accepted as limits); scheduled in M8b-s8.** **Re-grabbing the content during a `.stretch` `.system` spinner's retraction steps it (2026-11-02, header behaviors recheck 2 /
-   RC2-1, LOW, measured, introduced by fixer round 2 (e0d2a8b), OPEN; user decision; default configuration)**: `holdsPlacement` keeps
-   the band's centred `.system` placement through the retraction after `endRefreshing`; a finger catching the content during that
-   retraction (the engine emits `retract(nil)`, mode `.pulling`) switches the leaf to the pull look in one frame: the spinner moves
-   `(L − s)/2` toward the band's start and its opacity drops `1 → s/L` (math at L 60: s 30 −15 pt, opacity 0.5, drawn 20 → 10 pt;
-   s 20 −20 pt, 20 → 0 pt; s 10 −25 pt, 20 → 0 pt). 469f301 had no step (its band retraction already used the pull look); the
-   `.preserve` gap has none (its `.system` pull look is centred too). Measured with a scratch copy whose lab sets the hold's
-   `resetAnimation` to a 4 s ease-out (`hsys60-hend1p5-hreset4`, the catch inside the retraction): 27.0 the spinner drawn 20 pt
-   centred at band 29.3, the next frame 0 pt, nothing for 4 frames, then the arrow cut at the band's top (`spinner.py` vanish
-   [450, 451]; also a fling up and `hend1`); 17.5 a 14.7 pt step against the content, drawn 20 → 13.3; forced 16.7 pt, 20 → 12;
-   `.preserve` control 0 vanishings. With the default 0.3 s `resetAnimation` the window is the 0.3 s retraction. Options: centre
-   the `.system` pull look in the band (`min(s, L)/2`, as the gap; proposed by the re-check, removes item 31's step too, changes
-   the pull look of every `.stretch` `.system` refresher); keep the band look through a re-grab until the pull passes it; or accept.
-   Recordings `scratchpad/api/recheck2/seam/{g27,g175,g27f}` (scratch lab source `recheck2/src`), crops `recheck2/px/regrab-stretch.png`.
+32. ~~**Re-grabbing the content during a `.stretch` `.system` spinner's retraction steps it** (2026-11-02, header behaviors
+   recheck 2 / RC2-1, default configuration; USER 2026-11-02: fix, scheduled in M8b-s8)~~ **FIXED 2026-11-03 (M8b-s8 s1,
+   8e0f364; no D-number)**: the engine carries the refreshing look through a catch of the retraction (`RefreshEngine.carried`,
+   refresh design §3.2: until the pull fires, the lift (the retraction goes on with the look), a cancel or the content back at
+   rest) and `holdsPlacement` holds the band placement for every built-in style (L3: the `.default` band end no longer drops to
+   `H/L`, the sibling of item 31). Seam lab, 27.0 / 17.5 / forced: `regrab-rdur0p2` vanishings 0 / 0 / 0 frames (before 26 / 26
+   / 30), the spinner drawn 20 pt whenever the band is 20 pt or more; `fling-hold-hsys60-hend1p5` 0 over, 0 jumps, 0 vanishings,
+   20 pt at rest; `.default` band end (`hdef30` / `hdef45-hend1p5`) largest one-frame fall 0.09, 0.09 / 0.08, 0.13 / 0.06, 0.16
+   (before 0.16, 0.22 / 0.22, 0.21 / 0.11, 0.20). Was: the spinner switched to the pull look in one frame (`(L − s)/2`, opacity
+   `1 → s/L`). The catch during a SwiftUI reset (`hreset4`) is s3's (D79). Real 15/16: engine + math; check `regrab-rdur0p2` (no
+   vanish) and `hdef30-hend1p5` (no opacity step).
 
 33. **USER 2026-11-02: FIX (no animation skips or 15–16 look differences are accepted as limits); scheduled in M8b-s8.** **17.5 `.preserve`: after a re-catch the spring back draws the pull-look arrow over the content (2026-11-02, header behaviors
    recheck 2, measured on 17.5 only, pre-existing, OPEN; needs triage)**: in the `.preserve` control of the 17.5 re-grab lane
@@ -415,6 +418,25 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
    frames, forced was not judged for it. Not from fixer rounds 1–2 (the gap code is unchanged by them); whether it predates
    D68–D70 is not checked. Crops `scratchpad/api/recheck2/px/pres175.png`. Next: reproduce on 17.5 at the base 54f8650 and
    classify against item 19's gap rule.
+
+41. **The arrow → spinner cross-fade and a begin's look switch were never drawn (2026-11-03, M8b-s8 s1, measured; pre-existing
+   for the cross-fade; FIXED; numbered 36 in 170c1d3 / 542f59c and 39 in 8558f70 / d114c6f / 782513b: M9-s1 took 36, main
+   37–38, INTEG-s2 39–40)**: before, at every trigger on every lane the arrow was drawn at full intensity on one frame and the
+   spinner on the next (the 0.15 s `modeAnimated` cross-fade never drawn), and a `beginRefreshing()` while the pull look was
+   drawn (fb4c52e's `RefreshLookSwitch`) landed in one frame (`rbegin50-pd80`: 11 pt on 27.0 / 17.5 / forced). Causes (NSLog and
+   test squares, 27.0): (a) a `Group` hands `.animation(_:value:)` to its branch, so the swap ran unanimated → a `ZStack`;
+   (b) SwiftUI resolves ancestors' opacity and geometry animations at the leaves, so the inserted spinner, a new leaf, started at
+   their end values (a `GeometryEffect` shift also blanked the indicator 1–2 frames after a begin, 16 of 20 runs) → the switch is
+   drawn frame by frame (`RefreshLookFade`: an animatable weight, the shift as centre guides, the opacity a factor, identity
+   outside a switch); (c) a stack that took the spinner's size drew the fading arrow 0.67–1 pt off → both glyphs in a 24 pt
+   square; (d) the arrow the cross-fade removes kept its last geometry relative to the box's layer group, which moves with the
+   content: after a `T < L` trigger it went on with the content up to 8 pt off band/2 for 0.15 s → `RefreshGlyphBoundary`
+   (782513b), an identity `GeometryEffect` around the glyphs. After (27.0 / 17.5 / forced): the cross-fade spans 5–6 frames,
+   starting 1–3 frames after the trigger's stalled frame (item 35; the stall itself unchanged, 30–77 ms); a begin glides in 8–10
+   frames, largest step 2.3–3.3 pt (0.21–0.29 of its 11 pt), 0 blank frames in 7 runs. Real 15/16 (M1 Mac lane): SwiftUI
+   semantics the forced lane does not emulate; check (a) mixed arrow / spinner frames over 0.15 s at a trigger, (b)
+   `rtrig300-rbegin50-pd80`: the glide, no blank frame, (c) `rtrig40` / `rtrig30`: the arrow at band/2 right after the trigger,
+   (d) a flexible custom indicator keeps its size through a begin during a retraction.
 
 ## Decisions (keep)
 - D1 Naming map in CLAUDE.md (ZoomScroll → ZTronScroll, `ztronScroll…` modifiers; matches ZTronPages' `ztronPage()`).
@@ -865,3 +887,4 @@ Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (≤ 2 simulators at 
 | 2026-11-02 | Opus 5.5 workflow subagent (header behaviors fixer round 1) | S-RS-1 (HIGH, pre-existing) + open item 30 fixed (2c6bba8): the `.stretch` hold's refresh indicator is drawn only over the stretched band and on its far end (`RefreshIndicatorMath.inStretchBand`, gap box / region of item 19), so a hold the content is scrolled out of goes up with it and a programmatic opening rides the content's top; seam lab finger fling out of a held refresh (new `testFling`, `probeover.py`): 168 / 170 / 168-275 -> 0 frames over the content on 27.0 / 17.5 / forced, opening 0 frames below the header's bottom, seams unchanged; C-RC-1 / C-RC-3 fixed (fbdc743: doc comment, collapse-aware DEBUG note), C-RC-2 in SPEC S10, S-RS-2 recorded (SPEC S10 + item 15 (b)); unit 839/82 on 27.0 + 17.5 (9 known); Refresh/Header/Proof UI 38/38 x 3 lanes; handoff `docs/progress/M8b-s7.md` "Fixer round 1" | not measured |
 | 2026-11-02 | Opus 5.5 workflow subagent (header behaviors fixer round 2) | R1-RC1-1 (LOW, from S-RS-1) fixed (e0d2a8b): a refreshing `.system` spinner in the `.stretch` band is centred (`min(s, L)/2`, the gap's place; scrolled away the gap's rigid rule) and keeps that placement through its retraction (`RefreshIndicatorMath.holdsPlacement`); `holdOffset` 20 / 30 drew 0 / 10 of its 20 pt, now 20 centred on 27.0 / 17.5 / forced; seam lab `hsys<H>` / `hend<s>` + `scripts/seam/spinner.py` (05bc64f, 2860977): 0 frames over the content, 0 one-frame jumps, 0 vanishings in 21 recordings, seams as recheck1; open item 31 (trigger below `indicatorHeight`, non-default); unit Refresh* 50/3 on 27.0 + 17.5; Refresh/Header/Proof UI 38/38 x 3 lanes; handoff `docs/progress/M8b-s7.md` "Fixer round 2" | not measured |
 | 2026-11-02 | Opus 5.5 workflow subagent (header behaviors closer) | docs only: our open item 24 renumbered 27 (main's 24–26 are other sessions'; main's 27+ checked free, `git log --all` too); open items 32 (RC2-1, re-check 2: a re-grab during the `.stretch` `.system` retraction steps the spinner) and 33 (17.5 `.preserve` re-catch arrow, pre-existing, triage); D68–D70 rows final; Next step 6 (user decisions first, device check, merge); `M8b-s7.md` final results (build steps, review findings and their fate, suites per lane, design §7 risks per lane, open items, merge notes); STATE row; parity rows for `withScalingHeader`, the refresh indicator under a header and 15–16 layer groups; SPEC S10 amendment wording (retraction at the default `holdOffset`, item 32); leftover workflow simulators and derived data removed | not measured |
+| 2026-11-03 | Opus 5.5 workflow subagent (M8b-s8 s1, builder s1-refresh-31-32, resumed twice) | open items 31 and 32 fixed (8e0f364: the engine's carried spinner look, L2, L3, the C8 handover; lab `rtrig` / `hdef` / `rdur` / `rbegin` + `handover.py`, 61c7e21); a begin during a retraction switches in the cross-fade (fb4c52e); open item 41 found and fixed (170c1d3 … 782513b, 285a535: the cross-fade and the begin's switch drawn: `ZStack`, 24 pt square, `RefreshLookFade`, `RefreshGlyphBoundary`); unit Refresh* 124/124 on 27.0 + 17.5, `RefreshUITests` 17/17 on 3 lanes; SPEC S10 amended (both known limits removed); handoff `M8b-s8-s1.md` | – |
