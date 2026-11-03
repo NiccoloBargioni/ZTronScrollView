@@ -545,8 +545,8 @@ final class RefreshLookSwitch: ObservableObject {
 /// 20 runs, with or without a group, with the shift and the opacity animated or drawn frame by frame through a
 /// `GeometryEffect`; 0 of 4 with the switch unanimated). Here the shift is the place's (`.position`, the modifier every pull
 /// moves frame by frame) and the opacity a plain value on every frame: no animation of theirs to resolve and nothing new to
-/// draw at the switch (0 of 3 runs). The content keeps the update's own transaction (`RefreshTransactionStash.restore`): a
-/// custom indicator's change is drawn as without the switch.
+/// draw at the switch (0 of 3 runs). Everything inside keeps the update's own transaction (`RefreshTransactionStash.restore`):
+/// the place and the opacity are drawn as computed, and a custom indicator's change as without the switch.
 nonisolated struct RefreshLookFade: ViewModifier, Animatable {
     /// Animated from the previous target to `look.target` in the switch's cross-fade; at the target otherwise.
     var weight: CGFloat
@@ -585,7 +585,6 @@ nonisolated struct RefreshLookFade: ViewModifier, Animatable {
         let hide = hide, reveal = reveal
         let p = Self.position(position, shift: look.shift, remaining: k)
         content
-            .transaction { t in stash.restore(&t) }
             .frame(width: size.width, height: size.height)
             .opacity(Self.opacity(opacity, from: look.from, remaining: k))
             .transaction { t in
@@ -597,11 +596,17 @@ nonisolated struct RefreshLookFade: ViewModifier, Animatable {
                 }
             }
             .position(x: p.x, y: p.y)
+            // Only the weight takes the switch's cross-fade: the place, the opacity and the content get the update's own
+            // transaction, so the frame's values are drawn as they are. Animated, the place glided from the previous frame's
+            // for 0.15 s while the box went on with the content: at a trigger (a switch with nothing to animate but rounding)
+            // the arrow moved with the content up to 7 pt off the band's centre (seam lab, 27.0, `rtrig40`).
+            .transaction { t in stash.restore(&t) }
     }
 }
 
 /// The transaction of the update that animates a look switch, as it was before the switch's animation replaced it: the
-/// indicator's content gets it back (`restore`), so only the switch's weight takes the cross-fade (`RefreshLookFade`).
+/// indicator's place, opacity and content get it back (`restore`), so only the switch's weight takes the cross-fade
+/// (`RefreshLookFade`).
 /// Written by the outer `.transaction` of the same update (which runs first: the inner one reads what it hands down),
 /// cleared by it on every other update.
 nonisolated final class RefreshTransactionStash: @unchecked Sendable {
