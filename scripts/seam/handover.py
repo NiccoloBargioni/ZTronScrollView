@@ -18,7 +18,7 @@ on min(s, L) / 2 (`--old`: HEAD's slide-in look, min(s, L) - L/2, before it), dr
 glyph's height h (the median drawn height of the frames that show all of it) clipped to [0, s]; with `--glyph <dir>` (a
 pull with T >= L on the same lane, e.g. `…-pull-refresh-rtrig100`) the turning arrow's rows per angle instead of h.
 From the trigger on the arrow (turned 180 degrees) and the spinner cross-fade in 0.15 s at the refreshing look's place
-(open item 36), starting where the arrow's intensity first falls below 0.9 of its value at the trigger: the frames before
+(open item 39), starting where the arrow's intensity first falls below 0.9 of its value at the trigger: the frames before
 that start draw the arrow alone (`look` "arrow", its full-turn rows at the place), the frames after the 0.15 s the spinner
 alone ("spinner"), the fade's frames both at partial opacity ("mixed": which of the spinner's rows show depends on its
 spokes, so their drawn centre is no placement; `xfade.edge` = the largest distance of a drawn edge outside the two glyphs'
@@ -177,7 +177,7 @@ if T is not None:
             lo, hi = (-hr / 2, hr / 2) if refreshing else offsets(180 * min(1.0, max(0.0, sv) / T) if T > 0 else 180)
             a, b = max(c + lo, 0.0), min(c + hi, sv)
             return (a + b) / 2 if b > a else None
-        # The cross-fade (open item 36): from the trigger the arrow (turned 180 degrees) fades out and the spinner fades in,
+        # The cross-fade (open item 39): from the trigger the arrow (turned 180 degrees) fades out and the spinner fades in,
         # both at the refreshing look's place min(s, L)/2, in 0.15 s from the first frame the arrow's intensity falls below
         # 0.9 of its value at the trigger (SwiftUI starts it a few frames after the update). Before that frame the arrow is
         # drawn alone (`arrow`: its full-turn rows at the place), after the 0.15 s the spinner alone (`spinner`); the fade's
