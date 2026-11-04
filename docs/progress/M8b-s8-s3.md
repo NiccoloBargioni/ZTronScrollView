@@ -52,6 +52,7 @@ after = this commit; load 5–9 for the after lanes):
 | first drawn after the catch vs caught (pt) | −317.33 vs −317.4 | −310.00 vs −310.1 | −315.33 vs −315.3 |
 | pins end | first evaluation | next update (before the 17+ cut: header 2.7 s) | first evaluation |
 | s1 key `rtrig40` (17.5): residual / half / ramp / mixed | | 2.0 / 0.67 / 0.21 / 11–12, = before (c1ec40f, 2 runs each) | |
+| S `cinset40`: one-frame step at the app's write, header / content (pt); no-catch control | −38.7/+0.8 → −3.3/+36.7; 0/−37.3 then −29.1/+48.0 | −41.0/−68.3 → +26.0/−67.3; +14.5/−53.2 | −40.0/0 → 0/−52.0 then −42.0/+50.0; 0/−52.7 then −39.2/+53.7 |
 
 Notes on the table:
 - forced P 1.33: the reset's own 2-pixel-row step 4 frames before the touch (a 25 ms recording gap before it); two other
@@ -60,7 +61,8 @@ Notes on the table:
 - `rtrig40` reads residual 2.0 today on 17.5 for both the before and the after code (s1 read 0.67–0.92 on 2026-11-03).
 - `cinset40` (an app inset animation 0.1 s after the catch): every lane shows one-frame steps at the app's write, with or
   without a catch (no-catch controls `…-hend1p5-fdown-cinset40` on all three lanes): open item 42, pre-existing. On 17.5
-  the pins end before that write (t121 vs t130) and the header follows the app's curve as in the control.
+  the pins end before that write (t121 vs t130) and the header follows the app's curve as in the control. The catch's own
+  share is gone; the plan's `cinset40` line (no step ≥ 0.5) is met only once item 42 is fixed.
 
 Open:
 - Item 42 (pre-existing, every lane): an app-animated `contentInset` write during a pull or its retraction is drawn in one
