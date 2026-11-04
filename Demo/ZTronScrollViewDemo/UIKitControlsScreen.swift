@@ -118,10 +118,10 @@ private struct NativeOffsetKey: PreferenceKey {
 /// `UIScrollView`s that are neither tables nor collection views (a picker's table, a calendar) nor inside a picker. Inner =
 /// the deepest candidate that holds a picker (the controls' scroll view), outer = the outermost candidate when it is not
 /// the inner one. Offsets are relative to the resting position (`contentOffset + adjustedContentInset`).
-enum NativeScrollProbe {
+@MainActor enum NativeScrollProbe {
     static func read() -> (inner: CGPoint, outer: CGPoint) {
         guard let window = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene })
-            .flatMap(\.windows).first(where: \.isKeyWindow) else { return (.zero, .zero) }
+            .flatMap({ $0.windows }).first(where: { $0.isKeyWindow }) else { return (.zero, .zero) }
         var all: [UIScrollView] = []
         func walk(_ v: UIView, inPicker: Bool) {
             let picker = inPicker || v is UIPickerView || v is UIDatePicker
