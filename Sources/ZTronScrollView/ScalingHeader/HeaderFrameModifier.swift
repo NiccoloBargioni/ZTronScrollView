@@ -346,17 +346,24 @@ struct HeaderSlotLayout: Layout {
 ///   (`HeaderMath.liveHeight`, the formula of 16+'s `HeaderSlotLayout`) from the slot of this layout pass, so an
 ///   app-animated resize lays the header out at its final `R(W, H)` in the animated pass and the unanimated viewport
 ///   commit changes nothing in it (D51 / D62);
-/// - `.fit`: the ideal-ratio box (`HeaderFallbackPlan.fitBox`): the stack framed at `W` (its ideal height is `N(W)`), less
-///   `m′` (`innerPad`), floored at `ε` and given the ideal width `W / (1 − q)`, so `aspectRatio(nil)` takes the box's ideal
-///   ratio `(W / (1 − q)) : (N(W) − m′)`. In a resize's layout pass (the slot is not the committed viewport) it is fitted
-///   to the slot WIDTH, offered the height `(1 − q)(L − m′)` (the overflow limit as a proposal): the stack is
-///   `(1 − q) · R + q · m′` with `R = min(N(W), L)`, 16+'s live height from the content's fresh ideal height in the same
-///   pass (a limited box is narrower than `W`, re-framed at `W`). At the committed viewport (`HeaderMath.isCommittedViewport`,
-///   16+'s `layoutResting` rule) it is fitted to the live HEIGHT of the committed `R` (`fixedSize(horizontal:)` drops the
-///   width proposal): the stack is laid out at 16+'s rect, a header content change does not move it until the state
-///   commits the new `R` in the content's own transaction, and the box's width carries the measurement. Both fits report
-///   the natural height `N(W)` through the leaf's reporter (`noteBox`), unlimited, as 16+ does (the state applies the
-///   limit), so a later limit change resolves from the same stored value on both paths.
+/// - `.fit`: two ideal-ratio boxes (`HeaderFallbackPlan.fitBox`) around the stack framed at `W` (its ideal height is
+///   `N(W)`), less `m′` (`innerPad`), floored at `ε`, both with the ideal width `W / (1 − q)`, so each `aspectRatio(nil)`
+///   takes its child's ideal ratio. The inner one, the measuring box, has the ratio `(W / (1 − q)) : (N(W) − m′)`; the
+///   outer one, the layout box, clamps that ideal height at `L − m′` (the overflow limit; at the committed viewport never
+///   below the committed `R − m′`: a runtime overflow change keeps the old `R` until the state commits the new one, as
+///   16+), so its ratio is `(W / (1 − q)) : (R − m′)` with `R = min(N(W), L)` and it is `W` wide in both fits. In a resize's layout pass (the
+///   slot is not the committed viewport) the layout box is fitted to the slot WIDTH: the stack is `(1 − q) · R + q · m′`,
+///   16+'s live height from the content's fresh ideal height in the same pass. At the committed viewport
+///   (`HeaderMath.isCommittedViewport`, 16+'s `layoutResting` rule) it is fitted to the live HEIGHT of the committed `R`
+///   (`fixedSize(horizontal:)` drops the width proposal): the stack is laid out at 16+'s rect, a header content change
+///   does not move it until the state commits the new `R` in the content's own transaction, and the boxes' widths carry
+///   the measurement. The measuring box, proposed the layout box's size, keeps the unlimited ratio (a limited one is
+///   narrower than `W`, the stack overflows it to the right) and reports the natural height `N(W)` through the leaf's
+///   reporter (`noteBox`), unlimited, as 16+ does (the state applies the limit), so a later limit change resolves from the
+///   same stored value on both paths. The limit is a clamp of the layout box's ratio, never a height proposal: a
+///   `frame(idealHeight: (1 − q)(L − m′))` offering it to a single box (d89c745) drew an animated narrowing that left the
+///   limit (402 → 241 pt, `.capped(0.25)`, half collapsed) at its final size in the first frame (hosted presentation
+///   tree and seam lab: 29 pt seam, 160 pt lateral), though its layout was the same.
 /// Without a slot (no reader above it, the plan's own tests), the committed plan of before D78:
 /// - `.aspectRatio(r)` inside the band, its overflow limit inactive: the header stack fills a box proposed by
 ///   `.aspectRatio(r / (1 − p), .fit)` at the proposed width, extended by `p · min` (a negative inner padding gives the
@@ -400,6 +407,7 @@ nonisolated struct HeaderFallbackFrame: ViewModifier, Animatable {
             // D78, the `.fit` box: the stack laid out (and asked for its ideal height) at the slot width.
             .frame(width: plan.boxWidth)
             .padding(.bottom, plan.innerPad)
+            // The measuring box (the content's own ratio, unlimited; neutral for every other plan).
             .frame(minWidth: 0, idealWidth: plan.boxIdealWidth, maxWidth: .infinity, minHeight: plan.boxFloor,
                    maxHeight: plan.fitBox ? .infinity : nil, alignment: .topLeading)
             .aspectRatio(plan.ratio, contentMode: .fit)
@@ -413,13 +421,15 @@ nonisolated struct HeaderFallbackFrame: ViewModifier, Animatable {
                     }
                 }
             })
-            // The overflow limit as a proposal, not a clamp of the ratio: the height the box is offered when nothing else
-            // proposes one (the width fit: `fixedSize(vertical:)` below proposes none), so a limited box keeps the
-            // content's own ratio (narrower than `W`, its height `(1 − q)(L − m′)`) and reports the natural height `N(W)`,
-            // as 16+'s ideal-size query does. No minimum or maximum: the frame takes the box's size.
-            .frame(idealHeight: plan.boxIdealHeight)
-            // At the committed viewport the box takes its ideal ratio at the live height (no width proposal). Both fits are
-            // re-framed at the slot width, top leading (a limited width fit's box is narrower); neutral otherwise.
+            // The layout box: the same ideal width, its ideal height clamped at `L − m′` (the overflow limit), so it is `W`
+            // wide at `R = min(N, L)` and proposes the measuring box its size (top leading: a limited measuring box is
+            // narrower). Neutral for every other plan (the plan's ratio again: the aspect plan's box fits it exactly, the
+            // neutral ratio keeps the child's size).
+            .frame(minWidth: 0, idealWidth: plan.boxIdealWidth, maxWidth: .infinity, minHeight: plan.boxFloor,
+                   maxHeight: plan.fitBox ? (plan.boxLimit ?? .infinity) : nil, alignment: .topLeading)
+            .aspectRatio(plan.ratio, contentMode: .fit)
+            // At the committed viewport the layout box takes its ideal ratio at the live height (no width proposal). Both
+            // fits are re-framed at the slot width, top leading; neutral otherwise.
             .fixedSize(horizontal: plan.boxFitsHeight, vertical: false)
             .frame(width: plan.boxWidth, height: plan.boxHeight, alignment: .topLeading)
             .padding(.bottom, plan.outerPad)
@@ -437,10 +447,10 @@ nonisolated struct HeaderFallbackFrame: ViewModifier, Animatable {
             }
     }
 
-    /// D78: the `.fit` box's laid-out size reports the natural height `N`. Whichever side the box was fitted to (and
-    /// whether the limit's proposal bounded it), it keeps its child's ideal ratio `(W / (1 − q)) : (N − m′)`, so
-    /// `N = (W / (1 − q)) · height / width + m′` (an unlimited width fit: `height / (1 − q) + m′`; the height fit and a
-    /// limited box: `1 − q` cancels). Reported like 16+ (`HeaderNaturalReporter.measured(_:width:)` at the slot
+    /// D78: the `.fit` measuring box's laid-out size reports the natural height `N`. Whichever side the layout box was
+    /// fitted to (and whether the limit clamped it), the measuring box keeps its child's ideal ratio
+    /// `(W / (1 − q)) : (N − m′)`, so `N = (W / (1 − q)) · height / width + m′` (unlimited: `height / (1 − q) + m′`; a
+    /// limited one is narrower than `W`). Reported like 16+ (`HeaderNaturalReporter.measured(_:width:)` at the slot
     /// width: recorded synchronously for the viewport commit of the same update, delivered at the next run-loop turn in
     /// the content's captured transaction otherwise; dedupes at 0.5 pt). Main thread only (SwiftUI also lays out on its
     /// asynchronous renderer, as for `HeaderSlotLayout`). `true` when it reported.
@@ -479,18 +489,18 @@ struct HeaderFallbackPlan: Equatable {
     static let minimumHeight: CGFloat = 0.01
     var ratio: CGFloat? = neutralRatio
     var floor: CGFloat = 0
-    /// D78, `.fit`'s ideal-ratio box (`HeaderFallbackFrame`): the stack framed at the slot width `boxWidth` (its ideal
-    /// height is `N(W)`), less `m′` (`innerPad = −m′`, `boxMin = m′`), its height floored at `boxFloor = ε`, its ideal
-    /// width `boxIdealWidth = W / (1 − q)` (`q`: `boxProgress`), fitted by `aspectRatio(nil)`: to the slot width in a
-    /// resize's pass, offered `boxIdealHeight = (1 − q) · boxLimit` (`boxLimit = L − m′`; the stack is proposed
-    /// `(1 − q) · R + q · m′`), to the live height of the committed `R` at the committed viewport (`boxFitsHeight`, the
-    /// box `boxHeight = h_L − m′` tall). `nil` / `false` / 0 for every other plan (neutral modifiers).
+    /// D78, `.fit`'s ideal-ratio boxes (`HeaderFallbackFrame`): the stack framed at the slot width `boxWidth` (its ideal
+    /// height is `N(W)`), less `m′` (`innerPad = −m′`, `boxMin = m′`), floored at `boxFloor = ε`, both boxes with the
+    /// ideal width `boxIdealWidth = W / (1 − q)` (`q`: `boxProgress`); the layout box clamps the ideal height at
+    /// `boxLimit = L − m′` (`nil`: no limit) and is fitted by `aspectRatio(nil)`: to the slot width in a resize's pass
+    /// (the stack is proposed `(1 − q) · R + q · m′`), to the live height of the committed `R` at the committed viewport
+    /// (`boxFitsHeight`, the box `boxHeight = h_L − m′` tall). `nil` / `false` / 0 for every other plan (neutral
+    /// modifiers).
     var fitBox = false
     var boxWidth: CGFloat?
     var boxIdealWidth: CGFloat?
     var boxFloor: CGFloat?
     var boxLimit: CGFloat?
-    var boxIdealHeight: CGFloat?
     var boxProgress: CGFloat = 0
     var boxMin: CGFloat = 0
     var boxFitsHeight = false
@@ -574,7 +584,6 @@ extension HeaderFallbackPlan {
         boxFloor = Self.boxFloorHeight
         boxLimit = limit.isFinite ? Swift.max(limit - mm, Self.boxFloorHeight) : nil
         boxIdealWidth = width / (1 - q)
-        boxIdealHeight = boxLimit.map { (1 - q) * $0 }
         ratio = nil
         outerPad = mm
         boxProgress = q
@@ -586,6 +595,10 @@ extension HeaderFallbackPlan {
                                                      natural: live.natural, live)
             boxFitsHeight = true
             boxHeight = Swift.max((1 - q) * (committed.resting - mm), Self.boxFloorHeight)
+            // The committed `R` stays the layout's until the state commits another, as 16+'s `layoutResting`: a runtime
+            // overflow change lays the header out once with the old `R` above the new limit (the spec change commits
+            // after that pass), so the clamp never cuts below it (it cut the stack to the new limit before the commit).
+            if let l = boxLimit { boxLimit = Swift.max(l, committed.resting - mm) }
         }
     }
 }

@@ -308,6 +308,100 @@ struct HeaderFallbackSlotTests {
         }
     }
 
+    // MARK: As drawn (the presentation tree)
+
+    /// The header marker filling the live frame; under `.fit` a 16:9 ideal height at any width (the seam lab's red header).
+    struct DrawnHeader: View {
+        let size: ZTronHeaderSize
+        var body: some View {
+            let marker = HeaderStretchScaleTests.color(HeaderStretchScaleTests.headerMarker)
+            if size.isFit {
+                Color.clear.aspectRatio(16.0 / 9.0, contentMode: .fit)
+                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+                    .background(marker)
+            } else {
+                marker
+            }
+        }
+    }
+
+    /// The seam lab's width change, hosted: the scroll view's width to 0.6, centred, app-animated; the content's top is a
+    /// marker strip (`HeaderStretchScaleTests.Content`).
+    struct DrawnHost: View {
+        @ObservedObject var model: Model
+        let state: ZTronScrollState
+        let size: ZTronHeaderSize
+        let overflow: ZTronHeaderOverflow
+        let counts: BodyCount
+        var body: some View {
+            GeometryReader { g in
+                ZTronScrollView(.vertical, state: state) { HeaderStretchScaleTests.Content(counts: counts) }
+                    .withScalingHeader(size: size, overflow: overflow) { _ in DrawnHeader(size: size) }
+                    .frame(width: model.narrow ? g.size.width * 0.6 : g.size.width)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            }
+        }
+    }
+
+    /// Item 15 (b) as drawn (the seam lab's `fit-half-preserve-width-capped25` row and its neighbours, hosted): an
+    /// app-animated width change interpolates the drawn header with the drawn content in every sampled frame: its bottom
+    /// edge on the content's top (|seam| < 1), its sides on the content's (lateral < 1), its height in steps (no frame
+    /// moves it by half the change). Read from the presentation tree (`HeaderStretchScaleTests.frames`): a layout that is
+    /// final in both passes is not enough. d89c745 offered the overflow limit to a single `.fit` box as an ideal height
+    /// (`frame(idealHeight:)`): the narrowing that leaves the limit (402 → 241 pt, `.capped(0.25)`, half collapsed) drew
+    /// the header at its final size from the first frame on the forced path (seam 29.3 pt, lateral 160.7 pt, one step;
+    /// the seam lab measured the same), with the same layout as now (the layout logs above saw nothing). Now the limit
+    /// clamps an outer layout box (`HeaderFallbackFrame`).
+    @Test(arguments: OSPath.allCases, [(ZTronHeaderSize.fit(min: 64), ZTronHeaderOverflow.capped(fraction: 0.25), CGFloat(0.5)),
+                                       (.fit(min: 64), .uncapped, 0.5), (.fit(min: 64), .uncapped, 0),
+                                       (.aspectRatio(16.0 / 9.0, min: 64), .capped(fraction: 0.25), 0.5)])
+    func aWidthChangeIsDrawnWithTheContent(path: OSPath, c: (ZTronHeaderSize, ZTronHeaderOverflow, CGFloat)) {
+        let (size, overflow, progress) = c
+        let model = Model(), counts = BodyCount()
+        let s = makeState(path)
+        let w = withOSPath(path) { window(DrawnHost(model: model, state: s, size: size, overflow: overflow, counts: counts)) }
+        defer { unhost(w) }
+        settle(s)
+        guard s.peek.metrics.header != nil else { Issue.record("\(path) \(size): unresolved"); return }
+        if progress > 0 {
+            s.snapHeader(to: .progress(progress), animated: false)
+            pump(0.3)
+            s.endOfTurn()
+        }
+        func sample() -> (header: CGRect, content: CGRect)? {
+            guard let h = HeaderStretchScaleTests.frames(of: HeaderStretchScaleTests.headerMarker, in: w, presented: true).first,
+                  let c = HeaderStretchScaleTests.frames(of: HeaderStretchScaleTests.contentMarker, in: w, presented: true).first
+            else { return nil }
+            return (h, c)
+        }
+        for narrow in [true, false] {
+            let tag = "\(path) \(size) \(overflow) q \(progress) narrow \(narrow)"
+            guard let start = sample() else { Issue.record("\(tag): no marker layers at rest"); return }
+            withAnimation(.linear(duration: 0.5)) { model.narrow = narrow }
+            var frames: [(header: CGRect, content: CGRect)] = []
+            for _ in 0..<40 {
+                pump(1.0 / 60)
+                if let f = sample() { frames.append(f) }
+            }
+            pump(0.4)
+            s.endOfTurn()
+            guard let end = sample() else { Issue.record("\(tag): no marker layers at the end"); return }
+            let seam = frames.map { abs($0.header.maxY - $0.content.minY) }.max() ?? .infinity
+            let lateral = frames.map { max(abs($0.header.minX - $0.content.minX), abs($0.header.maxX - $0.content.maxX)) }
+                .max() ?? .infinity
+            let heights = [start.header.height] + frames.map(\.header.height) + [end.header.height]
+            let change = abs(end.header.height - start.header.height)
+            let step = zip(heights, heights.dropFirst()).map { abs($1 - $0) }.max() ?? 0
+            #expect(frames.count >= 20, "\(tag): sampled \(frames.count) frames")
+            #expect(seam < 1, "\(tag): header bottom vs content top, worst \(seam)")
+            #expect(lateral < 1, "\(tag): header sides vs content sides, worst \(lateral)")
+            #expect(change < 1 || step < 0.5 * change, "\(tag): the header's height moved \(step) of \(change) in one frame")
+            let fmt = { (r: CGRect) in String(format: "%.2f,%.2f %.2fx%.2f", r.minX, r.minY, r.width, r.height) }
+            print("D78 drawn \(tag): seam \(seam) lateral \(lateral) step \(step) of \(change); start \(fmt(start.header)) "
+                  + "end \(fmt(end.header)); first frames \(frames.prefix(4).map { fmt($0.header) + " | " + fmt($0.content) })")
+        }
+    }
+
     /// A header content that logs each size it is laid out at with the state's committed `R` at that moment.
     struct CommitLogProbe: View {
         let log: CommitLog

@@ -296,7 +296,7 @@ struct HeaderLayoutFrameTests {
         var plan = HeaderFallbackPlan(live, slot: CGSize(width: 241, height: 778))
         #expect(plan.fitBox && !plan.boxFitsHeight && plan.boxHeight == nil && plan.ratio == nil, "\(plan)")
         #expect(plan.boxWidth == 241 && plan.boxIdealWidth == 482 && plan.innerPad == -64 && plan.outerPad == 64
-                && plan.boxMin == 64 && plan.boxProgress == 0.5 && plan.boxLimit == nil && plan.boxIdealHeight == nil
+                && plan.boxMin == 64 && plan.boxProgress == 0.5 && plan.boxLimit == nil
                 && plan.boxFloor == HeaderFallbackPlan.boxFloorHeight && plan.minHeight == 0 && plan.maxHeight == .infinity
                 && !plan.fitRest, "\(plan)")
         // Another container (a height change): the width fit.
@@ -305,10 +305,10 @@ struct HeaderLayoutFrameTests {
         plan = HeaderFallbackPlan(live, slot: CGSize(width: 402, height: 778))
         #expect(plan.fitBox && plan.boxFitsHeight && abs((plan.boxHeight ?? -1) - 0.5 * (226.125 - 64)) < 1e-9, "\(plan)")
         #expect(HeaderFallbackPlan(live, slot: CGSize(width: 402.4, height: 778.4)).boxFitsHeight)
-        // `.capped(0.25)` at the slot's H: L = 194.5, the box's height limited to L − m′.
+        // `.capped(0.25)` at the slot's H: L = 194.5, the layout box's ideal height clamped at L − m′.
         live.overflow = .capped(fraction: 0.25)
         plan = HeaderFallbackPlan(live, slot: CGSize(width: 241, height: 778))
-        #expect(plan.boxLimit == 194.5 - 64 && plan.boxIdealHeight == 0.5 * (194.5 - 64), "the limit offered: \(plan)")
+        #expect(plan.boxLimit == 194.5 - 64 && plan.boxIdealWidth == 482, "the limit: \(plan)")
         // `min` above the limit (L = 50): m′ = L, the box floored.
         plan = HeaderFallbackPlan(live, slot: CGSize(width: 241, height: 200))
         #expect(plan.boxMin == 50 && plan.innerPad == -50 && plan.outerPad == 50
@@ -359,14 +359,15 @@ struct HeaderLayoutFrameTests {
         let wb = h * (plan.boxIdealWidth ?? 0) / (r2 - 64)
         #expect(HeaderFallbackFrame.noteBox(CGSize(width: wb, height: h), plan: plan, reporter: reporter))
         #expect(abs((s.headerNaturalLive?.height ?? -1) - r2) < 1e-9 && s.headerNaturalLive?.width == 402)
-        // A limited width fit (`.capped(0.25)`: L = 194.5 < R = 226.125 at 402 pt, half collapsed): the box is offered
-        // `(1 − q)(L − m′)` and keeps the content's ratio, narrower than W; it reports the natural height, unlimited (the
-        // state applies the limit, as on 16+).
+        // A limited width fit (`.capped(0.25)`: L = 175 < N = 226.125 at 402 pt, half collapsed): the layout box (its
+        // ideal height clamped at L − m′) is W × (1 − q)(L − m′); the measuring box inside keeps the content's ratio,
+        // narrower than W, and reports the natural height, unlimited (the state applies the limit, as on 16+).
         live.overflow = .capped(fraction: 0.25)
         live.metrics = HeaderMetrics(min: 64, resting: 194.5, behavior: .preserve, width: 402)
         plan = HeaderFallbackPlan(live, slot: CGSize(width: 402, height: 700))
-        let x = plan.boxIdealHeight ?? -1, n = 402 * 9.0 / 16
-        #expect(!plan.boxFitsHeight && abs(x - 0.5 * (0.25 * 700 - 64)) < 1e-9, "\(plan)")
+        let n = 402 * 9.0 / 16
+        #expect(!plan.boxFitsHeight && abs((plan.boxLimit ?? -1) - (0.25 * 700 - 64)) < 1e-9, "\(plan)")
+        let x = 0.5 * (plan.boxLimit ?? -1)
         let wl = x * (plan.boxIdealWidth ?? 0) / (n - 64)
         #expect(wl < 402 && HeaderFallbackFrame.noteBox(CGSize(width: wl, height: x), plan: plan, reporter: reporter))
         #expect(abs((s.headerNaturalLive?.height ?? -1) - n) < 1e-9 && s.headerNaturalLive?.width == 402)
