@@ -411,13 +411,36 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
    `1 → s/L`). The catch during a SwiftUI reset (`hreset4`) is s3's (D79). Real 15/16: engine + math; check `regrab-rdur0p2` (no
    vanish) and `hdef30-hend1p5` (no opacity step).
 
-33. **USER 2026-11-02: FIX (no animation skips or 15–16 look differences are accepted as limits); scheduled in M8b-s8.** **17.5 `.preserve`: after a re-catch the spring back draws the pull-look arrow over the content (2026-11-02, header behaviors
-   recheck 2, measured on 17.5 only, pre-existing, OPEN; needs triage)**: in the `.preserve` control of the 17.5 re-grab lane
-   (`recheck2/seam/g175`, the scratch lab's 4 s `resetAnimation`, a fling down after `endRefreshing`) the
-   arrow is drawn 1.3–10 pt over the content in frames 334–341 while the content springs back after the catch; 27.0 shows 0 such
-   frames, forced was not judged for it. Not from fixer rounds 1–2 (the gap code is unchanged by them); whether it predates
-   D68–D70 is not checked. Crops `scratchpad/api/recheck2/px/pres175.png`. Next: reproduce on 17.5 at the base 54f8650 and
-   classify against item 19's gap rule.
+33. **FIXED (2026-11-04, M8b-s8 s3, D79; the 17.5 header residual included).** Was (2026-11-02, header behaviors recheck 2,
+   17.5, pre-existing): a finger that caught the content while the SwiftUI-drawn reset (`resetAnimation: .swiftUI`, D39) drew
+   it back began from the MODEL (already at rest), so the drawn content dropped by the rest of the reset and SwiftUI 17.x
+   added that rest to every effect afterwards (the `.preserve` arrow 1.3–10 pt over the content, the `.stretch` header off
+   the content for 2+ s). Fix (D79): the touch catches the content where it is DRAWN (touch-down, the model adopts the probe's
+   drawn offset and zoom), 17+ ends the reset at the catch (`CatchableResetAnimation`), every offset-following effect pins
+   its model value until its interpolation reaches it (`CatchPin`; the 15–16 path's only mechanism). Seam lab
+   (`hreset4` + `fdown`, `scripts/seam/catchcheck.py`), before (c1ec40f) → after, 27.0 / 17.5 / forced:
+   - `.stretch` (`…-stretch-fling-hold-hsys60-hend1p5-hreset4-fdown`): band fall beyond the reset's own over the 4 frames
+     before the catch 0.68 / 0.66 / 2.0 → −0.66 / 0.67 / 0.67; spinner 12–13.3 / 16–20 / 13.3–17.3 pt → 20 / 20 / 20 on
+     every frame; its step against the content vs the centred look's (−band step/2) 4.67 / 10.34 / 4.0 → 0.0 / 0.67 /
+     0.34 pt; vanish 2 / 0 / 0 frames → 0; header seam from the catch to rest 0.5 / 27.83 (131 frames > 1 pt) / 0.5 →
+     0.5 / 0.5 / 0.5 (0 frames > 1 pt).
+   - `.preserve` (`…-preserve-fling-hold-…`): fall beyond the reset 26.66 / 20.0 / 2.0 → 0.67 / 0.67 / 1.33 (forced: the
+     reset's own 2-row step 4 frames before the touch, recording jitter; 0.67 and 0.68 in two other runs); over 0 / 11 / 0
+     → 0; spinner 12–12.7 / 6–14.7 / 8.7–14 → 19.3–20 / 20 / 20; `--open-gap` gapExcess 0.0 on every lane.
+   - `.preserve` + follow (`…-fling-hold-follow-…`): vanish 2 / 2 / 0 → 0; header seam 0.17 / 29.17 (114 frames) / 0.33 →
+     0.33 / 0.17 / 0.33; gapExcess 0.33 / 0.17 / 0.33; spinner 20 on every frame (before 11.3–13.3 / 0–17.3 / 8–15.3).
+   - DEBUG events (`info`): the content's first drawn offset after the catch −317.33 / −310.00 / −315.33 vs the caught
+     −317.4 / −310.1 / −315.3; every pin ends at its first evaluation on 27.0 and forced, at the next update on 17.5 (before
+     the 17+ cut: the header's after 2.7 s). Hosted: content.body 0 across a catch and the drag after it, one
+     `transformHost.body` per model write (`DrawnCatchTests`).
+   - An app inset animation 0.1 s after the catch (`cinset40`, design §8 risk): on 17.5 the pins have ended before it (t121
+     vs t130) and the header follows the app's curve as without a catch; before the 17+ cut the pinned header drew it at its
+     final value (41 pt in one frame). The steps left at that write are pre-existing on every lane, with or without a catch:
+     open item 42.
+   Real 15/16 (M1 Mac lane): the pin alone (no `CustomAnimation`). Check `…-hreset4-fdown` S / P / F (fall ≤ 1, spinner 20,
+   seam ≤ 1) and the `info` events: whether 15/16 keep the reset's rest after the catch's unanimated write (pins ending after
+   their first evaluation, as 17.5 without the cut). If they do, `cinset40` draws the app's animation at its final value while
+   a pin holds (17.5 before the cut: the header 41 pt in one frame): a 15–16 difference to fix there.
 
 41. **The arrow → spinner cross-fade and a begin's look switch were never drawn (2026-11-03, M8b-s8 s1, measured; pre-existing
    for the cross-fade; FIXED; numbered 36 in 170c1d3 / 542f59c and 39 in 8558f70 / d114c6f / 782513b: M9-s1 took 36, main
@@ -437,6 +460,20 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
    semantics the forced lane does not emulate; check (a) mixed arrow / spinner frames over 0.15 s at a trigger, (b)
    `rtrig300-rbegin50-pd80`: the glide, no blank frame, (c) `rtrig40` / `rtrig30`: the arrow at band/2 right after the trigger,
    (d) a flexible custom indicator keeps its size through a begin during a retraction.
+
+42. **An app-animated `contentInset` write during a pull or its retraction is drawn in one frame (2026-11-04, M8b-s8 s3,
+   measured, pre-existing, OPEN; every lane, with or without a catch)**: `withAnimation(.easeInOut(duration: 0.3)) {
+   state.contentInset.top += 40 }` while the content is pulled (seam lab `cinset40`: 0.1 s after the first touch after a
+   hold's end). The write reaches the state inside the app's closure but outside a container update, so
+   `positionDriver.animationInTurn` is nil (`vp inset … txAnim:false` in every run) and nothing follows the app's curve:
+   27.0 / forced, no catch (`…-hend1p5-fdown-cinset40`): the content −37 then +48 pt (−53 / +54 forced) in two frames and the
+   header −29 (−39) pt in one; with a catch the header −39 / −40 pt in one frame or the content +37; 17.5, no catch: the
+   content −53 pt in one frame to its old rest, the header +14.5 pt; with a catch −67 / +26. A retraction that a catch
+   carries (item 32's spinner look) ends at that write: 17.5 the spinner 20 → 0 pt at a drawn band of 50 pt (before D79
+   12 → 0 at 44.7), 27.0 / forced its centre 17.3 pt off the content in one frame (RefreshBaseFollow gets no animation).
+   Before item 42 is fixed, `cinset40` cannot show a step-free app animation on any lane. Next: carry the app's
+   transaction to the inset-only path for direct state writes (the container's `.transaction` hook sees it one update
+   later), then re-measure `cinset40` on 3 lanes (the 17+ cut keeps the pins out of it; 15–16 see item 33's check).
 
 ## Decisions (keep)
 - D1 Naming map in CLAUDE.md (ZoomScroll → ZTronScroll, `ztronScroll…` modifiers; matches ZTronPages' `ztronPage()`).
@@ -811,6 +848,34 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
   CLAUDE.md scoped-UIKit exception (accepted with the route; verbatim text written by the build batch). Built in M8b-s9 after
   M8b-s8 closes, together with D76's crisp `.keepTextMagnified` if the user accepts that design; then the custom headerless
   indicator is grouped (i29 §5.5) to close item 27's 15–16 rotation-start residual.
+- D79 (2026-11-04, M8b-s8 s3, open item 33 and item 32 during a reset; design `docs/design/M8b-s8-refresh-27-31-32-33.md`
+  §2) A touch catches the content where it is DRAWN while the library's own SwiftUI animation draws it away from the model
+  (the D39 reset `resetAnimation: .swiftUI`: the model is at rest at once, SwiftUI interpolates the content's transform, the
+  refresh placement and the header's six effects).
+  - The window: `noteSwiftUIDrawnMotion()` opens it before the two D39 `withAnimation` calls (RefreshCoordinator `apply`,
+    `closeHold`). Any intervention, motion, transaction token, resize, tracking or zoom closes it, and so does the probe
+    reading the model (within 0.5 pt). `drawnAway()` = the probe's drawn offset and zoom while it is open.
+  - The catch is at TOUCH-DOWN (`.catchMotion`: the pan and pinch environments count a drawn-away state as moving):
+    `interrupt(catching: true)` writes the drawn offset and zoom unanimated and takes the pin's number AFTER the write (on
+    the channel path a host body runs synchronously at the write's will-change: a pin taken before it pinned the pre-catch
+    model, forced −288.12 drawn for −313.28). 17.x delivers the synthesized touch-down and the recognition in one `handle()`
+    call: the session is rebased on the caught presentation and the tail's `.setOffset` replaced. A pinch catch re-arms the
+    pinch session on the caught, un-banded presentation (`PinchSession.rearm`).
+  - Not at the drag's recognition (tried first, measured failing on 27.0): the touch-down's `.idle → .tracking` turns off
+    TransformHost's pixel snap, an unanimated 1/8 pt step that cancels SwiftUI's reset under the finger on 18+ (the drag then
+    began from the model), and the refresh engine's touch-down re-grab saw pull 0 and dropped the spinner look.
+  - A caught touch that lifts without a drag springs content beyond its bounds back (`endCaughtTouch`), as UIKit; this also
+    fixes a tap on a clock-driven bounce, which left the content overscrolled (pre-existing).
+  - 17+ (`ZTronCapability.customAnimation`): the reset's animation is wrapped (`CatchableResetAnimation`, delegating to the
+    base); the catch cuts its token, so from the next frame SwiftUI drops the rest of the reset. Measured on 17.5 without it:
+    SwiftUI keeps the rest through the unanimated write and adds it (the header's effects 2.7 s past a catch of a 4 s reset),
+    and an app's animation of the same inputs in that time was drawn at its final value under the pin (`cinset40`: the
+    header 41 pt in one frame). With it every pin ends at the next update. 27.0 ends the animation at the write itself.
+  - The pin (`Render/CatchPin.swift`, one latch per effect and catch): every effect that follows the offset
+    (`ContentTransform`, `RefreshPlacementEffect`, the header's six) draws its model value until its own interpolation
+    reaches it. The only mechanism on 15–16 and the forced lane; a one-update guard on 17+. Any future offset-animatable
+    effect must read the pin, or a path that keeps the rest draws it over its neighbours again.
+  - C17: DEBUG events only (window open / close, `catch drawn`, `pin start` / `pin end`, the content's first drawn offset).
 - D16 (user, 2026-10-18) Physics and the post-rotation re-centering are generated and tested by **Fable 5.1**
   (builder agents with model fable). Re-centering ports ZTronMapKit's normalized-centre discipline
   (ContentGeometry: capture before resize, restore = centre × newContentSize − newViewport/2, clamp, centre smaller
@@ -888,3 +953,4 @@ Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (≤ 2 simulators at 
 | 2026-11-02 | Opus 5.5 workflow subagent (header behaviors fixer round 2) | R1-RC1-1 (LOW, from S-RS-1) fixed (e0d2a8b): a refreshing `.system` spinner in the `.stretch` band is centred (`min(s, L)/2`, the gap's place; scrolled away the gap's rigid rule) and keeps that placement through its retraction (`RefreshIndicatorMath.holdsPlacement`); `holdOffset` 20 / 30 drew 0 / 10 of its 20 pt, now 20 centred on 27.0 / 17.5 / forced; seam lab `hsys<H>` / `hend<s>` + `scripts/seam/spinner.py` (05bc64f, 2860977): 0 frames over the content, 0 one-frame jumps, 0 vanishings in 21 recordings, seams as recheck1; open item 31 (trigger below `indicatorHeight`, non-default); unit Refresh* 50/3 on 27.0 + 17.5; Refresh/Header/Proof UI 38/38 x 3 lanes; handoff `docs/progress/M8b-s7.md` "Fixer round 2" | not measured |
 | 2026-11-02 | Opus 5.5 workflow subagent (header behaviors closer) | docs only: our open item 24 renumbered 27 (main's 24–26 are other sessions'; main's 27+ checked free, `git log --all` too); open items 32 (RC2-1, re-check 2: a re-grab during the `.stretch` `.system` retraction steps the spinner) and 33 (17.5 `.preserve` re-catch arrow, pre-existing, triage); D68–D70 rows final; Next step 6 (user decisions first, device check, merge); `M8b-s7.md` final results (build steps, review findings and their fate, suites per lane, design §7 risks per lane, open items, merge notes); STATE row; parity rows for `withScalingHeader`, the refresh indicator under a header and 15–16 layer groups; SPEC S10 amendment wording (retraction at the default `holdOffset`, item 32); leftover workflow simulators and derived data removed | not measured |
 | 2026-11-03 | Opus 5.5 workflow subagent (M8b-s8 s1, builder s1-refresh-31-32, resumed twice) | open items 31 and 32 fixed (8e0f364: the engine's carried spinner look, L2, L3, the C8 handover; lab `rtrig` / `hdef` / `rdur` / `rbegin` + `handover.py`, 61c7e21); a begin during a retraction switches in the cross-fade (fb4c52e); open item 41 found and fixed (170c1d3 … 782513b, 285a535: the cross-fade and the begin's switch drawn: `ZStack`, 24 pt square, `RefreshLookFade`, `RefreshGlyphBoundary`); unit Refresh* 124/124 on 27.0 + 17.5, `RefreshUITests` 17/17 on 3 lanes; SPEC S10 amended (both known limits removed); handoff `M8b-s8-s1.md` | – |
+| 2026-11-04 | Opus 5.5 workflow subagent (M8b-s8 s3, builder s3-refresh-33-catch) | open item 33 fixed (9f12dbc, D79: the touch-down catch where the reset is drawn, the 17+ `CatchableResetAnimation` cut, `CatchPin` on every offset-following effect, the caught tap's spring back); open item 42 (pre-existing: an app-animated `contentInset` write during a pull is drawn in one frame); SPEC S9 / S10; unit 866 / 83 on 27.0 + 17.5; demo UI 5 suites on 3 lanes (2 failures classified: simulator appearance, pre-existing 17.5 `testControlsUsable`); handoff `docs/progress/M8b-s8-s3.md` | — |

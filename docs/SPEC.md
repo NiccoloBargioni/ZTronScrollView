@@ -451,6 +451,14 @@ Calibrate the defaults side by side with UIRefreshControl.
     where the content moves (an edge kept), the base moves at once as before. Before: a bottom hold in the gap vanished on the first
     frame of a 150 pt inset change and an overlay jumped 150 pt.
   - On completion, animate back to rest unless the user is tracking.
+    Amended 2026-11-04 (M8b-s8 s3, open item 33, D79): a finger that touches down while a `.swiftUI` reset animates the content
+    back catches it where it is DRAWN, as UIKit stops a deceleration under the finger: the model takes the drawn offset and zoom
+    (it is already at rest when the reset starts), the drag or pinch continues from there, and a tap that lifts without a drag
+    springs the content back from beyond its bounds. On 17+ the catch ends the reset's animation (a `CustomAnimation` wrapper),
+    and every effect that follows the offset (the content, the indicator, the header) draws its model value until its own
+    interpolation reaches it, so no rest of the reset is drawn after the catch (the only mechanism on 15–16). Seam lab
+    (`hreset4-fdown`), 27.0 / 17.5 / forced: the band falls by at most the reset's own motion + 1 pt before the catch (before up
+    to 26.7 pt), the spinner stays 20 pt and centred in the band, 0 frames over the content, 0 jumps, 0 vanishings.
 - **One action per pull.** Only one refresh runs at a time. Never call the action twice for one pull. Cancel the async task when the view disappears.
 - **Disabled** while `zoomScale` is above minimum (configurable) and while scrolling is disabled.
 - **Haptic at trigger:** `.sensoryFeedback` on iOS 17+. On iOS 15–16 there is no haptic, because UIKit isn't allowed; document this.
@@ -839,6 +847,12 @@ of band/2 from the trigger on, and the largest one-frame opacity rise is 0.21–
 a catch of the retraction (`regrab-rdur0p2`) hides the spinner on 0 frames (before 26 / 26 / 30); a begin glides in 8–10 frames,
 its largest step 0.21–0.29 of the 11 pt (before all of it in one frame); 0 frames over the content, 0 jumps, 0 vanishings; a
 default pull's frames as before.
+**(Amended 2026-11-04, M8b-s8 s3, open item 33, D79.)** A finger that catches the content while a `.swiftUI` `resetAnimation`
+draws it back after `endRefreshing` catches it where it is drawn (S9): the band, the header and the indicator stay where they
+were drawn at the touch-down and follow the finger from there. The retraction's spinner look is carried as in the amendment of
+2026-11-03. Seam lab, 27.0 / 17.5 / forced: `.stretch` header seam ≤ 0.5 pt from the catch to rest (17.5 before: 27.8 pt, 131
+frames over 1 pt), the spinner 20 pt on every frame with its step within 1 pt of the centred look's; `.preserve` and its
+follow variant: the open gap's excess ≤ 0.33 pt, the indicator never over the content (17.5 before: 11 frames).
 **(Amended 2026-10-27, M8b-s6.)** During an app-driven animated resize while refreshing, the indicator is drawn at the presented
 geometry: its placement is computed in the committed geometry (the resize commit is unanimated) with the pull taken from the target,
 and a render-time transform (`RefreshResizeEffect`, a `GeometryEffect`) moves it by the presented − committed difference at the drawn
