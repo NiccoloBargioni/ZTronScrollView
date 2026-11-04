@@ -206,7 +206,7 @@ enum HeaderMath {
     /// (`containerHeight(viewport:safe:adjusted:keyboard:)`): `.capped(f)` → `f · H` (`f` clamped to 0…1, 1 when not
     /// finite), `.refit` → `H` (for `.aspectRatio`, `W / r` capped at `H` is the aspect fit of `r` inside `W × H`),
     /// `.uncapped` or an unknown container (≤ 0, not finite) → ∞. `metrics(…)` applies it; the 15–16 `.fit` box
-    /// (`HeaderFallbackPlan`, D78) clamps the header's ideal height to it in layout.
+    /// (`HeaderFallbackPlan`, D78) offers it as the box's height in layout (the measurement stays unlimited).
     static func overflowLimit(_ overflow: ZTronHeaderOverflow, containerHeight: CGFloat) -> CGFloat {
         guard containerHeight > 0, containerHeight.isFinite else { return .infinity }
         switch overflow {

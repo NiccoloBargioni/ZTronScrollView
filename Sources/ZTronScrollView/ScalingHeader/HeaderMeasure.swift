@@ -133,7 +133,13 @@ struct HeaderMeasuringPass: ViewModifier {
                     if size.width > 0 {
                         measuring = false
                         measuredWidth = report.width
-                        if state.isResizeInFlight { state.unanimated { state.setHeaderNatural(size.height) } }
+                        // A resize: the report joins the open commit. The first measurement (no metrics yet, launch):
+                        // adopted at once, in this update, so the first committed frame has the header and its inset
+                        // (16+ adopts it in the viewport commit of the same update); deferred to the next run-loop turn
+                        // (the reporter's delivery), that frame had neither (the header 0.01 pt, the content at the top).
+                        if state.isResizeInFlight || state.storage.metrics.header == nil {
+                            state.unanimated { state.setHeaderNatural(size.height) }
+                        }
                     }
                 }
             }

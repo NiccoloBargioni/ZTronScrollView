@@ -21,6 +21,7 @@ struct HeaderFallbackSlotTests {
         @Published var short = false
         @Published var narrow = false
         @Published var tall = false
+        @Published var relaxed = false
     }
 
     /// The seam lab's resize, hosted: the scroll view's height to 0.4 (`short`, top-pinned) or its width to 0.6
@@ -388,17 +389,93 @@ struct HeaderFallbackSlotTests {
         }
     }
 
+    // MARK: A runtime overflow change
+
+    struct RelaxHost: View {
+        @ObservedObject var model: Model
+        let state: ZTronScrollState
+        let log: CommitLog
+        let counts: BodyCount
+        var body: some View {
+            ZTronScrollView(.vertical, state: state) { StatefulContent(counts: counts) }
+                .withScalingHeader(size: .fit(min: 64), overflow: model.relaxed ? .uncapped : .capped(fraction: 0.25)) { _ in
+                    GrowContent(model: model, log: log, state: state)
+                }
+        }
+    }
+
+    /// A runtime overflow change on a limited `.fit` header (`.capped(0.25)` ↔ `.uncapped` in an app animation, at rest and
+    /// half collapsed): the state resolves the new `R` from its stored natural height in the spec change, and the header
+    /// is laid out at the new `R`'s live height at once, on both paths (the 15 box reports the natural height unlimited,
+    /// as 16+'s ideal-size query; with a limited report the relaxed `R` waited for the box's next report and was adopted
+    /// as a content change, the drawn collapse kept, then animated back: 160.9 → 145.1 pt on 15, 145.0 at once on 16+).
+    @Test(arguments: OSPath.allCases, [CGFloat(0), 0.5])
+    func aRuntimeOverflowChangeFollowsTheSameSequence(path: OSPath, progress: CGFloat) {
+        let log = CommitLog(), model = Model(), counts = BodyCount()
+        let s = makeState(path)
+        let w = withOSPath(path) { window(RelaxHost(model: model, state: s, log: log, counts: counts)) }
+        defer { unhost(w) }
+        settle(s)
+        guard s.peek.metrics.header != nil else { Issue.record("\(path): unresolved"); return }
+        s.snapHeader(to: .progress(progress), animated: false)
+        pump(0.3)
+        s.endOfTurn()
+        let W = s.peek.metrics.viewportSize.width
+        for relaxed in [true, false] {
+            log.entries.removeAll()
+            var rs: [CGFloat] = []
+            withAnimation(.easeInOut(duration: 0.5)) { model.relaxed = relaxed }
+            for _ in 0..<40 { pump(1.0 / 60); rs.append(s.peek.metrics.header?.resting ?? -1) }
+            pump(0.4)
+            s.endOfTurn()
+            let tag = "\(path) q \(progress) relaxed \(relaxed)"
+            let R = s.peek.metrics.header?.resting ?? -1
+            let expected = relaxed ? W * 9 / 16 : 0.25 * committedContainer(s)
+            #expect(abs(R - expected) < 0.5, "\(tag): R \(R), expected \(expected)")
+            let firstNew = rs.firstIndex { abs($0 - R) < 0.5 }
+            #expect(firstNew == 0, "\(tag): R adopted at frame \(String(describing: firstNew)) (\(rs.prefix(4)))")
+            let end = (1 - progress) * R + progress * 64
+            let atNew = log.entries.filter { abs($0.committed - R) <= 0.5 }.map(\.size.height)
+            #expect(!atNew.isEmpty && atNew.allSatisfy { abs($0 - end) < 0.5 },
+                    "\(tag): laid out at the new R's live height \(end) at once: \(atNew)")
+            print("D78 relax \(tag): R \(R), first frame at R \(String(describing: firstNew)), Rs \(rs.prefix(4)), entries \(log.entries.prefix(3).map { "\($0.size.height)@\($0.committed)" }) … \(log.entries.suffix(2).map { "\($0.size.height)@\($0.committed)" }) (\(log.entries.count))")
+        }
+    }
+
     // MARK: Launch
 
-    /// The `.fit` header is drawn from the first frame at launch on both paths: it resolves and is laid out at the
-    /// state's height within the first 60 Hz frame after the window shows (the measuring pass takes the first
-    /// measurement while there are no metrics; its launch-time re-arming stays, D78: without it the 15 header was missing
-    /// for 1–5 frames at launch, i15b spike C).
+    /// Samples at the end of every main run-loop turn, after Core Animation's commit (a `beforeWaiting` observer ordered
+    /// after it): what that turn committed to the screen.
+    @MainActor final class TurnSampler {
+        var samples: [(height: CGFloat, width: CGFloat, resolved: Bool)] = []
+        private let sample: () -> (CGFloat, CGFloat, Bool)
+        private var observer: CFRunLoopObserver?
+        init(_ sample: @escaping () -> (CGFloat, CGFloat, Bool)) {
+            self.sample = sample
+            observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, true, 2_100_000) {
+                [weak self] _, _ in
+                MainActor.assumeIsolated { self?.tick() }
+            }
+            CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        }
+        private func tick() {
+            let s = sample()
+            samples.append((s.0, s.1, s.2))
+        }
+        func stop() { if let observer { CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes) } }
+    }
+
+    /// The header is in the FIRST committed frame at launch on both paths: at the end of every run-loop turn from the
+    /// header's first layout on (after Core Animation's commit), the state has the header's metrics (the content's inset)
+    /// and the header its height. The 15 measuring pass adopts its first measurement at once (deferred to the next
+    /// run-loop turn, the first committed turn had neither the header nor its inset, at 7206175 too; seam lab, forced, one
+    /// recording's first frame).
     @Test(arguments: OSPath.allCases, [ZTronHeaderSize.fit(min: 64), .fit(), .aspectRatio(16.0 / 9.0, min: 64)])
-    func theHeaderIsLaidOutFromTheFirstFrames(path: OSPath, size: ZTronHeaderSize) {
+    func everyCommittedFrameFromTheFirstHasTheHeader(path: OSPath, size: ZTronHeaderSize) {
         let log = Log(), counts = BodyCount()
         let s = makeState(path)
-        ZTronRenderCounters.reset()
+        let sampler = TurnSampler { (log.last.height, log.last.width, s.peek.metrics.header != nil) }
+        defer { sampler.stop() }
         let w = withOSPath(path) {
             let w = UIWindow(frame: CGRect(origin: .zero, size: CGSize(width: 402, height: 874)))
             w.rootViewController = UIHostingController(rootView:
@@ -412,17 +489,10 @@ struct HeaderFallbackSlotTests {
             return w
         }
         defer { unhost(w) }
-        var first: Int?
-        for frame in 0..<30 {
-            pump(1.0 / 60)
-            if let g = s.headerGeometry, let m = s.peek.metrics.header, g.height > 0.5,
-               abs(log.last.height - g.height) < 0.5, abs(log.last.width - s.peek.metrics.viewportSize.width) < 0.5 {
-                #expect(abs(m.resting - 402 * 9 / 16) < 0.5, "\(path) \(size): R \(m.resting)")
-                first = frame
-                break
-            }
-        }
-        #expect(first == 0, "\(path) \(size): the header laid out at its height at frame \(String(describing: first)) (log \(log.sizes.prefix(6)), frames \(ZTronRenderCounters.value("header.frame")))")
-        print("D78 launch \(path) \(size): first frame \(String(describing: first)), sizes \(log.sizes.prefix(6))")
+        pump(0.5)
+        let drawn = sampler.samples.drop { $0.width <= 0 }
+        let bad = drawn.filter { !$0.resolved || abs($0.height - 402 * 9 / 16) > 0.5 }
+        #expect(!drawn.isEmpty && bad.isEmpty, "\(path) \(size): turns without the header \(bad.count) of \(drawn.count): \(drawn.prefix(8))")
+        print("D78 turns \(path) \(size): \(drawn.count) turns, first \(drawn.prefix(4).map { "\($0.height)x\($0.resolved)" })")
     }
 }
