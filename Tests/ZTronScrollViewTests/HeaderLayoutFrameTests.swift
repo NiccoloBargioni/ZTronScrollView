@@ -231,6 +231,58 @@ struct HeaderLayoutFrameTests {
                 ".fit at the committed width and container keeps the committed R")
     }
 
+    /// D78: with the slot's `W × H` (`HeaderSlotReader`) the 15 plan of a non-`.fit` size is `h_L(W, H)`
+    /// (`HeaderMath.liveHeight`, 16+'s formula): the overflow limit and `min ≥ R` resolved against the slot, not the
+    /// committed metrics; no slot (or an unusable one): the committed plan.
+    @Test func theFallbackPlanFromTheSlot() {
+        let committed = HeaderMetrics(min: 64, resting: 194.5, behavior: .preserve, width: 402)
+        var live = HeaderLiveInput(size: .aspectRatio(16.0 / 9.0, min: 64), overflow: .capped(fraction: 0.25),
+                                   metrics: committed, progress: 0.5, stateHeight: 129.25)
+        live.committedContainer = 778
+        // S-RS-2: 402 → 241 pt, the limit turns off (W / r = 135.5625 < 194.5): (1 − p) · 135.5625 + p · 64.
+        var plan = HeaderFallbackPlan(live, slot: CGSize(width: 241, height: 778))
+        #expect(abs((plan.minHeight ?? -1) - (0.5 * 241 * 9 / 16 + 32)) < 1e-9 && plan.maxHeight == plan.minHeight,
+                "the slot's width: \(plan)")
+        #expect(plan.ratio == HeaderFallbackPlan.neutralRatio && plan.innerPad == 0 && plan.outerPad == 0 && !plan.fitBox)
+        // The committed viewport: the state's own height.
+        plan = HeaderFallbackPlan(live, slot: CGSize(width: 402, height: 778))
+        #expect(abs((plan.minHeight ?? -1) - 129.25) < 1e-9, "the committed viewport: \(plan)")
+        // A height change engages `.capped(0.5)` on `.fixed`: L = 0.5 · 287.6.
+        live = HeaderLiveInput(size: .fixed(min: 64, max: 240), overflow: .capped(fraction: 0.5),
+                               metrics: HeaderMetrics(min: 64, resting: 240, behavior: .preserve, width: 402),
+                               progress: 0, stateHeight: 240)
+        live.committedContainer = 778
+        plan = HeaderFallbackPlan(live, slot: CGSize(width: 402, height: 287.6))
+        #expect(abs((plan.minHeight ?? -1) - 143.8) < 1e-9, ".fixed under the slot's limit: \(plan)")
+        // `.refit` at the slot's height; `min ≥ R` there: a fixed header of height min (band 0).
+        live = HeaderLiveInput(size: .aspectRatio(16.0 / 9.0, min: 64), overflow: .refit,
+                               metrics: HeaderMetrics(min: 64, resting: 226.125, behavior: .preserve, width: 402),
+                               progress: 0.5, stateHeight: 145.0625)
+        live.committedContainer = 778
+        plan = HeaderFallbackPlan(live, slot: CGSize(width: 402, height: 200))
+        #expect(abs((plan.minHeight ?? -1) - (0.5 * 200 + 32)) < 1e-9, ".refit at the slot's H: \(plan)")
+        plan = HeaderFallbackPlan(live, slot: CGSize(width: 402, height: 50))
+        #expect(abs((plan.minHeight ?? -1) - 50) < 1e-9, "min limited to L = 50 = R: \(plan)")
+        // `.slideBehind` (D68): R(W, H) at every progress.
+        live = HeaderLiveInput(size: .aspectRatio(16.0 / 9.0, min: 64),
+                               metrics: HeaderMetrics(min: 0, resting: 226.125, behavior: .preserve,
+                                                      collapse: .slideBehind(parallax: 1), width: 402),
+                               progress: 0.5, stateHeight: 226.125)
+        live.committedContainer = 778
+        plan = HeaderFallbackPlan(live, slot: CGSize(width: 241, height: 778))
+        #expect(abs((plan.minHeight ?? -1) - 241 * 9 / 16) < 1e-9, ".slideBehind: R(W) \(plan)")
+        // No usable slot: the committed plan.
+        #expect(HeaderFallbackPlan(live, slot: CGSize(width: 0, height: 778)) == HeaderFallbackPlan(live))
+        #expect(HeaderFallbackPlan(live, slot: nil) == HeaderFallbackPlan(live))
+        // Fully collapsed to a zero `min`: the plan's floor height.
+        live = HeaderLiveInput(size: .aspectRatio(16.0 / 9.0), metrics: HeaderMetrics(min: 0, resting: 226.125,
+                                                                                     behavior: .preserve, width: 402),
+                               progress: 1, stateHeight: 0)
+        live.committedContainer = 778
+        plan = HeaderFallbackPlan(live, slot: CGSize(width: 402, height: 778))
+        #expect(plan.minHeight == HeaderFallbackPlan.minimumHeight, "collapsed to 0: \(plan)")
+    }
+
     /// Under a pull (layout = state, through the real container, both paths): a `.preserve` `.openGap` header (D65, the
     /// default) stays at `top0` with its height and the content's top is its bottom edge + the pull; a `.preserve`
     /// `.followContent` header (D61) keeps its height and moves down by the pull, its bottom edge on the content's top;

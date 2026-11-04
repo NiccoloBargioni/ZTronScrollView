@@ -129,13 +129,9 @@ struct HeaderReviewD16Tests {
                                                    adjusted: .vertical)
         #expect(abs(R - container * 0.2) < 0.5, "\(path): limited R \(R) vs \(container * 0.2)")
         let stale = log.sizes.filter { abs($0.width - 402) < 0.5 && abs($0.height - R) > 0.5 }
-        // 15–16 KNOWN LIMIT (SPEC S10 "Seamless edges"): iOS 13 layout modifiers have no size proportional to the
-        // proposed height, so the 15 path cannot apply `capped(f)` (`f · H`) to the layout's own `H` without a per-frame
-        // GeometryReader (S4.6); a limited `R` is the state's there and lands at the commit of an app-driven animated
-        // resize. Rotations are unaffected (laid out once, inside UIKit's block).
-        withKnownIssue("15-16: an overflow-limited R is the state's in the animated pass (documented limit)") {
-            #expect(stale.isEmpty, "\(path): header laid out at 402 pt with the unlimited W / r first \(stale), re-set by the commit (all: \(log.sizes))")
-        } when: { path == .forcedFallback }
+        // D78 (open item 15 (b)): the 15 path resolves the limit from its own slot (`HeaderSlotReader`) in the animated
+        // pass, as 16+'s `HeaderSlotLayout`; before D78 it was the state's there and landed at the commit.
+        #expect(stale.isEmpty, "\(path): header laid out at 402 pt with the unlimited W / r first \(stale), re-set by the commit (all: \(log.sizes))")
     }
 
     // MARK: 3. `.fit` re-measure of an animated header content change

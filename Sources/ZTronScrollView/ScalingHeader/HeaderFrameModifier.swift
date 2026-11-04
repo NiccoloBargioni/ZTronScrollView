@@ -1,5 +1,52 @@
 import SwiftUI
 
+/// D78 (open item 15 (b)): the header's frame leaf with the slot's size on the 15 path. 16+: `HeaderFrameModifier` itself
+/// (its `HeaderSlotLayout` is proposed `W × H`). 15 / forced: a `GeometryReader` around it, the header slot (the overlay /
+/// background of the viewport after `.ignoresSafeArea`, so `H` is the container height `HeaderMath.containerHeight`
+/// resolves the overflow limit against), whose `W × H` reaches `HeaderFallbackFrame` in the same layout pass as the
+/// container: an app-animated resize resolves `R(W, H)` in its animated pass (U0) and the unanimated viewport commit
+/// (U1) changes nothing in the header's layout (D51 / D62), as on 16+. Before D78 the 15 path read `R` from the
+/// committed metrics, so a limited `R`, `.fixed` under a limit and `.fit` in the band landed at U1 (forced lane: up to
+/// 115 pt in one frame, 159 pt lateral).
+///
+/// Cold: the closure runs when the slot's size changes (a resize, once, in U0) or the host's body runs (a parent
+/// rebuild, R7); the leaf inside wakes on its own channels without it, so scrolling, collapse, a pull, a refresh and a
+/// header content change never run it (S4; DEBUG counter `header.slot`, event `slot W×H`). The branch is a `let` flag
+/// fixed at state creation (R6): the identity never changes.
+struct HeaderSlotReader: ViewModifier {
+    let state: ZTronScrollState
+    let size: ZTronHeaderSize
+    let overflow: ZTronHeaderOverflow
+    let fade: ZTronHeaderFade?
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if state.usesLayoutProtocol, #available(iOS 16, *) {
+            content.modifier(HeaderFrameModifier(state: state, size: size, overflow: overflow, fade: fade))
+        } else {
+            let state = state, size = size, overflow = overflow, fade = fade
+            GeometryReader { proxy in
+                content.modifier(HeaderFrameModifier(state: state, size: size, overflow: overflow, fade: fade,
+                                                     slot: Self.noted(proxy.size)))
+            }
+        }
+    }
+
+    /// The slot's size, counted (DEBUG; main thread only; the note `header.slot.size` is `HeaderSlotLayout`'s on 16+).
+    nonisolated static func noted(_ size: CGSize) -> CGSize {
+        #if DEBUG
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                ZTronRenderCounters.increment("header.slot")
+                ZTronRenderCounters.event(String(format: "slot %.2fx%.2f", size.width, size.height))
+                ZTronRenderCounters.notes["header.slot.size"] = "\(size.width)x\(size.height)"
+            }
+        }
+        #endif
+        return size
+    }
+}
+
 /// The header's hot leaf (design M8b §2.3, the `TransformHost` pattern of D10): its OWN body reads the target offset and
 /// the metrics and frames its `content` placeholder (the cold header stack: the user's header and its background, built
 /// by `HeaderHost`) at the live frame, and draws the `fade:` over it (D70, `HeaderFadeOverlay`). SwiftUI does not re-evaluate the placeholder when this body re-runs; it lays
@@ -21,11 +68,16 @@ import SwiftUI
 /// content. An animated resize then interpolates the header with the content; the unanimated resize commit changes
 /// nothing in the header while the progress is kept (D51). The fade's crossfade (D70) reads the same live input (plus the
 /// pull, which only it reads), so it never lags the geometry.
+///
+/// 15 / forced (D78): `slot` is the header slot's `W × H` from `HeaderSlotReader`'s cold `GeometryReader`, the size
+/// 16+'s `HeaderSlotLayout` is proposed; `HeaderFallbackFrame` resolves `R(W, H)` from it in the same layout pass.
 struct HeaderFrameModifier: ViewModifier {
     let state: ZTronScrollState
     let size: ZTronHeaderSize
     let overflow: ZTronHeaderOverflow
     let fade: ZTronHeaderFade?
+    /// 15 / forced: the slot's size (`HeaderSlotReader`); `nil` on 16+ (the layout's proposal) and without a reader.
+    var slot: CGSize? = nil
     @StateObject private var relay = ChannelRelay()
     @StateObject private var reporter = HeaderNaturalReporter()
 
@@ -44,8 +96,8 @@ struct HeaderFrameModifier: ViewModifier {
                 Self.chrome(content, live: live, fade: fade, visible: visible, group: group)
             }
         } else {
-            Self.chrome(content.modifier(HeaderFallbackFrame(live: shape, state: state)), live: live, fade: fade,
-                        visible: visible, group: group)
+            Self.chrome(content.modifier(HeaderFallbackFrame(live: shape, state: state, slot: slot, reporter: reporter)),
+                        live: live, fade: fade, visible: visible, group: group)
                 .modifier(HeaderTranslation(live: shape))
                 // The slot: the header at the top of the whole overlay. Without it a header exactly as tall as the
                 // region between the safe areas was placed against the bottom safe area (34 pt low; measured).
@@ -253,6 +305,13 @@ struct HeaderSlotLayout: Layout {
             me.live.catchPin = nil
             return me.placeSubviews(in: bounds, proposal: proposal, subviews: subviews, cache: &cache)
         }
+        #if DEBUG
+        // The slot's size (C16: the 15 path's `HeaderSlotReader` notes the same key).
+        if Thread.isMainThread {
+            let note = "\(bounds.width)x\(bounds.height)"
+            MainActor.assumeIsolated { ZTronRenderCounters.notes["header.slot.size"] = note }
+        }
+        #endif
         let h = height(at: bounds.width, slot: bounds.height, subviews)
         // `.slideBehind` (D68): up by `k · p · h` of this pass's own `h` (`R(W, H)`), as the 15 path's `HeaderTranslation`.
         let y = bounds.minY + HeaderTranslation.translation(live, layoutHeight: h)
@@ -281,20 +340,40 @@ struct HeaderSlotLayout: Layout {
     }
 }
 
-/// 15 / forced: the same height from iOS 13 layout modifiers (no Layout protocol), one fixed structure for every size:
+/// 15 / forced: the same height from iOS 13 layout modifiers (no Layout protocol), one fixed structure for every size.
+/// With the slot's `W × H` (`slot`, `HeaderSlotReader`, D78; every 15-path header has one):
+/// - `.fixed`, `.aspectRatio` and a limited `R` (`.capped` / `.refit`, `min ≥ R`): the frame is `h_L(W, H)`
+///   (`HeaderMath.liveHeight`, the formula of 16+'s `HeaderSlotLayout`) from the slot of this layout pass, so an
+///   app-animated resize lays the header out at its final `R(W, H)` in the animated pass and the unanimated viewport
+///   commit changes nothing in it (D51 / D62);
+/// - `.fit`: the ideal-ratio box (`HeaderFallbackPlan.fitBox`): the stack framed at `W` (its ideal height is `N(W)`), less
+///   `m′` (`innerPad`), clamped to `[ε, L − m′]` and given the ideal width `W / (1 − q)`, so `aspectRatio(nil)` takes the
+///   box's ideal ratio `(W / (1 − q)) : (R − m′)` with `R = clamp(N(W), m′, L)`. In a resize's layout pass (the slot is
+///   not the committed viewport) it is fitted to the slot WIDTH: the stack is `(1 − q) · R + q · m′`, 16+'s live height
+///   from the content's fresh ideal height in the same pass. At the committed viewport (`HeaderMath.isCommittedViewport`,
+///   16+'s `layoutResting` rule) it is fitted to the live HEIGHT of the committed `R` (`fixedSize(horizontal:)` drops the
+///   width proposal): the stack is laid out at 16+'s rect, a header content change does not move it until the state
+///   commits the new `R` in the content's own transaction, and the box's width carries the measurement. Both fits report
+///   `R` through the leaf's reporter (`noteBox`), as 16+ does.
+/// Without a slot (no reader above it, the plan's own tests), the committed plan of before D78:
 /// - `.aspectRatio(r)` inside the band, its overflow limit inactive: the header stack fills a box proposed by
 ///   `.aspectRatio(r / (1 − p), .fit)` at the proposed width, extended by `p · min` (a negative inner padding gives the
 ///   stack the full live height, a positive outer one gives it to the frame), floored at `min`.
 /// - `.fit` at rest (`p = 0`, its limit inactive; a `.stretch` pull too, D69: the stretch is the scale effect's): the
 ///   stack at its ideal height (`fixedSize(vertical:)`): the live height IS the ideal height there; reported
 ///   (preference, same update) so the state commits the same `R`.
-/// - otherwise (`.fixed`, a band position of `.fit`, collapsed, an active overflow limit, the banner):
-///   the state's height (`.fixed` and a limited `R` do not depend on the width; documented: a `.fit` inside the band keeps
-///   a commit-time step on an app-driven resize on this path).
-/// The final `fixedSize(vertical:)` frees the box from the overlay's height (a landscape 16:9 header is taller than it).
+/// - otherwise (`.fixed`, a band position of `.fit`, collapsed, an active overflow limit, the banner): the state's height.
+/// The box's modifiers are neutral for every other plan (nil width, nil ideal width, nil limits, no fixed size, the
+/// neutral ratio): only values change, never the structure, so the header keeps its identity. The final
+/// `fixedSize(vertical:)` frees the box from the overlay's height (a landscape 16:9 header is taller than it).
 nonisolated struct HeaderFallbackFrame: ViewModifier, Animatable {
     var live: HeaderLiveInput
     let state: ZTronScrollState
+    /// D78: the header slot's `W × H` (`HeaderSlotReader`); `nil` without a reader (the committed plan).
+    var slot: CGSize? = nil
+    /// D78: the leaf's reporter (`HeaderFrameModifier`'s, the one 16+'s `HeaderSlotLayout` reports through): the `.fit`
+    /// box reports `R` through it.
+    var reporter: HeaderNaturalReporter? = nil
 
     /// The header offset `o′` (see `HeaderLiveInput.offset`): a transaction-driven scroll re-runs this body per frame.
     var animatableData: CGFloat {
@@ -303,8 +382,8 @@ nonisolated struct HeaderFallbackFrame: ViewModifier, Animatable {
     }
 
     @MainActor func body(content: Content) -> some View {
-        let plan = HeaderFallbackPlan(live.pinned(.headerFallback))
-        let state = state
+        let plan = HeaderFallbackPlan(live.pinned(.headerFallback), slot: slot)
+        let state = state, reporter = reporter
         return content
             .fixedSize(horizontal: false, vertical: plan.fitRest)
             .background(Group {
@@ -316,8 +395,26 @@ nonisolated struct HeaderFallbackFrame: ViewModifier, Animatable {
                 }
             })
             .frame(minWidth: 0, maxWidth: .infinity, minHeight: plan.minHeight, maxHeight: plan.maxHeight, alignment: .top)
+            // D78, the `.fit` box: the stack laid out (and asked for its ideal height) at the slot width.
+            .frame(width: plan.boxWidth)
             .padding(.bottom, plan.innerPad)
+            .frame(minWidth: 0, idealWidth: plan.boxIdealWidth, maxWidth: .infinity, minHeight: plan.boxFloor,
+                   maxHeight: plan.boxLimit, alignment: .topLeading)
             .aspectRatio(plan.ratio, contentMode: .fit)
+            .background(Group {
+                // The box's own size, while there is a box: per frame while a `.fit` header collapses (the leaf's
+                // per-frame layout, the cost class of 16+'s `HeaderSlotLayout`); it reports only a change of `R`.
+                if plan.fitBox {
+                    GeometryReader { g in
+                        let _ = HeaderFallbackFrame.noteBox(g.size, plan: plan, reporter: reporter)
+                        Color.clear
+                    }
+                }
+            })
+            // At the committed viewport the box takes its ideal ratio at the live height (no width proposal), re-framed at
+            // the slot width; otherwise both are neutral.
+            .fixedSize(horizontal: plan.boxFitsHeight, vertical: false)
+            .frame(width: plan.boxFitsHeight ? plan.boxWidth : nil, height: plan.boxHeight, alignment: .topLeading)
             .padding(.bottom, plan.outerPad)
             .frame(minHeight: plan.floor, alignment: .top)
             .fixedSize(horizontal: false, vertical: true)
@@ -332,6 +429,29 @@ nonisolated struct HeaderFallbackFrame: ViewModifier, Animatable {
                 }
             }
     }
+
+    /// D78: the `.fit` box's laid-out size reports `R`. Whichever side the box was fitted to, it keeps its child's ideal
+    /// ratio `(W / (1 − q)) : (R − m′)`, so `R = (W / (1 − q)) · height / width + m′` (the width fit: `height / (1 − q) +
+    /// m′`; the height fit: `1 − q` cancels). Reported like 16+ (`HeaderNaturalReporter.measured(_:width:)` at the slot
+    /// width: recorded synchronously for the viewport commit of the same update, delivered at the next run-loop turn in
+    /// the content's captured transaction otherwise; dedupes at 0.5 pt). Main thread only (SwiftUI also lays out on its
+    /// asynchronous renderer, as for `HeaderSlotLayout`). `true` when it reported.
+    @discardableResult
+    static func noteBox(_ size: CGSize, plan: HeaderFallbackPlan, reporter: HeaderNaturalReporter?) -> Bool {
+        guard plan.fitBox, let reporter, let ideal = plan.boxIdealWidth, size.width > 0, size.width.isFinite,
+              size.height >= 0, size.height.isFinite, Thread.isMainThread else { return false }
+        let r = ideal * size.height / size.width + plan.boxMin
+        guard r.isFinite else { return false }
+        let width = plan.boxWidth ?? size.width
+        MainActor.assumeIsolated {
+            #if DEBUG
+            ZTronRenderCounters.event("box fit \(plan.boxFitsHeight ? "h" : "w") "
+                                      + String(format: "%.6fx%.9f q %.6f R %.4f", size.width, size.height, plan.boxProgress, r))
+            #endif
+            reporter.measured(r, width: width)
+        }
+        return true
+    }
 }
 
 /// The values `HeaderFallbackFrame` applies (pure, testable).
@@ -345,17 +465,46 @@ struct HeaderFallbackPlan: Equatable {
     /// The aspect box's ratio. Outside the aspect case it must stay harmless: SwiftUI fits the ratio into the box it is
     /// placed in, so a ratio of 1 in a box of height 0 (a hidden header, or `.fit` before its first measurement) proposed
     /// the header content a width of 0 (`.fit` then measured nothing). A huge ratio keeps the full width as long as the
-    /// box is at least `W / ratio` tall, hence also the floor on the fixed height.
+    /// box is at least `W / ratio` tall, hence also the floor on the fixed height. `nil` (D78's `.fit` box): the child's
+    /// ideal ratio.
     static let neutralRatio: CGFloat = 1_000_000
     static let minimumHeight: CGFloat = 0.01
-    var ratio: CGFloat = neutralRatio
+    var ratio: CGFloat? = neutralRatio
     var floor: CGFloat = 0
+    /// D78, `.fit`'s ideal-ratio box (`HeaderFallbackFrame`): the stack framed at the slot width `boxWidth` (its ideal
+    /// height is `N(W)`), less `m′` (`innerPad = −m′`, `boxMin = m′`), its height clamped to `[boxFloor, boxLimit]` =
+    /// `[ε, L − m′]`, its ideal width `boxIdealWidth = W / (1 − q)` (`q`: `boxProgress`), fitted by `aspectRatio(nil)`:
+    /// to the slot width in a resize's pass (the stack is proposed `(1 − q) · R + q · m′`), to the live height of the
+    /// committed `R` at the committed viewport (`boxFitsHeight`, the box `boxHeight = h_L − m′` tall). `nil` / `false`
+    /// / 0 for every other plan (neutral modifiers).
+    var fitBox = false
+    var boxWidth: CGFloat?
+    var boxIdealWidth: CGFloat?
+    var boxFloor: CGFloat?
+    var boxLimit: CGFloat?
+    var boxProgress: CGFloat = 0
+    var boxMin: CGFloat = 0
+    var boxFitsHeight = false
+    var boxHeight: CGFloat?
+    /// `q ≤ 1 − boxEpsilon` (the ideal width stays finite at full collapse); `ε = boxFloorHeight` (a larger floor
+    /// mis-measures `R − m′ < 100` at full collapse: the box is `(1 − q)(R − m′)` tall there).
+    static let boxEpsilon: CGFloat = 1e-6
+    static let boxFloorHeight: CGFloat = 1e-9
 
-    init(_ live: HeaderLiveInput) {
+    /// `slot`: the header slot's `W × H` (`HeaderSlotReader`, D78); `nil`: the committed plan.
+    init(_ live: HeaderLiveInput, slot: CGSize? = nil) {
         let h = max(live.stateHeight, Self.minimumHeight)
         // A banner (no vertical axis) too: its `p` and stretch are the state's, 0 unless zoomed content pans (D15).
         guard let m = live.metrics, let size = live.size else {
             minHeight = h; maxHeight = h
+            return
+        }
+        // D78: `R(W, H)` from the slot of this layout pass, as on 16+ (`HeaderSlotLayout`).
+        if let slot, slot.width > 0, slot.width.isFinite, !size.isFit {
+            let H: CGFloat? = slot.height.isFinite && slot.height > 0 ? slot.height : nil
+            let lh = Swift.max(HeaderMath.liveHeight(width: slot.width, containerHeight: H, natural: live.natural, live),
+                               Self.minimumHeight)
+            minHeight = lh; maxHeight = lh
             return
         }
         // `.slideBehind` (D68) lays the stack out at `R` whatever the progress (its translation is `HeaderTranslation`'s):
