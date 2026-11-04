@@ -7,10 +7,14 @@ the white component within 40 pt of the centre line across that axis (the status
 farther out).
 
 usage: python3 -I holdgap.py <scenario-dir> --edge top|bottom|leading|trailing [--base <portrait,landscape>] [--tol <pt>]
+                            [--clear-row <pt>]
   --base  the edge's base (the safe-area inset the gap starts at) in portrait and landscape; default per edge: top 62,0,
           bottom 34,21, leading / trailing 0,62 (the larger of iPhone 18 Pro / 15 Pro); mid-rotation the larger one. A
           frame is judged only when the indicator's resting place (measured against the content's edge in the first
           frames of the hold) lies entirely between the content's edge and the base, or entirely off the window.
+  --clear-row  the content's first <pt> along the axis are clear (the lab's `clearrow`, `-ZTronSeamClearFirstRow 1`: 80):
+          the content's edge is that much beyond the first coloured row, and a probe seen through the clear part (drawn
+          behind the content, D80) is on the content's side of the edge: over (M8b-s8 s4, item 27).
 Per frame (holdgap.csv): the content edge s_e and the window edge s_w (pt from the display centre along the outward axis),
 the probe's extent along the axis relative to s_e, and a verdict:
   inPlace  the probe is drawn at its resting place against the content's edge (within --tol, default 1 pt);
@@ -126,6 +130,9 @@ def main():
     ap.add_argument("--base", default=None, help="portrait,landscape base of the edge in pt")
     ap.add_argument("--tol", type=float, default=1.0)
     ap.add_argument("--rest-frames", type=int, default=8)
+    ap.add_argument("--clear-row", type=float, default=0.0,
+                    help="the content's first <pt> along the axis are clear: its edge is that much beyond the first coloured "
+                         "row (a probe seen through it is over)")
     ap.add_argument("--overlay", action="store_true",
                     help="overlay placement: the probe floats at the base, judged against the window's edge (present in every "
                          "frame with the window's edge measured, largest single-frame step); 'over' does not apply")
@@ -172,6 +179,8 @@ def main():
         es = [e for e, _ in found if e is not None]
         ws = [x for _, x in found if x is not None]
         s_e = float(np.mean(es)) * step if len(es) == 2 and abs(es[0] - es[1]) * step <= 3 else None
+        if s_e is not None and a.clear_row:
+            s_e += a.clear_row          # the clear first row (classified as the gap's blue) is the content's
         s_w = float(min(ws)) * step if ws else None
         content_off = all(e is None and x is not None for e, x in found)   # content reaches the window's edge
         rec["s_e"] = round(s_e, 2) if s_e is not None else ""

@@ -42,6 +42,8 @@ for sc in "$@"; do
       hreset*) v="${x#hreset}"; extra+=(-ZTronSeamHoldReset "${v//p/.}") ;;   # with hold: the hold's resetAnimation is an easeOut of <s> s (hreset4 = 4: a fling catches it; M8b-s8 s3, catchcheck.py)
       cinset[0-9]*) extra+=(-ZTronSeamCatchInset "${x#cinset}") ;;   # with hold + hend: the app animates contentInset.top by <pt> 0.1 s after the first touch after the hold's end (M8b-s8 s3)
       rtrig[0-9]*) extra+=(-ZTronSeamRefreshTrigger "${x#rtrig}") ;;   # with refresh / rdur: the refresher's triggerDistance (default 60 = L; open item 31, handover.py)
+      instant) extra+=(-ZTronSeamInstant 1) ;;   # with width: seam.width changes the size without animation (an instant resize; M8b-s8 s4, item 27)
+      clearrow) extra+=(-ZTronSeamClearFirstRow 1) ;;   # the content's first 80 pt along the hold's axis clear (holdgap.py --clear-row 80; M8b-s8 s4, item 27)
       rdur*) v="${x#rdur}"; extra+=(-ZTronSeamRefresh "${v//p/.}") ;;   # instead of refresh: the refresher's action takes <s> s (rdur0p2 = 0.2: it returns under the finger; with regrab)
       rbegin[0-9]*) extra+=(-ZTronSeamBeginAfterRelease "${x#rbegin}") ;;   # with refresh: beginRefreshing() <ms> after the first release (the look switch during a retraction, M8b-s8 s1)
       pd[0-9]*) extra+=(-ZTronSeamPullDrag "${x#pd}") ;;   # with pull / regrab: the drag length (pt, default 220)

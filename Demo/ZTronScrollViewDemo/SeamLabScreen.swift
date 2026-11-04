@@ -43,6 +43,11 @@ import ZTronScrollView
 // M8b-s8 s3 (item 33, D79): `-ZTronSeamHoldReset <s>` makes the held refresher's `resetAnimation` an easeOut of `s` seconds
 // (a long SwiftUI-animated reset a fling can catch), and `-ZTronSeamCatchInset <pt>` animates `contentInset.top` by <pt>
 // (easeInOut 0.3 s) 0.1 s after the first touch that follows the hold's end (an app animation while a catch pin holds).
+// M8b-s8 s4 (item 27, D80): `-ZTronSeamInstant 1` makes `seam.width`'s size change instant (no animation: an instant resize,
+// told from a system rotation by nothing in pure SwiftUI), and `-ZTronSeamClearFirstRow 1` makes the content's first 80 pt
+// along the hold's axis clear, with nothing of the content behind them (the green row; a horizontal lab: an 80 pt clear
+// strip on the content's leading side), so a refresh indicator drawn behind the content shows through them
+// (scripts/seam/holdgap.py --clear-row 80 counts it as over).
 // Resize variants (M8b-s6 close, the verifier's break probes): `-ZTronSeamBottomPinned 1` (the height change is bottom-pinned:
 // the scroll view's top leaves the top safe area), `-ZTronSeamBoth 1` (height and width together), `-ZTronSeamSpring 1` (a
 // bouncy spring instead of easeInOut), `-ZTronSeamRetarget <s>` (the toggle again `s` seconds into the change), and
@@ -199,6 +204,8 @@ struct SeamLabScreen: View {
                         } else if SeamLab.widthWithScroll {
                             // One transaction: the size change and the scroll command together.
                             withAnimation(.easeInOut(duration: 1.2)) { narrow.toggle(); toggleScroll(animated: false) }
+                        } else if SeamLab.instant {
+                            narrow.toggle(); retargetHeight = nil
                         } else {
                             withAnimation(SeamLab.resizeAnimation) { narrow.toggle(); retargetHeight = nil }
                             if let delay = SeamLab.retarget, let eps = SeamLab.retargetNear, narrow {
@@ -402,6 +409,10 @@ extension SeamLab {
     static var retarget: Double? { Double(HeaderDemo.argument("-ZTronSeamRetarget", "")) }
     /// `-ZTronSeamHold 1`: a held refresh (white probe indicator) from 0.8 s after launch.
     static var hold: Bool { HeaderDemo.argument("-ZTronSeamHold", "0") == "1" }
+    /// `-ZTronSeamInstant 1` (M8b-s8 s4, item 27): `seam.width` changes the size without animation (an instant resize).
+    static var instant: Bool { HeaderDemo.argument("-ZTronSeamInstant", "0") == "1" }
+    /// `-ZTronSeamClearFirstRow 1` (M8b-s8 s4, item 27): the content's first 80 pt along the hold's axis are clear.
+    static var clearFirstRow: Bool { HeaderDemo.argument("-ZTronSeamClearFirstRow", "0") == "1" }
     /// `-ZTronSeamSticky 1`: a white bar in a bottom-aligned overlay of the header content (a sticky overlay).
     static var sticky: Bool { HeaderDemo.argument("-ZTronSeamSticky", "0") == "1" }
     /// `-ZTronSeamHeaderText 1` (D69, risk 7): black 24 pt text centred in the header, to compare its edges at rest and
@@ -501,15 +512,29 @@ struct SeamLabRuler: View {
 
 struct SeamLabContent: View {
     var body: some View {
+        if SeamLab.clearFirstRow, SeamLab.horizontal {
+            // `-ZTronSeamClearFirstRow 1` (item 27, D80): an 80 pt clear strip on the leading side, nothing behind it.
+            HStack(spacing: 0) {
+                Color.clear.frame(width: 80)
+                stripes(first: SeamLab.green).background(SeamLab.blue)
+            }
+        } else if SeamLab.clearFirstRow {
+            // The first row clear, and the content's blue background only below it.
+            stripes(first: .clear).background(VStack(spacing: 0) { Color.clear.frame(height: 80); SeamLab.blue })
+        } else {
+            stripes(first: SeamLab.green).background(SeamLab.blue)
+        }
+    }
+
+    private func stripes(first: Color) -> some View {
         VStack(spacing: 0) {
-            SeamLab.green.frame(height: 80)
+            first.frame(height: 80)
             ForEach(0..<40, id: \.self) { i in
                 (i == 4 && SeamLab.marker ? SeamLab.cyan : i % 2 == 0 ? SeamLab.yellow : SeamLab.magenta)
                     .frame(height: 60)
             }
         }
         .frame(minWidth: SeamLab.horizontal ? 2000 : 0, maxWidth: .infinity)
-        .background(SeamLab.blue)
     }
 }
 
