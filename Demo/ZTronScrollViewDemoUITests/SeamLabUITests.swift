@@ -186,6 +186,23 @@ final class SeamLabUITests: XCTestCase {
         info(app, "wide")
     }
 
+    /// M8b-s8 s2 (open item 34): with `-ZTronSeamRows <n> -ZTronSeamRowsTo <m>`, `seam.width` changes the content's row count
+    /// n -> m (animated 0.5 s unless `-ZTronSeamRowsPlain 1`), then back; scripts/seam/rows.py reads the changed rows.
+    func testRows() {
+        let app = launch()
+        let button = app.buttons["seam.width"]
+        XCTAssertTrue(button.waitForExistence(timeout: 10))
+        Thread.sleep(forTimeInterval: 1.5)
+        print("SEAMLAB mark rows \(Date().timeIntervalSince1970)")
+        button.tap()
+        Thread.sleep(forTimeInterval: 2.0)
+        info(app, "changed")
+        print("SEAMLAB mark back \(Date().timeIntervalSince1970)")
+        button.tap()
+        Thread.sleep(forTimeInterval: 2.0)
+        info(app, "back")
+    }
+
     private func arg(_ name: String, _ d: Double) -> Double {
         if let i = seamArgs.firstIndex(of: name), i + 1 < seamArgs.count, let v = Double(seamArgs[i + 1]) { return v }
         return d

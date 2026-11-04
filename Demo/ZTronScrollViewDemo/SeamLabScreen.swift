@@ -69,6 +69,13 @@ import ZTronScrollView
 // user's chain on a pure red image: `Image(...).resizable().aspectRatio(16/9, contentMode: .fit).frame(maxWidth: .infinity)`.
 // With `-ZTronHeaderBehavior stretch -ZTronHeaderOverflow refit` it is the user's call (the fade is `-ZTronSeamFade`'s,
 // none by default: the seam analyzer reads an unfaded red header).
+// M8b-s8 s2 (open item 34): `-ZTronSeamRows <n>` gives the content n rows instead of 40; with `-ZTronSeamRowsTo <m>`
+// `seam.width` toggles the count between n and m in `withAnimation(.easeInOut(duration: 0.5))` instead of the width (the
+// user's own animated change of the content: inserted rows fade in, removed ones fade out; scripts/seam/rows.py reads the
+// first changed row's opacity per frame), `-ZTronSeamRowsInternal 1` from a model only the content observes (an internal
+// change: the lab's body does not run), `-ZTronSeamRowsPlain 1` without an animation, `-ZTronSeamRowsGrow 1` keeps n rows
+// and grows their height instead (12 pt per count step: 60 -> 120 pt for 5 -> 10; no insertion, rows.py --grow reads the
+// first row's drawn height per frame).
 
 enum SeamLab {
     static let red = Color(red: 1, green: 0, blue: 0)
@@ -138,6 +145,11 @@ struct SeamLabScreen: View {
         return s
     }()
     @State private var narrow = false
+    /// `-ZTronSeamRows` / `-ZTronSeamRowsTo` (M8b-s8 s2): the content's row count, an external change (this view's state) ...
+    @State private var rowCount = SeamLab.rows ?? 40
+    /// ... or, with `-ZTronSeamRowsInternal 1`, an internal one (a model only the content observes: held in `@State`, so
+    /// this view is not subscribed to it).
+    @State private var rowsModel = SeamLabRowsModel(count: SeamLab.rows ?? 40)
     /// `-ZTronSeamBeginAfterRelease`: armed until the first release (a reference: the phase observer never re-renders the lab).
     @State private var beginArmed = SeamLabFlag(true)
     /// `-ZTronSeamCatchInset`: set once the hold's `endRefreshing` ran, cleared by the first touch after it.
@@ -194,7 +206,9 @@ struct SeamLabScreen: View {
                     }
                     .accessibilityIdentifier("seam.scroll")
                     Button {
-                        if SeamLab.fakeKeyboard != nil {
+                        if let to = SeamLab.rowsTo {
+                            toggleRows(to: to)
+                        } else if SeamLab.fakeKeyboard != nil {
                             withAnimation(.easeInOut(duration: 1.2)) { kbFake.toggle() }
                         } else if SeamLab.realKeyboard {
                             kbFocus.toggle()
@@ -267,6 +281,20 @@ struct SeamLabScreen: View {
 }
 
 extension SeamLabScreen {
+    /// `seam.width` with `-ZTronSeamRowsTo <m>` (M8b-s8 s2): the content's row count between `-ZTronSeamRows` and m, in
+    /// `withAnimation(.easeInOut(duration: 0.5))` unless `-ZTronSeamRowsPlain 1`.
+    private func toggleRows(to m: Int) {
+        let n = SeamLab.rows ?? 40
+        let change = {
+            if SeamLab.rowsInternal {
+                rowsModel.count = rowsModel.count == m ? n : m
+            } else {
+                rowCount = rowCount == m ? n : m
+            }
+        }
+        if SeamLab.rowsPlain { change() } else { withAnimation(.easeInOut(duration: 0.5)) { change() } }
+    }
+
     /// `seam.scroll`: a transaction-driven scroll between rest and y = 400, or (`-ZTronSeamScrollBand <f>`) the point `f`
     /// of the way into the collapse band (the header's bottom stays on the content's top all the way).
     private func toggleScroll(animated: Bool = true) {
@@ -287,7 +315,9 @@ extension SeamLabScreen {
     /// The lab's scroll view; with `-ZTronSeamRefresh <s>` a `.system` refresher whose action takes `s` seconds (the
     /// refresh hold: the content rests below the indicator, the header follows it).
     private var scroller: ZTronScrollView<SeamLabContent> {
-        let base = ZTronScrollView(SeamLab.horizontal ? .horizontal : .vertical, state: state) { SeamLabContent() }
+        let base = ZTronScrollView(SeamLab.horizontal ? .horizontal : .vertical, state: state) {
+            SeamLabContent(rows: rowCount, model: SeamLab.rowsInternal ? rowsModel : nil)
+        }
             .scrollIndicators(.hidden)
         var view = SeamLab.noHeader ? base : base
             .withScalingHeader(size: SeamLab.size, collapse: SeamLab.collapse, pull: SeamLab.behavior, fade: SeamLab.fade,
@@ -511,6 +541,29 @@ struct SeamLabRuler: View {
 }
 
 struct SeamLabContent: View {
+    /// The row count (`-ZTronSeamRows`, default 40), unless `model` holds it (`-ZTronSeamRowsInternal 1`).
+    var rows = 40
+    var model: SeamLabRowsModel? = nil
+
+    var body: some View {
+        if let model { SeamLabObservedRows(model: model) } else { SeamLabRows(count: rows) }
+    }
+}
+
+/// `-ZTronSeamRowsInternal 1`: the content's own view observing the row count (an internal change).
+struct SeamLabObservedRows: View {
+    @ObservedObject var model: SeamLabRowsModel
+    var body: some View { SeamLabRows(count: model.count) }
+}
+
+final class SeamLabRowsModel: ObservableObject {
+    @Published var count: Int
+    init(count: Int) { self.count = count }
+}
+
+struct SeamLabRows: View {
+    let count: Int
+
     var body: some View {
         if SeamLab.clearFirstRow, SeamLab.horizontal {
             // `-ZTronSeamClearFirstRow 1` (item 27, D80): an 80 pt clear strip on the leading side, nothing behind it.
@@ -529,9 +582,9 @@ struct SeamLabContent: View {
     private func stripes(first: Color) -> some View {
         VStack(spacing: 0) {
             first.frame(height: 80)
-            ForEach(0..<40, id: \.self) { i in
+            ForEach(0..<(SeamLab.rowsGrow ? SeamLab.rows ?? 40 : count), id: \.self) { i in
                 (i == 4 && SeamLab.marker ? SeamLab.cyan : i % 2 == 0 ? SeamLab.yellow : SeamLab.magenta)
-                    .frame(height: 60)
+                    .frame(height: SeamLab.rowsGrow ? 12 * CGFloat(count) : 60)
             }
         }
         .frame(minWidth: SeamLab.horizontal ? 2000 : 0, maxWidth: .infinity)
@@ -544,6 +597,20 @@ extension SeamLab {
     static var horizontal: Bool { HeaderDemo.argument("-ZTronSeamAxis", "vertical") == "horizontal" }
 }
 
+
+// MARK: Open item 34 (M8b-s8 s2): the user's own animated change of the content
+extension SeamLab {
+    /// `-ZTronSeamRows <n>`: the content's row count (default 40).
+    static var rows: Int? { Int(HeaderDemo.argument("-ZTronSeamRows", "")) }
+    /// `-ZTronSeamRowsTo <m>`: `seam.width` toggles the row count between n and m.
+    static var rowsTo: Int? { Int(HeaderDemo.argument("-ZTronSeamRowsTo", "")) }
+    /// `-ZTronSeamRowsInternal 1`: the count lives in a model only the content observes.
+    static var rowsInternal: Bool { HeaderDemo.argument("-ZTronSeamRowsInternal", "0") == "1" }
+    /// `-ZTronSeamRowsPlain 1`: the count changes without an animation.
+    static var rowsPlain: Bool { HeaderDemo.argument("-ZTronSeamRowsPlain", "0") == "1" }
+    /// `-ZTronSeamRowsGrow 1`: the content keeps n rows; the count sets their height (12 pt per step) instead.
+    static var rowsGrow: Bool { HeaderDemo.argument("-ZTronSeamRowsGrow", "0") == "1" }
+}
 
 // MARK: Core check probes (M8b-s6 close): retarget near the drawn size, no header, start offset
 extension SeamLab {

@@ -2,7 +2,7 @@
 # M8b-3 R5 seam lab: runs a list of scenarios through scripts/seam/measure.sh, one after the other, on one simulator.
 #
 # usage: scripts/seam/baseline.sh <udid> <out-root> <scenario>...
-#   scenario = <size>-<start>-<behavior>-<test>[-<extra>...], test = rotate | rotatel (from landscape) | width | pull | scroll | snap | kbrotate | fling | regrab, extras (any order):
+#   scenario = <size>-<start>-<behavior>-<test>[-<extra>...], test = rotate | rotatel (from landscape) | width | pull | scroll | snap | kbrotate | fling | regrab | rows, extras (any order):
 #              forced (the forced-fallback lane), capped | refit (-ZTronHeaderOverflow), ambient | glass | color | view
 #              (-ZTronHeaderBackground), marker (-ZTronSeamMarker 1: a cyan row at content y 320), refresh (-ZTronSeamRefresh 2.5:
 #              a refresher whose action holds 2.5 s, with pull: the refresh hold and its end), band (-ZTronSeamScrollBand 0.5:
@@ -47,6 +47,11 @@ for sc in "$@"; do
       rdur*) v="${x#rdur}"; extra+=(-ZTronSeamRefresh "${v//p/.}") ;;   # instead of refresh: the refresher's action takes <s> s (rdur0p2 = 0.2: it returns under the finger; with regrab)
       rbegin[0-9]*) extra+=(-ZTronSeamBeginAfterRelease "${x#rbegin}") ;;   # with refresh: beginRefreshing() <ms> after the first release (the look switch during a retraction, M8b-s8 s1)
       pd[0-9]*) extra+=(-ZTronSeamPullDrag "${x#pd}") ;;   # with pull / regrab: the drag length (pt, default 220)
+      rows[0-9]*) extra+=(-ZTronSeamRows "${x#rows}") ;;   # M8b-s8 s2: the content's row count (default 40)
+      rowsto[0-9]*) extra+=(-ZTronSeamRowsTo "${x#rowsto}") ;;   # with rows: seam.width toggles the count to <m> (testRows; rows.py)
+      internal) extra+=(-ZTronSeamRowsInternal 1) ;;   # with rowsto: the count lives in a model only the content observes
+      plain) extra+=(-ZTronSeamRowsPlain 1) ;;   # with rowsto: the count changes without an animation
+      rgrow) extra+=(-ZTronSeamRowsGrow 1) ;;   # with rowsto: n rows whose height grows 12 pt per count step (rows.py reads row 0's height)
       sticky) extra+=(-ZTronSeamSticky 1) ;;   # a white 120 x 16 pt bar in an .overlay(alignment: .bottom) of the header (probe.py) (M8b-s6)
       vbottom) extra+=(-ZTronSeamBottomPinned 1) ;;   # with height<digits>: bottom-pinned, the TOP inset goes 62 -> 0 (M8b-s6 close)
       vboth) extra+=(-ZTronSeamBoth 1) ;;             # with height<digits>: the width animates to 60 % too
