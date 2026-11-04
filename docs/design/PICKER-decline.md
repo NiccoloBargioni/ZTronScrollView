@@ -19,8 +19,9 @@ The attach stays exactly as it is (`PanGestureAdapter.swift`, D86). Two addition
 
 1. **Probe.** The D31 window recognizer gains a probe-only mode (`feedsCore: false`) and is installed on 17+ as well when the
    feature is on. On 15–16 it is the D31 observer itself and does both jobs. At the first finger of a sequence (no other touch of
-   the event is still down) it walks `touch.view` and its superviews and asks one question: is one of them a `UIPickerView` or a
-   `UIDatePicker`? It reports the answer with `PanCoordinator.touchSequenceBegan(onPicker:)`. It uses public classes only, a
+   the event is still down) it walks `touch.view` and its superviews and asks one question: is one of them a wheel, that is a
+   `UIPickerView`, or a `UIDatePicker` whose `datePickerStyle == .wheels`? Compact and graphical date pickers are not wheels: a
+   vertical drag that starts on them scrolls natively (§5). It reports the answer with `PanCoordinator.touchSequenceBegan(onPicker:)`. It uses public classes only, a
    `superview` walk, no class names, no private API and no reflection. The recognizer stays passive, as in D31: it never leaves
    `.possible`, never cancels or delays touches, recognizes simultaneously with everything, and cannot prevent or be prevented.
 2. **Decline.** The coordinator reads the report once, at the first drag sample of the sequence:
@@ -42,14 +43,15 @@ steppers never see a different pan, because only the report changes, and only fo
 ## 3. Files (prototype)
 
 - `Gesture/UIKit/UIKitTouchObserver.swift`: `feedsCore`, `reportsPickers`, the report in `touchesBegan`, `beginsSequence`,
-  `isInPicker`. In DEBUG it also records the class chain it saw (`picker.chain`), as a measurement only: names are observed,
+  `isInPicker`, `isWheel`. In DEBUG it also records the class chain it saw (`picker.chain`), as a measurement only: names are observed,
   never matched.
 - `Gesture/PanCoordinator.swift`: `touchSequenceBegan(onPicker:)`, `pickerAbsorbs(_:)` at the top of `handle(_:)`.
 - `Gesture/PanGestureAdapter.swift`: the `PickerDecline` gate (compile-time `ZTRON_PICKER_DECLINE`) and the anchor attach,
   `enabled: uikit || PickerDecline.isOn`, `feedsCore: uikit`. Both inputs are static per view, so the content keeps its identity.
 - Tests: `PickerDeclineTests` (coordinator, nested arbiter, pager, caught motion, cone, latch), `PickerProbeRuleTests` (the rule
-  on real `UIPickerView` / `UIDatePicker` / plain views, probe-only feeds nothing). Demo: `-ZTronControlsWheels`,
-  `-ZTronControlsTopology nested|pager`, probe counters in `Info`. UI: `UIKitControlsUITests.testWheels*`;
+  on real `UIPickerView`, wheels / compact / inline `UIDatePicker` and plain views; probe-only feeds nothing). Demo:
+  `-ZTronControlsWheels`, `-ZTronControlsTopology nested|pager`, probe counters in `Info`, `NativeScrollProbe` (native offsets
+  from UIKit, §5). UI: `UIKitControlsUITests.testWheels*`, `testCompactDatePickerDragMeasure`;
   `scripts/test-demo-ui.sh --picker` builds with the flag and makes the required fixes strict.
 
 ## 4. What it would take to ship (needs the user)
@@ -62,10 +64,81 @@ steppers never see a different pan, because only the report changes, and only fo
   `--picker` UI lane (`--dd`). The gate run is a builder-session step.
 - **15–16.** The report shares the D31 recognizer there. Verify on the M1 lane.
 
-## 5. Measurements
+## 5. Measurements (2026-11-04, private clones, one lane at a time under `ztron-ui-lane.lock`)
 
-TBD (filled from the lanes).
+Lanes: **p** = `--picker` (flag on), **n** = `--picker --native` (SwiftUI `ScrollView`, the flag is irrelevant there), **b** = no flag
+(today's default path). Devices: 17.5 iPhone 15 Pro, 18.5 iPhone 16 Pro, 26.5 iPhone 17 Pro, 27.0 iPhone 18 Pro (clones). Commits:
+27.0 `ButtonDragUITests` / `PanUITests` at e1ae28a (the later commits narrow the rule and touch no Button or Pan path); everything else
+at c3135d4.
+
+**Q1, backing.** On every OS measured, the hit view of a wheel drag sits under a `UIPickerView` subclass. The probe's chain is the same
+on 17.5, 18.5, 26.5 and 27.0 (class names observed, not matched):
+- `DatePicker(.wheel)`: `UIPickerTableViewWrapperCell > UIPickerTableView > UIView > UIPickerColumnView > UIView > _UIDatePickerView`.
+  `_UIDatePickerView` is a `UIPickerView`; the walk stops there before reaching `UIDatePicker`.
+- `Picker(.wheel)`: the same chain, ending in `UIKitPickerView` (SwiftUI's `UIPickerView`).
+- A compact `DatePicker`'s calendar popover is also under a `UIDatePicker` (`… > UICalendarView > _UIDatePickerCalendarView >
+  UIDatePicker`, 27.0). That is why the rule takes a `UIDatePicker` only in `.wheels` style. Native scrolls from a compact picker (below).
+
+**Q2, the 17.5 `touch.view` trap.** It does not matter here. U1's trap is that SwiftUI content has a drawing view as its hit view. A
+wheel's hit view is the picker's own `UIPickerTableViewWrapperCell` on 17.5 as well, and its superview chain reaches the picker. The
+probe needs no anchor ancestry and no controller-root rule, because it never asks where the touch is, only what was hit.
+
+**Q3, the suites with the flag.** Every lane is green.
+
+| OS | `UIKitControlsUITests` | `ButtonDragUITests` | `PanUITests` (slider, stepper, buttons) |
+|---|---|---|---|
+| 17.5 | 21/21 | 3/3 | 20/20 |
+| 18.5 | 21/21 | 3/3 | 20/20 |
+| 26.5 | 21/21 | 3/3 | 20/20 |
+| 27.0 | 21/21 | 3/3 | 20/20 |
+
+- In these lanes the wheel tests' required fixes are asserted, not expected failures. That covers `testWheelDatePickerTurnsTheMonthWheel`
+  (items 37 / 39) and `testWheels{Plain,Nested,Pager}{DatePicker,Picker}` (38 for nested and pager).
+- 0 UIKit feedback-loop warnings.
+- The segmented-drag limitation (DBG-s4 Open 2) is still the one expected failure, and it is unchanged.
+
+**Offsets after a 60 pt wheel drag up** (`y` = the controls' view, `ox` / `oy` = the outer; nested = vertical-in-vertical, pager =
+page 0 of a horizontal pager):
+
+| | 17.5 | 18.5 | 26.5 | 27.0 |
+|---|---|---|---|---|
+| native, every topology, both wheels | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 |
+| ZTron + flag, every topology, both wheels | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 |
+| ZTron today, date wheel | y = 1 | y = 50 | y = 50 | y = 50 |
+| ZTron today, `Picker(.wheel)` | y = 1, turns | **does not turn** | **does not turn** | **does not turn** |
+
+On 18.5 / 26.5 / 27.0 today, a `Picker(.wheel)` drag in a `ZTronScrollView` does not change the selection at all. The content follows
+the finger, so the wheel sees about 10 pt of the 60. The 150 pt wheel then snaps back. This is the same in all three topologies. With the
+flag the wheel turns.
+
+**Things the decline must leave alone**, measured on all four OSes (both lanes agree):
+- A drag that starts on a compact `DatePicker` scrolls: native y = 105 (27.0) / 110, ZTron y = 110. The date does not change.
+- A horizontal swipe that starts on page 0's wheel pages: native ox = 376–386, ZTron + flag ox = 376–385. In both the wheel stays put
+  (pick = 0). This is what the 45° cone is for.
+- A slider drag in the plain and nested topologies moves the slider, with y = 0 and oy = 0.
+- Sanity of the readouts: a filler drag gives y = 240 and a filler swipe on the pager gives ox ≈ 380, native and ZTron alike.
+
+**Harness finding.** The native lane's offset reader was a `GeometryReader` preference inside the `ScrollView`. On 27.0 it stayed at 0
+while the view scrolled (filler drag 0, pager swipe 0). DBG-s4's native "y = 0" checks therefore proved nothing. The demo now reads
+native offsets from UIKit (`NativeScrollProbe`, demo only), and the sanity tests above pin it.
 
 ## 6. Open
 
-TBD.
+1. **User: ship or not.** The prototype needs a SPEC S2 amendment: a passive UIKit window recognizer on every OS that reads the hit
+   view's class. It also needs the default switched on (§4). D74's bar for scoped UIKit is 100 % coverage: the coverage gate run with a
+   `--picker` UI lane is still to do.
+2. **15–16.** There the report rides on the D31 observer itself (`feedsCore: true`). It was not run on 17.5 / 27.0 with
+   `-ZTronForceUIKitObserver` either. Measure on the M1 lane, or with `--uikit --picker` here first.
+3. **Not measured:**
+   - a touch on a wheel that catches a decelerating view (ZTron: the catch stops it and settles, with no drag; native is unknown);
+   - a pinch whose first finger is on a wheel (the pan's drag samples are dropped; the pinch is unchanged);
+   - a wheel in a sheet on 18.x (D46 sheet drag sharing);
+   - a wheel in a ZTron inside a native `ScrollView` (N).
+4. **The cone is static.** UIKit's cross-axis boundary depends on speed (U1 C2). The 45° rule matched native in the pager swipe above,
+   which was a flat fast swipe. Diagonal swipes at 30–60° are not measured.
+5. **Other UIKit scrollers** (a `TextEditor`, a `Map`, a web view) under a ZTron drag behave like the wheel did. A general rule would
+   name `UIScrollView`, which `scripts/check-uikit-scope.sh` forbids. Out of scope here.
+6. **DBG-s4's other native baselines** (Stepper, segmented, Menu, ColorPicker) ran with the broken reader. Re-run the full
+   `UIKitControlsUITests --native` lane with `NativeScrollProbe`.
+7. Two tests are still measurements, not assertions: `testCompactDatePickerDragMeasure` and
+   `testWheelsPagerHorizontalSwipeOnTheWheelMeasure`. Their values are above; turn them into parity assertions when the feature lands.
