@@ -438,8 +438,9 @@ struct RefreshEdgeIndicator: View {
                 dragPosition: refresh.dragPosition, pull: pull, length: length, viewport: m.viewportSize, base: base, hold: hold,
                 trigger: spec.configuration.triggerDistance)
             let visible = drawn.map { $0.visibleLength(vertical: edge == .top || edge == .bottom) > 0 } ?? false
-            // The switch to the refreshing look while the pull look is drawn (M8b-s8 s1): where the pull look drew it.
-            let look = lookSwitch.look(edge: edge, refreshing: refreshing, pull: pull, drawn: drawn) {
+            // The switch to the refreshing look while the pull look is drawn (M8b-s8 s1): where the pull look drew it. Each
+            // slot's leaf decides it from the same inputs (D80); the front one, present on every path, traces it.
+            let look = lookSwitch.look(edge: edge, refreshing: refreshing, pull: pull, drawn: drawn, trace: layer == .front) {
                 RefreshIndicatorMath.placement(
                     edge: edge, style: spec.style, overlay: overlay, band: band, refreshing: false,
                     dragPosition: refresh.dragPosition, pull: pull, length: length, viewport: m.viewportSize, base: base,
@@ -558,7 +559,8 @@ final class RefreshLookSwitch: ObservableObject {
     private var switchPull: CGFloat?
 
     /// `drawn`: this update's placement (the leaf's `refreshing`); `pullLook`: the pull look at this pull, read only at a switch.
-    func look(edge: Edge, refreshing: Bool, pull: CGFloat, drawn: RefreshPlacement?,
+    /// `trace`: record the switch in the DEBUG event log (one leaf per switch: the front slot's, D80).
+    func look(edge: Edge, refreshing: Bool, pull: CGFloat, drawn: RefreshPlacement?, trace: Bool = true,
               pullLook: () -> RefreshPlacement?) -> Look {
         defer { last = (refreshing, drawn?.opacity) }
         if refreshing, let last, !last.refreshing, let from = last.opacity, let to = drawn, let pulled = pullLook() {
@@ -571,7 +573,7 @@ final class RefreshLookSwitch: ObservableObject {
                 current.switching = true
                 switchPull = pull
                 #if DEBUG
-                RefreshTrace.event("switch \(edge) pull=\(RefreshTrace.f(pull)) shift=\(RefreshTrace.f(shift.width)),\(RefreshTrace.f(shift.height)) from=\(RefreshTrace.f(CGFloat(from)))")
+                if trace { RefreshTrace.event("switch \(edge) pull=\(RefreshTrace.f(pull)) shift=\(RefreshTrace.f(shift.width)),\(RefreshTrace.f(shift.height)) from=\(RefreshTrace.f(CGFloat(from)))") }
                 #endif
                 return current
             }
@@ -822,7 +824,8 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
     }
 
     @MainActor func body(content: Content) -> some View {
-        let pull = pin?.resolve(.refresh(edge), interpolated: self.pull, model: modelPull) ?? self.pull
+        let key: CatchPin.Key = layer == .behind ? .refreshBehind(edge) : .refresh(edge)   // one latch per effect (D80)
+        let pull = pin?.resolve(key, interpolated: self.pull, model: modelPull) ?? self.pull
         let placement = RefreshIndicatorMath.placement(
             edge: edge, style: style, overlay: overlay, band: band, refreshing: refreshing, dragPosition: refresh.dragPosition,
             pull: pull, length: length, viewport: viewport, base: base, hold: hold, trigger: trigger)

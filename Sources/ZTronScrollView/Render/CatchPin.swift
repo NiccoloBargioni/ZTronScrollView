@@ -21,6 +21,9 @@ final class CatchPin: @unchecked Sendable {
     enum Key: Hashable, Sendable {
         case content
         case refresh(Edge)
+        /// The same edge's placement in the slot behind the content (D80: 15–16 and the forced fallbacks lay the leaf out
+        /// in both slots; each effect keeps its own latch, so the one that does not draw never ends the drawn one's).
+        case refreshBehind(Edge)
         case headerStretch, headerClip, headerTranslation, headerSlot, headerFallback, headerFade
     }
 

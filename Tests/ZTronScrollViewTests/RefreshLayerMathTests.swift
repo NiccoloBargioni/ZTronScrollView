@@ -201,7 +201,8 @@ struct RefreshLayerMathTests {
     /// Open item 27 (D80): an INSTANT resize that brings a scrolled-away hold's gap back on the screen draws the indicator at
     /// once, at its place, on both paths. D66 hid it on the path without layer groups for 0.45 s after any resize that
     /// began with nothing of it visible (it could not tell an instant resize from a system rotation). No content body runs
-    /// across the resizes (S4); each slot evaluates its leaf at most once per update.
+    /// across the resizes nor across a rotation's layout (both axes swapped and back, S4); each slot evaluates its leaf at
+    /// most once per update.
     @Test(arguments: OSPath.allCases)
     func anInstantResizeDrawsTheGapIndicatorAtOnce(path: OSPath) {
         #if DEBUG
@@ -241,6 +242,21 @@ struct RefreshLayerMathTests {
         #expect(front > 0, "\(path): the leaf follows the resize (\(front))")
         #expect(s.usesGeometryGroup ? back == 0 : abs(front - back) <= 1,
                 "\(path): one leaf per slot and update (front \(front), behind \(back))")
+
+        // A rotation's layout (both axes swapped, landscape and back, each in one step): no content body (S4), and the
+        // indicator drawn once at its place again.
+        w.frame = CGRect(x: 0, y: 0, width: 800, height: 390)
+        pump(0.3)
+        w.frame = CGRect(x: 0, y: 0, width: 390, height: 800)
+        pump(0.3)
+        #expect(counts.bodies == bodies, "\(path): no content body across a rotation's layout (S4: \(counts.bodies - bodies))")
+        #expect(s.refresh?.states[.top]?.mode == .refreshing, "\(path): still held after the rotation")
+        let r = drawn(w), rp = signedPull(s)
+        #expect(r.count == 1, "\(path): drawn once after the rotation (\(painted(w, Self.marker).map { ($0.visible, $0.opacity) }))")
+        if let r = r.first {
+            let base = RefreshIndicatorMath.base(edge: .top, metrics: s.peek.metrics, overlay: false).0.top
+            #expect(abs((base + rp - r.frame.midY) - 30) < 1, "\(path): at its place after the rotation (\(r.frame), pull \(rp))")
+        }
         s.endRefreshing()
         pump(0.8)
         #endif
