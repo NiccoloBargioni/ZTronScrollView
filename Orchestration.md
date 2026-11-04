@@ -459,6 +459,35 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
    their first evaluation, as 17.5 without the cut). If they do, `cinset40` draws the app's animation at its final value while
    a pin holds (17.5 before the cut: the header 41 pt in one frame): a 15–16 difference to fix there.
 
+34. **CLOSED (2026-11-04, M8b-s8 s2): the stall is the hosted test process's; the app draws the content's own animations on
+   every frame (no library change).** Was (d75 spike, §2.3): in a hosted rig a `withAnimation(.easeInOut(duration: 0.5))` row
+   change (5 → 10) inside a `ZTronScrollView` evaluated the content's `Animatable` probes twice, never again. Cause
+   (measured; notes `s2-content-anim-stall`): in the app-less xctest process SwiftUI draws such frames off the main thread,
+   and a main-thread pass it then needs comes only from the app's update cycle. There an animated insertion stalls in plain
+   SwiftUI too (`uval` 1–2, 27.0 and 17.5), and on 27.0 so does anything under a `geometryGroup()` (plain SwiftUI +
+   `geometryGroup()` too): of the 25 suspects bisected only `ContentLayerGroup` / `HeaderLayerGroup` matter, and only there.
+   A native `ScrollView` ticks in the rig through `UIScrollView` layout passes. Rig fix: hosted drawn-frame gates host
+   through `hostDriven` (`Tests/ZTronScrollViewTests/Support/AppFrameDriver.swift`: a running `TimelineView(.animation)`
+   beside the host stands in for the app's per-frame main-thread pass); `ContentAnimationTickTests` (fa9525d) guards the
+   content's own animation. Numbers (27.0 / 17.5 / 27.0 forced):
+   - Rig, driven (no header, `.compress`, `.slideBehind`; internal and external; rows inserted or grown, both ways):
+     `uval` / `uframe` 24–30 evaluations in 0.5 s, the bar drawn on 24–29 frames, largest drawn step 0.06 of the change,
+     header-builder `hval` 24–28; S4: the kept rows' bodies 0, `header.builder` 0 for an internal change.
+   - App, seam lab `fixed-rest-preserve-rows-rows5-rowsto10` with `-internal` / `-noheader` / `-rgrow` (b8b0b71, b32b40b,
+     `scripts/seam/rows.py`): inserted rows fade in and out on 28 / 28 / 28 frames in 0.45 s, largest step 0.059, landing
+     445–457 ms after the first frame; grown rows (`rgrow`, 60 → 120 pt) 27 / 28 / 27 frames, step 0.067 / 0.056 / 0.067;
+     header seam 0; two recordings with load holes (27.0 external fade-out, 17.5 `-noheader`) re-recorded clean.
+   - SwiftUI's own, not a ZTron difference: an INTERNAL change's last level (≤ 1 % of it: 2 opacity levels, 0.67 pt of a
+     row) can wait for the next main-thread event (1.8–2.0 s in the lab): a native `ScrollView` on 27.0 at load 5
+     (`-internal-hnative`: 2187 / 2458 ms); ZTron on 17.5 only under load 413 (2 runs), on time in every run below load 25
+     (ZTron, native, plain).
+   No regression: 27.0 `aspect-rest-preserve-width` |seam| 0.333, lateral 0.268, hJ 0.026 (M8b-s5: 0.33 / 0.27 / 0.026),
+   `aspect-rest-preserve-rotate` gap 0, overlap 0.077, lateral 0.1; the s1 / s3 / s4 key scenarios read as their handoffs.
+   Real 15/16 (M1 Mac lane): `ContentAnimationTickTests` (driven gates ≥ 20; the undriven printout shows whether 15–16's
+   `compositingGroup()` stalls the rig as 27.0's `geometryGroup()` does) and seam lab `rows` (`…-rows5-rowsto10`,
+   `-internal`, `-noheader`, `-rgrow`, with `-hnative` / `-hplain` references): ≥ 20 frames in 0.5 s, step < 0.5, landing
+   ~450 ms, seam 0, and no late last level where native has none (d75 §10 item 7).
+
 41. **The arrow → spinner cross-fade and a begin's look switch were never drawn (2026-11-03, M8b-s8 s1, measured; pre-existing
    for the cross-fade; FIXED; numbered 36 in 170c1d3 / 542f59c and 39 in 8558f70 / d114c6f / 782513b: M9-s1 took 36, main
    37–38, INTEG-s2 39–40)**: before, at every trigger on every lane the arrow was drawn at full intensity on one frame and the
@@ -1013,3 +1042,4 @@ Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (≤ 2 simulators at 
 | 2026-11-03 | Opus 5.5 workflow subagent (M8b-s8 s1, builder s1-refresh-31-32, resumed twice) | open items 31 and 32 fixed (8e0f364: the engine's carried spinner look, L2, L3, the C8 handover; lab `rtrig` / `hdef` / `rdur` / `rbegin` + `handover.py`, 61c7e21); a begin during a retraction switches in the cross-fade (fb4c52e); open item 41 found and fixed (170c1d3 … 782513b, 285a535: the cross-fade and the begin's switch drawn: `ZStack`, 24 pt square, `RefreshLookFade`, `RefreshGlyphBoundary`); unit Refresh* 124/124 on 27.0 + 17.5, `RefreshUITests` 17/17 on 3 lanes; SPEC S10 amended (both known limits removed); handoff `M8b-s8-s1.md` | – |
 | 2026-11-04 | Opus 5.5 workflow subagent (M8b-s8 s3, builder s3-refresh-33-catch) | open item 33 fixed (9f12dbc, D79: the touch-down catch where the reset is drawn, the 17+ `CatchableResetAnimation` cut, `CatchPin` on every offset-following effect, the caught tap's spring back); open item 42 (pre-existing: an app-animated `contentInset` write during a pull is drawn in one frame); SPEC S9 / S10; unit 866 / 83 on 27.0 + 17.5; demo UI 5 suites on 3 lanes (2 failures classified: simulator appearance, pre-existing 17.5 `testControlsUsable`); handoff `docs/progress/M8b-s8-s3.md` | — |
 | 2026-11-04 | Opus 5.5 workflow subagent (M8b-s8 s4, builder s4-refresh-27-behind) | open item 27 fixed for instant resizes and the delay after a rotation (5323f20, D80: the ungrouped headerless gap indicator drawn in a slot behind the content, `RefreshHolder` hoisted, `RefreshLayerMath`; D66 retired; 29857c0: the look-switch trace once and a pin latch per slot); lab `instant` / `clearrow` (6b00454); forced: instant resize 26 -> 0 missing, rotations 0 missing after the end, 0 over; the 15–16 rotation residual ruled (D77, M8b-s9); SPEC S9 / S10; unit 868 / 84 on 27.0 + 17.5; demo UI 4 suites on 3 lanes; handoff `docs/progress/M8b-s8-s4.md` | — |
+| 2026-11-04 | Opus 5.5 workflow subagent (M8b-s8 s2, builder s2-content-anim-stall, retry) | open item 34 closed: the stall is the hosted test process's (no library change). An animated insertion stalls in plain SwiftUI there, and on 27.0 anything under a `geometryGroup()` does too; the app draws the content's own animations on every frame on 3 lanes (seam lab `rows`: 27–28 frames in 0.5 s, step ≤ 0.067, landing ~450 ms). Rig: `hostDriven` / `AppFrameDriver` and `ContentAnimationTickTests` (fa9525d, 777630a). Lab: `rows<n>` / `rowsto<m>` / `internal` / `plain` / `rgrow` / `hnative` / `hplain`, `rows.py` (b8b0b71, b32b40b). An internal change's late last level is SwiftUI's own (native `ScrollView` on 27.0). Unit: the touched suites on 27.0 + 17.5; demo UI ProofUITests + SeamLabUITests on 3 lanes. Handoff `docs/progress/M8b-s8-s2.md` | — |

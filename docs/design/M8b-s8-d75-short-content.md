@@ -154,6 +154,15 @@ narrow it), `a` = the alignment anchor's `y`.
 
 ### 2.3 A pre-existing stall: SwiftUI animations inside the content stop after one frame (step 0)
 
+> **Amended 2026-11-04 (M8b-s8 s2, open item 34): the stall is the hosted test process's, not the library's.** In this
+> app-less process an animated insertion stops after its first (off-main) frame in plain SwiftUI too, and on 27.0 so does
+> any animation under a `geometryGroup()` (the library's content and header groups; plain SwiftUI + `geometryGroup()`
+> stalls the same way, 17.5 does not); a native `ScrollView` ticks there only through `UIScrollView` layout passes. The
+> app draws the content's own animation on every display frame (seam lab `rows`, three lanes). Hosted gates that count
+> drawn frames host through `hostDriven` (`Tests/ZTronScrollViewTests/Support/AppFrameDriver.swift`: a running
+> `TimelineView(.animation)` beside the host supplies the app's per-frame main-thread pass); `ContentAnimationTickTests`
+> guards the content's own animation (≥ 20 frames in 0.5 s, three lanes). The text below is the spike's original reading.
+
 Found by the spike, NOT caused by D75: measured on the unmodified library chain (fix 10: no spike code in the path).
 
 - **The user's own content animation stalls.** In a `withAnimation(.easeInOut(duration: 0.5))` row change (5 → 10 rows),
@@ -243,6 +252,7 @@ in the app (drawn frames from the recording) to confirm the app behaves as the r
 
 - R1 (stall, §2.3): pre-existing; step 0 fixes it before steps 2-4 can pass their ≥ 20-frame gates. If the app does
   not show it (rig-only), step 0 still makes the rig tick (the gates run there) and closes with the seam-lab proof.
+  Resolved 2026-11-04 (M8b-s8 s2): rig-only; the gates host through `hostDriven` (§2.3 amendment).
 - R2: the slot-size reconstruction `slot + dv` assumes fixed safe insets during a SwiftUI-driven resize. A resize that also
   changes them (bottom-pinned height change leaving the home indicator, M8b-s6) moves `dv` at the commit: the lift error is
   `Δsafe · a_h` during the animation (17 pt centred). Gate: seam lab `height` bottom-pinned with fitting centred content.
@@ -315,6 +325,9 @@ change). Lanes whose load is > ~300 re-run alone before a verdict.
 
 ### 9.2 Hosted tests (`HeaderFittingContentTests`, the spike's drawn-frame sampler: presentation-tree frames per display frame)
 
+Host every drawn-frame gate through `hostDriven` (§2.3 amendment): an undriven hosted window stalls animated insertions
+and, on 27.0, anything under the library's layer groups, in plain SwiftUI too.
+
 - grow / shrink 300 ↔ 600 animated (external, internal): content and (follows) header move on ≥ 20 drawn frames in 0.5 s,
   max step ≤ 0.25 of the change, |seam| ≤ 1 pt on every frame (follows), header still (pinned, top).
 - plain change: one frame, final position exact (parity with native: an unanimated layout change is instantaneous).
@@ -345,7 +358,10 @@ change). Lanes whose load is > ~300 re-run alone before a verdict.
    (`.keepTextMagnified`: D76's crisp path active at rest; layout grow: the 15 `Animatable` frame).
 6. **S7.** Rotation of centred fitting content in all three cases: visible centre kept, seam ≤ 1 pt.
 7. **The stall before step 0.** The unmodified chain's `uval` / `uframe` on 15.0 / 16.0 (does the content's own
-   animation stop there too?): tells step 0 whether the cause is OS-specific.
+   animation stop there too?): tells step 0 whether the cause is OS-specific. M8b-s8 s2 (§2.3 amendment): run
+   `ContentAnimationTickTests` there (the driven gates ≥ 20; the undriven printout: whether 15–16's `compositingGroup()`
+   stalls the rig as 27.0's `geometryGroup()`) and the seam lab `rows` set with its `-hnative` / `-hplain` references (≥ 20
+   frames in 0.5 s, step < 0.5, landing ~450 ms, no late last level where native has none).
 8. **R6 on 15 / 16.** Rows inserted during a bounce, a hold release and a pinch: the shape animation keeps running when
    only plain inputs change (no step ≥ 0.5).
 
