@@ -112,6 +112,35 @@ private struct NativeOffsetKey: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
+#if canImport(UIKit)
+/// Native lanes' offsets, read from UIKit (demo only, PICKER-s1): the preference readers above stayed at 0 while a native
+/// `ScrollView` scrolled (27.0, a filler drag), so they cannot prove "the native view stayed put". Candidates are the window's
+/// `UIScrollView`s that are neither tables nor collection views (a picker's table, a calendar) nor inside a picker. Inner =
+/// the deepest candidate that holds a picker (the controls' scroll view), outer = the outermost candidate when it is not
+/// the inner one. Offsets are relative to the resting position (`contentOffset + adjustedContentInset`).
+enum NativeScrollProbe {
+    static func read() -> (inner: CGPoint, outer: CGPoint) {
+        guard let window = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene })
+            .flatMap(\.windows).first(where: \.isKeyWindow) else { return (.zero, .zero) }
+        var all: [UIScrollView] = []
+        func walk(_ v: UIView, inPicker: Bool) {
+            let picker = inPicker || v is UIPickerView || v is UIDatePicker
+            if let sv = v as? UIScrollView, !(v is UITableView), !(v is UICollectionView), !picker { all.append(sv) }
+            v.subviews.forEach { walk($0, inPicker: picker) }
+        }
+        walk(window, inPicker: false)
+        func holdsPicker(_ v: UIView) -> Bool { v is UIPickerView || v is UIDatePicker || v.subviews.contains(where: holdsPicker) }
+        func rest(_ sv: UIScrollView?) -> CGPoint {
+            guard let sv else { return .zero }
+            return CGPoint(x: sv.contentOffset.x + sv.adjustedContentInset.left, y: sv.contentOffset.y + sv.adjustedContentInset.top)
+        }
+        let inner = all.filter(holdsPicker).last
+        let outer = all.first { sv in !all.contains { $0 !== sv && sv.isDescendant(of: $0) } }
+        return (rest(inner), outer === inner ? .zero : rest(outer))
+    }
+}
+#endif
+
 private struct NativeOuterOffsetKey: PreferenceKey {
     static let defaultValue: CGPoint = .zero
     static func reduce(value: inout CGPoint, nextValue: () -> CGPoint) { value = nextValue() }
@@ -147,8 +176,11 @@ struct UIKitControlsScreen: View {
     var body: some View {
         VStack(spacing: 6) {
             Button("Info") {
-                let y = Self.native ? nativeY : state.contentOffset.y
-                let o = Self.native ? nativeOuter : outer.contentOffset
+                var y = Self.native ? nativeY : state.contentOffset.y
+                var o = Self.native ? nativeOuter : outer.contentOffset
+                #if canImport(UIKit)
+                if Self.native { (y, o) = { let r = NativeScrollProbe.read(); return (r.inner.y, r.outer) }() }
+                #endif
                 let c = { (k: String) in ZTronRenderCounters.value(k) }
                 info = "phase=\(Self.native ? "n/a" : "\(state.phase.rawValue)") y=\(Int(y.rounded())) "
                     + "ox=\(Int(o.x.rounded())) oy=\(Int(o.y.rounded())) "
