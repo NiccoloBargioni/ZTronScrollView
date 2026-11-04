@@ -131,4 +131,50 @@ struct TransformTests {
         s.closeResize()
         #expect(!s.isClockRunning)
     }
+
+    /// D79: after a drawn catch the effect draws its model copy (`pinned(_:)`: the host's values) instead of SwiftUI's
+    /// interpolation, until that interpolation reaches the model within 0.01 pt (zoom 1e-5): that ends its latch for the
+    /// catch, and later interpolations are drawn. No pin: the effect itself.
+    @Test func aPinnedEffectDrawsItsModelUntilItsInterpolationReachesIt() {
+        let box = PresentationBox()
+        let c = Self.commit(viewport: CGSize(width: 390, height: 800), content: CGSize(width: 390, height: 3000))
+        let model = Self.effect(offset: CGPoint(x: 0, y: -40), scale: 1, commit: c, probe: box)
+        #expect(model.pinned(nil).pin == nil)
+        let atModel = model.effectValue(size: c.current.viewport)
+        let pin = CatchPin()
+        var e = model.pinned(CatchPin.Ref(seq: 1, pin: pin))
+        #expect(e.pinModel == model.animatableData)
+        e.animatableData.oy = -75                                     // the residual SwiftUI 17.x keeps through the catch
+        #expect(e.effectValue(size: c.current.viewport) == atModel, "drawn at the model")
+        #expect(box.pending?.offset == CGPoint(x: 0, y: -40), "the probe records what is drawn")
+        #expect(e.effectValue(size: c.current.viewport) == atModel, "still")
+        e.animatableData.s = 1 + 2e-5
+        e.animatableData.oy = -40
+        #expect(e.effectValue(size: c.current.viewport) == atModel, "the zoom has not reached the model yet")
+        e.animatableData.s = 1 + 5e-6
+        e.animatableData.oy = -40.005
+        _ = e.effectValue(size: c.current.viewport)
+        #expect(box.pending?.offset == CGPoint(x: 0, y: -40.005), "converged: the interpolation is drawn")
+        e.animatableData.oy = -60
+        _ = e.effectValue(size: c.current.viewport)
+        #expect(box.pending?.offset == CGPoint(x: 0, y: -60), "the latch ended for this catch: a later animation is drawn")
+        var next = model.pinned(CatchPin.Ref(seq: 2, pin: pin))
+        next.animatableData.oy = -60
+        #expect(next.effectValue(size: c.current.viewport) == atModel, "a new catch pins again")
+        var other = model.pinned(CatchPin.Ref(seq: 1, pin: CatchPin()))
+        other.animatableData.oy = -60
+        #expect(other.effectValue(size: c.current.viewport) == atModel, "latches are per view (pin)")
+    }
+
+    /// D79: the per-key latches and `resolve`: each key ends on its own convergence.
+    @Test func eachKeyEndsOnItsOwnConvergence() {
+        let ref = CatchPin.Ref(seq: 4, pin: CatchPin())
+        #expect(ref.resolve(.content, interpolated: -75, model: -40) == -40)
+        #expect(ref.resolve(.refresh(.top), interpolated: -40.009, model: -40) == -40.009, "within 0.01: converged")
+        #expect(ref.resolve(.refresh(.top), interpolated: -75, model: -40) == -75, "ended for this catch")
+        #expect(ref.resolve(.content, interpolated: -60, model: -40) == -40, "the content's latch still holds")
+        #expect(ref.resolve(.content, interpolated: -40, model: -40) == -40)
+        #expect(ref.resolve(.content, interpolated: -60, model: -40) == -60, "and now ended too")
+        #expect(ref.resolve(.headerSlot, interpolated: 12, model: 0) == 0, "every key latches on its own")
+    }
 }

@@ -12,11 +12,17 @@ content down). Reports:
   largest one-frame fall in [catch - 4, catch + 3] beyond it (the acceptance: <= 1 pt);
 - steps: the one-frame band steps around the catch;
 - spinner: per frame around the catch, the drawn spinner height (n) and its centre step against the content's
-  (dc - dctop) next to the centred look's -(band step)/2 (the acceptance: within 1 pt, the spinner 20 pt on every frame)."""
+  (dc - dctop) next to the centred look's (the spinner centred in the band up to L, held at L/2 past it:
+  (min(band, L) step)/2 - (band step), which is -(band step)/2 below L; L = the indicator's length, 60 for hsys60, or
+  ZS_CATCH_L) (the acceptance: within 1 pt, the spinner 20 pt on every frame);
+- header (with <dir>/frames.csv + summary.json from analyze.py): the header / content seam from the catch to the end of
+  the analyzer's segment holding it (the next rest): max |seam|, the frames with |seam| > 1 pt, and the largest
+  gapExcess (an --open-gap run; the acceptance: <= 1 pt)."""
 import os, subprocess, sys, json
 from collections import Counter
 
 src = sys.argv[1] if len(sys.argv) > 1 else "-"
+L = float(os.environ.get("ZS_CATCH_L", "60"))
 if src == "-":
     lines = sys.stdin.read().splitlines()
 else:
@@ -61,8 +67,29 @@ for k in range(max(1, catch - 4), min(len(rows), catch + 6)):
     if a["n"] >= 4 and b["n"] >= 4:
         dc = (b["st"] + b["sb"]) / 2 - (a["st"] + a["sb"]) / 2
         entry["vsContent"] = round(dc - (b["ctop"] - a["ctop"]), 2)
-        entry["centred"] = round(-(b["band"] - a["band"]) / 2, 2)
+        entry["centred"] = round((min(b["band"], L) - min(a["band"], L)) / 2 - (b["band"] - a["band"]), 2)
     spin.append(entry)
-print(json.dumps({"rest": rest, "catchFrame": rows[catch]["f"], "bandBefore": round(pre, 2), "dip": round(dip, 2),
-                  "resetStep": round(resetStep, 2), "dropBeyondReset": round(beyond, 2), "steps": steps,
-                  "spinner": spin}))
+out = {"rest": rest, "catchFrame": rows[catch]["f"], "bandBefore": round(pre, 2), "dip": round(dip, 2),
+       "resetStep": round(resetStep, 2), "dropBeyondReset": round(beyond, 2), "steps": steps, "spinner": spin}
+if src != "-" and os.path.exists(os.path.join(src, "frames.csv")) and os.path.exists(os.path.join(src, "summary.json")):
+    import csv
+    cf = rows[catch]["f"]
+    end = None
+    for seg in json.load(open(os.path.join(src, "summary.json"))).get("segments", []):
+        a, b = seg["frames"]
+        if a <= cf <= b: end = b
+    if end is None: end = cf + 180
+    seam, over, gx = [], [], []
+    for r in csv.DictReader(open(os.path.join(src, "frames.csv"))):
+        try: f = int(r["frame"])
+        except (KeyError, ValueError): continue
+        if f < cf or f > end: continue
+        if r.get("seam"):
+            v = float(r["seam"]); seam.append((f, v))
+            if abs(v) > 1: over.append(f)
+        if r.get("gapExcess"): gx.append(float(r["gapExcess"]))
+    m = max(seam, key=lambda x: abs(x[1])) if seam else None
+    out["header"] = {"from": cf, "to": end, "measured": len(seam), "maxAbsSeam": round(abs(m[1]), 2) if m else None,
+                     "maxAt": m[0] if m else None, "over1": len(over), "overSpan": [over[0], over[-1]] if over else [],
+                     "maxGapExcess": round(max(gx), 2) if gx else None}
+print(json.dumps(out))

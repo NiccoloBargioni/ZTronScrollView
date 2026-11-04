@@ -44,6 +44,9 @@ struct ContentTransform: GeometryEffect {
     let alignment: UnitPoint
     let paging: Axis.Set
     let probe: PresentationBox?
+    /// D79: the catch pin and the model values this effect was built with (`pinned(_:)`, `CatchPin`).
+    var pin: CatchPin.Ref?
+    var pinModel = TransformVector()
 
     var animatableData: TransformVector {
         get { TransformVector(ox: offset.x, oy: offset.y, s: scale, top: insets.top, leading: insets.leading,
@@ -93,6 +96,19 @@ struct ContentTransform: GeometryEffect {
     }
 
     func effectValue(size: CGSize) -> ProjectionTransform {
+        if let pin {
+            var me = self
+            me.pin = nil
+            if pin.pins(.content, converged: animatableData.within(pinModel)) { me.animatableData = pinModel }
+            #if DEBUG
+            pin.pin.noteFirst(.content, seq: pin.seq, {
+                let d = me.resolved(size: size).offset
+                return String(format: "content first drawn after catch seq %d: %.2f,%.2f (interp %.2f,%.2f)",
+                              pin.seq, d.x, d.y, offset.x, offset.y)
+            }())
+            #endif
+            return me.effectValue(size: size)
+        }
         let r = resolved(size: size)
         probe?.record(r.offset, r.scale, size: size)
         #if DEBUG
@@ -205,7 +221,8 @@ struct TransformHost: ViewModifier {
             .modifier(ContentInteractionGate(blocked: blocked))
             .modifier(ContentTransform(offset: offset, scale: scale, insets: metrics.adjustedContentInset,
                                        commit: metrics.resize, limits: state.zoomLimits, alignment: state.contentAlignment,
-                                       paging: state.isPagingEnabled ? axes : [], probe: state.probe))
+                                       paging: state.isPagingEnabled ? axes : [], probe: state.probe)
+                .pinned(state.catchPinRef))
             .modifier(CompletionObserver(state: state))
     }
 }

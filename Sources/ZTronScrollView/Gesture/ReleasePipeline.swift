@@ -117,6 +117,24 @@ extension ZTronScrollState {
         return (mx, my)
     }
 
+    /// A touch that caught motion lifted (or was cancelled) without a drag: content it left out of its bounds springs
+    /// back to them from rest, as UIKit bounces a caught overscroll back at the lift (a tap on a bounce, or on the refresh
+    /// reset the touch caught where it was drawn, D79); in bounds the sequence just ends (`endTracking()`). No drag began,
+    /// so no drag delegate callbacks: the spring is a deceleration (`willBeginDecelerating` ... `didEndDecelerating`).
+    func endCaughtTouch(env: PanEnvironment, settings: ReleaseSettings) {
+        let p = peek.presentationOffset
+        let start = now()
+        func axis(_ origin: CGFloat, _ bounds: AxisBounds, _ bounces: Bool) -> AxisMotion {
+            ReleasePipeline.motion(ReleaseInput(origin: origin, dragStart: origin, velocity: 0, bounds: bounds,
+                                                bounces: bounces, rate: settings.rate, thresholds: settings.thresholds),
+                                   target: nil, at: start)
+        }
+        let mx = axis(p.x, env.boundsX, env.bouncesX)
+        let my = axis(p.y, env.boundsY, env.bouncesY)
+        guard env.isScrollEnabled, mx.willDecelerate || my.willDecelerate else { endTracking(); return }
+        beginDeceleration(x: mx, y: my, at: start, displayScale: settings.displayScale)
+    }
+
     /// The scroll-target behavior step (M6 §4, D27). THE one place that converts between the pipeline's offset space and
     /// SwiftUI's target space: the behavior sees `rect.origin = offset + startInset` (content coordinates) and
     /// `rect.size == containerSize == viewport - insets` (the unobscured size); the landing is

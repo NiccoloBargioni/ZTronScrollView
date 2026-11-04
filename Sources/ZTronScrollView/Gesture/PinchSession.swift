@@ -278,6 +278,29 @@ struct PinchSession: Equatable {
                              geometry: env.geometry, shown: scale, offset: env.presentationOffset))
     }
 
+    /// D79: the pinch's catch moved the presentation under the armed pinch (the content caught where the library's
+    /// SwiftUI animation drew it, `ZTronScrollState.interrupt(catching:)`, past its top bound): anchor again on what is
+    /// on screen, so the first sample draws it there. The anchor is taken at the raw offset that `offset(anchor:...)`
+    /// rubber-bands to the caught presentation (a bouncing axis past its bounds), not at the banded one.
+    mutating func rearm(env: PinchEnvironment) {
+        guard case var .armed(p) = phase else { return }
+        let scale = env.presentationScale
+        let b = env.geometry.bounds(at: scale)
+        func raw(_ x: CGFloat, _ bounds: AxisBounds, bounces: Bool, viewport: CGFloat) -> CGFloat {
+            let over = bounds.overscroll(of: x)
+            guard bounces, over != 0 else { return x }
+            let band = RubberBand(dimension: viewport, coefficient: env.rubberBandCoefficient)
+            return bounds.clamped(x) + band.overscroll(forDisplacement: over)
+        }
+        let o = env.presentationOffset
+        let unbanded = CGPoint(x: raw(o.x, b.x, bounces: env.bouncesX, viewport: env.geometry.x.viewportLength),
+                               y: raw(o.y, b.y, bounces: env.bouncesY, viewport: env.geometry.y.viewportLength))
+        p.anchor = ZoomSolver.contentPoint(under: p.centroid, offset: unbanded, scale: scale, geometry: env.geometry)
+        p.shown = scale
+        p.offset = o
+        phase = .armed(p)
+    }
+
     /// Limits or geometry changed mid-pinch (resize, rotation): anchor again from what is on screen.
     private func reanchor(_ p: inout Pinch, magnification m: CGFloat, env: PinchEnvironment) {
         p.anchor = ZoomSolver.contentPoint(under: p.centroid, offset: env.presentationOffset,

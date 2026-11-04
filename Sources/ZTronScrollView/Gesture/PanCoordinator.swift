@@ -161,7 +161,10 @@ final class PanCoordinator: ObservableObject {
             if refresh.bouncesHorizontal { env.bouncesX = true }
         }
         env.viewport = m.viewportSize
+        // D79: the library's SwiftUI animation drawing the content away from the model (a refresh reset: the model is at
+        // rest, the phase idle) moves it without a finger too: a touch catches it where it is drawn (`interrupt(catching:)`).
         env.isMovingWithoutFinger = (state.phase == .decelerating || state.phase == .animating) && !state.isTracking
+            || state.drawnAway() != nil
         env.interruptedVelocity = state.lastInterruptedVelocity
         // Toward a nested container that cannot take the swipe (NESTED §3, R7's `.ztronScrollDisabled` on the
         // outer): no arbiter for this touch, we behave as if alone. An external (pager) arbiter is always asked.
@@ -249,7 +252,22 @@ final class PanCoordinator: ObservableObject {
             tracker.add(CGPoint(x: start.x + translation.width, y: start.y + translation.height), at: time)
         }
         // The catch's interrupt() changes what the recognition sample must read.
-        if effects.contains(.catchMotion) { apply(effects, env: env); effects = []; env = environment() }
+        if let i = effects.firstIndex(of: .catchMotion) {
+            let seq = state.catchSeq
+            apply(Array(effects[...i]), env: env)
+            var tail = Array(effects[(i + 1)...])
+            if state.catchSeq != seq, case .dragging = session.phase {
+                // D79, 17.x: the synthesized touch-down caught the content where it is drawn and recognized in this call,
+                // with a baseline taken before the catch moved the presentation (the model's). The drag continues from
+                // the caught presentation: rebased on it, its first write replaced.
+                let caught = state.peek.presentationOffset
+                session.rebase(presentation: caught, translation: lastPanTranslation, env: environment())
+                tail = tail.map { if case .setOffset = $0 { return .setOffset(caught) } else { return $0 } }
+            }
+            apply(tail, env: env)
+            effects = []
+            env = environment()
+        }
         apply(effects, env: env)
         // The converted lift was both the drag's end and the last finger up: the session is over, as after a real
         // `.dragEnded` + `.touchesEnded` pair.
@@ -314,7 +332,7 @@ final class PanCoordinator: ObservableObject {
                 #if DEBUG
                 ZTronRenderCounters.increment("pan.catch")
                 #endif
-                state.interrupt(); state.catchLocksContent = true; caughtUndecided = true
+                state.interrupt(catching: true); state.catchLocksContent = true; caughtUndecided = true
             case .beginTracking: state.beginTracking()
             case .beginDragging:
                 // willBeginDragging (and the hit-test gate) wait for the first real movement: a drag that moves
@@ -341,17 +359,21 @@ final class PanCoordinator: ObservableObject {
                 heldRelease = (r, env)
             case let .release(r):
                 if pendingBegin { pendingBegin = false; state.beginDragging() }
-                var release = ReleaseSettings()
-                release.rate = state.decelerationRate == .fast ? .fast : .normal
-                release.isPagingEnabled = state.isPagingEnabled
-                release.displayScale = settings.displayScale
+                let release = releaseSettings()
                 // The refresh hold opens (or its reset closes) BEFORE the release reads the bounds: an over-pulled release
                 // springs to the hold position, a late reset springs back to rest.
                 let boundsChanged = refresh?.lift(isScrollEnabled: env.isScrollEnabled, cancelled: r.zeroVelocity) ?? false
                 state.endDrag(r, tracker: tracker, env: boundsChanged ? peekEnvironment() : env, settings: release)
                 if boundsChanged { refresh?.finishRelease() }
             case .endSequence:
-                pendingBegin = false; pinchOwnedPan = false; state.endTracking()
+                pendingBegin = false; pinchOwnedPan = false
+                // A touch that caught motion and never dragged (a tap on a bounce, or on the refresh reset it caught
+                // where it was drawn, D79): content it left out of its bounds springs back to them, as UIKit's does.
+                if state.catchLocksContent {
+                    state.endCaughtTouch(env: peekEnvironment(), settings: releaseSettings())
+                } else {
+                    state.endTracking()
+                }
                 refresh?.sequenceEnded(isScrollEnabled: env.isScrollEnabled)
             case let .askOwner(start, translation, touchCount):
                 // Once per sequence, at the hysteresis. `owner` is from our side: `.participant` = we drag.
@@ -389,7 +411,10 @@ final class PanCoordinator: ObservableObject {
         e.presentationScale = s.presentationZoom
         e.presentationOffset = s.presentationOffset
         e.geometry = makeZoomGeometry()
+        // D79: two fingers take the content while the library's SwiftUI animation draws it away from the model (a
+        // refresh reset): the pinch catches it where it is drawn (`interrupt(catching:)`), as the pan's touch-down does.
         e.isMovingWithoutFinger = (state.phase == .decelerating || state.phase == .animating) && !state.isTracking
+            || state.drawnAway() != nil
         if case .dragging = session.phase { e.panDragActive = true }
         let pan = environment()
         e.bouncesX = pan.bouncesX
@@ -437,6 +462,15 @@ final class PanCoordinator: ObservableObject {
         synthesizedPanStart = start
     }
 
+    /// What a release (or a caught touch's lift) moves the content with.
+    private func releaseSettings() -> ReleaseSettings {
+        var release = ReleaseSettings()
+        release.rate = state.decelerationRate == .fast ? .fast : .normal
+        release.isPagingEnabled = state.isPagingEnabled
+        release.displayScale = settings.displayScale
+        return release
+    }
+
     /// The zoom bounce moved the offset while pan writes were dropped: a still-dragging pan continues from here.
     private func rebaseAfterBounce() {
         guard case .dragging = session.phase else { return }
@@ -452,7 +486,10 @@ final class PanCoordinator: ObservableObject {
             #endif
             switch fx {
             case .catchMotion:
-                state.interrupt(); state.catchLocksContent = true
+                let seq = state.catchSeq
+                state.interrupt(catching: true); state.catchLocksContent = true
+                // D79: a drawn catch moved the presentation the pinch was armed on.
+                if state.catchSeq != seq { pinch.rearm(env: makePinchEnvironment()) }
             case .beginZooming:
                 if isSequenceActive { pinchOwnedPan = true }
                 // Two fingers are zoom intent: an undecided pan is ours (the pinch never calls the arbiter).

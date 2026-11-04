@@ -72,6 +72,8 @@ struct HeaderFrameModifier: ViewModifier {
                                   tracksPull: HeaderFadeMath.tracksPull(fade))
         if live.followsOffset { reporter.heldOffset = live.offset }
         live.natural = state.headerNatural
+        // D79: after a drawn catch every effect that interpolates `o′` draws the model's until its interpolation reaches it.
+        if live.followsOffset, let ref = state.catchPinRef { live.catchPin = HeaderCatchPin(ref: ref, model: live.offset) }
         return live
     }
 
@@ -159,7 +161,7 @@ nonisolated struct HeaderStretchEffect: GeometryEffect {
     }
 
     func effectValue(size: CGSize) -> ProjectionTransform {
-        ProjectionTransform(Self.transform(size: size, stretch: live.stretch))
+        ProjectionTransform(Self.transform(size: size, stretch: live.pinned(.headerStretch).stretch))
     }
 
     /// `translate(W/2, 0) · scale(s) · translate(−W/2, 0)`: x ↦ W/2 + s · (x − W/2), y ↦ s · y.
@@ -183,7 +185,7 @@ nonisolated struct HeaderStretchClip: Shape {
     }
 
     func path(in rect: CGRect) -> Path {
-        Path(Self.rect(in: rect, stretch: live.stretch))
+        Path(Self.rect(in: rect, stretch: live.pinned(.headerClip).stretch))
     }
 
     static func rect(in rect: CGRect, stretch: CGFloat) -> CGRect {
@@ -207,7 +209,8 @@ nonisolated struct HeaderTranslation: GeometryEffect {
     }
 
     func effectValue(size: CGSize) -> ProjectionTransform {
-        ProjectionTransform(CGAffineTransform(translationX: 0, y: Self.translation(live, layoutHeight: size.height)))
+        ProjectionTransform(CGAffineTransform(translationX: 0, y: Self.translation(live.pinned(.headerTranslation),
+                                                                                     layoutHeight: size.height)))
     }
 
     /// `t_g + t_c`: the pull translation and the collapse translation of a stack laid out at `layoutHeight`.
@@ -243,6 +246,13 @@ struct HeaderSlotLayout: Layout {
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        if live.catchPin != nil {
+            // D79: placed at the model `o′` while the pin holds (`HeaderLiveInput.pinned(_:)`).
+            var me = self
+            me.live = live.pinned(.headerSlot)
+            me.live.catchPin = nil
+            return me.placeSubviews(in: bounds, proposal: proposal, subviews: subviews, cache: &cache)
+        }
         let h = height(at: bounds.width, slot: bounds.height, subviews)
         // `.slideBehind` (D68): up by `k · p · h` of this pass's own `h` (`R(W, H)`), as the 15 path's `HeaderTranslation`.
         let y = bounds.minY + HeaderTranslation.translation(live, layoutHeight: h)
@@ -293,7 +303,7 @@ nonisolated struct HeaderFallbackFrame: ViewModifier, Animatable {
     }
 
     @MainActor func body(content: Content) -> some View {
-        let plan = HeaderFallbackPlan(live)
+        let plan = HeaderFallbackPlan(live.pinned(.headerFallback))
         let state = state
         return content
             .fixedSize(horizontal: false, vertical: plan.fitRest)
@@ -455,7 +465,7 @@ nonisolated struct HeaderFadeOverlay: ViewModifier, Animatable {
     }
 
     @MainActor func body(content: Content) -> some View {
-        let live = live, fade = fade
+        let live = live.pinned(.headerFade), fade = fade
         return content.overlay(Group {
             if HeaderFadeMath.draws(fade) {
                 GeometryReader { g in

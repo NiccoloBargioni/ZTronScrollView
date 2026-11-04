@@ -363,6 +363,7 @@ public final class ZTronScrollState {
 
     /// The user or code is about to move the view: any resize in flight commits and the sticky intent is dropped.
     private func beginIntervention() {
+        drawnMotionOpen = false                // D79: the user or code moves the view: no SwiftUI-drawn motion to catch
         pendingDidScrollToTop = false          // a newer command or a finger supersedes a scroll to top in flight
         positionDriver.interventionBegan()
         resizeIntent = nil
@@ -1385,6 +1386,7 @@ public final class ZTronScrollState {
     public func scroll(to offset: CGPoint) {
         guard offset.x.isFinite, offset.y.isFinite, offset != storage.snapshot().targetOffset else { return }
         beginIntervention()
+        clearPin()          // D79: a transaction scroll is drawn by its own animation
         batch {
             cancelMotion()
             generation += 1
@@ -1435,9 +1437,117 @@ public final class ZTronScrollState {
     }
 
     /// UIKit `stopScrollingAndZooming()` / touch during motion: target := presentation, no jump.
-    public func stopScrollingAndZooming() { interrupt() }
+    public func stopScrollingAndZooming() {
+        let drawing = drawnMotionOpen       // D79: the library's SwiftUI-drawn reset is no scroll motion: drawn on
+        interrupt()
+        drawnMotionOpen = drawing
+    }
 
-    func interrupt() {
+    // MARK: Drawn motion (D79, M8b-s8 s3, open item 33)
+
+    /// The library's own SwiftUI-animated write that draws the content away from the model is in flight (a refresh reset:
+    /// the hold clears inside `withAnimation`, the model is at rest at once while the content effect interpolates). Opened
+    /// by `noteSwiftUIDrawnMotion()`; closed by `beginIntervention()` (a finger down that did not catch, a drag, a pinch,
+    /// a command), `cancelMotion()`, `scroll(to:)`, a drawn catch, and by `drawnAway()` once the drawing reached the model.
+    /// Only inside it can a touch catch the drawing: a steady drawn / model difference at rest (a slow-path clamp,
+    /// `transform.clampedAtRest`) never turns a tap into a catch (a catch locks the content for that touch).
+    private var drawnMotionOpen = false
+    /// The catch pin's numbers (`CatchPin`): a drawn catch takes the next one as `catchSeq`, a SwiftUI-animated write by the
+    /// library (`noteSwiftUIDrawnMotion()`, the transaction path) as `clearSeq`. The pin holds while `catchSeq > clearSeq`.
+    private var pinSeq = 0
+    private(set) var catchSeq = 0
+    private(set) var clearSeq = 0
+    /// The pin's per-effect latches (`CatchPin`), shared by every host of this view.
+    let catchPin = CatchPin()
+
+    /// What the hosts hand the effects that follow the offset: the pin of the last drawn catch, until a SwiftUI-animated
+    /// write by the library; `nil` otherwise (every effect draws its interpolation, bit for bit as without D79).
+    var catchPinRef: CatchPin.Ref? { catchSeq > clearSeq ? CatchPin.Ref(seq: catchSeq, pin: catchPin) : nil }
+
+    /// The refresh coordinator is about to clear a hold inside a SwiftUI animation (`resetAnimation: .swiftUI`, D39): the
+    /// content will be drawn away from the model until that animation ends. Opens the drawn-motion window and ends any
+    /// catch pin first (the new animation must be drawn).
+    func noteSwiftUIDrawnMotion() {
+        if !drawnMotionOpen { drawnResetToken = DrawnResetToken() }
+        drawnMotionOpen = true
+        clearPin()
+        #if DEBUG
+        dbg("drawn window open, model \(f(storage.snapshot().presentationOffset))")
+        #endif
+    }
+
+    /// D79, 17+ (`ZTronCapability.customAnimation`): the token of the open drawn-motion window's resets
+    /// (`CatchableResetAnimation`); a drawn catch cuts it. A new one whenever the window opens.
+    private var drawnResetToken: DrawnResetToken?
+
+    /// D79: `animation` for a SwiftUI-drawn reset of the open window (after `noteSwiftUIDrawnMotion()`): on 17+ wrapped so
+    /// that a drawn catch ends it at its next frame (`CatchableResetAnimation`); unchanged without a window, on 15–16 and
+    /// with the capability's fallback forced.
+    func catchable(_ animation: Animation) -> Animation {
+        guard drawnMotionOpen, let token = drawnResetToken else { return animation }
+        if #available(iOS 17, *), ZTronAvailability.isAvailable(.customAnimation) {
+            return Animation(CatchableResetAnimation(base: animation, token: token))
+        }
+        return animation
+    }
+
+    /// The pin ends before a SwiftUI-animated write by the library: what it animates is drawn.
+    private func clearPin() {
+        guard catchSeq > clearSeq else { return }
+        pinSeq += 1
+        clearSeq = pinSeq
+    }
+
+    /// Where the content is DRAWN while the library's SwiftUI-animated write draws it away from the model (the content
+    /// effect's last frame, `probe`, one frame behind the screen at most: the frame on the screen at the touch), or `nil`:
+    /// outside the drawn-motion window, while tracking, a clock motion, a transaction scroll, a zoom or a resize runs,
+    /// when the probe was drawn at another viewport size (within 1 pt) or zoom (1e-4), or within 0.5 pt of the
+    /// presentation (the animation reached the model: the window closes). The pan and pinch environments count it as
+    /// motion without a finger, so a touch then catches it (`interrupt(catching:)`).
+    func drawnAway() -> (offset: CGPoint, zoom: CGFloat)? {
+        guard drawnMotionOpen, motion == nil, transactionToken == nil, !storage.isTracking, !storage.isZooming,
+              !isResizeOpen, let d = probe.pending else { return nil }
+        let s = storage.snapshot()
+        let vp = s.metrics.viewportSize
+        guard !s.metrics.resize.isOpen, abs(d.size.width - vp.width) <= 1, abs(d.size.height - vp.height) <= 1,
+              abs(d.zoom - s.presentationZoom) < 1e-4 else { return nil }
+        guard hypot(d.offset.x - s.presentationOffset.x, d.offset.y - s.presentationOffset.y) > 0.5 else {
+            drawnMotionOpen = false
+            #if DEBUG
+            dbg("drawn window closed: drawn at the model \(f(d.offset))")
+            #endif
+            return nil
+        }
+        return (d.offset, d.zoom)
+    }
+
+    /// Stops what moves the view without a finger. `catching` (a touch's catch: the pan's and the pinch's `.catchMotion`)
+    /// also catches the library's SwiftUI-drawn motion (D79); `stopScrollingAndZooming()` does not (no lift follows it to
+    /// return a caught overscroll to rest: the drawn reset goes on).
+    func interrupt(catching: Bool = false) {
+        if catching, motion == nil, transactionToken == nil, let d = drawnAway() {
+            // D79: the touch catches the content where it is drawn. The model becomes the drawn state, so whatever SwiftUI
+            // does with the rest of its animation, the drawing ends where it was (the effects pin the model, `CatchPin`).
+            // The pin's number is taken after the write: a host evaluated at the write's will-change (the channel path
+            // can be, inside the gesture's update) must not pin the pre-catch model; without the pin it draws its
+            // interpolation, which is where the content is drawn.
+            batch {
+                drawnMotionOpen = false
+                lastInterruptedVelocity = .zero
+                #if DEBUG
+                let model = storage.snapshot().presentationOffset
+                #endif
+                drawnResetToken?.cut()        // 17+: SwiftUI drops the rest of the reset from its next frame on
+                unanimated { writeBoth(offset: d.offset, zoom: d.zoom) }
+                pinSeq += 1
+                catchSeq = pinSeq
+                #if DEBUG
+                ZTronRenderCounters.increment("catch.drawn")
+                dbg("catch drawn \(f(d.offset)) z:\(f(d.zoom)) model \(f(model)) seq \(catchSeq)")
+                #endif
+            }
+            return
+        }
         batch {
             let wasMoving = motion != nil || transactionToken != nil
             if let m = motion {
@@ -1610,6 +1720,10 @@ public final class ZTronScrollState {
         transactionToken = nil
         settleTicks = 0
         probe.pending = nil
+        #if DEBUG
+        if drawnMotionOpen { dbg("drawn window closed: cancelMotion") }
+        #endif
+        drawnMotionOpen = false      // D79
         storage.isScrollAnimating = false
         storage.isZoomAnimating = false
         storage.isDecelerating = false

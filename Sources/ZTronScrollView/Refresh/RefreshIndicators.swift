@@ -417,7 +417,8 @@ struct RefreshEdgeIndicator: View {
                 hasHeader: state.headerSpec != nil || m.header != nil, custom: spec.indicator != nil,
                 resize: m.resize, baseFollowsInset: edge != .top || HeaderMath.refreshTop(m)?.overlay != false, draw: draw,
                 reveal: reveal.look(open: open, visible: visible, animating: sample.phase == .animating),
-                baseAnimation: baseAnimation, look: look, stash: lookSwitch.stash))
+                baseAnimation: baseAnimation, look: look, stash: lookSwitch.stash, pin: state.catchPinRef,
+                modelPull: pull))
         }
     }
 
@@ -795,6 +796,10 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
     let look: RefreshLookSwitch.Look
     /// The update's own transaction, kept for the indicator's content while the switch's weight animates.
     let stash: RefreshTransactionStash
+    /// D79: the catch pin and the pull the leaf computed (the model): drawn instead of the interpolated `pull` while it
+    /// pins (`CatchPin`), so a residual SwiftUI keeps after a catch never moves the indicator off the caught content.
+    var pin: CatchPin.Ref? = nil
+    var modelPull: CGFloat = 0
 
     var animatableData: CGFloat {
         get { pull }
@@ -827,6 +832,7 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
     }
 
     @MainActor func body(content: Content) -> some View {
+        let pull = pin?.resolve(.refresh(edge), interpolated: self.pull, model: modelPull) ?? self.pull
         let placement = RefreshIndicatorMath.placement(
             edge: edge, style: style, overlay: overlay, band: band, refreshing: refreshing, dragPosition: refresh.dragPosition,
             pull: pull, length: length, viewport: viewport, base: base, hold: hold, trigger: trigger)

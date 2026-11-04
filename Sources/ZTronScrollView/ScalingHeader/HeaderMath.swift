@@ -52,8 +52,20 @@ struct HeaderLiveInput: Equatable {
     /// progress, the resize intent's anchor while a resize is open. The geometry consumers get `geometry` (no pull).
     var pull: CGFloat = 0
     var tracksPull = false
+    /// D79: the catch pin and the model `o′` while it holds (`ZTronScrollState.catchPinRef`, set by
+    /// `HeaderFrameModifier.wake()` when the input follows the offset); `nil` otherwise, so the input is bit for bit as
+    /// without it (D62). `at(offset:)` carries it: each effect that interpolates `o′` reads `pinned(_:)`.
+    var catchPin: HeaderCatchPin?
 
     var layoutDriven: Bool { metrics?.vertical == true }
+
+    /// D79: the input an effect draws: re-derived at the model `o′` (`at(offset:)`) while the pin holds for `key` (after a
+    /// drawn catch, until this effect's own interpolation of `o′` reaches the model: `CatchPin`); `self` otherwise.
+    func pinned(_ key: CatchPin.Key) -> HeaderLiveInput {
+        guard let p = catchPin else { return self }
+        let o = p.ref.resolve(key, interpolated: offset, model: p.model)
+        return o == offset ? self : at(offset: o)
+    }
 
     /// The input without the fade's pull (`pull`, `tracksPull`): what the slot, the frames and the effects read, so a
     /// tracked pull never re-lays the header out.
@@ -97,6 +109,12 @@ struct HeaderLiveInput: Equatable {
         if c.tracksPull { c.pull = HeaderMath.pullDistance(o: o) }
         return c
     }
+}
+
+/// D79: what `HeaderLiveInput` carries while a catch pin holds: the pin and the header offset `o′` of the model.
+struct HeaderCatchPin: Equatable {
+    let ref: CatchPin.Ref
+    let model: CGFloat
 }
 
 /// Where the header was when a resize captured its intent.

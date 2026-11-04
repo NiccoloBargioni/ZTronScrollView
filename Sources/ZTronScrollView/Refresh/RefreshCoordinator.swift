@@ -278,7 +278,9 @@ final class RefreshCoordinator: ObservableObject {
         // transaction, so the indicator's drawing is animated by the same curve as the content's.
         if case let .swiftUI(animation)? = configuration?.resetAnimation, effects.contains(.clearHold(atLift: false, animated: true)),
            effects.contains(where: { if case .retract(.some) = $0 { return true } else { return false } }) {
-            withAnimation(animation) { perform(effects, edge: edge, configuration: configuration) }
+            // D79: SwiftUI draws the content back while the model is at rest at once: a touch meanwhile catches it there.
+            state.noteSwiftUIDrawnMotion()
+            withAnimation(state.catchable(animation)) { perform(effects, edge: edge, configuration: configuration) }
         } else {
             perform(effects, edge: edge, configuration: configuration)
         }
@@ -303,7 +305,7 @@ final class RefreshCoordinator: ObservableObject {
                 if animated {
                     var animation = Animation.default
                     if case let .swiftUI(a)? = configuration?.resetAnimation { animation = a }
-                    withAnimation(animation) { states[edge]?.modeAnimated = mode }
+                    withAnimation(state.catchable(animation)) { states[edge]?.modeAnimated = mode }   // D79
                 } else {
                     states[edge]?.modeAnimated = mode
                 }
@@ -408,7 +410,8 @@ final class RefreshCoordinator: ObservableObject {
         }
         switch animation {
         case let .swiftUI(a):
-            withAnimation(a) { state.setRefreshHold(inset, followsOffset: true) }
+            state.noteSwiftUIDrawnMotion()      // D79, as in `apply`
+            withAnimation(state.catchable(a)) { state.setRefreshHold(inset, followsOffset: true) }
         case .uikit:
             state.setRefreshHold(inset, followsOffset: false)
             let s = state.peek

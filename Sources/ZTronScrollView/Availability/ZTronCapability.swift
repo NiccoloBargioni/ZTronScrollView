@@ -66,6 +66,9 @@ public enum ZTronCapability: String, CaseIterable, Sendable, Hashable {
     case geometryGroup
     /// `TimelineView(.animation)` (iOS 15). Always available: never gated, never forced.
     case frameClock
+    /// `CustomAnimation` / `Animation(_:)` (iOS 17): a drawn catch ends the library's SwiftUI-drawn refresh reset (D79).
+    /// Fallback: the catch pin alone draws the caught state while SwiftUI keeps the rest of the reset.
+    case customAnimation
 
     /// The library's minimum deployment target (SPEC S2).
     static let deploymentTarget: (major: Int, minor: Int) = (15, 0)
@@ -80,7 +83,8 @@ public enum ZTronCapability: String, CaseIterable, Sendable, Hashable {
         case .scrollBounceBehaviorType:
             return (16, 4)
         case .perPropertyObservation, .visualEffect, .magnifyGesture, .nativeCurves, .animationCompletion,
-             .keyPathTransaction, .keyboardScrolling, .sensoryFeedback, .namedCoordinateSpace, .geometryGroup:
+             .keyPathTransaction, .keyboardScrolling, .sensoryFeedback, .namedCoordinateSpace, .geometryGroup,
+             .customAnimation:
             return (17, 0)
         case .spatialEvents, .liveMagnifyCentroid, .subviewContainers:
             return (18, 0)

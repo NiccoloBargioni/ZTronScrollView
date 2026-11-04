@@ -560,4 +560,38 @@ import Testing
         #expect(keep(200, compress, slide) == 240, "collapsed stays collapsed (covered)")
         #expect(keep(500, compress, slide) == 500, "past the band the content stays where it was")
     }
+
+    /// D79: while a catch pin holds, each header effect reads `pinned(key)`: the input re-derived at the model `o′`
+    /// (`at(offset:)`: stretch, translation, progress, layout height) until that key's interpolated `o′` reaches the model;
+    /// each key ends on its own convergence. No pin: the input itself (bit for bit, D62).
+    @Test(arguments: [ZTronHeaderScalingBehavior.preserve, .stretch], [ZTronHeaderPullBehavior.openGap, .followContent])
+    func aPinnedInputIsTheModelsUntilEachKeyConverges(behavior: ZTronHeaderScalingBehavior, pull: ZTronHeaderPullBehavior) {
+        var h = Self.profile
+        h.behavior = behavior
+        h.pull = pull
+        let m = Self.metrics(h)
+        func live(_ o: CGFloat) -> HeaderLiveInput {
+            HeaderFrameModifier.liveInput(size: .fixed(min: 64, max: 240), overflow: .uncapped, metrics: m, edges: .vertical,
+                                          target: CGPoint(x: 0, y: o - HeaderMath.base(m)), zoom: 1)
+        }
+        let model = live(-20)
+        #expect(model.followsOffset && model.catchPin == nil)
+        #expect(model.pinned(.headerSlot) == model, "no pin: the input itself")
+        var pinned = model
+        pinned.catchPin = HeaderCatchPin(ref: CatchPin.Ref(seq: 1, pin: CatchPin()), model: model.offset)
+        let frame = pinned.at(offset: -52)                             // SwiftUI's interpolation of o′ (the residual)
+        #expect(frame.catchPin == pinned.catchPin, "an animation frame carries the pin")
+        for key in [CatchPin.Key.headerStretch, .headerClip, .headerTranslation, .headerSlot, .headerFallback, .headerFade] {
+            var drawn = frame.pinned(key)
+            drawn.catchPin = nil
+            #expect(drawn == model, "\(behavior) \(pull) \(key): re-derived at the model o′")
+        }
+        let reached = pinned.at(offset: -20.004)
+        #expect(reached.pinned(.headerSlot) == reached, "the slot's interpolation reached the model: ended")
+        var after = frame.pinned(.headerSlot)
+        #expect(after == frame, "for this catch: a later interpolation is drawn as is")
+        after.catchPin = nil
+        #expect(after == live(-52), "bit for bit the unpinned frame")
+        #expect(frame.pinned(.headerStretch).offset == -20, "the stretch's latch holds")
+    }
 }

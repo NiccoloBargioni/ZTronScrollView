@@ -19,7 +19,7 @@ struct AvailabilityTests {
             .animationCompletion: (17, 0), .keyPathTransaction: (17, 0), .keyboardScrolling: (17, 0),
             .accessibilityZoom: (16, 0), .sensoryFeedback: (17, 0), .namedCoordinateSpace: (17, 0),
             .subviewContainers: (18, 0), .scrollBounceBehaviorType: (16, 4), .frameClock: (15, 0),
-            .uikitTouchObserver: (15, 0), .geometryGroup: (17, 0),
+            .uikitTouchObserver: (15, 0), .geometryGroup: (17, 0), .customAnimation: (17, 0),
         ]
         #expect(Set(expected.keys) == Set(ZTronCapability.allCases))
         for capability in ZTronCapability.allCases {
