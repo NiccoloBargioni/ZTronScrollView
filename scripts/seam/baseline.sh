@@ -39,6 +39,8 @@ for sc in "$@"; do
       hsys[0-9]*) extra+=(-ZTronSeamHoldSystem "${x#hsys}") ;;   # with hold: the built-in .system indicator (L 60), holdOffset <digits> (R1-RC1-1; spinner.py)
       hend*) v="${x#hend}"; extra+=(-ZTronSeamHoldEnd "${v//p/.}") ;;   # with hold: endRefreshing <s> s after the hold began (hend1p5 = 1.5; the hold opens ~3 s before the first fling)
       hdef[0-9]*) extra+=(-ZTronSeamHoldDefault "${x#hdef}") ;;   # with hold: the built-in .default indicator (L 60), holdOffset <digits> (M8b-s8 s1; handover.py --steps)
+      hreset*) v="${x#hreset}"; extra+=(-ZTronSeamHoldReset "${v//p/.}") ;;   # with hold: the hold's resetAnimation is an easeOut of <s> s (hreset4 = 4: a fling catches it; M8b-s8 s3, catchcheck.py)
+      cinset[0-9]*) extra+=(-ZTronSeamCatchInset "${x#cinset}") ;;   # with hold + hend: the app animates contentInset.top by <pt> 0.1 s after the first touch after the hold's end (M8b-s8 s3)
       rtrig[0-9]*) extra+=(-ZTronSeamRefreshTrigger "${x#rtrig}") ;;   # with refresh / rdur: the refresher's triggerDistance (default 60 = L; open item 31, handover.py)
       rdur*) v="${x#rdur}"; extra+=(-ZTronSeamRefresh "${v//p/.}") ;;   # instead of refresh: the refresher's action takes <s> s (rdur0p2 = 0.2: it returns under the finger; with regrab)
       rbegin[0-9]*) extra+=(-ZTronSeamBeginAfterRelease "${x#rbegin}") ;;   # with refresh: beginRefreshing() <ms> after the first release (the look switch during a retraction, M8b-s8 s1)

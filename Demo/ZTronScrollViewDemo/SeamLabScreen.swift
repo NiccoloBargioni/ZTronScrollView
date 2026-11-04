@@ -40,6 +40,9 @@ import ZTronScrollView
 // `s` seconds after it began (its retraction). M8b-s8 s1: `-ZTronSeamHoldDefault <H>` is the built-in `.default` indicator
 // instead (a ring, then the spinner), and `-ZTronSeamRefreshTrigger <T>` the `-ZTronSeamRefresh` refresher's trigger
 // distance (default 60; below the indicator's 60 pt the `.system` pull look hands over to the refreshing look, open item 31).
+// M8b-s8 s3 (item 33, D79): `-ZTronSeamHoldReset <s>` makes the held refresher's `resetAnimation` an easeOut of `s` seconds
+// (a long SwiftUI-animated reset a fling can catch), and `-ZTronSeamCatchInset <pt>` animates `contentInset.top` by <pt>
+// (easeInOut 0.3 s) 0.1 s after the first touch that follows the hold's end (an app animation while a catch pin holds).
 // Resize variants (M8b-s6 close, the verifier's break probes): `-ZTronSeamBottomPinned 1` (the height change is bottom-pinned:
 // the scroll view's top leaves the top safe area), `-ZTronSeamBoth 1` (height and width together), `-ZTronSeamSpring 1` (a
 // bouncy spring instead of easeInOut), `-ZTronSeamRetarget <s>` (the toggle again `s` seconds into the change), and
@@ -132,6 +135,8 @@ struct SeamLabScreen: View {
     @State private var narrow = false
     /// `-ZTronSeamBeginAfterRelease`: armed until the first release (a reference: the phase observer never re-renders the lab).
     @State private var beginArmed = SeamLabFlag(true)
+    /// `-ZTronSeamCatchInset`: set once the hold's `endRefreshing` ran, cleared by the first touch after it.
+    @State private var catchArmed = SeamLabFlag(false)
     /// `-ZTronSeamFitGrow 1`: `seam.width` toggles the header's content between 16:9 and 4:3 instead (review d16).
     @State private var tall = false
     @State private var far = false
@@ -249,6 +254,7 @@ struct SeamLabScreen: View {
             guard let end = SeamLab.holdEnd else { return }
             try? await Task.sleep(nanoseconds: UInt64(end * 1_000_000_000))
             state.endRefreshing(edge: edge)
+            catchArmed.value = SeamLab.catchInset != nil
         }
     }
 }
@@ -283,19 +289,20 @@ extension SeamLabScreen {
         if SeamLab.hold {
             if let (style, ho) = SeamLab.holdBuiltIn {
                 // R1-RC1-1: the built-in `.system` indicator (L 60) with `holdOffset` ho; M8b-s8 s1: or the `.default` one.
-                return view.refresher(style: style, overlay: SeamLab.holdOverlay,
-                                      configuration: ZTronRefreshConfiguration(indicatorHeight: 60, holdOffset: ho,
-                                                                               allowedEdges: Edge.Set(SeamLab.holdEdge))) {
+                var c = ZTronRefreshConfiguration(indicatorHeight: 60, holdOffset: ho, allowedEdges: Edge.Set(SeamLab.holdEdge))
+                if let r = SeamLab.holdReset { c.resetAnimation = r }
+                return catchInset(view.refresher(style: style, overlay: SeamLab.holdOverlay, configuration: c) {
                     try? await Task.sleep(nanoseconds: 1_000_000_000_000)
-                }
+                })
             }
             // A held refresh with a white probe as its indicator (centred in the indicator's frame), on the edge
             // `-ZTronSeamHoldEdge` names (open item 19), in the gap or floating (`-ZTronSeamHoldOverlay 1`).
-            return view.refresher(refreshView: { _ in Color.white.frame(width: 20, height: 20) },
-                                  overlay: SeamLab.holdOverlay,
-                                  configuration: ZTronRefreshConfiguration(allowedEdges: Edge.Set(SeamLab.holdEdge))) {
+            var c = ZTronRefreshConfiguration(allowedEdges: Edge.Set(SeamLab.holdEdge))
+            if let r = SeamLab.holdReset { c.resetAnimation = r }
+            return catchInset(view.refresher(refreshView: { _ in Color.white.frame(width: 20, height: 20) },
+                                             overlay: SeamLab.holdOverlay, configuration: c) {
                 try? await Task.sleep(nanoseconds: 1_000_000_000_000)
-            }
+            })
         }
         guard let seconds = SeamLab.refreshSeconds else { return view }
         // Trigger at 60 pt (`-ZTronSeamRefreshTrigger <T>`): the 220 pt drag of testPull crosses it under the rubber band and
@@ -312,6 +319,22 @@ extension SeamLabScreen {
             guard armed.value, old == .interacting || old == .tracking, new == .decelerating || new == .animating else { return }
             armed.value = false
             DispatchQueue.main.asyncAfter(deadline: .now() + delay / 1000) { state.beginRefreshing() }
+        }
+    }
+}
+
+extension SeamLabScreen {
+    /// `-ZTronSeamCatchInset <pt>` (M8b-s8 s3): 0.1 s after the first touch that follows the hold's end, the app animates
+    /// `contentInset.top` by <pt> (easeInOut 0.3 s): an app animation of the content's inputs while a catch pin holds.
+    private func catchInset(_ view: ZTronScrollView<SeamLabContent>) -> ZTronScrollView<SeamLabContent> {
+        guard let pt = SeamLab.catchInset else { return view }
+        let state = state, armed = catchArmed
+        return view.onScrollPhaseChange { _, new in
+            guard armed.value, new == .tracking || new == .interacting else { return }
+            armed.value = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                withAnimation(.easeInOut(duration: 0.3)) { state.contentInset.top += pt }
+            }
         }
     }
 }
@@ -533,6 +556,13 @@ extension SeamLab {
     static var holdEnd: Double? { Double(HeaderDemo.argument("-ZTronSeamHoldEnd", "")) }
     /// `-ZTronSeamBeginAfterRelease <ms>` (with `-ZTronSeamRefresh`): `beginRefreshing()` that long after the first release.
     static var beginAfterRelease: Double? { Double(HeaderDemo.argument("-ZTronSeamBeginAfterRelease", "")) }
+    /// `-ZTronSeamHoldReset <s>` (with `-ZTronSeamHold 1`, M8b-s8 s3): the held refresher's `resetAnimation` is
+    /// `.swiftUI(.easeOut(duration: s))` (default: the configuration's own, an easeOut of 0.3 s).
+    static var holdReset: ZTronScrollAnimation? {
+        Double(HeaderDemo.argument("-ZTronSeamHoldReset", "")).map { .swiftUI(.easeOut(duration: max(0, $0))) }
+    }
+    /// `-ZTronSeamCatchInset <pt>` (with `-ZTronSeamHold 1` and `-ZTronSeamHoldEnd`, M8b-s8 s3): see `catchInset(_:)`.
+    static var catchInset: CGFloat? { Double(HeaderDemo.argument("-ZTronSeamCatchInset", "")).map { CGFloat($0) } }
 }
 
 /// Reads the presented (animated) frame height every frame (`-ZTronSeamRetargetNear`).
