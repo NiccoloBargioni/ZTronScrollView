@@ -428,8 +428,9 @@ Calibrate the defaults side by side with UIRefreshControl.
     content (before: the placement was nil off the screen, so a rotation back drew the indicator at once at its final place, over the
     content still sliding in, about 14 frames; 4 frames went missing on the way out). The indicator view stays in the tree for the
     whole hold (its `@State` too), visible or not. 15–16: a custom indicator without a scaling header is not grouped (S10
-    "15–16 layer groups"), so it has no layer off the screen there (open item 20); D66 hides it in a rotation instead of drawing it
-    over the content, and fades it in once the rotation has landed (no frame over the content, translucent ones included).
+    "15–16 layer groups"), so it has no layer off the screen there (open item 20); D80 draws such a gap indicator BEHIND the
+    content, so a rotation that brings its gap back cannot draw it over the content still sliding in, and an instant resize draws
+    it at once in its place, as 17+ (no frame over the content; D66, which hid it through such resizes, is retired).
     Amended 2026-10-28 (review of open item 19, open item 21): while nothing of a custom indicator is drawn (a hold scrolled away) it
     is hidden from accessibility (`accessibilityHidden` on the same view: VoiceOver no longer reaches it above the scroll view) and its
     body does not run (the leaf hands SwiftUI the view it built last while its `ZTronRefreshState` is the same; any visible frame,
@@ -943,20 +944,22 @@ screen recordings, `scripts/seam/`):
   check of D65: grouped in every view, a `.difference` indicator drew unblended on the forced lane); the price is open item 20: off
   the viewport (a hold scrolled away, S7 in a rotation) SwiftUI keeps no layer for it, so a rotation that brings its gap back draws
   it at once at its final place over the content still sliding in (the forced lane; the built-in indicator, grouped, does not).
-  D66 (2026-10-28, open item 20): on that path (15–16, custom indicator, no header), a resize that begins with nothing of the
-  indicator visible draws it at opacity 0 (the same view: no group, its blend modes kept; no body run) until the resize is drawn
-  frame by frame (an app-driven `withAnimation` resize: open item 21 keeps it on the content's edge there) or, for a resize that
-  closes undrawn (a system rotation: SwiftUI renders its final state once and Core Animation interpolates the layers; the watch
-  closes one run-loop turn in), until a reveal animation of its own (`RefreshResizeReveal`). Forced
-  lane, headerless hold: top rotation 9 -> 0 frames over the content, leading 15 -> 0, the missing frames unchanged (7 / 9, on the
-  way out); hidden until the resize's close and shown at once, as first decided, changed nothing (the close is one turn in).
-  Amended 2026-11-01 (review of item 21 follow-ups): the reveal is plain opacity faded in over 0.15 s after 0.3 s
-  (`RefreshResizeReveal.afterTransition`, set by `.transaction`), after the rotation has landed the content. The first reveal, 0 for
-  85 % of a 0.1 s animation in an Animatable modifier, was drawn as a 0.1 s fade from ~0.18 s into the 0.3 s rotation, translucent
-  over the content still sliding in (SwiftUI animates the values such a modifier's body derives with the transaction's animation,
-  delay included): forced leading 4 frames at 33-82 % opacity. Forced headerless rotations, 4 edges: 0 frames over (translucent
-  included), 0 off, 23-30 missing (opaque 0.17-0.18 s after the rotation lands). The gate is the boxes' latched group decision
-  (no group: `RefreshGroupLatched`), never a live recomputation of it.
+  D80 (2026-11-04, open item 27; supersedes D66): on that path (15–16 or the forced fallbacks, a custom indicator, no header)
+  a GAP indicator is drawn in a slot BEHIND the content (a `.background` of the container right after the content's transform,
+  only on the path without geometry groups; the boxes' latched group decision picks the slot). Whatever Core Animation draws in
+  a system rotation cannot be over the content (the content hides the indicator until it has slid away), and an instant resize
+  draws it at once in its place, as 17+ (UIKit's `UIRefreshControl` is the scroll view's lowest subview too). Its blend modes
+  composite with what is behind the scroll view, as the gap showed in front. An overlay indicator (`overlay:`, the `.stretch`
+  band) floats over the content by design and stays in front. Forced lane, headerless hold (`holdgap.py`): an instant resize
+  26 frames missing → 0; rotations: none missing after the rotation's end (was 10–13 with D66), 0 frames over the content.
+  Pre-existing residual, ruled by D77 and scheduled in M8b-s9 (the custom headerless indicator grouped through the probe): it
+  keeps no layer while its gap is off the window, so from a rotation's first frame it is gone (Core Animation has nothing to
+  turn away with the content: 4-8 frames), the rotation that brings the gap back draws it one frame late at the top edge, and
+  at the leading and trailing edges it follows the window's edge for 3 frames at the rotation's end (up to 12 pt); 17+ keep
+  it in place.
+  D66 (2026-10-28, amended 2026-11-01; retired by D80) hid the indicator (opacity 0) during any resize that began with nothing
+  of it visible and faded it in 0.3 s after a rotation closed (0.45 s after an instant resize, open item 27), because nothing
+  pure-SwiftUI tells a rotation from an instant resize: 0 frames over the content, 23-30 frames missing per rotation.
   On 15–16 a `GeometryEffect` is drawn at each drawn size of an app's animated resize only while no layout above it changes at the
   resize's unanimated commit (a padding or `.offset` by a committed value: the effect then sees the committed size from the commit
   on); 17+ resolve the geometry at each `geometryGroup()` (review of open item 21, S9 "Indicator placement").

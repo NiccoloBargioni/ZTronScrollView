@@ -294,6 +294,8 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
    headerless rotations top / bottom / leading / trailing: 0 frames over (opaque or translucent), 0 off (was 0 / 3 / 3 / 3, up
    to 205 pt), missing 7 / 15 / 10 / 9 -> 23 / 30 / 23 / 24 (hidden through the rotation back, opaque 0.17-0.18 s after it
    lands: the price of no layer off the screen). iPad rotations (0.4 s) not measured.
+   2026-11-04 (M8b-s8 s4, D80, supersedes D66): drawn BEHIND the content instead of hidden. No frame over the content, none
+   missing after a rotation's end or an instant resize; the rotation's start residual is item 27's (ruled, M8b-s9).
 21. **An animated resize during a hold draws the indicator over the content (2026-10-28, review of open item 19, pre-existing)**:
    ~~a headerless hold, the scroll view's height animated to 0.4 top-pinned and back (easeInOut 1.2 s): S7 takes the gap off the
    screen and back; during the open resize the leaf took the pull from the committed target and `RefreshResizeEffect` moved the
@@ -335,7 +337,22 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
    26 bad -> 146 / 0, forced 26 -> 139 / 0, 17.5 26 -> 146 / 0; overlay 137 / 0, 119 / 0, 137 / 0 (worst 0.67 pt); controls
    unchanged (height04-hbottom, forced rotate-hbottom, forced height04-hbottom-hoverlay). Test
    `RefreshIndicatorLayerTests.anAnimatedSafeAreaInsetSlidesTheHoldWithTheFrame` (c5ffc4a 4/4 fail, fix 4/4).
-27. **USER 2026-11-02: FIX (no animation skips or 15–16 look differences are accepted as limits); scheduled in M8b-s8.** **15–16: D66's reveal also delays an instant resize (2026-11-01, review LOW, not measured, OPEN; user decision)** (numbered 24
+27. **FIXED for instant resizes and the delay after a rotation (2026-11-04, M8b-s8 s4, D80, 5323f20); the 15–16 rotation-start
+   residual is RULED by D77 (user, 2026-11-03) and scheduled in M8b-s9 (the custom headerless indicator grouped by the probe,
+   i29 §5.5), not blocked on the user.** D80 draws the ungrouped headerless gap indicator BEHIND the content and deletes D66, so
+   nothing is hidden and nothing has to tell an instant resize from a rotation. Numbers (forced, `holdgap.py`, before 6b00454 →
+   after): instant resize (`fixed-rest-preserve-width-noheader-hold-height04-instant`) 26 frames missing → 0 (57/57 in place, 0 over /
+   tint / ghost; with `clearrow` 29 → 0, 0 seen through the clear row); rotations top / leading / trailing / bottom: missing after
+   the rotation's end 10 / 11 / 11 / 10 → 0, inside the rotation that brings the gap back 5 / 4 / 4 / 11 → 1 / 0 / 0 / 5, 0 over
+   everywhere, the start unchanged within a frame (7 / 4 + 4 / 4 + 5 / 8); 27.0 preferred and 17.5 unchanged (0 missing / over
+   / off).
+   Residual (pre-existing in kind, as in the spike; ruled, M8b-s9): from a rotation's first frame the indicator is gone (its
+   gap is off the window in the final layout and it keeps no layer, so Core Animation has nothing to turn away with the
+   content); the top edge's return draws it one frame late; leading / trailing follow the window's edge for 3 frames at the
+   end (up to 12.3 pt), and the leading `clearrow` shows it through the clear row in 1 frame then; at the bottom it is drawn
+   at its final place for the 3 frames before the forced headerless content (180 pt off: its own 15–16 rotation) lands. 17+
+   keep it in place. Real 15/16 (M1 lane): the checks in `docs/progress/M8b-s8-s4.md`.
+   Was: **USER 2026-11-02: FIX (no animation skips or 15–16 look differences are accepted as limits); scheduled in M8b-s8.** **15–16: D66's reveal also delays an instant resize (2026-11-01, review LOW, not measured, OPEN; user decision)** (numbered 24
    on this branch until 2026-11-02, renumbered because main's 24–26 belong to other sessions; main reserves 27 for it): 18620ed's reveal (opacity
    0 for 0.3 s, then a 0.15 s fade) follows every resize the watch closes undrawn, and an instant (unanimated) resize closes
    undrawn exactly as a system rotation does ("never animated": SwiftUI lays out the final state once in both). So on the
@@ -750,7 +767,8 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
   `.ambientBlur` pull, `.stretch` pull, both modes): `.openGap` header still under the pull (header bottom and height within 0.5 pt
   of rest, gap − pull within 0.33 pt), every other seam within 0.67 pt, lateral within 0.17 pt, no one-frame step above 0.25;
   limits: open item 18.
-- D66 (2026-10-28, lead; open item 20) On iOS 15–16 (and the forced fallbacks) a custom refresh indicator in a view WITHOUT a
+- D66 (2026-10-28, lead; open item 20) **SUPERSEDED 2026-11-04 by D80 (M8b-s8 s4): `RefreshResizeReveal`, its `reveal` input,
+  the boxes' gate and the note `refresh.d66` are deleted; kept here as the record of why.** On iOS 15–16 (and the forced fallbacks) a custom refresh indicator in a view WITHOUT a
   scaling header stays ungrouped, which keeps its blend modes (final check of D65), so SwiftUI keeps no layer for it off the screen
   and a rotation or resize that takes its gap off the screen and back drew it over the content. On that path, while a resize is open
   and the indicator had no visible extent when it began, it is drawn at opacity 0: no group, no identity change, no body run (opacity
@@ -876,6 +894,46 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
     reaches it. The only mechanism on 15–16 and the forced lane; a one-update guard on 17+. Any future offset-animatable
     effect must read the pin, or a path that keeps the rest draws it over its neighbours again.
   - C17: DEBUG events only (window open / close, `catch drawn`, `pin start` / `pin end`, the content's first drawn offset).
+- D80 (2026-11-04, M8b-s8 s4, open item 27; design `docs/design/M8b-s8-refresh-27-31-32-33.md` §5.2; supersedes D66) On the
+  path without layer groups (15–16, the forced fallbacks: `!state.usesGeometryGroup`) a GAP refresh indicator without a layer
+  group (the latched kind `.none`: a custom indicator, no scaling header, D65) is drawn in a slot BEHIND the content:
+  `ScrollContainer` adds `.background(RefreshOverlay(…, layer: .behind).ignoresSafeArea(.all, edges:))` right after the
+  transform host, in the viewport's own frame like the front slot. Whatever Core Animation draws in a system rotation, the
+  content hides it until it has slid away, and an instant resize draws it at once in its place, as 17+ (UIKit's
+  `UIRefreshControl` is the scroll view's lowest subview too). Nothing is hidden, so no resize has to be told apart (D66's
+  premise: nothing pure-SwiftUI tells a rotation from an instant resize).
+  - One coordinator: `RefreshHolder` is `ScrollContainer`'s `@StateObject`, passed to both slots. The front slot keeps what
+    must exist once (the `onAppear` wiring: specs, `pan.refresh`, announcements, reach watchers; `cancelAll` on disappear;
+    the accessibility elements; the haptic). The behind host (`RefreshIndicatorsHost(layer: .behind)`, hit testing off) lays
+    out the leaves only and never reads `pan.refresh`. 17+ and the preferred path build the same tree as before (no slot).
+  - Which slot draws: `RefreshLayerMath.draws(layer:kind:overlay:)` = `(kind == .none && !overlay) == (layer == .behind)`
+    (pure), on the kind `RefreshGroupLatched` latches at the boxes' first frame and keeps while they exist (the hold, its
+    retraction). Both slots carry the leaf on that path and exactly one draws; a header installed or the indicator swapped
+    during a hold changes neither slot nor identity until the boxes are gone. An overlay indicator (`overlay:`, the
+    `.stretch` band) floats over the content by design and stays in front (a placement that becomes an overlay's during a
+    hold moves to the front slot: a new view there on 15–16). DEBUG: note `refresh.slot`, counters `refresh.leaf.front` /
+    `refresh.leaf.behind`, `refresh.host.behind.body`.
+  - Two leaves per edge on that path (29857c0, found by the forced `RefreshUITests`): what must happen once per switch is the
+    front leaf's (the look switch's DEBUG trace, `RefreshLookSwitch.look(trace:)`), and each placement effect keeps its own
+    D79 pin latch (`CatchPin.Key.refreshBehind`), so the slot that does not draw never ends the drawn one's pin.
+  - Blend modes: behind the content the indicator composites with what is behind the scroll view, which is what the gap
+    shows in front too (the content is not under the gap): D65's blend fidelity kept.
+  - Not built (plan C9): the `fallbackLayer:` option of design §5.3. D77 groups the custom headerless indicator in M8b-s9
+    (the probe keeps its blend modes), which closes item 27's rotation-start residual on 15–16.
+  - Measured: forced, `holdgap.py`, 6b00454 → 5323f20 (table in `docs/progress/M8b-s8-s4.md`): an instant resize 26
+    frames missing → 0 (`clearrow` 29 → 0, 0 seen through); rotations: 0 missing after the rotation's end (was 10–13), 0 over,
+    the start unchanged within a frame (top 7, leading 4 + 4, trailing 4 + 5, bottom 8), the top's return 5 → 1
+    (`clearrow` 4 → 2), leading / trailing 3 frames off at the end (≤ 12.3 pt: created at its final place in the viewport's
+    frame, it follows the window's edge while it settles), leading `clearrow` 1 frame seen through the clear row at that
+    moment, bottom 3 frames off at the end (186–207 pt from the forced content's edge, which lags 180 pt and lands in one
+    frame there, before and after: the headerless content's own 15–16 rotation). Overlay rows drawn in every frame (62/62,
+    112/112, largest step 0.10 of the travel); animated width and height 0.4, a fling during a hold, a catch of a headerless
+    hold's reset (94/94 in place) and the header holds unchanged (0 over); 27.0 preferred and 17.5 unchanged; s1's and s3's
+    key scenarios unchanged (s3's on forced too). The residual is item 27's (ruled, M8b-s9).
+  - Unit tests that need a hold's retraction to END must drive the coordinator's `schedule` from the run loop (a `Timer`):
+    GCD's main queue never runs inside a synchronous main-actor test's `pump`, so the retraction heartbeat
+    (`DispatchQueue.main.asyncAfter`) never fired and the boxes never ended (`.retracting` at progress 0.6 for 4 s, at
+    6b00454 too). Not a library defect.
 - D16 (user, 2026-10-18) Physics and the post-rotation re-centering are generated and tested by **Fable 5.1**
   (builder agents with model fable). Re-centering ports ZTronMapKit's normalized-centre discipline
   (ContentGeometry: capture before resize, restore = centre × newContentSize − newViewport/2, clamp, centre smaller
@@ -954,3 +1012,4 @@ Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (≤ 2 simulators at 
 | 2026-11-02 | Opus 5.5 workflow subagent (header behaviors closer) | docs only: our open item 24 renumbered 27 (main's 24–26 are other sessions'; main's 27+ checked free, `git log --all` too); open items 32 (RC2-1, re-check 2: a re-grab during the `.stretch` `.system` retraction steps the spinner) and 33 (17.5 `.preserve` re-catch arrow, pre-existing, triage); D68–D70 rows final; Next step 6 (user decisions first, device check, merge); `M8b-s7.md` final results (build steps, review findings and their fate, suites per lane, design §7 risks per lane, open items, merge notes); STATE row; parity rows for `withScalingHeader`, the refresh indicator under a header and 15–16 layer groups; SPEC S10 amendment wording (retraction at the default `holdOffset`, item 32); leftover workflow simulators and derived data removed | not measured |
 | 2026-11-03 | Opus 5.5 workflow subagent (M8b-s8 s1, builder s1-refresh-31-32, resumed twice) | open items 31 and 32 fixed (8e0f364: the engine's carried spinner look, L2, L3, the C8 handover; lab `rtrig` / `hdef` / `rdur` / `rbegin` + `handover.py`, 61c7e21); a begin during a retraction switches in the cross-fade (fb4c52e); open item 41 found and fixed (170c1d3 … 782513b, 285a535: the cross-fade and the begin's switch drawn: `ZStack`, 24 pt square, `RefreshLookFade`, `RefreshGlyphBoundary`); unit Refresh* 124/124 on 27.0 + 17.5, `RefreshUITests` 17/17 on 3 lanes; SPEC S10 amended (both known limits removed); handoff `M8b-s8-s1.md` | – |
 | 2026-11-04 | Opus 5.5 workflow subagent (M8b-s8 s3, builder s3-refresh-33-catch) | open item 33 fixed (9f12dbc, D79: the touch-down catch where the reset is drawn, the 17+ `CatchableResetAnimation` cut, `CatchPin` on every offset-following effect, the caught tap's spring back); open item 42 (pre-existing: an app-animated `contentInset` write during a pull is drawn in one frame); SPEC S9 / S10; unit 866 / 83 on 27.0 + 17.5; demo UI 5 suites on 3 lanes (2 failures classified: simulator appearance, pre-existing 17.5 `testControlsUsable`); handoff `docs/progress/M8b-s8-s3.md` | — |
+| 2026-11-04 | Opus 5.5 workflow subagent (M8b-s8 s4, builder s4-refresh-27-behind) | open item 27 fixed for instant resizes and the delay after a rotation (5323f20, D80: the ungrouped headerless gap indicator drawn in a slot behind the content, `RefreshHolder` hoisted, `RefreshLayerMath`; D66 retired; 29857c0: the look-switch trace once and a pin latch per slot); lab `instant` / `clearrow` (6b00454); forced: instant resize 26 -> 0 missing, rotations 0 missing after the end, 0 over; the 15–16 rotation residual ruled (D77, M8b-s9); SPEC S9 / S10; unit 868 / 84 on 27.0 + 17.5; demo UI 4 suites on 3 lanes; handoff `docs/progress/M8b-s8-s4.md` | — |
