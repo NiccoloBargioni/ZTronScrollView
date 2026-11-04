@@ -268,28 +268,41 @@ private struct ReachSignature: Equatable {
 /// The container's refresh hook: resolves the refreshers (member ?? twin ?? `.refreshable`), runs the coordinator, draws
 /// the indicators and carries the accessibility actions. Cold: it re-evaluates when the declarations change, never per
 /// frame (the indicators below it observe the coordinator).
+///
+/// D80: on the path without layer groups (15–16, the forced fallbacks) the container has two slots, `.front` above the
+/// content and the header and `.behind` behind the content; each leaf draws in one of them (`RefreshLayerMath.draws`).
+/// Both share the container's `RefreshHolder` (one coordinator). Only the front slot wires it (the specs, `pan.refresh`,
+/// the announcements, the reach watchers, `cancelAll` on disappear) and carries the accessibility elements and the
+/// haptic; the behind slot resolves the same declarations and lays out the leaves only. 17+ build the front slot alone.
 struct RefreshOverlay: View {
     let state: ZTronScrollState
     let pan: PanCoordinator
+    /// The container's holder (D80: one per scroll view, shared by both slots). Never publishes, so never observed.
+    let holder: RefreshHolder
     let axes: Axis.Set
     let member: [RefresherDecl]
+    var layer: RefreshLayer = .front
     @Environment(\.ztronRefreshSpecs) private var twin
     @Environment(\.ztronReachEdges) private var reachDecls
     @Environment(\.refresh) private var refreshable
-    @StateObject private var holder: RefreshHolder
 
-    init(state: ZTronScrollState, pan: PanCoordinator, axes: Axis.Set, member: [RefresherDecl]) {
-        self.state = state
-        self.pan = pan
-        self.axes = axes
-        self.member = member
-        _holder = StateObject(wrappedValue: RefreshHolder(state: state))
+    @ViewBuilder var body: some View {
+        let resolved = resolve()
+        if layer == .behind {
+            RefreshIndicatorsHost(coordinator: holder.coordinator, state: state, specs: resolved, layer: .behind)
+                .allowsHitTesting(false)
+        } else {
+            front(resolved)
+        }
     }
 
-    var body: some View {
+    private func resolve() -> [Edge: RefresherSpec] {
         var bridge: (@MainActor () async -> Void)?
         if let action = refreshable { bridge = { await action() } }
-        let resolved = RefreshResolver.resolve(member: member, twin: twin, refreshable: bridge, axes: axes)
+        return RefreshResolver.resolve(member: member, twin: twin, refreshable: bridge, axes: axes)
+    }
+
+    private func front(_ resolved: [Edge: RefresherSpec]) -> some View {
         holder.latest = resolved
         holder.reach = reachDecls
         let signature = RefreshResolver.signature(resolved)
@@ -313,33 +326,65 @@ struct RefreshOverlay: View {
 
 // MARK: Indicators
 
+/// D80: the container slot a refresh indicator is drawn in (`RefreshOverlay`).
+enum RefreshLayer: Equatable, Sendable {
+    /// Above the content and the header (the z-order contract): every indicator on 17+, an overlay or a grouped one on 15–16.
+    case front
+    /// Behind the content (15–16 and the forced fallbacks only): a gap indicator without a layer group.
+    case behind
+}
+
+/// D80 (open item 27): which slot draws a leaf's boxes. A gap indicator without a layer group (`RefreshIndicatorGroup.Kind
+/// .none`: 15–16 or the forced fallbacks, a custom indicator, no scaling header, D65) keeps no layer while its gap is off
+/// the viewport (open item 20), so a system rotation that brings the gap back draws it at once at its final place; behind
+/// the content, the content still sliding in hides it instead (as UIKit's `UIRefreshControl`, the scroll view's lowest
+/// subview), and an instant resize draws it at once in its place, as 17+ do. No hiding, so no resize needs telling apart
+/// (D66, which hid it for 0.45 s after any resize that began with nothing of it visible, is retired). Every other indicator
+/// is drawn in front: an overlay floats over the content by design, a grouped one keeps its layer off the viewport.
+enum RefreshLayerMath {
+    static func draws(layer: RefreshLayer, kind: RefreshIndicatorGroup.Kind, overlay: Bool) -> Bool {
+        (kind == .none && !overlay) == (layer == .behind)
+    }
+}
+
 /// Observes the coordinator (cold values that change per frame only during a pull) and lays out one leaf per active edge
-/// plus the accessibility elements. The haptic rides on the trigger serial.
+/// plus the accessibility elements. The haptic rides on the trigger serial. D80: the `.behind` slot's host lays out the
+/// leaves only (the front one carries the accessibility elements and the haptic, once).
 struct RefreshIndicatorsHost: View {
     @ObservedObject var coordinator: RefreshCoordinator
     let state: ZTronScrollState
     let specs: [Edge: RefresherSpec]
+    var layer: RefreshLayer = .front
 
     private static let order: [Edge] = [.top, .leading, .bottom, .trailing]
 
-    var body: some View {
+    @ViewBuilder var body: some View {
         #if DEBUG
-        ZTronRenderCounters.increment("refresh.host.body")
+        let _ = ZTronRenderCounters.increment(layer == .front ? "refresh.host.body" : "refresh.host.behind.body")
         #endif
-        return ZStack {
-            ForEach(Self.order, id: \.self) { edge in
-                if let spec = specs[edge], let st = coordinator.states[edge],
-                   st.mode != .notRefreshing || st.dragPosition > 0 || coordinator.retractions[edge] != nil {
-                    RefreshEdgeIndicator(coordinator: coordinator, state: state, edge: edge, spec: spec, refresh: st,
-                                         retract: coordinator.retractions[edge])
+        if layer == .front {
+            ZStack {
+                leaves
+                ForEach(Self.order.filter { specs[$0] != nil }, id: \.self) { edge in
+                    RefreshAccessibilityElement(coordinator: coordinator, edge: edge)
                 }
             }
-            ForEach(Self.order.filter { specs[$0] != nil }, id: \.self) { edge in
-                RefreshAccessibilityElement(coordinator: coordinator, edge: edge)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .refreshHaptic(trigger: coordinator.triggerSerial)
+        } else {
+            ZStack { leaves }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private var leaves: some View {
+        ForEach(Self.order, id: \.self) { edge in
+            if let spec = specs[edge], let st = coordinator.states[edge],
+               st.mode != .notRefreshing || st.dragPosition > 0 || coordinator.retractions[edge] != nil {
+                RefreshEdgeIndicator(coordinator: coordinator, state: state, edge: edge, spec: spec, refresh: st,
+                                     retract: coordinator.retractions[edge], layer: layer)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .refreshHaptic(trigger: coordinator.triggerSerial)
     }
 }
 
@@ -353,18 +398,22 @@ struct RefreshEdgeIndicator: View {
     let refresh: ZTronRefreshState
     /// Set while the indicator retracts: after a refresh it keeps the spinner look, whatever `refresh.mode` says.
     var retract: RefreshEngine.RetractLook?
+    /// D80: the container slot of this leaf (`RefreshOverlay`); it draws only if its latched decision names this slot.
+    var layer: RefreshLayer = .front
     /// The custom view the leaf built last (`BuiltRefreshIndicator`).
     @StateObject private var built = BuiltRefreshIndicator()
-    /// Whether the indicator is hidden for an open resize (`RefreshResizeReveal`, D66).
-    @StateObject private var reveal = RefreshResizeReveal()
     /// Whether this frame's base move follows an app-animated inset change (`RefreshBaseFollow`).
     @StateObject private var follow = RefreshBaseFollow()
     /// The pull look → refreshing look switch of a `beginRefreshing()` during a retraction (`RefreshLookSwitch`).
     @StateObject private var lookSwitch = RefreshLookSwitch()
 
     var body: some View {
-        let built = built, reveal = reveal, lookSwitch = lookSwitch
+        let built = built, lookSwitch = lookSwitch, layer = layer
         return ChromeLeaf(state, channels: [.offset, .metrics]) { sample in
+            #if DEBUG
+            // Per slot (D80): the path without layer groups evaluates one leaf per edge in each slot.
+            let _ = ZTronRenderCounters.increment(layer == .front ? "refresh.leaf.front" : "refresh.leaf.behind")
+            #endif
             let m = sample.metrics
             // While an app-driven animated resize is open (M8b-s6), `m` is the committed geometry and the content is drawn
             // at the presented one (`ResizeMath` at the drawn size): the pull comes from the target (realised at the
@@ -414,9 +463,8 @@ struct RefreshEdgeIndicator: View {
                 pull: pull, edge: edge, style: spec.style, overlay: overlay, band: band, length: length, hold: hold,
                 trigger: spec.configuration.triggerDistance, refreshing: refreshing, refresh: refresh, retract: retract,
                 viewport: m.viewportSize, base: base, useGeometryGroup: state.usesGeometryGroup,
-                hasHeader: state.headerSpec != nil || m.header != nil, custom: spec.indicator != nil,
+                hasHeader: state.headerSpec != nil || m.header != nil, custom: spec.indicator != nil, layer: layer,
                 resize: m.resize, baseFollowsInset: edge != .top || HeaderMath.refreshTop(m)?.overlay != false, draw: draw,
-                reveal: reveal.look(open: open, visible: visible, animating: sample.phase == .animating),
                 baseAnimation: baseAnimation, look: look, stash: lookSwitch.stash, pin: state.catchPinRef,
                 modelPull: pull))
         }
@@ -658,55 +706,6 @@ final class RefreshBaseFollow: ObservableObject {
     }
 }
 
-/// D66 (open item 20): on the path without a layer group, whether the indicator is hidden for an open resize. The leaf
-/// records the visibility of its last frame with the resize closed; a resize that began with nothing of it visible hides
-/// it (`.hidden`, opacity 0, the same structure, no body run) until either
-/// - the resize is drawn frame by frame (the phase is `.animating`: an app-driven `withAnimation` resize, which SwiftUI
-///   draws at each drawn size, so the box keeps it on the content's drawn edge, open item 21): `.shown` at once; or
-/// - the resize closes without that (a system rotation: SwiftUI renders the final state once, inside UIKit's rotation
-///   block, Core Animation interpolates the layers, and the watch closes on the next run-loop turn, "never animated",
-///   M5-s2): `.revealing` on the first closed frame, which shows it in its own animation (`afterTransition`) once the
-///   system's transition is over.
-/// Measured (forced lane): hidden until the resize closed and shown at once (D66 as first written) left the rotations
-/// unchanged (the watch closes one turn into them: top 9 frames over the content, leading 15) and hid the indicator for a
-/// whole `withAnimation` resize that open item 21 draws in place (height 0.4 and back: 16 frames missing). Never publishes.
-@MainActor
-final class RefreshResizeReveal: ObservableObject {
-    enum Look: Equatable { case shown, hidden, revealing }
-
-    /// The reveal's own animation of the indicator's opacity: nothing for 0.3 s (the system's rotation, UIKit's 0.3 s on
-    /// iPhone, which Core Animation is still interpolating when the reveal begins one run-loop turn into it), then a 0.15 s
-    /// fade in at its place. Review of open item 21 / D66: the reveal was an `Animatable` modifier, 0 for the first 85 % of a
-    /// 0.1 s animation; SwiftUI animates a value an `Animatable` modifier's body derives with the same animation, so the step
-    /// to 1 at 85 % was itself drawn as a 0.1 s fade, from about 0.18 s into the 0.3 s rotation, translucent over the content
-    /// still sliding in (forced lane, leading: 4-7 frames at 33-82 % opacity, which holdgap.py did not see; the logged
-    /// progress and the drawn opacity matched frame for frame). A delayed animation of the plain opacity instead (the delay
-    /// holds 0, the fade is the only motion): 0 frames over the content on the four forced rotations, opaque in place
-    /// 0.17-0.18 s after the rotation's end (a 0.4 s delay: 0.27-0.29 s, more frames missing, the same 0 over).
-    nonisolated static let afterTransition = Animation.linear(duration: 0.15).delay(0.3)
-
-    private var wasOpen = false
-    private var visibleBefore = true
-    private var latched = false
-    private var drawnPerFrame = false
-
-    func look(open: Bool, visible: Bool, animating: Bool) -> Look {
-        defer { wasOpen = open }
-        if open {
-            if !wasOpen {
-                latched = !visibleBefore
-                drawnPerFrame = false
-            }
-            if animating { drawnPerFrame = true }
-            return latched && !drawnPerFrame ? .hidden : .shown
-        }
-        visibleBefore = visible
-        let closedHidden = wasOpen && latched && !drawnPerFrame
-        latched = false
-        return closedHidden ? .revealing : .shown
-    }
-}
-
 /// Places the indicator for one pull and clips it to the gap. `pull` is the animatable data. A reset that SwiftUI animates
 /// (`resetAnimation: .swiftUI`, the default) jumps the state's offset while the content's drawing is interpolated; this modifier
 /// is interpolated in the same transaction, so the indicator goes back with the content instead of vanishing on the first frame.
@@ -780,15 +779,14 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
     let hasHeader: Bool
     /// The indicator is the app's view (`refresher(refreshView:)`), not the built-in one.
     let custom: Bool
+    /// D80: the container slot of this leaf; the boxes are drawn only in the slot `RefreshLayerMath.draws` names.
+    let layer: RefreshLayer
     /// The resize commit (`RefreshResizeEffect`): identity outside an open resize.
     let resize: ResizeCommit
     /// Whether the edge's base is the adjusted inset (`RefreshResizeEffect`).
     let baseFollowsInset: Bool
     /// What the content is drawn with while the resize is open (nil otherwise).
     let draw: RefreshContentDraw?
-    /// D66 (`RefreshResizeReveal`): on the path without a layer group (`ungrouped`), hidden during a resize that began
-    /// with nothing of it visible and is not drawn frame by frame, shown after the system's transition.
-    let reveal: RefreshResizeReveal.Look
 
     /// The animation of an app-animated inset change this frame's base move follows (`RefreshBaseFollow`), else nil.
     let baseAnimation: Animation?
@@ -809,14 +807,6 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
     /// 15–16 group the boxes under a scaling header (open item 18) and around the built-in indicator (open item 19); a
     /// custom indicator without a header stays ungrouped, so its blend modes reach what is behind it (final check of D65).
     private var fallbackGroup: Bool { hasHeader || !custom }
-
-    #if DEBUG
-    /// D66's gate as the last frame applied it (`"applies"`: the path without a layer group, `"off"`), for the tests.
-    @MainActor static func noteGate(_ ungrouped: Bool) {
-        let v = ungrouped ? "applies" : "off"
-        if ZTronRenderCounters.notes["refresh.d66"] != v { ZTronRenderCounters.notes["refresh.d66"] = v }
-    }
-    #endif
 
     /// The region is the drawn viewport moved along the pull axis so that its end on the edge's side is the edge's base
     /// (`region` from the base on, open item 19): `(0, b)` top, `(0, −b)` bottom, `(b, 0)` leading, `(−b, 0)` trailing.
@@ -841,8 +831,9 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
         #endif
         ZStack(alignment: .topLeading) {
             if let placement {
-                // One group decision, latched at the boxes' first frame, for both groups and D66's gate.
-                RefreshGroupLatched(useGeometryGroup: useGeometryGroup, fallbackGroup: fallbackGroup) { group in
+                // One group decision, latched at the boxes' first frame, for both groups and the slot (D80).
+                RefreshGroupLatched(useGeometryGroup: useGeometryGroup, fallbackGroup: fallbackGroup, overlay: overlay,
+                                    layer: layer) { group in
                     boxes(content, placement: placement, group: group)
                 }
             }
@@ -850,51 +841,30 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    /// The box and the region around it (see the type's note), in the latched layer-group decision `group`.
-    ///
-    /// D66's gate, `ungrouped`: 15–16 (or the forced fallbacks) with a custom indicator and no scaling header have no layer
-    /// group, so SwiftUI keeps no layer for the indicator while its gap is off the screen (open item 20): a system rotation
-    /// (Core Animation interpolates the layers of its final state) that brings the gap back drew it at once at its final
-    /// place over the content still sliding in. D66 (`RefreshResizeReveal`): drawn at opacity 0 instead, shown in a delayed
-    /// fade of its own after the system's transition (a rotation) or as soon as the resize is drawn frame by frame
-    /// (`withAnimation`). The gate is the groups' latched decision (review of open item 21 / D66: it read the live
-    /// `hasHeader || !custom`, so a header installed during a hold left the ungrouped indicator without D66, and one removed
-    /// made D66 hide a grouped indicator).
+    /// The box and the region around it (see the type's note), in the latched layer-group decision `group`. A gap
+    /// indicator without a layer group (`group == .none`: 15–16 or the forced fallbacks, a custom indicator, no scaling
+    /// header) keeps no layer while its gap is off the screen (open item 20); it is drawn behind the content (D80,
+    /// `RefreshLayerMath`), so a system rotation that brings the gap back cannot draw it over the content still sliding in.
     @MainActor private func boxes(_ content: Content, placement: RefreshPlacement,
                                   group: RefreshIndicatorGroup.Kind) -> some View {
-        let ungrouped = group == .none
-        let hideForResize = ungrouped && reveal == .hidden, revealNow = ungrouped && reveal == .revealing
         let look = look, stash = stash
-        #if DEBUG
-        let _ = Self.noteGate(ungrouped)
-        #endif
         let box = placement.box
         let origin = Self.regionOrigin(edge: edge, region: placement.region, viewport: viewport)
         return ZStack(alignment: .topLeading) {
             ZStack(alignment: .topLeading) {
                 ZStack(alignment: .topLeading) {
                     content
-                        // The look switch drawn frame by frame (M8b-s8 s1): its weight in the look's cross-fade (not
-                        // during D66's hide or reveal); the frame, the opacity and the place below keep the update's own.
+                        // The look switch drawn frame by frame (M8b-s8 s1): its weight in the look's cross-fade; the
+                        // frame, the opacity and the place below keep the update's own.
                         .modifier(RefreshLookFade(weight: look.target, look: look, stash: stash))
                         .transaction { t in
                             stash.clear()
-                            if look.switching, !hideForResize, !revealNow {
+                            if look.switching {
                                 stash.override(&t, with: RefreshLookSwitch.crossFade)
                             }
                         }
                         .frame(width: placement.frame.width, height: placement.frame.height)
-                        .opacity(hideForResize ? 0 : placement.opacity)
-                        // D66: hidden at once; shown after the system's transition, in the reveal's own animation (the
-                        // frame that reveals is the resize's close, written without animation).
-                        .transaction { t in
-                            if hideForResize {
-                                t.animation = nil
-                            } else if revealNow {
-                                t.disablesAnimations = false
-                                t.animation = RefreshResizeReveal.afterTransition
-                            }
-                        }
+                        .opacity(placement.opacity)
                         .position(x: placement.frame.midX - box.minX, y: placement.frame.midY - box.minY)
                 }
                 .frame(width: max(0, box.width), height: max(0, box.height), alignment: .topLeading)
@@ -936,7 +906,7 @@ private nonisolated struct RefreshPlacementEffect: ViewModifier, Animatable {
 /// item 20). Under a header the 15–16 indicator keeps the documented blend difference, as the header and the content do
 /// (SPEC S10 "15–16 layer groups"). Latched at the boxes' first frame (`RefreshGroupLatched`; the boxes exist while the
 /// indicator has a placement: in the gap for the whole hold), so installing or removing the header during a hold never
-/// changes the custom indicator's identity, nor D66's gate, which reads the same decision.
+/// changes the custom indicator's identity, nor its slot (D80), which reads the same decision.
 struct RefreshIndicatorGroup: ViewModifier {
     enum Kind: Equatable { case geometry, compositing, none }
     let kind: Kind
@@ -954,18 +924,40 @@ struct RefreshIndicatorGroup: ViewModifier {
 }
 
 /// The boxes' layer-group decision for their lifetime: 17+ `geometryGroup()` (the state's flag, fixed at its creation),
-/// 15–16 `compositingGroup()` or none, decided once (`GroupLatch`) at the boxes' first frame. The box, the region and D66's
-/// gate (`RefreshPlacementEffect.boxes`) all read it.
+/// 15–16 `compositingGroup()` or none, decided once (`GroupLatch`) at the boxes' first frame. The box and the region read
+/// it, and so does the slot (D80): the boxes are drawn only in the slot `RefreshLayerMath.draws` names for the latched
+/// kind and this frame's `overlay`. Both slots carry the leaf on the path without layer groups and latch the same kind
+/// from the same inputs at the same frame, so exactly one draws, and installing or removing a header or swapping the
+/// indicator during a hold never moves it to the other slot (no identity change while it is drawn). An indicator whose
+/// placement becomes an overlay's during a hold (`overlay:` changed by the app, a `.stretch` header installed: its band)
+/// moves to the front slot, the only one that can draw it over the content or the header (a new view there on 15–16).
 struct RefreshGroupLatched<Boxes: View>: View {
     let useGeometryGroup: Bool
     /// 15–16: whether to group, as of this frame (`RefreshPlacementEffect.fallbackGroup`); only the first one counts.
     let fallbackGroup: Bool
+    /// The placement floats over the content (`RefreshIndicatorMath.base`: `overlay:` or the `.stretch` band).
+    let overlay: Bool
+    let layer: RefreshLayer
     let boxes: (RefreshIndicatorGroup.Kind) -> Boxes
     @StateObject private var latch = GroupLatch(note: "refresh.group")
 
-    var body: some View {
-        boxes(kind)
+    @ViewBuilder var body: some View {
+        let kind = self.kind
+        if RefreshLayerMath.draws(layer: layer, kind: kind, overlay: overlay) {
+            #if DEBUG
+            let _ = Self.noteSlot(layer)
+            #endif
+            boxes(kind)
+        }
     }
+
+    #if DEBUG
+    /// The slot that drew the boxes last (`"front"` / `"behind"`), for the tests.
+    @MainActor static func noteSlot(_ layer: RefreshLayer) {
+        let v = layer == .behind ? "behind" : "front"
+        if ZTronRenderCounters.notes["refresh.slot"] != v { ZTronRenderCounters.notes["refresh.slot"] = v }
+    }
+    #endif
 
     private var kind: RefreshIndicatorGroup.Kind {
         if useGeometryGroup, #available(iOS 17, *) { return .geometry }

@@ -166,9 +166,9 @@ struct RefreshIndicatorLayerTests {
     /// behind it (forced lane, no header: a `.difference` white probe stayed white where 17+ and fb1fe59 blend it,
     /// `RefreshUITests.testACustomIndicatorsBlendModeReachesWhatIsBehindIt`). Open item 18 needs the group only under a
     /// scaling header, so 15–16 group the box only there, latched at the box's first frame: installing or removing the
-    /// header during the hold keeps the indicator's identity, and D66's gate (`refresh.d66`) reads the same latched
-    /// decision. (A logic-test host has no render server, so this checks the latched branch; the header case's layers are
-    /// checked above.)
+    /// header during the hold keeps the indicator's identity, and its slot (D80, `refresh.slot`: behind the content when
+    /// ungrouped) reads the same latched decision. (A logic-test host has no render server, so this checks the latched
+    /// branch; the header case's layers are checked above.)
     @Test(arguments: OSPath.allCases, [false, true])
     func theFifteenIndicatorGroupIsOnlyUnderAHeader(path: OSPath, headerFirst: Bool) {
         #if DEBUG
@@ -190,19 +190,19 @@ struct RefreshIndicatorLayerTests {
         header.on.toggle()   // install / remove the header during the hold
         pump(0.5)
         let after = ZTronRenderCounters.notes["refresh.group"]
-        let gate = ZTronRenderCounters.notes["refresh.d66"]
+        let slot = ZTronRenderCounters.notes["refresh.slot"]
         #expect(s.refresh?.states[.top]?.mode == .refreshing, "\(path): still held")
         if path == .preferred {
             #expect(first == nil && after == nil, "17+: geometryGroup, no latch (\(String(describing: first)))")
-            #expect(gate == "off", "17+: D66 never applies (\(String(describing: gate)))")
+            #expect(slot == "front", "17+: one slot, in front (\(String(describing: slot)))")
         } else {
             #expect(first == (headerFirst ? "compositing" : "none"), "\(path) header first \(headerFirst): \(String(describing: first))")
             #expect(after == first, "\(path): the latch never re-decides during the hold (\(String(describing: after)))")
-            // Review of open item 21 / D66: D66's gate is the latched decision too, not the live header (it read
-            // `hasHeader || !custom` while the groups latched it: a header installed during the hold left the ungrouped
-            // indicator without D66, one removed made D66 hide a grouped one).
-            #expect(gate == (first == "none" ? "applies" : "off"),
-                    "\(path) header first \(headerFirst): D66's gate follows the latch (\(String(describing: gate)))")
+            // D80: the slot is the latched decision too, not the live header (as D66's gate was since the review of open
+            // item 21): installing the header during the hold keeps the ungrouped indicator behind the content, removing
+            // it keeps the grouped one in front.
+            #expect(slot == (first == "none" ? "behind" : "front"),
+                    "\(path) header first \(headerFirst): the slot follows the latch (\(String(describing: slot)))")
         }
         #endif
     }
@@ -253,8 +253,8 @@ struct RefreshIndicatorLayerTests {
     /// content where the hold rests it (30 pt before the edge: `.default` glued to it, `.system` at H/2), and draws
     /// nothing there (`region` starts at the base); at rest it draws whole in its gap, part way in its part of the gap.
     /// Every edge, both styles, a custom and the built-in indicator, both OS paths. 15–16 keep a custom indicator without
-    /// a header ungrouped (its blend modes, final check of D65): its box has no layer off the viewport (open item 20; D66 hides it
-    /// in a rotation that brings the gap back instead, `RefreshResizeReveal`).
+    /// a header ungrouped (its blend modes, final check of D65): its box has no layer off the viewport (open item 20; D80
+    /// draws it behind the content instead, so a rotation that brings the gap back cannot draw it over the content).
     @Test(arguments: OSPath.allCases, Look.allCases)
     func aHeaderlessHoldScrolledAwayKeepsItsIndicatorOnTheContentsEdge(path: OSPath, look: Look) {
         let marker = look == .markerSystem || look == .markerDefault
@@ -271,7 +271,7 @@ struct RefreshIndicatorLayerTests {
                     AnyView(Color(red: Self.marker.r, green: Self.marker.g, blue: Self.marker.b).frame(width: 20, height: 20))
                 }
             }
-            let host = RefreshIndicatorsHost(coordinator: rig.refresh, state: rig.state, specs: [edge: spec])
+            let host = RefreshSlots(coordinator: rig.refresh, state: rig.state, specs: [edge: spec])
             let w = withOSPath(path) {
                 let w = UIWindow(frame: CGRect(origin: .zero, size: viewport))
                 w.rootViewController = UIHostingController(rootView: host.ignoresSafeArea())
@@ -357,7 +357,7 @@ struct RefreshIndicatorLayerTests {
             }
             #expect(abs(farEdge - contentEdge(gone.pull)) < 0.01, "\(label) away: the box ends on the content's edge")
             let ungrouped = path == .forcedFallback && marker
-            withKnownIssue("open item 20 / D66: 15–16 keep a headerless custom indicator ungrouped (blend modes), no layer off the screen") {
+            withKnownIssue("open item 20 / D80: 15–16 keep a headerless custom indicator ungrouped (blend modes), no layer off the screen") {
                 if !marker {
                     #expect(boxLayer(placement.box), "\(label) away: the box keeps its layers off the viewport \(placement.box)")
                 } else {

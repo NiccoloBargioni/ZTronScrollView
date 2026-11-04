@@ -87,6 +87,8 @@ struct ScrollContainer<Content: View>: View {
     @Environment(\.ztronProxyScope) private var proxyScope
     @StateObject private var coordinator: PanCoordinator
     @StateObject private var observerStore = ObserverStore()
+    /// The refresh coordinator and its cold bookkeeping, shared by the refresh slots (D80: front and behind).
+    @StateObject private var refreshHolder: RefreshHolder
 
     init(axes: Axis.Set, state: ZTronScrollState, content: Content, zoomLimits: ZoomLimits? = nil,
          doubleTap: DoubleTapZoom? = nil, nestedPolicy: ZTronNestedScrollPolicy? = nil,
@@ -101,6 +103,7 @@ struct ScrollContainer<Content: View>: View {
         self.content = content
         state.scrollAxes = axes
         _coordinator = StateObject(wrappedValue: PanCoordinator(state: state, axes: axes))
+        _refreshHolder = StateObject(wrappedValue: RefreshHolder(state: state))
     }
 
     private var effectiveLimits: ZoomLimits { zoomLimits ?? envLimits ?? ZoomLimits() }
@@ -130,6 +133,9 @@ struct ScrollContainer<Content: View>: View {
         // already depends on `envConfig`); it rides on the cold spec, so a change goes through `headerSpecChanged()`.
         let sizing = header?.sizing(pull: config.headerPull ?? envConfig.headerPull ?? .openGap)
         state.headerSpec = sizing
+        // D80: the refresh slot behind the content, only on the path without layer groups (the state's flag, fixed for its
+        // life: 17+ build the tree without it).
+        let refreshBehind = !state.usesGeometryGroup
         return content
             // `.slideBehind(backdrop:)` (D68): the color behind the content, in content space (under the transform and the
             // content-integral overlays: it moves with the content and covers exactly its rect, so a `.slideBehind` header
@@ -151,6 +157,18 @@ struct ScrollContainer<Content: View>: View {
             .modifier(TransformHost(state: state, axes: axes, hasHeader: header != nil))
             .modifier(NamedSpaceModifier(name: "ztronScroll.viewport", useNew: state.usesNamedCoordinateSpace))
             .ignoresSafeArea(.all, edges: edges)
+            // D80 (open item 27): on the path without layer groups (15–16, the forced fallbacks), a gap refresh indicator
+            // without a layer group (a custom indicator, no scaling header) is drawn BEHIND the content, in the viewport's
+            // own frame like the front slot below: it keeps no layer while its gap is off the screen, so a rotation that
+            // brings the gap back cannot draw it over the content still sliding in (UIKit's refresh control is the scroll
+            // view's lowest subview too). Every other indicator is drawn by the front slot (`RefreshLayerMath.draws`).
+            .background(Group {
+                if refreshBehind {
+                    RefreshOverlay(state: state, pan: coordinator, holder: refreshHolder, axes: axes,
+                                   member: config.refreshers, layer: .behind)
+                        .ignoresSafeArea(.all, edges: edges)
+                }
+            })
             // A `.slideBehind` header (D68): the same slot as the overlay below (same frame, same layout pass, same safe-area
             // handling), BEHIND the content, which slides over it. Touches in the band the content leaves uncovered reach
             // it (the content's hit area is its own drawn frame). Both slots are always attached; `HeaderOverlay` shows
@@ -176,7 +194,8 @@ struct ScrollContainer<Content: View>: View {
                     .ignoresSafeArea(.keyboard, edges: .bottom)
             }
             // Above the header (z-order contract), in the viewport's own frame again, so their metric coordinates hold.
-            .overlay(RefreshOverlay(state: state, pan: coordinator, axes: axes, member: config.refreshers)
+            .overlay(RefreshOverlay(state: state, pan: coordinator, holder: refreshHolder, axes: axes,
+                                    member: config.refreshers)
                 .ignoresSafeArea(.all, edges: edges))   // refresh indicators (M8b)
             .overlay(ScrollIndicatorsOverlay(state: state, member: chrome)
                 .ignoresSafeArea(.all, edges: edges))   // chrome leaves: the viewport's own frame (M8)
