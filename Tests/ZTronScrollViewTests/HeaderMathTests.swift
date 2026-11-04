@@ -344,6 +344,15 @@ import Testing
                                            safe: EdgeInsets(top: 0, leading: 62, bottom: 21, trailing: 62), adjusted: .vertical) == 381)
         #expect(HeaderMath.containerHeight(viewport: CGSize(width: 874, height: 402),
                                            safe: EdgeInsets(top: 0, leading: 62, bottom: 21, trailing: 62), adjusted: []) == 402)
+        // The limit itself (D78: the 15–16 `.fit` box clamps to it in layout, `metrics(…)` applies it).
+        #expect(HeaderMath.overflowLimit(.uncapped, containerHeight: 381) == .infinity)
+        #expect(HeaderMath.overflowLimit(.capped(fraction: 0.5), containerHeight: 381) == 190.5)
+        #expect(HeaderMath.overflowLimit(.capped(fraction: 3), containerHeight: 381) == 381, "clamped to 0…1")
+        #expect(HeaderMath.overflowLimit(.capped(fraction: -1), containerHeight: 381) == 0)
+        #expect(HeaderMath.overflowLimit(.capped(fraction: .nan), containerHeight: 381) == 381, "not finite: 1")
+        #expect(HeaderMath.overflowLimit(.refit, containerHeight: 381) == 381)
+        #expect(HeaderMath.overflowLimit(.refit, containerHeight: 0) == .infinity, "an unknown container limits nothing")
+        #expect(HeaderMath.overflowLimit(.capped(fraction: 0.5), containerHeight: .infinity) == .infinity)
     }
 
     /// D64 (lead, 2026-10-27): the overflow container excludes the keyboard. With the keyboard up the bottom safe area is

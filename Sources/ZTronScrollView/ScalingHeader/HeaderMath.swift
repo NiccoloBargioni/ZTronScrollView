@@ -190,16 +190,9 @@ enum HeaderMath {
             resting = natural.isFinite ? Swift.max(0, natural) : 0
         }
         // The overflow policy (D59): the size's resting height and `min`, limited by the container.
-        if containerHeight > 0, containerHeight.isFinite {
-            let limit: CGFloat
-            switch overflow {
-            case .uncapped: limit = .infinity
-            case let .capped(fraction): limit = containerHeight * (fraction.isFinite ? min(max(fraction, 0), 1) : 1)
-            case .refit: limit = containerHeight     // .aspectRatio: W / r capped at H is the aspect fit of r inside W × H
-            }
-            resting = min(resting, limit)
-            minimum = min(minimum, limit)
-        }
+        let limit = overflowLimit(overflow, containerHeight: containerHeight)
+        resting = min(resting, limit)
+        minimum = min(minimum, limit)
         // `.slideBehind` ignores `min` (the content covers the whole header, D68), so its `min ≥ R` rule never applies.
         if collapse.isSlideBehind { minimum = 0 }
         // `min ≥ R`: a fixed-height header of height `min` (band 0, progress 0, no snapping; `.stretch` still grows).
@@ -207,6 +200,20 @@ enum HeaderMath {
         let w = width.isFinite ? Swift.max(0, width) : 0
         return HeaderMetrics(min: minimum, resting: resting, behavior: behavior, collapse: collapse, pull: pull, width: w,
                              vertical: vertical)
+    }
+
+    /// The overflow policy's limit `L` on the resting height and `min` (D59) for a container `containerHeight` tall
+    /// (`containerHeight(viewport:safe:adjusted:keyboard:)`): `.capped(f)` → `f · H` (`f` clamped to 0…1, 1 when not
+    /// finite), `.refit` → `H` (for `.aspectRatio`, `W / r` capped at `H` is the aspect fit of `r` inside `W × H`),
+    /// `.uncapped` or an unknown container (≤ 0, not finite) → ∞. `metrics(…)` applies it; the 15–16 `.fit` box
+    /// (`HeaderFallbackPlan`, D78) clamps the header's ideal height to it in layout.
+    static func overflowLimit(_ overflow: ZTronHeaderOverflow, containerHeight: CGFloat) -> CGFloat {
+        guard containerHeight > 0, containerHeight.isFinite else { return .infinity }
+        switch overflow {
+        case .uncapped: return .infinity
+        case let .capped(fraction): return containerHeight * (fraction.isFinite ? min(max(fraction, 0), 1) : 1)
+        case .refit: return containerHeight
+        }
     }
 
     #if DEBUG
