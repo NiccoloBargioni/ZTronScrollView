@@ -214,11 +214,13 @@ struct ContentAnimationTickTests {
         var drawnMaxStep: CGFloat = 0
         /// Evaluations of `uval` off the main thread (SwiftUI's asynchronous renderer).
         var offMain = 0
+        /// The bar's last drawn height 0.8 s after the change (its end value once the animation has landed).
+        var last: CGFloat = -1
         /// Body runs of the rows that existed before the change (S4: 0) and of the header builder (`header.builder`).
         var keptRowBodies = 0, headerBuilds = 0
         var description: String {
-            String(format: "uval %d uframe %d hval %d drawn %d (max step %.2f) offMain %d keptRowBodies %d headerBuilds %d",
-                   uval, uframe, hval, drawn, drawnMaxStep, offMain, keptRowBodies, headerBuilds)
+            String(format: "uval %d uframe %d hval %d drawn %d (max step %.2f) last %.2f offMain %d keptRowBodies %d headerBuilds %d",
+                   uval, uframe, hval, drawn, drawnMaxStep, last, offMain, keptRowBodies, headerBuilds)
         }
     }
 
@@ -255,6 +257,7 @@ struct ContentAnimationTickTests {
         run.offMain = probe.samples("uval").filter { !$0.main }.count
         let window = sampler.samples.filter { $0.t >= t0 && $0.t <= t0 + 0.5 }
         run.drawn = Set(window.map { Int(($0.h * 100).rounded()) }).count
+        run.last = sampler.samples.last?.h ?? -1
         let hs = sampler.samples.filter { $0.t >= t0 - 0.05 }.map(\.h)
         if let a = hs.first, let b = hs.last, abs(b - a) > 0.5 {
             run.drawnMaxStep = zip(hs, hs.dropFirst()).map { abs($1 - $0) }.max().map { $0 / abs(b - a) } ?? 0
