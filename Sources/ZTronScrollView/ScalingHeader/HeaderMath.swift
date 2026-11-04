@@ -467,10 +467,19 @@ enum HeaderMath {
         let committed = (m.resting, Swift.min(m.min, m.resting))
         guard let size = live.size, w > 0, w.isFinite else { return committed }
         let container = containerHeight.map { $0.isFinite ? Swift.max(0, $0) : 0 } ?? live.committedContainer
-        if size.isFit, abs(w - m.width) <= 0.5, abs(container - live.committedContainer) <= 0.5 { return committed }
+        if size.isFit, isCommittedViewport(width: w, container: container, live) { return committed }
         guard let r = metrics(size: size, width: w, natural: natural, behavior: m.behavior, collapse: m.collapse,
                               vertical: m.vertical, containerHeight: container, overflow: live.overflow) else { return committed }
         return (r.resting, Swift.min(r.min, r.resting))
+    }
+
+    /// `.fit`'s committed-viewport test (16+ `layoutResting`, the 15–16 box of D78): the layout's width and overflow
+    /// container are the committed ones (within 0.5 pt). There the layout keeps the committed `R`, so a header content
+    /// change moves the header with the content's inset, in the state's commit; elsewhere (a resize's layout pass) it
+    /// follows the content's ideal height at the layout's width.
+    static func isCommittedViewport(width w: CGFloat, container: CGFloat, _ live: HeaderLiveInput) -> Bool {
+        guard let m = live.metrics else { return false }
+        return abs(w - m.width) <= 0.5 && abs(container - live.committedContainer) <= 0.5
     }
 
     /// The header's live LAYOUT height at a layout size: `h_L = (1 − p) · R(W, H) + p · min(W, H)`, with `p` from the state

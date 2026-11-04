@@ -500,8 +500,12 @@ struct HeaderFallbackPlan: Equatable {
             return
         }
         // D78: `R(W, H)` from the slot of this layout pass, as on 16+ (`HeaderSlotLayout`).
-        if let slot, slot.width > 0, slot.width.isFinite, !size.isFit {
+        if let slot, slot.width > 0, slot.width.isFinite {
             let H: CGFloat? = slot.height.isFinite && slot.height > 0 ? slot.height : nil
+            if size.isFit {
+                self = HeaderFallbackPlan(box: live, m: m, size: size, width: slot.width, height: H)
+                return
+            }
             let lh = Swift.max(HeaderMath.liveHeight(width: slot.width, containerHeight: H, natural: live.natural, live),
                                Self.minimumHeight)
             minHeight = lh; maxHeight = lh
@@ -535,6 +539,43 @@ struct HeaderFallbackPlan: Equatable {
             floor = m.min
         default:
             minHeight = h; maxHeight = h
+        }
+    }
+}
+
+extension HeaderFallbackPlan {
+    /// D78, `.fit` with the slot `W × H`: the ideal-ratio box (see `HeaderFallbackFrame`). The overflow limit `L` is
+    /// `HeaderMath.overflowLimit` at the slot's `H` (the committed container for a banner, whose limit is the committed
+    /// one, D15), `m′ = min(min, L)` (0 under `.slideBehind`, which ignores `min`, D68), `q` the progress (0 under
+    /// `.slideBehind`: the stack keeps `R`, `HeaderTranslation` moves it), below 1 so the ideal width stays finite. At the
+    /// committed viewport the box is fitted to the live height of the committed `R`, `(1 − q)(R − m′)`: the same `q` as the
+    /// width fit, so the resize's animated pass (width fit at the measured `R`) and the viewport commit (height fit at
+    /// the committed `R`, the same value) lay the stack out at the same height, at full collapse too.
+    fileprivate init(box live: HeaderLiveInput, m: HeaderMetrics, size: ZTronHeaderSize, width: CGFloat, height: CGFloat?) {
+        let container = live.layoutDriven ? (height ?? live.committedContainer) : live.committedContainer
+        let limit = HeaderMath.overflowLimit(live.overflow, containerHeight: container)
+        let slide = m.collapse.isSlideBehind
+        let spec = size.minimum
+        let mm = slide ? 0 : Swift.min(Swift.max(0, spec.isFinite ? spec : 0), limit)
+        let q = slide ? 0 : Swift.min(Swift.max(live.progress, 0), 1 - Self.boxEpsilon)
+        fitBox = true
+        boxWidth = width
+        minHeight = 0; maxHeight = .infinity
+        innerPad = -mm
+        boxFloor = Self.boxFloorHeight
+        boxLimit = limit.isFinite ? Swift.max(limit - mm, Self.boxFloorHeight) : nil
+        boxIdealWidth = width / (1 - q)
+        ratio = nil
+        outerPad = mm
+        boxProgress = q
+        boxMin = mm
+        // 16+'s rule (`HeaderMath.layoutResting`): the committed viewport keeps the committed `R`; a resize's layout pass
+        // follows the content's ideal height at the slot's width.
+        if HeaderMath.isCommittedViewport(width: width, container: container, live) {
+            let committed = HeaderMath.layoutResting(width: width, containerHeight: live.layoutDriven ? height : nil,
+                                                     natural: live.natural, live)
+            boxFitsHeight = true
+            boxHeight = Swift.max((1 - q) * (committed.resting - mm), Self.boxFloorHeight)
         }
     }
 }

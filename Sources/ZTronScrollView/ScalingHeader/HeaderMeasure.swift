@@ -7,10 +7,12 @@ import SwiftUI
 /// - 16+: the frame layout (`HeaderSlotLayout`) asks the header for its ideal size at the proposed width while placing it
 ///   at the live height and records it synchronously (`headerNaturalLive`); header content changes are seen on the next
 ///   layout pass. Nothing to do here.
-/// - 15 (and forced): a measuring pass at the first layout and on width / Dynamic Type changes: the header is laid out at
-///   its ideal height (`fixedSize(vertical:)`, cropped by the live frame) with a size reporter, then returns to the live
-///   proposal; at rest the frame itself is the ideal height (`HeaderFallbackFrame`) and reports in the same update.
-///   Header content changes are not re-measured inside the band (documented gap).
+/// - 15 (and forced): the frame's ideal-ratio box (`HeaderFallbackFrame`, D78) asks the header for its ideal height at the
+///   slot's width in every layout pass, as 16+ does, and reports through the frame leaf's reporter: width changes (a
+///   resize's animated pass), header content changes inside the band and Dynamic Type are measured in layout. This
+///   measuring pass takes the FIRST measurement (no metrics yet: the box needs the committed `R`): the header is laid
+///   out at its ideal height (`fixedSize(vertical:)`, cropped by the live frame) with a size reporter, then returns to
+///   the live proposal; it re-arms for a width change only until then (launch-time widths), and on a Dynamic Type change.
 struct HeaderMeasure: ViewModifier {
     let state: ZTronScrollState
     let active: Bool
@@ -97,12 +99,13 @@ struct HeaderMeasuringPass: ViewModifier {
     func body(content: Content) -> some View {
         if let storage = state.storage as? ChannelStorage { relay.subscribe(to: [.metrics], of: storage) }
         let width = state.storage.metrics.viewportSize.width
-        // A width the header was not measured at arms the pass in THIS body run, the resize commit's own update. A system
-        // rotation is laid out once inside UIKit's animation block: armed through `onChange` (an `@State` write, one more
-        // update) the measurement landed after the never-animated resize had closed, outside the block, so the new
-        // resting height (the header and the content's inset) jumped at the rotation's start (seam lab, forced lane,
-        // `.fit` half collapsed: 98 pt in one frame).
-        let stale = width > 0 && (measuredWidth.map { abs($0 - width) > 0.5 } ?? false)
+        // Before the header's first metrics (launch), a width the header was not measured at arms the pass in THIS body
+        // run (a launch-time width change; without it the header was missing for 1–5 frames at launch, i15b spike C).
+        // Once the header has metrics, the box of `HeaderFallbackFrame` measures every width in the resize's own layout
+        // pass (D78): a flip here would re-lay the header out at its ideal height in a later update and step it (a second
+        // layout retargets the header's frame; 27.0 compounds the retargets of one flush: lateral 76 pt, i15b §1.2).
+        let stale = state.storage.metrics.header == nil && width > 0
+            && (measuredWidth.map { abs($0 - width) > 0.5 } ?? false)
         let pass = active && (measuring || stale)
         let state = state
         return content

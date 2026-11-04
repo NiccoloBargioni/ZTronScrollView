@@ -20,6 +20,7 @@ struct HeaderFallbackSlotTests {
     final class Model: ObservableObject {
         @Published var short = false
         @Published var narrow = false
+        @Published var tall = false
     }
 
     /// The seam lab's resize, hosted: the scroll view's height to 0.4 (`short`, top-pinned) or its width to 0.6
@@ -225,5 +226,203 @@ struct HeaderFallbackSlotTests {
             print("D78 C16 \(tag): slot \(note), container \(container)")
             unhost(w)
         }
+    }
+
+
+    // MARK: `.fit` (the ideal-ratio box)
+
+    /// A `.fit` header content: ideal height `W · 9 / 16` (or `W · 3 / 4` when `tall`) at the proposed width, fills its
+    /// live frame, logs it.
+    struct FitProbe: View {
+        @ObservedObject var model: Model
+        let log: Log
+        var body: some View {
+            Color.clear.aspectRatio(model.tall ? 4.0 / 3.0 : 16.0 / 9.0, contentMode: .fit)
+                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+                .overlay(LogProbe(log: log))
+        }
+    }
+
+    struct FitHost: View {
+        @ObservedObject var model: Model
+        let state: ZTronScrollState
+        let log: Log
+        let overflow: ZTronHeaderOverflow
+        let counts: BodyCount
+        var body: some View {
+            GeometryReader { g in
+                ZTronScrollView(.vertical, state: state) { StatefulContent(counts: counts) }
+                    .withScalingHeader(size: .fit(min: 64), overflow: overflow) { _ in FitProbe(model: model, log: log) }
+                    .frame(width: model.narrow ? g.size.width * 0.6 : g.size.width,
+                           height: model.short ? g.size.height * 0.4 : g.size.height)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            }
+        }
+    }
+
+    func hostFit(_ path: OSPath, overflow: ZTronHeaderOverflow, model: Model, log: Log, counts: BodyCount)
+        -> (ZTronScrollState, UIWindow) {
+        let s = makeState(path)
+        let w = withOSPath(path) { window(FitHost(model: model, state: s, log: log, overflow: overflow, counts: counts)) }
+        settle(s)
+        return (s, w)
+    }
+
+    /// Item 15 (b), `.fit` inside the band: an app-animated width change lays the header out at the new width with its
+    /// final height in the animated pass (16+ by `HeaderSlotLayout`'s ideal-size query, 15 by the box's width fit), never
+    /// at a stale height (before D78 the measuring pass's flip re-set it at the commit: lateral 159 pt on the forced lane),
+    /// uncapped and `.capped(0.25)` (engaged at 402 pt, off at 241 pt), half and fully collapsed.
+    @Test(arguments: OSPath.allCases, [(ZTronHeaderOverflow.uncapped, CGFloat(0.5)), (.capped(fraction: 0.25), 0.5),
+                                       (.uncapped, 1), (.capped(fraction: 0.25), 1)])
+    func aFitWidthChangeInTheBandIsFinalInTheAnimatedPass(path: OSPath, c: (ZTronHeaderOverflow, CGFloat)) {
+        let (overflow, progress) = c
+        let log = Log(), model = Model(), counts = BodyCount()
+        let (s, w) = hostFit(path, overflow: overflow, model: model, log: log, counts: counts)
+        defer { unhost(w) }
+        guard s.peek.metrics.header != nil else { Issue.record("\(path) \(overflow): unresolved"); return }
+        s.snapHeader(to: .progress(progress), animated: false)
+        pump(0.3)
+        s.endOfTurn()
+        let limit = HeaderMath.overflowLimit(overflow, containerHeight: committedContainer(s))
+        for narrow in [true, false] {
+            log.sizes.removeAll()
+            ZTronRenderCounters.reset()
+            let bodies = counts.bodies
+            withAnimation(.linear(duration: 0.5)) { model.narrow = narrow }
+            for _ in 0..<40 { pump(1.0 / 60) }
+            pump(0.4)
+            s.endOfTurn()
+            let h = s.headerGeometry?.height ?? -1
+            let W = s.peek.metrics.viewportSize.width
+            let R = s.peek.metrics.header?.resting ?? -1
+            let tag = "\(path) \(overflow) q \(progress) narrow \(narrow)"
+            let stale = log.sizes.filter { abs($0.width - W) < 0.5 && abs($0.height - h) > 0.5 }
+            #expect(stale.isEmpty, "\(tag): laid out at \(W) with a stale height \(stale), final \(h) (all \(log.sizes))")
+            #expect(log.sizes.contains { abs($0.width - W) < 0.5 }, "\(tag): laid out at the new width")
+            let expected = min(W * 9 / 16, limit)
+            #expect(abs(R - expected) < 0.5, "\(tag): R \(R) at \(W), expected \(expected)")
+            #expect(abs((s.headerGeometry?.progress ?? -1) - progress) < 0.01, "\(tag): progress kept")
+            #expect(counts.bodies == bodies, "\(tag): content.body 0")
+            print("D78 fit \(tag): R \(R) h \(h) at \(W), sizes \(log.sizes), events \(ZTronRenderCounters.eventsJoined.suffix(600))")
+        }
+    }
+
+    /// A header content that logs each size it is laid out at with the state's committed `R` at that moment.
+    struct CommitLogProbe: View {
+        let log: CommitLog
+        let state: ZTronScrollState
+        var body: some View {
+            GeometryReader { g in
+                let _ = log.entries.append((g.size, state.peek.metrics.header?.resting ?? -1))
+                Color.red
+            }
+        }
+    }
+
+    final class CommitLog { var entries: [(size: CGSize, committed: CGFloat)] = [] }
+
+    struct GrowHost: View {
+        @ObservedObject var model: Model
+        let state: ZTronScrollState
+        let log: CommitLog
+        let counts: BodyCount
+        var body: some View {
+            ZTronScrollView(.vertical, state: state) { StatefulContent(counts: counts) }
+                .withScalingHeader(size: .fit(min: 64)) { _ in GrowContent(model: model, log: log, state: state) }
+        }
+    }
+
+    struct GrowContent: View {
+        @ObservedObject var model: Model
+        let log: CommitLog
+        let state: ZTronScrollState
+        var body: some View {
+            Color.clear.aspectRatio(model.tall ? 4.0 / 3.0 : 16.0 / 9.0, contentMode: .fit)
+                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+                .overlay(CommitLogProbe(log: log, state: state))
+        }
+    }
+
+    /// A `.fit` header content change inside the band (16:9 → 4:3 and back in an app animation; seam lab `grow`): the
+    /// header keeps the committed `R`'s live height until the state commits the new `R`, in the content's own transaction
+    /// with the inset (16+ `layoutResting`'s rule at the committed viewport; the 15 box's height fit), so header and
+    /// content move together; then `R = W · 3 / 4` on both paths (before D78 the 15 path did not re-measure in the band).
+    /// The commit keeps the drawn collapse (`R_new − q · (R_old − min)`) and the offset then restores the progress: the
+    /// header's layouts go from that height to the new live height without a step back, the same sequence on both paths.
+    @Test(arguments: OSPath.allCases, [CGFloat(0), 0.5])
+    func aFitContentChangeInTheBandMovesWithTheCommit(path: OSPath, progress: CGFloat) {
+        let log = CommitLog(), model = Model(), counts = BodyCount()
+        let s = makeState(path)
+        let w = withOSPath(path) { window(GrowHost(model: model, state: s, log: log, counts: counts)) }
+        defer { unhost(w) }
+        settle(s)
+        guard s.peek.metrics.header != nil else { Issue.record("\(path): unresolved"); return }
+        s.snapHeader(to: .progress(progress), animated: false)
+        pump(0.3)
+        s.endOfTurn()
+        let W = s.peek.metrics.viewportSize.width
+        for tall in [true, false] {
+            log.entries.removeAll()
+            let bodies = counts.bodies
+            let old = s.peek.metrics.header?.resting ?? -1
+            withAnimation(.easeInOut(duration: 0.5)) { model.tall = tall }
+            for _ in 0..<40 { pump(1.0 / 60) }
+            pump(0.4)
+            s.endOfTurn()
+            let tag = "\(path) q \(progress) tall \(tall)"
+            let R = s.peek.metrics.header?.resting ?? -1
+            #expect(abs(R - W * (tall ? 3.0 / 4.0 : 9.0 / 16.0)) < 0.5, "\(tag): R \(R) at \(W)")
+            #expect(abs((s.headerGeometry?.progress ?? -1) - progress) < 0.01, "\(tag): progress kept")
+            // Before the state commits the new R: the old R's live height (the header is never ahead of the commit).
+            let before = (1 - progress) * old + progress * 64
+            let ahead = log.entries.filter { abs($0.committed - R) > 0.5 && abs($0.size.height - before) > 0.5 }
+            #expect(ahead.isEmpty, "\(tag): laid out ahead of the commit \(ahead) (all \(log.entries))")
+            // From the commit: its height (the drawn collapse kept), then monotonic to the new live height.
+            let commit = R - progress * (old - 64), end = (1 - progress) * R + progress * 64
+            let after = log.entries.filter { abs($0.committed - R) <= 0.5 }.map(\.size.height)
+            let stepBack = zip(after, after.dropFirst()).filter { end >= commit ? $1 < $0 - 0.5 : $1 > $0 + 0.5 }
+            #expect(after.first.map { abs($0 - commit) < 0.5 } == true && after.last.map { abs($0 - end) < 0.5 } == true
+                    && stepBack.isEmpty, "\(tag): \(commit) → \(end) expected, laid out \(after), steps back \(stepBack)")
+            #expect(counts.bodies == bodies, "\(tag): content.body 0")
+            print("D78 grow \(tag): R \(R), entries \(log.entries.map { "\($0.size.height)@\($0.committed)" })")
+        }
+    }
+
+    // MARK: Launch
+
+    /// The `.fit` header is drawn from the first frame at launch on both paths: it resolves and is laid out at the
+    /// state's height within the first 60 Hz frame after the window shows (the measuring pass takes the first
+    /// measurement while there are no metrics; its launch-time re-arming stays, D78: without it the 15 header was missing
+    /// for 1–5 frames at launch, i15b spike C).
+    @Test(arguments: OSPath.allCases, [ZTronHeaderSize.fit(min: 64), .fit(), .aspectRatio(16.0 / 9.0, min: 64)])
+    func theHeaderIsLaidOutFromTheFirstFrames(path: OSPath, size: ZTronHeaderSize) {
+        let log = Log(), counts = BodyCount()
+        let s = makeState(path)
+        ZTronRenderCounters.reset()
+        let w = withOSPath(path) {
+            let w = UIWindow(frame: CGRect(origin: .zero, size: CGSize(width: 402, height: 874)))
+            w.rootViewController = UIHostingController(rootView:
+                ZTronScrollView(.vertical, state: s) { StatefulContent(counts: counts) }
+                    .withScalingHeader(size: size) { _ in
+                        Color.clear.aspectRatio(16.0 / 9.0, contentMode: .fit)
+                            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+                            .overlay(LogProbe(log: log))
+                    })
+            w.makeKeyAndVisible()
+            return w
+        }
+        defer { unhost(w) }
+        var first: Int?
+        for frame in 0..<30 {
+            pump(1.0 / 60)
+            if let g = s.headerGeometry, let m = s.peek.metrics.header, g.height > 0.5,
+               abs(log.last.height - g.height) < 0.5, abs(log.last.width - s.peek.metrics.viewportSize.width) < 0.5 {
+                #expect(abs(m.resting - 402 * 9 / 16) < 0.5, "\(path) \(size): R \(m.resting)")
+                first = frame
+                break
+            }
+        }
+        #expect(first == 0, "\(path) \(size): the header laid out at its height at frame \(String(describing: first)) (log \(log.sizes.prefix(6)), frames \(ZTronRenderCounters.value("header.frame")))")
+        print("D78 launch \(path) \(size): first frame \(String(describing: first)), sizes \(log.sizes.prefix(6))")
     }
 }
