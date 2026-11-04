@@ -75,7 +75,8 @@ import ZTronScrollView
 // first changed row's opacity per frame), `-ZTronSeamRowsInternal 1` from a model only the content observes (an internal
 // change: the lab's body does not run), `-ZTronSeamRowsPlain 1` without an animation, `-ZTronSeamRowsGrow 1` keeps n rows
 // and grows their height instead (12 pt per count step: 60 -> 120 pt for 5 -> 10; no insertion, rows.py --grow reads the
-// first row's drawn height per frame).
+// first row's drawn height per frame), `-ZTronSeamRowsHost native|plain` hosts the same content in a native `ScrollView`
+// or in no scroll view (references; the lab's buttons still drive the change).
 
 enum SeamLab {
     static let red = Color(red: 1, green: 0, blue: 0)
@@ -181,7 +182,7 @@ struct SeamLabScreen: View {
             ZStack(alignment: .bottomTrailing) {
                 // Laid out in the safe area like a native ScrollView: the library extends the viewport to the screen
                 // edges it touches and reserves the safe area in adjustedContentInset (top0 = the safe-area top).
-                scroller
+                hosted
                     .background(SeamLab.blue)
                     .frame(width: narrow && (SeamLab.heightFactor == nil || SeamLab.both) ? g.size.width * 0.6 : g.size.width,
                            height: retargetHeight ?? g.size.height * (narrow ? SeamLab.heightFactor ?? 1 : 1))
@@ -309,6 +310,23 @@ extension SeamLabScreen {
             withAnimation(.easeInOut(duration: 1.2)) { state.scroll(to: target) }
         } else {
             state.scroll(to: target)
+        }
+    }
+
+    /// The lab's scroll view, or with `-ZTronSeamRowsHost native|plain` (M8b-s8 s2) the same content in a native
+    /// `ScrollView` or in no scroll view at all (references for the content's own animation).
+    @ViewBuilder
+    private var hosted: some View {
+        switch SeamLab.rowsHost {
+        case "native":
+            ScrollView(showsIndicators: false) {
+                SeamLabContent(rows: rowCount, model: SeamLab.rowsInternal ? rowsModel : nil)
+            }
+        case "plain":
+            SeamLabContent(rows: rowCount, model: SeamLab.rowsInternal ? rowsModel : nil)
+                .frame(maxHeight: .infinity, alignment: .top)
+        default:
+            scroller
         }
     }
 
@@ -610,6 +628,8 @@ extension SeamLab {
     static var rowsPlain: Bool { HeaderDemo.argument("-ZTronSeamRowsPlain", "0") == "1" }
     /// `-ZTronSeamRowsGrow 1`: the content keeps n rows; the count sets their height (12 pt per step) instead.
     static var rowsGrow: Bool { HeaderDemo.argument("-ZTronSeamRowsGrow", "0") == "1" }
+    /// `-ZTronSeamRowsHost native|plain`: the same content in a native `ScrollView`, or in no scroll view (references).
+    static var rowsHost: String { HeaderDemo.argument("-ZTronSeamRowsHost", "ztron") }
 }
 
 // MARK: Core check probes (M8b-s6 close): retarget near the drawn size, no header, start offset

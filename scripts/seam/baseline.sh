@@ -52,6 +52,7 @@ for sc in "$@"; do
       internal) extra+=(-ZTronSeamRowsInternal 1) ;;   # with rowsto: the count lives in a model only the content observes
       plain) extra+=(-ZTronSeamRowsPlain 1) ;;   # with rowsto: the count changes without an animation
       rgrow) extra+=(-ZTronSeamRowsGrow 1) ;;   # with rowsto: n rows whose height grows 12 pt per count step (rows.py reads row 0's height)
+      hnative|hplain) extra+=(-ZTronSeamRowsHost "${x#h}") ;;   # with rowsto: the same content in a native ScrollView / no scroll view (references)
       sticky) extra+=(-ZTronSeamSticky 1) ;;   # a white 120 x 16 pt bar in an .overlay(alignment: .bottom) of the header (probe.py) (M8b-s6)
       vbottom) extra+=(-ZTronSeamBottomPinned 1) ;;   # with height<digits>: bottom-pinned, the TOP inset goes 62 -> 0 (M8b-s6 close)
       vboth) extra+=(-ZTronSeamBoth 1) ;;             # with height<digits>: the width animates to 60 % too
