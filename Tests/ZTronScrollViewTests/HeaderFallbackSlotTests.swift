@@ -723,4 +723,76 @@ struct HeaderFallbackSlotTests {
         }
         #expect(counts.bodies == bodies, "\(path): content.body 0")
     }
+
+    /// C18 (M8b-s8 s7): a text `.fit` header at a Dynamic Type size picked by the model.
+    struct DynamicTypeHost: View {
+        @ObservedObject var model: Model
+        let state: ZTronScrollState
+        let box: HeaderStretchScaleTests.Box
+        let counts: BodyCount
+        var body: some View {
+            ZTronScrollView(.vertical, state: state) { HeaderStretchScaleTests.Content(counts: counts) }
+                .withScalingHeader(size: .fit(min: 64), pull: .stretch, stretchContent: .keepTextSize) { _ in
+                    Text("Header text that wraps over a few lines at the larger sizes of Dynamic Type")
+                        .font(.body)
+                        .padding(8)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)   // the probe marks the header's whole rect
+                        .background(HeaderStretchScaleTests.SizeProbe(box: box))
+                }
+                .refresher(refreshView: { _ in Color.white.frame(width: 20, height: 20) }) {
+                    try? await Task.sleep(nanoseconds: 1_000_000_000_000)
+                }
+                .environment(\.sizeCategory, model.tall ? .accessibilityExtraLarge : .large)
+        }
+    }
+
+    /// C18 (M8b-s8 s7): after the first metrics the measuring pass no longer re-arms on Dynamic Type: the box (D78, 15
+    /// path) and the slot layout (16+) measure the new ideal height in layout, at rest and during a 60 pt `.keepTextSize`
+    /// refresh hold (where the pass would measure at the grown width). `R` follows the text, the header is drawn at `R` at rest
+    /// and at the grown rect of the new `R` while held, its bottom edge on the content's top. Both paths, no content body.
+    @Test(arguments: OSPath.allCases)
+    func aDynamicTypeChangeIsMeasuredInLayout(path: OSPath) {
+        let model = Model(), counts = BodyCount(), box = HeaderStretchScaleTests.Box()
+        let s = makeState(path)
+        let w = withOSPath(path) { hostDriven(DynamicTypeHost(model: model, state: s, box: box, counts: counts)) }
+        defer { unhost(w) }
+        settle(s)
+        guard let R0 = s.peek.metrics.header?.resting else { Issue.record("\(path): unresolved"); return }
+        let bodies = counts.bodies
+        // At rest.
+        model.tall = true
+        pump(0.5)
+        let R1 = s.peek.metrics.header?.resting ?? -1
+        #expect(R1 > R0 + 20, "\(path): R \(R0) -> \(R1) follows the larger text")
+        #expect(abs((s.headerNatural ?? -1) - R1) < 0.5, "\(path): natural \(String(describing: s.headerNatural)) = R \(R1)")
+        #expect(abs(box.size.width - 402) < 0.5 && abs(box.size.height - R1) < 0.5, "\(path): drawn \(box.size) at R \(R1)")
+        // Back, then during a hold.
+        model.tall = false
+        pump(0.5)
+        #expect(abs((s.peek.metrics.header?.resting ?? -1) - R0) < 0.5, "\(path): back to R \(R0)")
+        s.beginRefreshing()
+        pump(1.0)
+        guard let g = s.headerGeometry?.stretch, g > 30 else {
+            Issue.record("\(path): no hold (\(String(describing: s.headerGeometry)))"); return
+        }
+        model.tall = true
+        var worstSeam: CGFloat = 0, samples = 0
+        for _ in 0..<20 {
+            pump(1.0 / 60)
+            let hf = HeaderStretchScaleTests.drawnFrames(of: HeaderStretchScaleTests.headerMarker, in: w, presented: true)
+            let cf = HeaderStretchScaleTests.frames(of: HeaderStretchScaleTests.contentMarker, in: w, presented: true)
+            guard let f = hf.first, let c = cf.first else { continue }
+            samples += 1
+            worstSeam = max(worstSeam, abs(f.maxY - c.minY))
+        }
+        pump(0.3)
+        let R2 = s.peek.metrics.header?.resting ?? -1
+        #expect(abs(R2 - R1) < 0.5, "\(path): held, R \(R2) = the larger text's \(R1)")
+        #expect(samples >= 10 && worstSeam < 1, "\(path): held, seam \(worstSeam) over \(samples) frames")
+        let laid = CGSize(width: 402 * (R2 + g) / R2, height: R2 + g)
+        #expect(abs(box.size.width - laid.width) < 0.5 && abs(box.size.height - laid.height) < 0.5,
+                "\(path): held, laid out at \(box.size), the grown rect \(laid)")
+        #expect(counts.bodies == bodies, "\(path): content.body 0")
+        print("C18 dynamic type \(path): R \(R0) -> \(R1), held \(R2) seam \(worstSeam)")
+    }
 }

@@ -512,7 +512,7 @@ extension ZTronScrollView {
         fade: ZTronHeaderFade? = nil,
         background: ZTronHeaderBackground? = nil,         // D61 (user, 2026-10-26): .ambientBlur(radius:) / .frostedGlass(radius:) / .color / .view { }
         overflow: ZTronHeaderOverflow = .uncapped,        // D59 (user): .uncapped / .capped(fraction:) / .refit
-        stretchContent: ZTronHeaderStretchContent = .keepTextMagnified,   // D76 (user, 2026-11-02; amended 2026-11-07, M8b-s8 s6)
+        stretchContent: ZTronHeaderStretchContent = .keepTextMagnified,   // D76 (user, 2026-11-02; amended 2026-11-07; 16+ s6, 15–16 s7)
         @ViewBuilder header: @escaping (ZTronHeaderProxy) -> Header) -> Self
     /// The former spelling (amended 2026-11-02): `scalingBehavior:` forwards to `pull:` with `collapse: .compress` (and,
     /// amended 2026-11-07, D76, `stretchContent: .keepTextMagnified`). It has no default, so `withScalingHeader(size:) { }`
@@ -542,8 +542,8 @@ public enum ZTronHeaderScalingBehavior: Sendable { case preserve, stretch }   //
 /// centre. `.keepTextSize` lays the header out at `(W · s, R + g)` from its top centre, clipped to `W`: text, symbols and
 /// controls keep their point size (sharp), an aspect-fit image grows exactly as with the default. One mechanism, the
 /// laid-out share `m` (0 / 1) of the pull, animatable: an animated change while pulled morphs inside the same frame, an
-/// unanimated one lands in one frame; at rest both draw the same. Built on 16+ in M8b-s8 s6; the 15–16 path draws both
-/// cases as D69 until s7 builds its grown frame.
+/// unanimated one lands in one frame; at rest both draw the same. Both OS paths: 16+ (the slot `Layout` proposes the grown
+/// size, M8b-s8 s6) and 15–16 (the fallback frame lays the stack out at the grown slot, M8b-s8 s7).
 public enum ZTronHeaderStretchContent: Hashable, Sendable { case keepTextMagnified, keepTextSize }
 public struct ZTronHeaderCollapseBehavior: Equatable, Sendable {   // D68: a struct, so `.slideBehind` and `.slideBehind(…)` both spell
     public static let compress: Self                  // the default: shrinks from the bottom to `min`, drawn above the content
@@ -747,10 +747,24 @@ height; `min`; `band = max(0, R − min)`;
   (`HeaderStretchScaleTests.theUsersAspectFitImageGrowsWithThePull`, both OS paths; `HeaderUITests.testAppBannerPullGrowsTheImage`,
   27.0 / 17.5 / forced: a finger pull of 100.7 pt drew the image's bottom 100.7 pt lower and 1.445× wider, a held 60 pt pull
   drew its grid lines scaled by `(R + 60)/R` within 0.15 pt and its bottom edge on the content's top, through the current and
-  the deprecated call). Known limits: text and vector art in a pulled header are its layer's bitmap scaled by `s` (edge width
-  1.25–1.8× at `s` = 1.25 on every lane; transient; a re-raster would re-run the header body, S4: open item 28); at a non-integer
-  `R` SwiftUI hands the effect a pixel-rounded size, so in motion the drawn bottom sits up to 0.125 pt above the content's top
-  (accepted, |seam| ≤ 0.5 pt; at rest both are pixel-snapped).
+  the deprecated call). At a non-integer `R` SwiftUI hands the effect a pixel-rounded size, so in motion the drawn bottom sits
+  up to 0.125 pt above the content's top (|seam| ≤ 0.5 pt, inside the bar; at rest both are pixel-snapped).
+- **What the pulled header's content does (D76, user 2026-11-02, amended 2026-11-07; M8b-s8 s6 16+, s7 15–16).** `stretchContent:`
+  picks it, two cases, one mechanism. `.keepTextMagnified` (the default) is D69 bit for bit: the whole laid-out stack magnified by
+  `s`, so text and vector art are its layer's bitmap scaled by `s` (edge width 1.25–1.8× at `s` = 1.25; open item 28, the crisp
+  path is scheduled for M8b-s9). `.keepTextSize` grows by layout: the header's content is laid out at `(W · s, R + g)` from its
+  top centre and clipped to `W × (R + g)`, so text, symbols and platform views keep their point size and stay sharp, and an
+  aspect-fit image grows exactly as with the default (it fits the grown rect's width). The mix: the live input carries the
+  laid-out share `m` (0 or 1, animatable with `o′` in one `AnimatablePair`); the layout takes `g_l = m·g`
+  and the stretch effect scales by the rest, `(h_L + g) / (h_L + g_l)`, so the drawn outer rect is `W · s × (R + g)` from `top0`
+  in both cases and in every frame between them. 16+: the slot `Layout` proposes `grownSize(W, h, g_l)`. 15–16 (no `Layout`):
+  the fallback frame (D78) lays the stack out at `(W · s_l, h + g_l)` centred in a `W`-wide frame (a negative horizontal padding
+  of `W(s_l − 1)/2` per side lets it overhang, the clip cuts it); a `.fit` header is height-fit at the committed `R` (what 16+
+  does: the pass keeps the committed `R` at the committed viewport) and measured on the layout box at the grown width, so a
+  content change during a hold relayouts in the same pass. The switch: a runtime change of `stretchContent:` is a cold change of
+  one value (the header builder runs once, no content body); animated while pulled, `m` interpolates and the content morphs
+  inside the same outer rect (text shrinks monotonically from `s` times its size to its point size); unanimated it lands in one
+  frame; at rest both cases draw the same pixels. Measured (27.0 / 17.5 / forced): see M8b-s8-s7's handoff.
 - **Pull behavior (D65, user 2026-10-27).** `ZTronHeaderPullBehavior` picks the `.preserve` column: the member
   `scalingHeaderPullBehavior(_:)` on the scroll view, else the innermost environment twin `ztronScalingHeaderPullBehavior(_:)` above it,
   else `.openGap`. `.stretch` ignores it; so does a banner (a view without the vertical axis), which keeps the `.followContent`
@@ -925,11 +939,12 @@ screen recordings, `scripts/seam/`):
   interpolates `o′` in the same transaction as the content's offset, so every frame has the header at the interpolated content position,
   across the band's edges (interpolating the height instead left the header up to 132 pt off the content mid-band). Clock-driven motion
   (fling, `.uikit` animations, `snapHeader(to:animated:)`, the refresh hold's lift) writes the target every frame and the header leaf follows it.
-- **Header behaviors from the same live input (amended 2026-11-02, D68–D70).** The stretch scale, the `.slideBehind` parallax
+- **Header behaviors from the same live input (amended 2026-11-02, D68–D70; 2026-11-07, D76).** The stretch scale, the `.slideBehind` parallax
   translation and the fade are derived in the header's leaf from the same live input as the slot (one update, the same `o′`; in a
   transaction-driven scroll each interpolates `o′` in that transaction) and from the layout's own `R`: the 16+ slot `Layout` places
   the stack at `minY + t_g − k·p·h` with `h` the pass's own height, the 15 path's translation is a `GeometryEffect` computing the
-  same from its size (the fallback frame's `R(W)`), the stretch effect and the clip compute `s` from the stack's size, and the
+  same from its size (the fallback frame's `R(W)`), the stretch effect and the clip compute `s` from the stack's size (D76: the
+  laid-out share `m` rides the same input, so the grown layout and the remaining scale come from one `g` in every frame), and the
   fade's pull weight reads the stack's layout height. So an app-animated resize interpolates all of them with the content and
   the unanimated commit re-sets nothing (during an open resize `p` and `g` are the anchor's, bit-stable). Geometry consumers of
   the live input take it with the pull stripped (`HeaderLiveInput.geometry`): the fade's pull rides the input only when the pull
