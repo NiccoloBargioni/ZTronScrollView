@@ -166,6 +166,39 @@ struct PickerDeclineTests {
         #expect(!v.coord.isSequenceActive && v.state.phase == .idle)
     }
 
+    // MARK: Probe hub (PICKER-s2)
+
+    /// One report reaches the hub's owner and every member; joining is idempotent and the owner never joins itself.
+    @Test func aHubReportReachesItsOwnerAndEveryMember() {
+        let clock = Clock()
+        let outer = vertical(.preferred, clock), inner = vertical(.preferred, clock)
+        let hub = outer.coord.pickerProbe
+        hub.join(inner.coord)
+        hub.join(inner.coord)
+        hub.join(outer.coord)
+        #expect(hub.memberCount == 1)
+        hub.report(onPicker: true)
+        drag([outer, inner], clock, step: CGSize(width: 0, height: -20))
+        #expect(outer.offset.y == 300 && inner.offset.y == 300, "both heard the picker")
+        hub.report(onPicker: false)
+        drag([outer, inner], clock, step: CGSize(width: 0, height: -20))
+        #expect(outer.offset.y > 300 && inner.offset.y > 300)
+    }
+
+    /// A member that went away is dropped at the next join.
+    @Test func aMemberThatWentAwayIsDropped() {
+        let hub = PanCoordinator(state: ZTronScrollState(), axes: .vertical).pickerProbe
+        do {
+            let gone = PanCoordinator(state: ZTronScrollState(), axes: .vertical)
+            hub.join(gone)
+            #expect(hub.memberCount == 1)
+        }
+        let kept = PanCoordinator(state: ZTronScrollState(), axes: .vertical)
+        hub.join(kept)
+        #expect(hub.memberCount == 1)
+        hub.report(onPicker: false)   // the owner is gone too: nothing to call, nothing breaks
+    }
+
     // MARK: Nested (open item 38)
 
     @MainActor struct Rig {
@@ -356,6 +389,44 @@ struct PickerDeclineTests {
         pump(0.15)
         #expect(recognizers(w).isEmpty && !c.pickersAbsorbDrags)
         _ = w
+    }
+
+    /// 17+: in a nested pair under the modifier only the outer view installs the probe; the inner joins the outer's hub.
+    @Test func aNestedAdapterJoinsTheOuterHubInsteadOfInstallingAProbe() {
+        let s = makeState(.preferred)
+        guard !s.usesUIKitTouchObserver else { return }   // a real 15-16 runtime: every view has its own D31 recognizer
+        let outer = PanCoordinator(state: s, axes: .vertical)
+        let inner = PanCoordinator(state: makeState(.preferred), axes: .horizontal)
+        let w = host(Color.clear.frame(width: 200, height: 200)
+            .overlay(Color.clear.frame(width: 100, height: 100)
+                .modifier(PanGestureAdapter(coordinator: inner, axes: .horizontal))
+                .environment(\.ztronPickerProbeHub, outer.pickerProbe))
+            .modifier(PanGestureAdapter(coordinator: outer, axes: .vertical))
+            .ztronScrollPickersAbsorbDrags())
+        #expect(recognizers(w).count == 1 && outer.pickerProbe.memberCount == 1)
+        #expect(outer.pickersAbsorbDrags && inner.pickersAbsorbDrags)
+        _ = w
+    }
+
+    /// The real plumbing: `ZTronScrollView` hands the outermost hub to its content, so nested views install one probe on 17+
+    /// and keep one D31 recognizer each in the 15-16 shape.
+    @Test(arguments: [false, true]) func nestedScrollViewsInstallOneProbeOn17AndLater(uikitShape: Bool) {
+        withOSPath(uikitShape ? .forcedFallback : .preferred) {
+            if uikitShape { ZTronAvailability.forceUIKitTouchObserver(true) }
+            defer { ZTronAvailability.forceUIKitTouchObserver(false) }
+            let outer = ZTronScrollState(), inner = ZTronScrollState()
+            let uikit = outer.usesUIKitTouchObserver
+            guard uikit == uikitShape else { return }   // release builds cannot force; a real 15-16 runtime is always D31
+            let w = host(ZTronScrollView(.vertical, state: outer) {
+                VStack(spacing: 0) {
+                    ZTronScrollView(.horizontal, state: inner) { Color.red.frame(width: 600, height: 50) }.frame(height: 50)
+                    Color.blue.frame(height: 1000)
+                }
+            }.ztronScrollPickersAbsorbDrags())
+            #expect(recognizers(w).count == (uikit ? 2 : 1))
+            #expect(recognizers(w).allSatisfy { $0.reportsPickers && $0.feedsCore == uikit })
+            _ = w
+        }
     }
 
     /// 15-16 shape (D31, forced on a 17+ simulator): the recognizer is there either way, feeds the core, mirrors the flag.

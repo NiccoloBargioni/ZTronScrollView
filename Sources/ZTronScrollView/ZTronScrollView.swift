@@ -85,6 +85,8 @@ struct ScrollContainer<Content: View>: View {
     @Environment(\.ztronDoubleTapZoom) private var envDoubleTap
     @Environment(\.ztronScrollConfig) private var envConfig
     @Environment(\.ztronProxyScope) private var proxyScope
+    /// The outermost enclosing `ZTronScrollView`'s picker probe hub, passed down; nil at the top (PICKER-s2).
+    @Environment(\.ztronPickerProbeHub) private var outerProbeHub
     @StateObject private var coordinator: PanCoordinator
     @StateObject private var observerStore = ObserverStore()
 
@@ -135,6 +137,7 @@ struct ScrollContainer<Content: View>: View {
             }
             .environment(\.ztronTargetRegistry, state.targets)
             .environment(\.scrollArbiter, nested)
+            .environment(\.ztronPickerProbeHub, outerProbeHub ?? coordinator.pickerProbe)   // constant per identity
             .modifier(ContentSizeMeasure(state: state))
             .modifier(NamedSpaceModifier(name: "ztronScroll.content", useNew: state.usesNamedCoordinateSpace))
             .modifier(NamedSpaceModifier(name: nested.coordinateSpaceName, useNew: state.usesNamedCoordinateSpace))

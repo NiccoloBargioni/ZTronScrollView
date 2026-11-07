@@ -61,6 +61,8 @@ final class PanCoordinator: ObservableObject {
     private var heldRelease: (request: ReleaseRequest, env: PanEnvironment)?
     /// `View.ztronScrollPickersAbsorbDrags(_:)` (spike PICKER-s1, open items 37-39), mirrored by the pan adapter.
     var pickersAbsorbDrags = false
+    /// What this view's window probe reports to: this coordinator and the views nested in it (17+, PICKER-s2).
+    private(set) lazy var pickerProbe = PickerProbeHub(owner: self)
     /// The window probe saw this sequence's first finger land inside a wheel picker. Read once, at the first drag
     /// sample, and only while `pickersAbsorbDrags` (a report left from before the modifier turned false never declines).
     private var sequenceBeganOnPicker = false

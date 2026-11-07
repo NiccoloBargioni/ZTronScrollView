@@ -18,8 +18,8 @@ final class UIKitTouchObserverRecognizer: UIGestureRecognizer, UIGestureRecogniz
     private weak var catchState: CatchObserverState?
     /// D31 (15-16): touches feed `TouchObserverCore`. False = probe only (17+): the picker check and nothing else.
     let feedsCore: Bool
-    /// `ztronScrollPickersAbsorbDrags`: at a sequence's first touch-down, the coordinator learns whether it began on a
-    /// picker.
+    /// `ztronScrollPickersAbsorbDrags`: at a sequence's first touch-down, the coordinator's hub (it and the views nested
+    /// in it, `PickerProbeHub`) learns whether it began on a picker.
     var reportsPickers: Bool
 
     init(anchor: UIView, coordinator: PanCoordinator, catchState: CatchObserverState, feedsCore: Bool = true,
@@ -49,7 +49,7 @@ final class UIKitTouchObserverRecognizer: UIGestureRecognizer, UIGestureRecogniz
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
         super.touchesBegan(touches, with: event)
         if reportsPickers, Self.beginsSequence(touches, event) {
-            coordinator?.touchSequenceBegan(onPicker: touches.contains { Self.isInPicker($0.view) })
+            coordinator?.pickerProbe.report(onPicker: touches.contains { Self.isInPicker($0.view) })
         }
         forward(touches, .began)
     }

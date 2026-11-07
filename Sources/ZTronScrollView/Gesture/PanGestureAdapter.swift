@@ -31,6 +31,8 @@ struct PanGestureAdapter: ViewModifier {
     @Environment(\.ztronYieldsToSheet) private var yields
     /// `View.ztronScrollPickersAbsorbDrags(_:)` (spike PICKER-s1): installs the probe-only window recognizer on 17+.
     @Environment(\.ztronPickersAbsorbDrags) private var pickersAbsorb
+    /// The outermost enclosing `ZTronScrollView`'s probe hub; nil when this view is the outermost (PICKER-s2).
+    @Environment(\.ztronPickerProbeHub) private var outerProbeHub
     @Environment(\.displayScale) private var displayScale
     @State private var observer = CatchObserverState()
     /// Fallback observer gating (iOS < 28, D34, D37): the zero-distance drag steals touches from UIKit-backed controls, so
@@ -66,6 +68,10 @@ struct PanGestureAdapter: ViewModifier {
         // iOS 15-16 (D31): the window recognizer replaces the SwiftUI observer gesture, so nothing is armed or gated.
         let uikit = coordinator.state.usesUIKitTouchObserver
         let gated = !coordinator.state.usesSpatialEvents && !uikit
+        // 17+: only the outermost view installs the window probe; a nested one joins its hub (an anchor inside a nested
+        // view breaks that view's drags, PICKER-s2). 15-16: every view reports through its own D31 recognizer.
+        let reportsPickers = pickersAbsorb && (uikit || outerProbeHub == nil)
+        if pickersAbsorb, !uikit, let outerProbeHub { outerProbeHub.join(coordinator) }
         let obs = observer
         let tap = doubleTap.map { PinchGestureAdapter.doubleTap(coordinator: coordinator, observer: obs, config: $0) }
         return content
@@ -77,8 +83,8 @@ struct PanGestureAdapter: ViewModifier {
             .modifier(PinchGestureAttach(pinch: PinchGestureAdapter.gesture(coordinator: coordinator, observer: observer),
                                          doubleTap: tap, yields: yields))
             .modifier(CatchArmingProbe(state: gated ? coordinator.state : nil, arming: arming, observer: observer))
-            .modifier(UIKitObserverAttach(enabled: uikit || pickersAbsorb, feedsCore: uikit,
-                                          reportsPickers: pickersAbsorb, coordinator: coordinator, catchState: observer))
+            .modifier(UIKitObserverAttach(enabled: uikit || reportsPickers, feedsCore: uikit,
+                                          reportsPickers: reportsPickers, coordinator: coordinator, catchState: observer))
             .onChangeCompat(of: yields) { yielding in
                 // The masked gestures are cancelled by SwiftUI without `onEnded`: forget what they left behind, then end
                 // a sequence in flight like a cancelled touch.
