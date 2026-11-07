@@ -4,7 +4,8 @@ Scope: Orchestration.md open items 37 (18.x), 38 (nested inner, pager page, a vi
 D84 (the picker absorbs the drag, as in a native `ScrollView`), D86 (the non-shared pan stays `.simultaneous`), D74 (parity
 without appeal; scoped UIKit at 100 % coverage is acceptable). Builds on D31 (`Gesture/UIKit/UIKitTouchObserver.swift`), U1 C2 / C3
 (`docs/progress/UIKITPAN-s1.md`) and U2's decline (`PanEvent.declined`, `NestedScrollArbiter.participantDeclined`).
-Prototype: branch `claude/picker-hitview-spike`, off by default (`ZTRON_PICKER_DECLINE`). Measurements: §5.
+Prototype: branch `claude/picker-hitview-spike`. Since PICKER-s2 (2026-11-07, the user's call) it is an opt-in modifier,
+`View.ztronScrollPickersAbsorbDrags(_:)`, off by default (§4). Measurements: §5; regression with the modifier on: §5.1.
 
 ## 1. Problem
 
@@ -17,12 +18,12 @@ SwiftUI attach keeps Buttons, sliders and the wheel working together, so the fix
 
 The attach stays exactly as it is (`PanGestureAdapter.swift`, D86). Two additions:
 
-1. **Probe.** The D31 window recognizer gains a probe-only mode (`feedsCore: false`) and is installed on 17+ as well when the
-   feature is on. On 15–16 it is the D31 observer itself and does both jobs. At the first finger of a sequence (no other touch of
+1. **Probe.** The D31 window recognizer gains a probe-only mode (`feedsCore: false`) and is installed on 17+ as well while
+   `ztronScrollPickersAbsorbDrags(true)` is in the view's environment. On 15–16 it is the D31 observer itself and does both jobs. At the first finger of a sequence (no other touch of
    the event is still down) it walks `touch.view` and its superviews and asks one question: is one of them a wheel, that is a
    `UIPickerView`, or a `UIDatePicker` whose `datePickerStyle == .wheels`? Compact and graphical date pickers are not wheels: a
-   vertical drag that starts on them scrolls natively (§5). It reports the answer with `PanCoordinator.touchSequenceBegan(onPicker:)`. It uses public classes only, a
-   `superview` walk, no class names, no private API and no reflection. The recognizer stays passive, as in D31: it never leaves
+   vertical drag that starts on them scrolls natively (§5). It reports the answer with
+   `PanCoordinator.touchSequenceBegan(onPicker:)`. It uses public classes only, a `superview` walk, no class names, no private API and no reflection. The recognizer stays passive, as in D31: it never leaves
    `.possible`, never cancels or delays touches, recognizes simultaneously with everything, and cannot prevent or be prevented.
 2. **Decline.** The coordinator reads the report once, at the first drag sample of the sequence:
    - Within 45° of vertical (`abs(dy) >= abs(dx)`): the picker owns the drag. The coordinator feeds `.declined` to the session
@@ -40,28 +41,35 @@ result, where the wheel takes the drag and no scroll view moves.
 What it leaves alone, by construction: a sequence that does not start on a picker. Buttons (ButtonDragUITests), sliders and
 steppers never see a different pan, because only the report changes, and only for picker touches.
 
-## 3. Files (prototype)
+## 3. Files
 
 - `Gesture/UIKit/UIKitTouchObserver.swift`: `feedsCore`, `reportsPickers`, the report in `touchesBegan`, `beginsSequence`,
   `isInPicker`, `isWheel`. In DEBUG it also records the class chain it saw (`picker.chain`), as a measurement only: names are observed,
   never matched.
-- `Gesture/PanCoordinator.swift`: `touchSequenceBegan(onPicker:)`, `pickerAbsorbs(_:)` at the top of `handle(_:)`.
-- `Gesture/PanGestureAdapter.swift`: the `PickerDecline` gate (compile-time `ZTRON_PICKER_DECLINE`) and the anchor attach,
-  `enabled: uikit || PickerDecline.isOn`, `feedsCore: uikit`. Both inputs are static per view, so the content keeps its identity.
-- Tests: `PickerDeclineTests` (coordinator, nested arbiter, pager, caught motion, cone, latch), `PickerProbeRuleTests` (the rule
-  on real `UIPickerView`, wheels / compact / inline `UIDatePicker` and plain views; probe-only feeds nothing). Demo:
+- `Modifiers/ScrollEnvironment.swift`: `View.ztronScrollPickersAbsorbDrags(_ absorbs: Bool = true)`, environment-backed and
+  propagating like `ztronScrollYieldsToSheet`; the key defaults to `false`.
+- `Gesture/PanCoordinator.swift`: `pickersAbsorbDrags` (the adapter's mirror; a report is read only while it is true),
+  `touchSequenceBegan(onPicker:)`, `pickerAbsorbs(_:)` at the top of `handle(_:)`.
+- `Gesture/PanGestureAdapter.swift`: reads the environment value and attaches the anchor with `enabled: uikit || absorbs`,
+  `feedsCore: uikit`, `reportsPickers: absorbs`. Off, nothing is installed on 17+ (the shipped path); flipping it adds or
+  removes the anchor there, and on 15–16 `UIKitTouchObserverAnchor.updateUIView` updates the D31 recognizer in place.
+- Tests: `PickerDeclineTests` (coordinator, nested arbiter, pager, caught motion, cone, latch, a report while off),
+  `PickerProbeRuleTests` (the rule on real `UIPickerView`, wheels / compact / inline `UIDatePicker` and plain views; probe-only
+  feeds nothing), `PickerAbsorbModifierTests` (the environment value; hosted: 17+ adds and removes a probe-only recognizer,
+  the forced 15–16 shape keeps the D31 one and mirrors the flag). Demo:
   `-ZTronControlsWheels`, `-ZTronControlsTopology nested|pager`, probe counters in `Info`, `NativeScrollProbe` (native offsets
   from UIKit, §5). UI: `UIKitControlsUITests.testWheels*`, `testCompactDatePickerDragMeasure`;
-  `scripts/test-demo-ui.sh --picker` builds with the flag and makes the required fixes strict.
+  `scripts/test-demo-ui.sh --picker` builds the demo with `ZTRON_DEMO_PICKERS_ABSORB`, which applies the modifier at the app
+  root (`DemoApp.swift`), so every screen and every demo UI suite runs with it on, and makes the required fixes strict.
 
-## 4. What it would take to ship (needs the user)
+## 4. What shipping takes (needs the user)
 
-- **SPEC S2 / S16 text.** D31's UIKit exception covers a passive observer on 15–16 only. This puts the same passive recognizer
-  on every OS, in every `ZTronScrollView`, and widens what it looks at to the hit view's class. That is a SPEC S2 amendment and a
-  `ZTronCapability.uikitTouchObserver` doc change. Not written here (ask first).
-- **Default on.** Replace the compile-time gate with "always on". There is no API change, and the demo flag goes away.
-- **Coverage.** `scripts/coverage-uikit.sh` lists `PickerProbeRuleTests`. The report lines in `touchesBegan` are covered only by a
-  `--picker` UI lane (`--dd`). The gate run is a builder-session step.
+- **SPEC S2 / S16 text, opt-in or default.** D31's UIKit exception covers a passive observer on 15–16 only. With the modifier on,
+  the same passive recognizer runs on 17+ too and looks at the hit view's class. That needs a SPEC S2 amendment and a
+  `ZTronCapability.uikitTouchObserver` doc change even while the modifier is opt-in, and SPEC S2's API list gains
+  `ztronScrollPickersAbsorbDrags`. Not written here (ask first).
+- **Default on (later, if wanted).** Flip the key's `defaultValue` to `true`; the modifier stays as the way out.
+- **Coverage.** `scripts/coverage-uikit.sh` lists `PickerProbeRuleTests` and `PickerAbsorbModifierTests` (§5.1 has the gate run).
 - **15–16.** The report shares the D31 recognizer there. Verify on the M1 lane.
 
 ## 5. Measurements (2026-11-04, private clones, one lane at a time under `ztron-ui-lane.lock`)

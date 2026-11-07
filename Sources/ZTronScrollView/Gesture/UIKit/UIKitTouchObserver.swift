@@ -138,8 +138,8 @@ final class UIKitTouchAnchorView: UIView {
 struct UIKitTouchObserverAnchor: UIViewRepresentable {
     let coordinator: PanCoordinator
     let catchState: CatchObserverState
-    var feedsCore = true
-    var reportsPickers = false
+    let feedsCore: Bool
+    let reportsPickers: Bool
 
     func makeUIView(context: Context) -> UIKitTouchAnchorView {
         let view = UIKitTouchAnchorView()

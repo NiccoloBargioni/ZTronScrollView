@@ -256,8 +256,8 @@ struct GatedGestureAttach<P: Gesture>: ViewModifier {
 /// Anywhere else the content passes through.
 struct UIKitObserverAttach: ViewModifier {
     let enabled: Bool
-    var feedsCore = true
-    var reportsPickers = false
+    let feedsCore: Bool
+    let reportsPickers: Bool
     let coordinator: PanCoordinator
     let catchState: CatchObserverState
 
