@@ -624,7 +624,7 @@ reader scopes; children without a reader never update because of scrolling.
   measured and the right choice for an image banner: `.aspectRatio(16/9)` equals what an `Image` with `.aspectRatio(16/9, contentMode: .fit)`
   would measure to, without measurement machinery.
 - `.fit(min:)`: resting height = the header's ideal height at width `W` (height proposed `nil`), measured per "Natural height" below
-  *(kept)*; re-measured on width, Dynamic Type and (16+) header content changes, each a discrete inset change. Prefer `.fixed` /
+  *(kept)*; re-measured on width, Dynamic Type and header content changes (on 15–16 too since D78), each a discrete inset change. Prefer `.fixed` /
   `.aspectRatio` when the height is known.
 - `min` defaults to 0 (the header can collapse to nothing). `min ≥ resting` → fixed-height header ("Degenerate range").
 - **Overflow (D59, user 2026-10-25; amended 2026-10-26; D64 2026-10-27).** The *container* is `W × H` with `H` = the viewport height minus
@@ -779,17 +779,28 @@ height; `min`; `band = max(0, R − min)`;
 
 **Natural height (`.fit`) (kept, adapted).** Measure the ideal height directly, never from the height on screen (which would feed back): on
 16+ the header's slot `Layout` asks the single header instance for its ideal size at the proposed width while placing it at the live height;
-on 15 the host runs one measuring layout pass (the header at its ideal height, cropped to the live frame, so nothing visible changes) at the
-first layout and on width or Dynamic Type change, and at rest the header's frame IS its ideal height; 15 cannot see header *content*
-changes inside the band (documented gap; use `.aspectRatio`/`.fixed`, or change the header's identity). Never a hidden second copy for the
-measurement (the `.ambientBlur` background is a drawing, not a measurement). A new resting height is a discrete inset change (S7), never
+on 15 **(D78, 2026-11-04)** the header's frame is two ideal-ratio boxes around the same instance: `aspectRatio(nil, .fit)` reads the
+header's ideal size at the slot's width (`frame(width: W)` inside, `idealWidth W / (1 − q)`, the content proposed `m′` more than the box).
+The outer layout box clamps that ideal height at the overflow limit (`L − m′`; at the committed viewport never below the committed `R`), so
+it is `W` wide at `R = min(N, L)`: a resize's pass fits it to the slot's width (its height is `(1 − q)(R − m′)`), the committed viewport
+fits it to the committed `R`'s live height (`fixedSize(horizontal:)`). The inner measuring box, proposed the layout box's size, keeps the
+header's own ratio (narrower than `W` while the limit holds) and reports the natural height `N = (W / (1 − q)) · h / w + m′`, unlimited,
+through the leaf's reporter, as 16+'s ideal-size query (the state applies the limit, so a runtime overflow change resolves from the same
+stored value on both paths). The limit is never a height proposal to one box (`frame(idealHeight:)`): with the same layouts, an animated
+narrowing that left the limit was drawn at its final size from the first frame (forced lane: 29.3 pt seam, 160.7 pt lateral; the hosted
+presentation-tree test `aWidthChangeIsDrawnWithTheContent` guards it). Width, Dynamic Type and header *content* changes inside the band are
+measured in layout as on 16+; the host's measuring pass (the header at its ideal height, cropped to the live frame, so nothing visible changes) only
+takes the first measurement, before the header has metrics, and Dynamic Type changes. Never a hidden second copy for the measurement (the
+`.ambientBlur` background is a drawing, not a measurement). A new resting height is a discrete inset change (S7), never
 per frame. **(Amended 2026-10-26, seamless edges.)** The measurement taken inside a layout pass is recorded synchronously and adopted by the
 viewport commit of the SAME update (a rotation, an animated resize), so the content's inset and the header's layout height change in the
 same transaction; a measurement outside a resize (a header content change) is delivered at the next main run-loop iteration as before,
 **in the transaction of the change (amended 2026-10-27, review d16)**: the header records the animated transaction of an update that
 reaches its content (a `.transaction` reader, reads only) with its run-loop turn, and a measurement of that turn is adopted in it, so the
 content's inset and the header's frame animate with the content's own change (unanimated, the whole content jumped by the height change
-in one frame: 150 pt). 15 at rest adopts in the same update the same way.
+in one frame: 150 pt). At the committed viewport (its width and overflow container) both paths keep the committed `R` in layout
+(`HeaderMath.isCommittedViewport`, shared by 16+'s `layoutResting` and the 15 box's height fit), so a header content change moves the
+header only when the state commits the new `R`, together with the inset.
 
 **Zero height, degenerate range (kept).** `min` 0 → the header compresses to zero at full collapse and is hidden from hit-testing and
 accessibility; a header made only of flexible views has (nearly) no natural height under `.fit` (DEBUG warning naming the fix: `.fixed`,
@@ -1019,32 +1030,36 @@ screen recordings, `scripts/seam/`):
   curve (before: the content jumped 75 pt in one frame while the header animated, a seam closing over 1.2 s; with the
   slot of M8b-3 both jumped together). Without a header height change, or without an animation in the turn (a system
   rotation, an unanimated change), the write is unanimated as before. Unit tests `HeaderSafeAreaInsetTests`.
-- **The resting height of `.fit`** is adopted in the viewport commit of the same update (see Natural height). On 15–16 the measuring pass
-  arms in the commit's own update when the committed width is not the one it last measured at, so a rotation's measurement joins the open
-  resize inside UIKit's animation block (armed one update later through `onChange`, it landed after the never-animated resize had closed:
-  header and content jumped 98 pt at the rotation's start, forced lane). The pass lays the live header content out at its ideal height
-  (`fixedSize(vertical:)`) for that one update; it is never drawn (M8b-s6, forced lane, `.fit` half collapsed, rotation: a white bar in an
-  `.overlay(alignment: .bottom)` of the header stays within 0.5 pt of the header's bottom edge in every frame, `scripts/seam/probe.py`).
+- **The resting height of `.fit`** is adopted in the viewport commit of the same update (see Natural height). On 15–16 (D78) the frame's
+  ideal-ratio box measures the new width in the resize's own layout pass, a rotation's inside UIKit's animation block, as 16+'s slot
+  `Layout` does. The host's measuring pass arms in the commit's own update only while the header has no metrics yet (a launch-time width
+  change; the header is laid out at its height from the first frame, `HeaderFallbackSlotTests`): once metrics exist a flip of the pass
+  re-laid the header out at its ideal height in a later update and stepped it (27.0 compounds the retargets of one flush: lateral 76 pt).
+  The pass lays the live header content out at its ideal height (`fixedSize(vertical:)`) for that one update; it is never drawn (M8b-s6,
+  forced lane, `.fit` half collapsed, rotation: a white bar in an `.overlay(alignment: .bottom)` of the header stays within 0.5 pt of the
+  header's bottom edge in every frame, `scripts/seam/probe.py`).
 - The scroll view clips at its own frame; a `.preserve` gap and the safe areas outside that frame show what is behind the scroll view.
-- Known limit: on the 15 path a `.fit` header inside the band keeps a commit-time step on an app-driven resize (its `R` is the state's there;
-  forced lane: 45 pt at half collapse). Rotations are seamless there.
-- Known limit (review d16): on the 15 path an overflow-limited `R` (`.capped` / `.refit` while the limit is what sets `R`, including a limit
-  that turns on during the resize) is the state's in the animated pass of an app-driven resize, so it lands at the commit (unit test:
-  laid out at 226 pt, re-set to the 155.6 pt limit). iOS 13 layout modifiers have no size proportional to the proposed height
-  (`capped(f)` is `f · H`) and a per-frame `GeometryReader` is ruled out (S4.6). Rotations are seamless there (laid out once, inside UIKit's
-  block); the default `.uncapped` is unaffected. Measured (M8b-s6, forced lane, top-pinned height change to 0.4 of the screen):
-  `.capped` 70 pt at rest and 35 pt half collapsed, `.refit` (height to 0.25) 31 pt, each in one frame (hJ 1.0); 16+ seamless (≤ 0.5 pt).
-  A width change lands the same way, the header's width with it (header behaviors review, S-RS-2, 2026-11-02): `.aspectRatio(16/9)`
-  `.capped(0.25)` half covered, width 402 → 241 pt (easeInOut 1.2 s): in the first frame the header takes its final 68 pt height
-  and 242 pt width (left edge on the content's) while the content animates for 1.1 s: seam 29.3 pt closing to 0 over about 65
-  frames, lateral 159.3 pt, hJ 1.00, the same under `.compress` and `.slideBehind(parallax: 1)`; 27.0 0.2 / 0.5 pt and 17.5 0.2 /
-  0.3 pt; widening back seamless on all lanes (0.17 pt).
-  A cold slot-level `GeometryReader` around the frame leaf (its closure runs on resizes only, not on motion) could give the 15 path
-  `H`; not done (it restructures the 15 header host).
-- Known limit (open, M8b-s4): a scroll command that overlaps an open animated resize is not seamless. Issued while the resize animates, the
-  command ends the resize (M5 intervention) and the content takes the committed geometry at once while the header keeps interpolating
-  (seam lab: 26 pt gap, 48 pt lateral); issued in the size change's own `withAnimation`, the command is dropped by the resize but its target
-  moved the header offset `o′` in that animated transaction, so the header lands at its final frame at once (45 pt).
+- **The 15–16 header resolves from its own slot (D78, 2026-11-04, open item 15 (b)).** `HeaderSlotReader` wraps the 15 path's frame leaf
+  in a cold `GeometryReader`: its closure runs when the slot's size changes (a resize's layout pass, a host body run), never per frame
+  (DEBUG `header.slot`: 0 while scrolling, collapsing, pulling; ≥ 1 per resize on 15–16, 0 on 16+, which keeps its slot `Layout`). The
+  frame resolves from that slot's `W × H` as 16+ does: non-`.fit` sizes at `h_L(W, H)` (`HeaderMath.liveHeight`: the overflow limit
+  `L(H)` and `min ≥ R` at the slot), `.fit` through the ideal-ratio box (see Natural height). An overflow-limited `R` (`.capped` /
+  `.refit`, a limit that turns on or off during the resize), `.fixed` under a limit and `.fit` inside the band are final in the animated
+  pass of an app-driven resize; the viewport commit re-sets nothing (before D78 they landed there in one frame: forced lane `.capped` 70 pt
+  at rest, 35 pt half collapsed, `.refit` 31 pt, `.fixed` 84 pt, landscape 115 pt; S-RS-2 width 402 → 241 pt seam 29.3 pt and lateral
+  159.3 pt; `.fit` half collapsed 45.2 pt; a `.fit` header content change inside the band was not re-measured). Measured after
+  D78 (seam lab, the 19 resize, rotation, scroll and content-change rows of open item 15 (b) on 27.0 forced and preferred, six
+  on 17.5 forced and preferred; the 20th, an `.openGap` pull, draws its gap by design): seam ≤ 0.67 pt, lateral ≤ 0.5 pt, step
+  ≤ 0.05 of the change (0.10 in the rotation and landscape rows: the rotation's own frame rate); the
+  header is in the first frame at launch. The `.fit` boxes report the natural height unlimited, as 16+ (a runtime overflow change
+  resolves from the same stored value on both paths).
+- Open (item 15 (c), M8b-s4; queued as a fix, not a limit): a scroll command that overlaps an open animated resize is not seamless.
+  Issued while the resize animates, the command ends the resize (M5 intervention: `beginIntervention()` → `closeResize()` writes the final
+  metrics and offset unanimated) and the content takes the committed geometry at once while the header keeps interpolating (seam lab: 26 pt
+  gap, 48 pt lateral; 27.0 preferred too, so not the header path: lateral 53.3 pt, gap 29.8 pt, D78 design §1.4); issued in the size
+  change's own `withAnimation`, the command is dropped by the resize but its target moved the header offset `o′` in that animated
+  transaction, so the header lands at its final frame at once (45 pt). Direction: close or retarget the resize inside the app's animated
+  transaction instead of unanimated.
 
 **Snapping (kept; convention amended).** Only inside the band; positions as collapse progress (0 expanded, 1 collapsed; default `[0, 1]`;
 under `.slideBehind` the covered fraction, D68).
@@ -1463,7 +1478,7 @@ Run each test on both the preferred and the forced-fallback paths.
   - inset-dependent placement: indicators, pinned headers, `scrollTo`, refresh indicator (in the gap under `.preserve`, over the stretched band under `.stretch`)
   - horizontal scroll view: header stacked above, fixed; both axes: driven by the vertical offset
   - render counters: header builder 0 runs and content body 0 runs per collapse / stretch; reader content runs == distinct derived values; `quantizedProgress(steps:)` ≤ steps + 1; header `@State` survives
-  - natural height (`.fit`): re-measured on width (rotation), Dynamic Type and (16+) content changes, with the inset changing discretely; the 15 measuring pass gives the same resting height
+  - natural height (`.fit`): re-measured on width (rotation), Dynamic Type and content changes (15–16 by the D78 box), with the inset changing discretely; the 15 path gives the same resting height
   - zero-height cases: full collapse to 0, hidden from hit-testing and accessibility; a flexible-only `.fit` header, plus the DEBUG warning; `min` ≥ resting: fixed height, progress 0, no snapping, `.stretch` still grows
   - delegate modifiers (S11 amendment): each fires at the same site and in the same order as the delegate; `willEndDragging` target threading; `shouldScrollToTop` conjunction; attaching all of them re-evaluates no content body
 - **UIKit touch observer core** (Amendment 2026-10-20 (user); `Gesture/UIKit/TouchObserverCore.swift`, pure, synthetic samples):
