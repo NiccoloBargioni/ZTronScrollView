@@ -35,7 +35,8 @@ struct HeaderHost: View {
             .modifier(HeaderInteractionGate(state: state))
             .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .top)
             .background(HeaderBackgroundView(background: spec.background, copy: built))
-            .modifier(HeaderSlotReader(state: state, size: spec.size, overflow: spec.overflow, fade: spec.fade))
+            .modifier(HeaderSlotReader(state: state, size: spec.size, overflow: spec.overflow, fade: spec.fade,
+                                       stretchContent: spec.stretchContent))
             .accessibilityElement(children: .contain)
             .accessibilitySortPriority(1)                // "precedes the content": announced before it
     }

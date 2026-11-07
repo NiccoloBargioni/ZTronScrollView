@@ -61,22 +61,32 @@ extension ZTronScrollView {
     ///   - overflow: what the resting height does when it does not fit the scroll view's container (the viewport below
     ///     the safe area): `.uncapped` (the default) keeps it, `.capped(fraction:)` limits it to a fraction of the
     ///     container's height, `.refit` fits it into the container (an aspect fit for `.aspectRatio`).
+    ///   - stretchContent: with `pull: .stretch`, what the content does while a pull grows the header
+    ///     (``ZTronHeaderStretchContent``): `.keepTextMagnified` (the default) magnifies the whole header;
+    ///     `.keepTextSize` lays it out larger, so text and controls keep their size and an aspect-fit image still grows.
+    ///     A change while the header is pulled morphs between the two inside the same frame when animated
+    ///     (`withAnimation`), and lands in one frame otherwise; at rest both draw the same. A change runs the header's
+    ///     builder once (a cold change), never its content per frame.
     ///   - header: the header's content, built once per cold change.
     public func withScalingHeader<Header: View>(size: ZTronHeaderSize, collapse: ZTronHeaderCollapseBehavior = .compress,
                                                 pull: ZTronHeaderScalingBehavior = .preserve,
                                                 snap: ZTronHeaderSnap = .disabled, fade: ZTronHeaderFade? = nil,
                                                 background: ZTronHeaderBackground? = nil,
                                                 overflow: ZTronHeaderOverflow = .uncapped,
+                                                stretchContent: ZTronHeaderStretchContent = .keepTextMagnified,
                                                 @ViewBuilder header: @escaping (ZTronHeaderProxy) -> Header) -> Self {
         var copy = self
         copy.config.header = HeaderSpec(size: size, behavior: pull, collapse: collapse, snap: snap, fade: fade,
-                                        background: background, overflow: overflow, builder: { AnyView(header($0)) })
+                                        background: background, overflow: overflow, stretchContent: stretchContent,
+                                        builder: { AnyView(header($0)) })
         return copy
     }
 
-    /// The former spelling of ``withScalingHeader(size:collapse:pull:snap:fade:background:overflow:header:)``:
-    /// `scalingBehavior:` is now `pull:` (same type, same meaning), and the header collapses with `.compress`.
-    /// (The rename lists the new member without `collapse:`, so the fix-it maps `scalingBehavior:` onto `pull:`.)
+    /// The former spelling of
+    /// ``withScalingHeader(size:collapse:pull:snap:fade:background:overflow:stretchContent:header:)``: `scalingBehavior:`
+    /// is now `pull:` (same type, same meaning), the header collapses with `.compress` and a `.stretch` pull magnifies it
+    /// (`stretchContent: .keepTextMagnified`). (The rename lists the new member without `collapse:` and
+    /// `stretchContent:`, so the fix-it maps `scalingBehavior:` onto `pull:` label for label.)
     @available(*, deprecated, renamed: "withScalingHeader(size:pull:snap:fade:background:overflow:header:)",
                message: "scalingBehavior: is now pull:")
     public func withScalingHeader<Header: View>(size: ZTronHeaderSize, scalingBehavior: ZTronHeaderScalingBehavior,
@@ -85,7 +95,7 @@ extension ZTronScrollView {
                                                 overflow: ZTronHeaderOverflow = .uncapped,
                                                 @ViewBuilder header: @escaping (ZTronHeaderProxy) -> Header) -> Self {
         withScalingHeader(size: size, pull: scalingBehavior, snap: snap, fade: fade, background: background,
-                          overflow: overflow, header: header)
+                          overflow: overflow, stretchContent: .keepTextMagnified, header: header)
     }
 
     /// Where the gap a pull past the top opens with this view's `pull: .preserve` scaling header (D65; it refines

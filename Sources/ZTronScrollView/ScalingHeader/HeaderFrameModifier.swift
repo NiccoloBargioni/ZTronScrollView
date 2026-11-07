@@ -18,16 +18,19 @@ struct HeaderSlotReader: ViewModifier {
     let size: ZTronHeaderSize
     let overflow: ZTronHeaderOverflow
     let fade: ZTronHeaderFade?
+    /// D76 (`stretchContent:`), handed to the leaf.
+    var stretchContent: ZTronHeaderStretchContent = .keepTextMagnified
 
     @ViewBuilder
     func body(content: Content) -> some View {
         if state.usesLayoutProtocol, #available(iOS 16, *) {
-            content.modifier(HeaderFrameModifier(state: state, size: size, overflow: overflow, fade: fade))
+            content.modifier(HeaderFrameModifier(state: state, size: size, overflow: overflow, fade: fade,
+                                                 stretchContent: stretchContent))
         } else {
-            let state = state, size = size, overflow = overflow, fade = fade
+            let state = state, size = size, overflow = overflow, fade = fade, stretchContent = stretchContent
             GeometryReader { proxy in
                 content.modifier(HeaderFrameModifier(state: state, size: size, overflow: overflow, fade: fade,
-                                                     slot: Self.noted(proxy.size)))
+                                                     stretchContent: stretchContent, slot: Self.noted(proxy.size)))
             }
         }
     }
@@ -76,14 +79,19 @@ struct HeaderFrameModifier: ViewModifier {
     let size: ZTronHeaderSize
     let overflow: ZTronHeaderOverflow
     let fade: ZTronHeaderFade?
+    /// D76: what a `.stretch` pull does to the content (`HeaderLiveInput.layoutShare`, set in `wake()`).
+    var stretchContent: ZTronHeaderStretchContent = .keepTextMagnified
     /// 15 / forced: the slot's size (`HeaderSlotReader`); `nil` on 16+ (the layout's proposal) and without a reader.
     var slot: CGSize? = nil
     @StateObject private var relay = ChannelRelay()
     @StateObject private var reporter = HeaderNaturalReporter()
+    /// D76: the clip snaps a grown frame's side inset to the pixel grid (`HeaderMath.stretchClip`).
+    @Environment(\.displayScale) private var displayScale
 
     @ViewBuilder
     func body(content: Content) -> some View {
         let live = wake()
+        let scale = displayScale
         // The geometry's input (no fade pull): the slot, the frames and the effects never re-lay out for the fade.
         let shape = live.geometry
         let visible = shape.visibleHeight > 0.5
@@ -93,11 +101,12 @@ struct HeaderFrameModifier: ViewModifier {
         // `HeaderFallbackFrame`. The branch is a `let` flag fixed at state creation (R6): the identity never changes.
         if state.usesLayoutProtocol, #available(iOS 16, *) {
             HeaderSlotLayout(live: shape, reporter: reporter) {
-                Self.chrome(content, live: live, fade: fade, visible: visible, group: group)
+                Self.chrome(content, live: live, fade: fade, visible: visible, group: group, grownFrame: true,
+                            displayScale: scale)
             }
         } else {
             Self.chrome(content.modifier(HeaderFallbackFrame(live: shape, state: state, slot: slot, reporter: reporter)),
-                        live: live, fade: fade, visible: visible, group: group)
+                        live: live, fade: fade, visible: visible, group: group, grownFrame: false, displayScale: scale)
                 .modifier(HeaderTranslation(live: shape))
                 // The slot: the header at the top of the whole overlay. Without it a header exactly as tall as the
                 // region between the safe areas was placed against the bottom safe area (34 pt low; measured).
@@ -124,24 +133,35 @@ struct HeaderFrameModifier: ViewModifier {
                                   tracksPull: HeaderFadeMath.tracksPull(fade))
         if live.followsOffset { reporter.heldOffset = live.offset }
         live.natural = state.headerNatural
+        live.layoutShare = Self.layoutShare(stretchContent, metrics: metrics.header, layoutPath: state.usesLayoutProtocol)
         // D79: after a drawn catch every effect that interpolates `o′` draws the model's until its interpolation reaches it.
         if live.followsOffset, let ref = state.catchPinRef { live.catchPin = HeaderCatchPin(ref: ref, model: live.offset) }
         return live
+    }
+
+    /// D76, `m` for `stretchContent`: 1 for `.keepTextSize`, 0 for `.keepTextMagnified` and for a banner (no vertical
+    /// axis: `stretchContent:` does not apply). C14 (M8b-s8, until step s7): the 15 path (no Layout protocol) draws both
+    /// cases as D69 (`m = 0`): its frame does not grow by a laid-out share yet.
+    static func layoutShare(_ content: ZTronHeaderStretchContent, metrics: HeaderMetrics?, layoutPath: Bool) -> CGFloat {
+        guard content == .keepTextSize, layoutPath, metrics?.vertical != false else { return 0 }
+        return 1
     }
 
     /// What the framed header carries on every path: the fade (D70, inside the scaled stack: it stretches with the
     /// header), the `.stretch` scale (D69), its own clip, its layer group and the gates. The `.preserve` translation is the
     /// layout's (16+ placement, 15 `HeaderTranslation`), animated with the header offset, and moves the fade with the
     /// header. The fade, the scale and the clip read the same `live` the leaf hands the slot in the same body (no frame
-    /// lag) and interpolate `o′` in a transaction-driven scroll exactly as the slot does.
+    /// lag) and interpolate `o′` in a transaction-driven scroll exactly as the slot does. D76: the effect magnifies the
+    /// share `g_s`, the clip and the fade take the laid-out share `g_l` out of the frame (`grownFrame`: 16+, whose
+    /// stack is proposed the grown size; the 15 path's frame is the slot's `W`).
     static func chrome<V: View>(_ framed: V, live: HeaderLiveInput, fade: ZTronHeaderFade?, visible: Bool,
-                                group: Bool) -> some View {
+                                group: Bool, grownFrame: Bool, displayScale: CGFloat = 0) -> some View {
         framed
             .modifier(HeaderFadeOverlay(live: live, fade: fade))
             .modifier(HeaderStretchEffect(live: live.geometry))
             // The scaled stack (wider than W, taller by g) clipped to `W × h_L · s` in the unscaled frame: sides cut, the
             // bottom edge on the content's top; the frame itself when nothing stretches (`.clipped()` before D69).
-            .clipShape(HeaderStretchClip(live: live.geometry))
+            .clipShape(HeaderStretchClip(live: live.geometry, grown: grownFrame, displayScale: displayScale))
             // The header's own clip in its own layer group: Core Animation then interpolates it as the header's frame, not
             // pre-intersected with the container's clip (an uncapped header taller than the landscape viewport drew its
             // bottom edge at the container's clip, 40 pt above the content's top, all through a rotation).
@@ -202,18 +222,24 @@ struct HeaderFrameModifier: ViewModifier {
 /// and `g = live.stretch`, so the scaled stack's bottom edge is `top + h + g`, the content's top, and an aspect-fit image
 /// grows with the pull. Identity without a stretch. `size` is the layout's, not the state's: across an open resize `g` is
 /// the intent's anchor and `h` the layout's own `R(W, H)`, so the unanimated commit changes nothing drawn; an app-animated
-/// resize interpolates `h` with the drawn size. Its animatable data is the header offset `o′`, like `HeaderSlotLayout` /
-/// `HeaderFallbackFrame`: a transaction-driven scroll re-derives `g` per frame in the same transaction.
+/// resize interpolates `h` with the drawn size. Its animatable data is the header offset `o′` and the laid-out share `m`
+/// (D76), like `HeaderSlotLayout` / `HeaderFallbackFrame`: a transaction-driven scroll re-derives `g` per frame in the
+/// same transaction, and an animated `stretchContent:` change interpolates `m` with the layout.
+///
+/// D76: it magnifies the share `g_s = g − g_l` (`HeaderLiveInput.scaleStretch`): all of `g` for `.keepTextMagnified`
+/// (D69 bit for bit), nothing for `.keepTextSize` (the stack is laid out grown, `size` is `(W · s_l, h + g)`), and
+/// `s_eff = (h + g) / (h + g_l)` inside an animated switch. The crisp `.keepTextMagnified` path (M8b-s9) attaches here,
+/// to `g_s`.
 nonisolated struct HeaderStretchEffect: GeometryEffect {
     var live: HeaderLiveInput
 
-    var animatableData: CGFloat {
-        get { live.offset }
-        set { live = live.at(offset: newValue) }
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(live.offset, live.layoutShare) }
+        set { live = live.at(offset: newValue.first); live.layoutShare = newValue.second }
     }
 
     func effectValue(size: CGSize) -> ProjectionTransform {
-        ProjectionTransform(Self.transform(size: size, stretch: live.pinned(.headerStretch).stretch))
+        ProjectionTransform(Self.transform(size: size, stretch: live.pinned(.headerStretch).scaleStretch))
     }
 
     /// `translate(W/2, 0) · scale(s) · translate(−W/2, 0)`: x ↦ W/2 + s · (x − W/2), y ↦ s · y.
@@ -228,16 +254,24 @@ nonisolated struct HeaderStretchEffect: GeometryEffect {
 /// D69: the framed header's clip, `W × h · s` in the stack's UNSCALED frame (`h` its layout height, `s` the
 /// `HeaderStretchEffect` scale from the same `live`): the scaled stack's sides (it is `s · W` wide) are cut at the slot's
 /// width and its bottom edge, `h + g`, is kept. Exactly the frame (`.clipped()`) without a stretch. Same animatable data.
+/// D76: path-aware (`HeaderMath.stretchClip`): on 16+ (`grown`) a laid-out share `g_l` grows the frame to `W · s_l`
+/// and the clip keeps its centred `W`; the 15 path's frame stays the slot's `W`. With `g_l = 0` it is D69's `rect`.
 nonisolated struct HeaderStretchClip: Shape {
     var live: HeaderLiveInput
+    /// D76: the stack's frame is the grown one (16+, `HeaderSlotLayout` proposes `grownSize`); `false` on the 15 path.
+    var grown = true
+    /// The pixel grid the grown frame's side inset snaps to (0: none).
+    var displayScale: CGFloat = 0
 
-    var animatableData: CGFloat {
-        get { live.offset }
-        set { live = live.at(offset: newValue) }
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(live.offset, live.layoutShare) }
+        set { live = live.at(offset: newValue.first); live.layoutShare = newValue.second }
     }
 
     func path(in rect: CGRect) -> Path {
-        Path(Self.rect(in: rect, stretch: live.pinned(.headerClip).stretch))
+        let l = live.pinned(.headerClip)
+        return Path(HeaderMath.stretchClip(in: rect, layoutStretch: l.layoutStretch, scaleStretch: l.scaleStretch,
+                                           grownFrame: grown, displayScale: displayScale))
     }
 
     static func rect(in rect: CGRect, stretch: CGFloat) -> CGRect {
@@ -279,15 +313,17 @@ nonisolated struct HeaderTranslation: GeometryEffect {
 /// pass: no committed inset enters it, so a resize that changes the bottom safe area resolves the limit in its animated
 /// pass, M8b-s6). The header stack is proposed the live frame (sticky overlays, the background). `.fit` measures the ideal height at `W` here
 /// and records it synchronously, so the viewport commit of the same update adopts it. Only the header is hit-tested (a
-/// layout has no area of its own). Its animatable data is the header offset `o′` (`HeaderLiveInput.offset`).
+/// layout has no area of its own). Its animatable data is the header offset `o′` (`HeaderLiveInput.offset`) and the
+/// laid-out share `m` (D76): the stack is proposed `HeaderMath.grownSize(W, h, g_l)`, `(W, h)` for `.keepTextMagnified`,
+/// `(W · s, h + g)` for `.keepTextSize`, placed at its top centre (the clip keeps the centred `W`).
 @available(iOS 16, *)
 struct HeaderSlotLayout: Layout {
     var live: HeaderLiveInput
     let reporter: HeaderNaturalReporter
 
-    var animatableData: CGFloat {
-        get { live.offset }
-        set { live = live.at(offset: newValue) }
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(live.offset, live.layoutShare) }
+        set { live = live.at(offset: newValue.first); live.layoutShare = newValue.second }
     }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
@@ -315,8 +351,10 @@ struct HeaderSlotLayout: Layout {
         let h = height(at: bounds.width, slot: bounds.height, subviews)
         // `.slideBehind` (D68): up by `k · p · h` of this pass's own `h` (`R(W, H)`), as the 15 path's `HeaderTranslation`.
         let y = bounds.minY + HeaderTranslation.translation(live, layoutHeight: h)
+        // D76: grown by the laid-out share (`(W, h)` exactly without one).
+        let grown = HeaderMath.grownSize(width: bounds.width, layoutHeight: h, stretch: live.layoutStretch)
         subviews.first?.place(at: CGPoint(x: bounds.midX, y: y), anchor: .top,
-                              proposal: ProposedViewSize(width: bounds.width, height: h))
+                              proposal: ProposedViewSize(width: grown.width, height: grown.height))
     }
 
     private func width(_ p: ProposedViewSize) -> CGFloat {
@@ -384,10 +422,11 @@ nonisolated struct HeaderFallbackFrame: ViewModifier, Animatable {
     /// box reports `R` through it.
     var reporter: HeaderNaturalReporter? = nil
 
-    /// The header offset `o′` (see `HeaderLiveInput.offset`): a transaction-driven scroll re-runs this body per frame.
-    var animatableData: CGFloat {
-        get { live.offset }
-        set { live = live.at(offset: newValue) }
+    /// The header offset `o′` (see `HeaderLiveInput.offset`): a transaction-driven scroll re-runs this body per frame. With
+    /// the laid-out share `m` (D76), interpolated with the other four consumers in an animated `stretchContent:` change.
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(live.offset, live.layoutShare) }
+        set { live = live.at(offset: newValue.first); live.layoutShare = newValue.second }
     }
 
     @MainActor func body(content: Content) -> some View {
@@ -672,9 +711,10 @@ nonisolated struct HeaderFadeOverlay: ViewModifier, Animatable {
     var live: HeaderLiveInput
     let fade: ZTronHeaderFade?
 
-    var animatableData: CGFloat {
-        get { live.offset }
-        set { live = live.at(offset: newValue) }
+    /// `o′` and the laid-out share `m` (D76).
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(live.offset, live.layoutShare) }
+        set { live = live.at(offset: newValue.first); live.layoutShare = newValue.second }
     }
 
     @MainActor func body(content: Content) -> some View {
@@ -682,12 +722,20 @@ nonisolated struct HeaderFadeOverlay: ViewModifier, Animatable {
         return content.overlay(Group {
             if HeaderFadeMath.draws(fade) {
                 GeometryReader { g in
-                    HeaderFadeGradient(live: live, fade: fade, layoutHeight: g.size.height)
+                    // D76: the resting `R` = the frame's height less the laid-out share (constant through a pull at a
+                    // fixed width; `g.size.height` itself with `.keepTextMagnified`).
+                    HeaderFadeGradient(live: live, fade: fade, layoutHeight: Self.restingHeight(g.size.height, live))
                 }
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
             }
         })
+    }
+
+    /// D76: the pull weight's `R` from the stack's laid-out height (`h + g_l`): `max(0, h + g_l − g_l)`.
+    static func restingHeight(_ layoutHeight: CGFloat, _ live: HeaderLiveInput) -> CGFloat {
+        let l = live.layoutStretch
+        return l == 0 ? layoutHeight : Swift.max(0, layoutHeight - l)
     }
 
     /// What the gradient leaf draws at `live` with the pull weight's `R` = `resting` (pure). `nil` exactly when the fade

@@ -56,8 +56,29 @@ struct HeaderLiveInput: Equatable {
     /// `HeaderFrameModifier.wake()` when the input follows the offset); `nil` otherwise, so the input is bit for bit as
     /// without it (D62). `at(offset:)` carries it: each effect that interpolates `o′` reads `pinned(_:)`.
     var catchPin: HeaderCatchPin?
+    /// D76, `m`: the share of the `.stretch` pull that is laid out (`stretchContent:`): 0 for `.keepTextMagnified` (D69:
+    /// the whole pull is the scale effect's, bit for bit), 1 for `.keepTextSize` (the stack is laid out grown, nothing is
+    /// magnified). Animatable with `offset` in the five consumers that draw the pull (`HeaderSlotLayout`,
+    /// `HeaderFallbackFrame`, `HeaderStretchEffect`, `HeaderStretchClip`, `HeaderFadeOverlay`), so an app-animated option
+    /// change morphs between the two in the same frame; strictly between 0 and 1 only inside such a change. Set by
+    /// `HeaderFrameModifier.wake()`; `at(offset:)` and `pinned(_:)` keep it (the catch pin replaces `o′` only).
+    var layoutShare: CGFloat = 0
 
     var layoutDriven: Bool { metrics?.vertical == true }
+
+    /// D76, `g_l = m · g`: the laid-out share of the stretch (exactly 0 at `m = 0`, exactly `g` at `m = 1`).
+    var layoutStretch: CGFloat {
+        let g = stretch.isFinite ? Swift.max(0, stretch) : 0
+        let m = layoutShare.isFinite ? Swift.min(Swift.max(layoutShare, 0), 1) : 0
+        return m == 0 ? 0 : (m == 1 ? g : m * g)
+    }
+
+    /// D76, `g_s = g − g_l`: the magnified share of the stretch, `HeaderStretchEffect`'s (exactly `stretch` at `m = 0`:
+    /// D69 bit for bit). The crisp `.keepTextMagnified` path (M8b-s9) attaches to this share.
+    var scaleStretch: CGFloat {
+        let l = layoutStretch
+        return l == 0 ? stretch : stretch - l
+    }
 
     /// D79: the input an effect draws: re-derived at the model `o′` (`at(offset:)`) while the pin holds for `key` (after a
     /// drawn catch, until this effect's own interpolation of `o′` reaches the model: `CatchPin`); `self` otherwise.
@@ -316,6 +337,52 @@ enum HeaderMath {
     /// `s` at `o′` from the committed metrics: `1 + g/R` under a `.stretch` pull (`c = 0` there, so `h_L = R`), else 1.
     static func stretchScale(o oPrime: CGFloat, m: HeaderMetrics) -> CGFloat {
         stretchScale(layoutHeight: layoutHeight(o: oPrime, m: m), stretch: stretch(o: oPrime, m: m))
+    }
+
+    /// D76, the laid-out share of a pull (`.keepTextSize`): the size a stack laid out at `h` (16+: the slot's `h_L(W, H)`)
+    /// is proposed when `stretch` (`g_l`) of the pull is laid out, `(W · s_l, h + g_l)` with `s_l = (h + g_l) / h`, so its
+    /// aspect-fit content grows exactly as D69's scale grows it. Exactly `(W, h)` without a laid-out share (`s_l == 1`:
+    /// `g_l ≤ 0`, `h ≤ 0`, non-finite input), so `.keepTextMagnified` (`g_l = 0`) proposes D69's size bit for bit.
+    static func grownSize(width w: CGFloat, layoutHeight h: CGFloat, stretch gl: CGFloat) -> CGSize {
+        let s = stretchScale(layoutHeight: h, stretch: gl)
+        guard s != 1 else { return CGSize(width: w, height: h) }
+        return CGSize(width: w * s, height: h + gl)
+    }
+
+    /// D76, half the width a laid-out share adds (`(s_l − 1) · W / 2`): the 15 path grows the stack outside its slot-wide
+    /// frame by this much on each side. For an unlimited `.aspectRatio(r)` (`h = W / r`) it is `g_l · r / 2`, free of `W`.
+    /// 0 without a laid-out share or for non-finite input.
+    static func grownSidePad(width w: CGFloat, layoutHeight h: CGFloat, stretch gl: CGFloat) -> CGFloat {
+        let s = stretchScale(layoutHeight: h, stretch: gl)
+        guard s != 1, w.isFinite, w > 0 else { return 0 }
+        return (s - 1) * w / 2
+    }
+
+    /// D76, the `.stretch` clip of a stack in its LAYOUT frame `rect` with the pull split into a laid-out share `g_l` and a
+    /// magnified share `g_s` (`HeaderStretchClip`):
+    /// - x / width: on a grown frame (16+, the stack proposed `grownSize`: `rect` is `W · s_l` wide) the centred slot width
+    ///   `W = rect.width · (rect.height − g_l) / rect.height`; otherwise (`grownFrame` false, the 15 path's frame is the
+    ///   slot's `W`; or no laid-out share) the frame's own `minX` / `width`;
+    /// - height: `rect.height · s_eff`, `s_eff = (rect.height + g_s) / rect.height` (`HeaderStretchEffect`'s scale), the
+    ///   drawn bottom edge `top + h + g`.
+    /// With `g_l = 0` (`.keepTextMagnified`) it is D69's clip exactly (`W × h · s`); with `g_s = 0` the grown frame's `W`
+    /// columns at its own height. For `.aspectRatio` and `.fixed` frames interpolated linearly in an animated resize the
+    /// derived `W` is exact: `(W(t) + g·r) · (W(t)/r) / (W(t)/r + g) = W(t)`. `displayScale` (> 0): the side inset
+    /// `(rect.width − W) / 2` is snapped to the pixel grid. SwiftUI places the grown frame at pixel-rounded edges, so
+    /// its width is not exactly `W · s_l` (452 for 452.25 at 3x) and the derived `W` came out up to ⅓ px narrower per side
+    /// (i28 R5, hosted: 0.11 pt each side at `g` 30); the snapped inset puts the clip's edges on the slot's pixel edges.
+    static func stretchClip(in rect: CGRect, layoutStretch gl: CGFloat, scaleStretch gs: CGFloat, grownFrame: Bool,
+                            displayScale: CGFloat = 0) -> CGRect {
+        let s = stretchScale(layoutHeight: rect.height, stretch: gs)
+        var x = rect.minX, w = rect.width
+        if grownFrame, gl > 0, gl.isFinite, rect.height > gl, rect.height.isFinite, rect.width.isFinite {
+            w = rect.width * (rect.height - gl) / rect.height
+            var inset = (rect.width - w) / 2
+            if displayScale > 0, displayScale.isFinite { inset = (inset * displayScale).rounded() / displayScale }
+            x = rect.minX + inset
+            w = rect.width - 2 * inset
+        }
+        return CGRect(x: x, y: rect.minY, width: w, height: rect.height * s)
     }
 
     /// Whether a pull moves the header down with the content: `.preserve` with `ZTronHeaderPullBehavior.followContent`

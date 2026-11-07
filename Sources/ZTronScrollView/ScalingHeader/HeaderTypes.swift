@@ -59,6 +59,26 @@ public enum ZTronHeaderScalingBehavior: Sendable {
     case stretch
 }
 
+/// What a `pull: .stretch` header's content does while a pull past the top grows the header (the `stretchContent:`
+/// parameter of `withScalingHeader`, D76). In both cases the header's frame grows by the pull with its top edge pinned and
+/// its bottom edge on the content's top, its sides are cut at the scroll view's width, and an aspect-fit image grows from
+/// its top centre; they differ in the content's fixed-size parts (text, symbols, controls, padding, fixed frames).
+/// `pull: .preserve` and a banner (no vertical axis) ignore it. A change while the header is pulled (a refresh hold)
+/// morphs between the two inside the same frame when it is animated (`withAnimation`), and lands in one frame otherwise.
+public enum ZTronHeaderStretchContent: Hashable, Sendable {
+    /// The default: the whole header is magnified with the pull, `(R + g) / R` times from its top centre (`R` its resting
+    /// height, `g` the pull), its text, symbols and controls included, as if the resting header were zoomed in (D69). No
+    /// body runs and the header is not laid out again; hit-testing and accessibility frames are magnified with it.
+    case keepTextMagnified
+    /// The header is laid out larger with the pull, `(R + g) / R` times its resting width and height, from its top
+    /// centre: text, symbols, controls and fixed frames keep their point size (text stays sharp), while an aspect-fit
+    /// image (and anything else that follows the size it is offered) grows as with ``keepTextMagnified``. No body runs;
+    /// the header is laid out at the grown size every frame of a pull, as it is in a collapse. Text whose width follows
+    /// the header's width can re-wrap while pulled: give it the resting width with
+    /// `ZTronHeaderGeometryReader(…, of: \.width)`. A `GeometryReader` inside the header sees the grown size.
+    case keepTextSize
+}
+
 /// What the header does while the content scrolls up over it (the `collapse:` parameter of `withScalingHeader`, D68).
 /// A struct, like SwiftUI's `Animation`, so that both `.slideBehind` and `.slideBehind(parallax: 0.3)` can be written.
 ///

@@ -13,6 +13,9 @@ struct HeaderSpec {
     var fade: ZTronHeaderFade?
     var background: ZTronHeaderBackground?
     var overflow: ZTronHeaderOverflow = .uncapped
+    /// D76, `stretchContent:`: render-only (not in `HeaderSizing`): a change runs no `headerSpecChanged()` and leaves the
+    /// metrics alone; it reaches the frame leaf through the host's body (one cold run, like a `fade:` change).
+    var stretchContent: ZTronHeaderStretchContent = .keepTextMagnified
     var builder: (ZTronHeaderProxy) -> AnyView
 
     /// The state's cold values with the resolved pull behavior (D65: the member, else the environment, else `.openGap`;
