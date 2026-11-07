@@ -795,4 +795,96 @@ struct HeaderFallbackSlotTests {
         #expect(counts.bodies == bodies, "\(path): content.body 0")
         print("C18 dynamic type \(path): R \(R0) -> \(R1), held \(R2) seam \(worstSeam)")
     }
+
+    /// The seam lab's `fit-rest-stretch-width-hold[-ksize]` row, hosted: `DrawnHost` with `.stretch`, a 60 pt refresh hold
+    /// and either `stretchContent:` case.
+    struct DrawnHoldHost: View {
+        @ObservedObject var model: Model
+        let state: ZTronScrollState
+        let content: ZTronHeaderStretchContent
+        let counts: BodyCount
+        var body: some View {
+            GeometryReader { g in
+                ZTronScrollView(.vertical, state: state) { HeaderStretchScaleTests.Content(counts: counts) }
+                    .withScalingHeader(size: .fit(min: 64), pull: .stretch, stretchContent: content) { _ in
+                        DrawnHeader(size: .fit(min: 64))
+                    }
+                    .refresher(refreshView: { _ in Color.white.frame(width: 20, height: 20) }) {
+                        try? await Task.sleep(nanoseconds: 1_000_000_000_000)
+                    }
+                    .frame(width: model.narrow ? g.size.width * 0.6 : g.size.width)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            }
+        }
+    }
+
+    /// D76 (M8b-s8 s7): an app-animated width change during a refresh hold with a `.fit` header whose natural height
+    /// follows the width (16:9) is drawn with the content in both `stretchContent:` cases: every sampled frame keeps the
+    /// header's bottom edge on the content's top (|seam| < 1) and its sides on the content's (lateral < 1), and no frame
+    /// moves its height by half the change (the seam lab's forced `fit-rest-stretch-width-hold-ksize` drew the grown
+    /// header at its final size from the first frame: seam 90 pt, lateral 159 pt). Both paths, no content body.
+    @Test(arguments: OSPath.allCases, [ZTronHeaderStretchContent.keepTextMagnified, .keepTextSize])
+    func aWidthChangeInAHoldIsDrawnWithTheContent(path: OSPath, content: ZTronHeaderStretchContent) {
+        let model = Model(), counts = BodyCount()
+        let s = makeState(path)
+        let w = withOSPath(path) { hostDriven(DrawnHoldHost(model: model, state: s, content: content, counts: counts)) }
+        defer { unhost(w) }
+        settle(s)
+        s.beginRefreshing()
+        pump(1.0)
+        guard let g = s.headerGeometry?.stretch, g > 30 else {
+            Issue.record("\(path) \(content): no hold (\(String(describing: s.headerGeometry)))"); return
+        }
+        let bodies = counts.bodies
+        func sample() -> (header: CGRect, content: CGRect)? {
+            guard let h = HeaderStretchScaleTests.drawnFrames(of: HeaderStretchScaleTests.headerMarker, in: w, presented: true)
+                    .first,
+                  let c = HeaderStretchScaleTests.frames(of: HeaderStretchScaleTests.contentMarker, in: w, presented: true).first
+            else { return nil }
+            return (h, c)
+        }
+        for narrow in [true, false] {
+            let tag = "\(path) \(content) narrow \(narrow)"
+            guard let start = sample() else { Issue.record("\(tag): no marker layers"); return }
+            withAnimation(.linear(duration: 0.5)) { model.narrow = narrow }
+            var frames: [(header: CGRect, content: CGRect)] = []
+            for _ in 0..<40 {
+                pump(1.0 / 60)
+                if let f = sample() { frames.append(f) }
+            }
+            pump(0.4)
+            guard let end = sample() else { Issue.record("\(tag): no marker layers at the end"); return }
+            let seam = frames.map { abs($0.header.maxY - $0.content.minY) }.max() ?? .infinity
+            let lateral = frames.map { max(abs($0.header.minX - $0.content.minX), abs($0.header.maxX - $0.content.maxX)) }
+                .max() ?? .infinity
+            let heights = [start.header.height] + frames.map(\.header.height) + [end.header.height]
+            let change = abs(end.header.height - start.header.height)
+            let step = zip(heights, heights.dropFirst()).map { abs($1 - $0) }.max() ?? 0
+            let fmt = { (r: CGRect) in String(format: "%.2f,%.2f %.2fx%.2f", r.minX, r.minY, r.width, r.height) }
+            let trace = "start \(fmt(start.header)) end \(fmt(end.header)); frames "
+                + frames.prefix(12).map { fmt($0.header) + " | " + fmt($0.content) }.joined(separator: "; ")
+            #expect(frames.count >= 20, "\(tag): sampled \(frames.count) frames")
+            let drawnWithTheContent = {
+                #expect(seam < 1, "\(tag): header bottom vs content top, worst \(seam); \(trace)")
+                #expect(lateral < 1, "\(tag): header sides vs content sides, worst \(lateral); \(trace)")
+                #expect(change < 1 || step < 0.5 * change,
+                        "\(tag): the header's height moved \(step) of \(change) in one frame; \(trace)")
+            }
+            // Open item 43 (M8b-s8 s7): the state commits the new viewport in the first frames of the app's animation
+            // (both runtimes, measured); the committed grown `.fit` plan's constants are drawn final from that commit on
+            // the 27.0 runtime (the stack at its final grown rect, a 90 pt seam), interpolated on 17.5. Open, scheduled:
+            // the commit must lay out what the resize pass targets (see the handoff M8b-s8-s7).
+            if path == .forcedFallback && content == .keepTextSize,
+               ProcessInfo.processInfo.isOperatingSystemAtLeast(OperatingSystemVersion(majorVersion: 18, minorVersion: 0,
+                                                                                       patchVersion: 0)) {
+                withKnownIssue("open item 43", isIntermittent: true) { drawnWithTheContent() }
+            } else {
+                drawnWithTheContent()
+            }
+            #expect(abs((s.headerGeometry?.stretch ?? -1) - g) < 0.5, "\(tag): the hold kept")
+            print("D76 width hold \(tag): seam \(seam) lateral \(lateral) step \(step) of \(change); start \(fmt(start.header)) "
+                  + "end \(fmt(end.header)); first frames \(frames.prefix(4).map { fmt($0.header) + " | " + fmt($0.content) })")
+        }
+        #expect(counts.bodies == bodies, "\(path) \(content): content.body 0")
+    }
 }

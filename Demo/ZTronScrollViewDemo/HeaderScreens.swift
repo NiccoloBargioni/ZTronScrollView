@@ -10,6 +10,8 @@ import ZTronScrollView
 // `-ZTronScreen banner`: `-ZTronHeaderSize aspect|fixed|fit` (default aspect = `.aspectRatio(16/9)`),
 // `-ZTronHeaderOverflow uncapped|capped|refit` (capped = `.capped(fraction: 0.6)`), `.stretch`, a fade,
 // the title font from the live height, an overlay refresher over the stretched band, a horizontal-axis toggle.
+// `banner` and `appbanner` take `-ZTronStretchContent magnified|size` (D76, `stretchContent:`, default magnified) and show
+// a `header.stretchContent` segmented picker ("Magnified" / "Text size") that switches it at runtime, animated.
 // Both take `-ZTronHeaderBackground ambient|glass|color|view|none` (ZTronHeaderBackground, default none),
 // `-ZTronHeaderCollapse compress|slide|slide0|slide1` (D68: `.compress`, default; `.slideBehind` with parallax 0.5, 0, 1;
 // a slide adds a `Cover` button, `snapHeader(to: .height(12))`) and `-ZTronHeaderBackdrop on|off` (with a slide, the
@@ -63,6 +65,12 @@ enum HeaderDemo {
         }
     }
 
+    /// `-ZTronStretchContent magnified|size` (D76, default magnified): the banner screens' initial `stretchContent:`
+    /// (`.keepTextMagnified` / `.keepTextSize`); their `header.stretchContent` picker switches it at runtime, animated.
+    static var stretchContent: ZTronHeaderStretchContent {
+        argument("-ZTronStretchContent", "magnified") == "size" ? .keepTextSize : .keepTextMagnified
+    }
+
     /// `-ZTronHeaderPlain 1`: the profile header's background is pure white.
     static var plain: Bool { argument("-ZTronHeaderPlain", "0") == "1" }
 
@@ -80,6 +88,22 @@ enum HeaderDemo {
     static func load() async {
         let s = Double(argument("-ZTronLoadSeconds", "0.6")) ?? 0.6
         try? await Task.sleep(nanoseconds: UInt64(max(0, s) * 1_000_000_000))
+    }
+}
+
+/// D76: the `stretchContent:` picker of the banner screens (`header.stretchContent`, segments "Magnified" and
+/// "Text size"). A change is animated (`easeInOut`, 0.4 s): the header morphs inside its frame while pulled.
+struct StretchContentPicker: View {
+    @Binding var value: ZTronHeaderStretchContent
+
+    var body: some View {
+        Picker("Stretch", selection: $value.animation(.easeInOut(duration: 0.4))) {
+            Text("Magnified").tag(ZTronHeaderStretchContent.keepTextMagnified)
+            Text("Text size").tag(ZTronHeaderStretchContent.keepTextSize)
+        }
+        .pickerStyle(.segmented)
+        .frame(maxWidth: 220)
+        .accessibilityIdentifier("header.stretchContent")
     }
 }
 
@@ -103,6 +127,8 @@ struct HeaderDemoChrome: View {
     @Binding var info: String
     @Binding var snapshot: [String: Int]
     var extra: AnyView = AnyView(EmptyView())
+    /// A row under the buttons (the app banner's `stretchContent:` picker), `nil`: none.
+    var below: AnyView? = nil
     /// The `header.` identifiers VoiceOver reaches, in its order (`VoiceOverTree`, read on Info): `vo.header`'s value.
     @State private var voiceOver = ""
 
@@ -120,6 +146,7 @@ struct HeaderDemoChrome: View {
                 }
                 extra
             }
+            if let below { below }
             HStack(spacing: 6) {
                 ForEach(HeaderDemo.keys, id: \.self) { CounterRow(key: $0, value: snapshot[$0] ?? 0) }
             }
@@ -271,6 +298,7 @@ struct BannerScreen: View {
     @State private var info = ""
     @State private var snapshot: [String: Int] = [:]
     @State private var horizontal = HeaderDemo.argument("-ZTronBannerAxis", "vertical") == "horizontal"
+    @State private var stretchContent = HeaderDemo.stretchContent
 
     private var overflow: ZTronHeaderOverflow {
         switch HeaderDemo.argument("-ZTronHeaderOverflow", "uncapped") {
@@ -292,6 +320,7 @@ struct BannerScreen: View {
         VStack(spacing: 4) {
             HeaderDemoChrome(state: state, info: $info, snapshot: $snapshot, extra: AnyView(
                 Button(horizontal ? "Vertical" : "Horizontal") { horizontal.toggle() }.accessibilityIdentifier("banner.axis")))
+            StretchContentPicker(value: $stretchContent)
             scroller
                 .id(horizontal)
                 .border(Color.gray)
@@ -311,13 +340,14 @@ struct BannerScreen: View {
         }
         let current = base.withScalingHeader(size: size, collapse: HeaderDemo.collapse, pull: .stretch,
                                              fade: HeaderDemo.fade("single"), background: HeaderDemo.background,
-                                             overflow: overflow) { header in
+                                             overflow: overflow, stretchContent: stretchContent) { header in
             BannerHeader(header: header)
         }
         #if DEBUG
         // The deprecated spelling (`scalingBehavior:` → `pull:`), kept so the demo compiles it (with its warning); the
         // collapse switch (D68) needs the current one.
-        let headed = HeaderDemo.slides ? current
+        let headed = HeaderDemo.slides || stretchContent != .keepTextMagnified
+            || HeaderDemo.argument("-ZTronStretchContent", "none") != "none" ? current
             : base.withScalingHeader(size: size, scalingBehavior: .stretch, fade: HeaderDemo.fade("single"),
                                      background: HeaderDemo.background, overflow: overflow) { header in
                 BannerHeader(header: header)
@@ -389,6 +419,7 @@ struct AppBannerScreen: View {
     @State private var info = ""
     @State private var snapshot: [String: Int] = [:]
     @State private var probe = AppBannerPullProbe()
+    @State private var stretchContent = HeaderDemo.stretchContent
 
     private static var deprecatedCall: Bool { HeaderDemo.argument("-ZTronAppBannerCall", "current") == "deprecated" }
     /// `-ZTronAppBannerCollapse compress|slide|slide0|slide1` (D68; the current call only): `collapse:` (default compress).
@@ -414,6 +445,11 @@ struct AppBannerScreen: View {
                 HeaderDemoChrome(state: state, info: $info, snapshot: $snapshot, extra: AnyView(HStack(spacing: 8) {
                     Button("Pull") { pull(60) }.accessibilityIdentifier("appbanner.pull")
                     Button("Rest") { pull(0) }.accessibilityIdentifier("appbanner.rest")
+                }), below: Self.deprecatedCall ? nil : AnyView(HStack(spacing: 8) {
+                    StretchContentPicker(value: $stretchContent)
+                    // D76 R8 (HeaderUITests): the other case `-ZTronStretchSwitchDelay` s (default 1) after the tap, animated
+                    // (0.4 s): a switch while a finger drags.
+                    Button("Later") { switchLater() }.accessibilityIdentifier("header.switchLater")
                 }))
                     .padding(.vertical, 4)
                     .frame(maxWidth: .infinity)
@@ -434,9 +470,19 @@ struct AppBannerScreen: View {
         }
         return base.withScalingHeader(size: .aspectRatio(16.0/9.0, min: 0.0), collapse: Self.collapse, pull: .stretch,
                                       fade: .linear(to: Color(source: self.theme, value: \.appBackground)), overflow: .refit,
+                                      stretchContent: stretchContent,
                                       header: { _ in Image("app.global.about.us.snapshot").resizable().aspectRatio(16.0/9.0, contentMode: .fit)
                                           .overlay(AppBannerImageProbe())
                                           .frame(maxWidth: .infinity) })
+    }
+
+    private func switchLater() {
+        let delay = Double(HeaderDemo.argument("-ZTronStretchSwitchDelay", "1")) ?? 1
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            withAnimation(.easeInOut(duration: 0.4)) {
+                stretchContent = stretchContent == .keepTextSize ? .keepTextMagnified : .keepTextSize
+            }
+        }
     }
 
     /// A pull of `g` pt, held: the offset `g` past the top edge, unanimated (0: back at the top; `Reset`'s

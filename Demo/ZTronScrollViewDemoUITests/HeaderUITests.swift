@@ -582,9 +582,12 @@ final class HeaderUITests: XCTestCase {
     /// largest bottom edge and width follow the largest pull); a held pull of 60 pt draws it scaled by (R + 60) / R about its
     /// top centre (probe frame and pixels: the grid lines move out, the bottom edge moves down by 60 onto the content's top);
     /// back at rest it is W × R again. No content body, no header builder run.
+    /// D76: the current call in both `stretchContent:` cases (`-ZTronStretchContent`): `.keepTextSize` lays the image out
+    /// grown instead of magnifying it, the same probe frames and pixels.
     func testAppBannerPullGrowsTheImage() {
-        for call in ["current", "deprecated"] {
-            let app = launch("appbanner", ["-ZTronAppBannerCall", call])
+        for (call, stretch) in [("current", "magnified"), ("current", "size"), ("deprecated", "magnified")] {
+            let app = launch("appbanner", ["-ZTronAppBannerCall", call, "-ZTronStretchContent", stretch])
+            let call = "\(call) \(stretch)"
             let image = element(app, "appbanner.image")
             XCTAssertTrue(image.waitForExistence(timeout: 5))
             let width = app.windows.firstMatch.frame.width
@@ -599,7 +602,7 @@ final class HeaderUITests: XCTestCase {
             let R = rest.height
             checkDrawnImage(app, "\(call) rest", top: rest.minY, bottom: rest.maxY, width: width, scale: 1)
 
-            if call == "current" {
+            if call.hasPrefix("current") {
                 // A finger pull: the probe's largest drawn bottom edge / width follow the largest pull.
                 drag(app, from: (0.5, 0.3), to: (0.5, 0.6), hold: 0.6)
                 Thread.sleep(forTimeInterval: 1.5)
@@ -634,6 +637,178 @@ final class HeaderUITests: XCTestCase {
             checkDrawnImage(app, "\(call) back", top: rest.minY, bottom: rest.maxY, width: width, scale: 1)
             app.terminate()
         }
+    }
+
+    /// D76 (i28 §6), the user's appbanner setup held at 60 pt: switching `stretchContent:` with the screen's picker
+    /// (animated 0.4 s) keeps the drawn frame: the image's frame, its pixels (grid lines scaled by `(R + 60) / R`, the
+    /// bottom edge on the content's top) and the content's top are the same in both cases and after each switch. Each
+    /// switch runs the header's builder once and no content body.
+    func testStretchContentSwitchKeepsTheFrame() {
+        let app = launch("appbanner", ["-ZTronStretchContent", "magnified"])
+        let image = element(app, "appbanner.image")
+        XCTAssertTrue(image.waitForExistence(timeout: 5))
+        let width = app.windows.firstMatch.frame.width
+        let rest = image.frame, row = element(app, "header.row.0")
+        let R = rest.height, s = (R + 60) / R
+        app.buttons["appbanner.pull"].tap()
+        Thread.sleep(forTimeInterval: 0.8)
+        let held = image.frame, content = row.frame.minY
+        XCTAssertEqual(held.maxY, rest.maxY + 60, accuracy: 1, "held 60 pt")
+        XCTAssertEqual(held.width, width * s, accuracy: 1, "held: wider by (R + g) / R")
+        checkDrawnImage(app, "switch held magnified", top: rest.minY, bottom: rest.maxY + 60, width: width, scale: s)
+        var builds = 0
+        for (segment, tag) in [("Text size", "to keepTextSize"), ("Magnified", "back to keepTextMagnified")] {
+            app.buttons[segment].tap()
+            Thread.sleep(forTimeInterval: 1.0)
+            let f = image.frame
+            print("HEADER \(path) switch \(tag): image \(f) (held \(held)) row0 \(row.frame.minY)")
+            XCTAssertEqual(f.minY, held.minY, accuracy: 0.5, "\(tag): the top kept")
+            XCTAssertEqual(f.maxY, held.maxY, accuracy: 0.5, "\(tag): the bottom edge kept")
+            XCTAssertEqual(f.width, held.width, accuracy: 0.5, "\(tag): the width kept")
+            XCTAssertEqual(f.midX, held.midX, accuracy: 0.5, "\(tag): the centre kept")
+            XCTAssertEqual(row.frame.minY, content, accuracy: 0.5, "\(tag): the content's top kept")
+            checkDrawnImage(app, "switch \(tag)", top: rest.minY, bottom: rest.maxY + 60, width: width, scale: s)
+            builds += 1
+            let i = info(app, "switch \(tag)")
+            XCTAssertEqual(i.counters["content.body"], 0, "\(tag): content.body 0")
+            XCTAssertEqual(i.counters["header.builder"], builds, "\(tag): one builder run per switch")
+        }
+        app.buttons["appbanner.rest"].tap()
+        Thread.sleep(forTimeInterval: 0.8)
+        XCTAssertEqual(image.frame.maxY, rest.maxY, accuracy: 0.5, "back at rest")
+        XCTAssertEqual(image.frame.width, width, accuracy: 0.5, "full width again")
+    }
+
+    /// D76 R8: a `stretchContent:` switch while a finger drags (`header.switchLater` switches 0.8 s after its tap, animated
+    /// 0.4 s, inside the drag's 2 s hold): the drawn image still follows the pull (its largest bottom edge is the rest's
+    /// plus the largest pull, its largest width `W · (R + g) / R`), springs back to rest, and a held 60 pt pull then
+    /// draws the new case at the same frame and pixels. One builder run, no content body.
+    func testStretchContentSwitchDuringADrag() {
+        for (from, to) in [("magnified", "Text size"), ("size", "Magnified")] {
+            let app = launch("appbanner", ["-ZTronStretchContent", from, "-ZTronStretchSwitchDelay", "0.8"])
+            let image = element(app, "appbanner.image")
+            XCTAssertTrue(image.waitForExistence(timeout: 5))
+            let width = app.windows.firstMatch.frame.width
+            let rest = image.frame, R = rest.height
+            app.buttons["header.switchLater"].tap()
+            drag(app, from: (0.5, 0.3), to: (0.5, 0.6), hold: 2.0)
+            Thread.sleep(forTimeInterval: 1.5)
+            let i = info(app, "switch during a drag from \(from)")
+            let g = i.double("smax")
+            XCTAssertGreaterThan(g, 20, "\(from): the finger pulled past the top")
+            XCTAssertEqual(i.double("bmax"), rest.maxY + g, accuracy: 1.5, "\(from): the drawn bottom edge followed the pull")
+            XCTAssertEqual(i.double("wmax"), width * (R + g) / R, accuracy: 1.5, "\(from): the drawn width (R + g) / R")
+            XCTAssertEqual(image.frame.maxY, rest.maxY, accuracy: 0.5, "\(from): back at rest after the release")
+            XCTAssertEqual(i.counters["content.body"], 0, "\(from): content.body 0")
+            XCTAssertEqual(i.counters["header.builder"], 1, "\(from): one builder run for the switch")
+            XCTAssertTrue(app.buttons[to].isSelected, "\(from): switched to \(to)")
+            app.buttons["appbanner.pull"].tap()
+            Thread.sleep(forTimeInterval: 0.8)
+            let s = (R + 60) / R, pulled = image.frame
+            XCTAssertEqual(pulled.maxY, rest.maxY + 60, accuracy: 1, "\(from) -> \(to): held 60 pt")
+            XCTAssertEqual(pulled.width, width * s, accuracy: 1, "\(from) -> \(to): wider by (R + g) / R")
+            checkDrawnImage(app, "after the drag's switch to \(to)", top: rest.minY, bottom: rest.maxY + 60, width: width, scale: s)
+            app.terminate()
+        }
+    }
+
+    /// D76 (i28 §6, item 28's grow case): `.keepTextSize` keeps the header's text at its point size and crisp while a
+    /// `.stretch` header is held at 60 pt (the seam lab's `fixed` header with black 24 pt text on red,
+    /// `-ZTronSeamHeaderText 1`, from lossless `XCUIScreen` PNGs): the 10-90 % edge widths of the text's red-black
+    /// transitions along rows and columns are within ×1.10 of rest and its box is the rest's (±2 px). The magnified
+    /// default is printed, not judged (its blur is item 28's crisp path, M8b-s9).
+    func testKeepTextSizeKeepsHeaderTextCrisp() {
+        let base = ["-ZTronScreen", "seamlab", "-ZTronHeaderSize", "fixed", "-ZTronSeamStart", "rest",
+                    "-ZTronHeaderBehavior", "stretch", "-ZTronSeamHeaderText", "1"] + (forced ? ["-ZTronForceAllFallbacks"] : [])
+        let hold = ["-ZTronSeamHold", "1", "-ZTronSeamHoldHeight", "60"]
+        var got: [String: TextEdges] = [:]
+        for (tag, extra) in [("size rest", ["-ZTronSeamStretchContent", "size"]),
+                             ("size held", ["-ZTronSeamStretchContent", "size"] + hold),
+                             ("magnified held", ["-ZTronSeamStretchContent", "magnified"] + hold)] {
+            let app = XCUIApplication()
+            app.launchArguments = base + extra
+            app.launch()
+            XCTAssertTrue(app.buttons["seam.width"].waitForExistence(timeout: 10))
+            Thread.sleep(forTimeInterval: 3.0)
+            guard let p = pixels(app), let e = textEdges(p) else { XCTFail("\(tag): no text found"); app.terminate(); continue }
+            print(String(format: "HEADER %@ crisp %@: box %dx%d at %d,%d h %.3f (%d) v %.3f (%d)", path, tag, e.box.2 - e.box.0 + 1,
+                         e.box.3 - e.box.1 + 1, e.box.0, e.box.1, e.h, e.hn, e.v, e.vn))
+            got[tag] = e
+            app.terminate()
+        }
+        guard let rest = got["size rest"], let held = got["size held"] else { return }
+        XCTAssertGreaterThan(rest.hn, 20, "rest: enough row edges"); XCTAssertGreaterThan(rest.vn, 20, "rest: enough column edges")
+        for (a, b, axis) in [(held.h, rest.h, "rows"), (held.v, rest.v, "columns")] {
+            XCTAssertLessThanOrEqual(a / b, 1.10, "keepTextSize held: \(axis) edges ×\(a / b) of rest (crisp)")
+            XCTAssertGreaterThanOrEqual(a / b, 1 / 1.10, "keepTextSize held: \(axis) edges ×\(a / b) of rest")
+        }
+        XCTAssertEqual(held.box.2 - held.box.0, rest.box.2 - rest.box.0, accuracy: 2, "keepTextSize held: the text's width")
+        XCTAssertEqual(held.box.3 - held.box.1, rest.box.3 - rest.box.1, accuracy: 2, "keepTextSize held: the text's height")
+        if let m = got["magnified held"] {
+            print(String(format: "HEADER %@ crisp magnified held: h ×%.2f v ×%.2f of keepTextSize rest (item 28, M8b-s9)",
+                         path, m.h / rest.h, m.v / rest.v))
+        }
+    }
+
+    /// The text's edges in a seam-lab screenshot (black text on the pure red header; scripts/seam/edges.py in Swift).
+    private struct TextEdges {
+        /// The text's box in pixels (x0, y0, x1, y1), the mean 10-90 % width of the row (h) and column (v) transitions and
+        /// their counts.
+        var box: (Int, Int, Int, Int)
+        var h: Double, hn: Int, v: Double, vn: Int
+    }
+
+    private func textEdges(_ p: Pixels) -> TextEdges? {
+        func px(_ c: Int, _ r: Int) -> (Double, Double, Double) {
+            let i = (r * p.width + c) * 4
+            return (Double(p.bytes[i]), Double(p.bytes[i + 1]), Double(p.bytes[i + 2]))
+        }
+        func axis(_ v: (Double, Double, Double)) -> Bool { v.1 < 70 && v.2 < 70 }
+        // The header: the longest run of rows with > 25 % pure red pixels.
+        var best = (0, -1), start = -1
+        for r in 0..<p.height {
+            var red = 0
+            for c in stride(from: 0, to: p.width, by: 2) { let v = px(c, r); if axis(v) && v.0 > 200 { red += 1 } }
+            let isRed = Double(red) > 0.25 * Double(p.width / 2)
+            if isRed, start < 0 { start = r }
+            if (!isRed || r == p.height - 1), start >= 0 {
+                let end = isRed ? r : r - 1
+                if end - start > best.1 - best.0 { best = (start, end) }
+                start = -1
+            }
+        }
+        guard best.1 > best.0 else { return nil }
+        var x0 = Int.max, y0 = Int.max, x1 = -1, y1 = -1
+        for r in best.0...best.1 { for c in 0..<p.width { let v = px(c, r); if axis(v) && v.0 < 128 {
+            x0 = min(x0, c); x1 = max(x1, c); y0 = min(y0, r); y1 = max(y1, r) } } }
+        guard x1 >= 0 else { return nil }
+        let bx0 = max(0, x0 - 3), by0 = max(best.0, y0 - 3), bx1 = min(p.width - 1, x1 + 3), by1 = min(best.1, y1 + 3)
+        func widths(_ line: [Double]) -> [Double] {
+            var out: [Double] = [], lastExt = -1, lastKind = 0
+            for i in line.indices {
+                let kind = line[i] >= 230 ? 1 : (line[i] <= 25 ? -1 : 0)
+                guard kind != 0 else { continue }
+                if lastKind != 0, kind != lastKind, i - lastExt <= 10 {
+                    let seg = Array(line[lastExt...i])
+                    let mono = zip(seg, seg.dropFirst()).allSatisfy { lastKind == 1 ? $1 <= $0 : $1 >= $0 }
+                    func cross(_ level: Double) -> Double? {
+                        for k in 0..<(seg.count - 1) where (seg[k] - level) * (seg[k + 1] - level) <= 0 && seg[k] != seg[k + 1] {
+                            return Double(k) + (seg[k] - level) / (seg[k] - seg[k + 1])
+                        }
+                        return nil
+                    }
+                    if mono, let a = cross(230), let b = cross(25) { out.append(abs(b - a)) }
+                }
+                lastExt = i; lastKind = kind
+            }
+            return out
+        }
+        var hw: [Double] = [], vw: [Double] = []
+        for r in by0...by1 { hw += widths((bx0...bx1).map { px($0, r).0 }) }
+        for c in bx0...bx1 { vw += widths((by0...by1).map { px(c, $0).0 }) }
+        guard !hw.isEmpty, !vw.isEmpty else { return nil }
+        return TextEdges(box: (x0, y0, x1, y1), h: hw.reduce(0, +) / Double(hw.count), hn: hw.count,
+                         v: vw.reduce(0, +) / Double(vw.count), vn: vw.count)
     }
 
     /// D68 risk 5 under a real navigation bar (the appbanner screen, `collapse: .slideBehind(parallax: 1)`): as the header

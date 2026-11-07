@@ -448,6 +448,9 @@ nonisolated struct HeaderFallbackFrame: ViewModifier, Animatable {
                    maxHeight: plan.maxHeight, alignment: .top)
             // D78, the `.fit` box: the stack laid out (and asked for its ideal height) at the slot width.
             .frame(width: plan.stackWidth)
+            // D76 pulled `.fit`, a resize's layout pass: the stack proposed the grown rect around the rest box's.
+            .padding(.horizontal, -plan.growPadH)
+            .padding(.bottom, -plan.growPadBottom)
             .padding(.bottom, plan.innerPad)
             // The measuring box (the content's own ratio, unlimited; neutral for every other plan). D76 pulled `.fit`: its
             // width clamped to the grown `W · s_l` (`boxMinWidth` = `boxMaxWidth`; an ideal query passes through it
@@ -577,6 +580,10 @@ struct HeaderFallbackPlan: Equatable {
     /// D76 (`.keepTextSize`, a non-`.fit` size): half the width the laid-out share adds (`HeaderMath.grownSidePad`), the
     /// stack's overflow on each side of the slot-wide frame (`.padding(.horizontal, −sidePad)`). 0 otherwise.
     var sidePad: CGFloat = 0
+    /// D76 pulled `.fit` in a resize's layout pass (M8b-s8 s7): the stack's proposal grows by `2 · growPadH × growPadBottom`
+    /// over the D78 rest box's (negative paddings between the stack and the box; 0 otherwise).
+    var growPadH: CGFloat = 0
+    var growPadBottom: CGFloat = 0
     /// `q ≤ 1 − boxEpsilon` (the ideal width stays finite at full collapse); `ε = boxFloorHeight` (a larger floor
     /// mis-measures `R − m′ < 100` at full collapse: the box is `(1 − q)(R − m′)` tall there).
     static let boxEpsilon: CGFloat = 1e-6
@@ -715,6 +722,30 @@ extension HeaderFallbackPlan {
         guard h > 0, h.isFinite, gl.isFinite else { return nil }
         let grown = HeaderMath.grownSize(width: width, layoutHeight: h, stretch: gl)
         let container = live.layoutDriven ? (height ?? live.committedContainer) : live.committedContainer
+        // A resize's layout pass (M8b-s8 s7): the D78 rest box, width-fit, so the header follows the animated proposal
+        // with the content (the height-fit below sized the header from the plan's constants, which SwiftUI draws final
+        // from the first frame: the seam lab's forced `fit-rest-stretch-width-hold-ksize` drew a 90 pt seam and a 159 pt
+        // lateral step). The stack is proposed `g_l` taller and `g_l · W / (N′ − m′)` wider than the rest box's child
+        // (negative paddings), which keeps that child's ideal ratio `W : (N − m′)`, so `N` is measured as at rest; `N′`
+        // is the natural height predicted at this width from the committed pair (exact for an aspect content). The frame
+        // is `g_l` taller (`outerPad`).
+        if !HeaderMath.isCommittedViewport(width: width, container: container, live) {
+            var p = HeaderFallbackPlan(box: live, m: m, size: size, width: width, height: height)
+            let n0 = live.natural ?? m.resting
+            let predicted = m.width > 0 ? n0 * width / m.width : n0
+            let core = Swift.max(predicted - p.boxMin, Self.boxFloorHeight)
+            p.stackWidth = nil
+            p.stackIdealWidth = width
+            // No ideal width on the boxes: their ideal query reaches the stack's own (`W`), so `N(W)` is measured, not
+            // the height at the grown width a concrete ideal width would propose through the paddings.
+            p.boxIdealWidth = nil
+            p.measureWidth = width
+            p.growPadH = gl * width / (2 * core)
+            p.growPadBottom = gl
+            p.outerPad += gl
+            self = p
+            return
+        }
         let limit = HeaderMath.overflowLimit(live.overflow, containerHeight: container)
         let spec = size.minimum
         let mm = m.collapse.isSlideBehind ? 0 : Swift.min(Swift.max(0, spec.isFinite ? spec : 0), limit)
