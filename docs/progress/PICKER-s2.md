@@ -55,6 +55,7 @@ Tests (private clones pk2-*, own derived data, demo UI one lane at a time under 
 - After the fix (55abc27): 27.0 MixedTopology + NestedPager + UIKitControls + Pager 42/0/0; 17.5 the same + Header 51/0/0; 18.5
   targeted 150/5/0 (the base's Sheet Y1–Y5, open item 10); 26.5 targeted + ContentOverlay 159/0/0; 27.0 `--uikit --picker` all
   199/0/53 (base 188/0/52).
-- Coverage gate (`scripts/coverage-uikit.sh`, `Gesture/UIKit` 100 %): <!-- PICKER-s2 COVERAGE -->
+- Coverage gate (`scripts/coverage-uikit.sh`, `Gesture/UIKit` 100 %): PASS, 100 % lines in every file (unit suites + 27.0 `UIKitObserverUITests`
+  preferred and `--forced`).
 - Logs: shared notes folder `PICKER-s2/`.
 Usage: not measured.

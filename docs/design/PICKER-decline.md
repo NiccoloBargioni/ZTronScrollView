@@ -185,7 +185,8 @@ modifier goes around the outermost scroll view.
 | 27.0 `--uikit --picker` (the 15–16 shape: D31 recognizer in every view, reporting), all 252 | 199 / 0 / 53 | base `--uikit` 188 / 0 / 52 of 240; every `testWheels*` and ZTron-page case passed |
 
 Unit: 27.0 `ZTronScrollViewTests` 822 / 822 (0 feedback-loop warnings); 17.5 the touched suites 33 / 33. Coverage gate:
-<!-- PICKER-s2 COVERAGE -->
+`scripts/coverage-uikit.sh` PASS, 100 % lines in every `Gesture/UIKit` file (unit bundle of the gate's suites + 27.0
+`UIKitObserverUITests` preferred and `--forced`). The wheel rule (`isWheel`) is covered by the unit run only (`PickerProbeRuleTests`).
 
 The non-nested results of the pre-fix full suites carry over: the fix changes only what a nested view installs.
 
