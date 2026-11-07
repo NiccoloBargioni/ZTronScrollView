@@ -2,7 +2,7 @@
 # M8b-3 R5 seam lab: runs a list of scenarios through scripts/seam/measure.sh, one after the other, on one simulator.
 #
 # usage: scripts/seam/baseline.sh <udid> <out-root> <scenario>...
-#   scenario = <size>-<start>-<behavior>-<test>[-<extra>...], test = rotate | rotatel (from landscape) | width | pull | scroll | snap | kbrotate | fling | regrab | rows, extras (any order):
+#   scenario = <size>-<start>-<behavior>-<test>[-<extra>...], test = rotate | rotatel (from landscape) | width | pull | scroll | snap | kbrotate | fling | regrab | rows | hold, extras (any order):
 #              forced (the forced-fallback lane), capped | refit (-ZTronHeaderOverflow), ambient | glass | color | view
 #              (-ZTronHeaderBackground), marker (-ZTronSeamMarker 1: a cyan row at content y 320), refresh (-ZTronSeamRefresh 2.5:
 #              a refresher whose action holds 2.5 s, with pull: the refresh hold and its end), band (-ZTronSeamScrollBand 0.5:
@@ -77,11 +77,19 @@ for sc in "$@"; do
       appbanner) extra+=(-ZTronSeamAppBanner 1) ;;   # D69: the user's setup (NavigationView + GeometryReader, .aspectRatio(16/9, min: 0), a red aspect-fit Image)
       info) extra+=(-ZTronSeamInfo 2) ;;              # diagnostics only (draws the state line over the lab): DEBUG event log
       band) extra+=(-ZTronSeamScrollBand 0.5) ;;
+      text) extra+=(-ZTronSeamHeaderText 1) ;;   # M8b-s8 s6 (D76): black 24 pt text in the header (edges.py, textbox.py)
+      hh[0-9]*) extra+=(-ZTronSeamHoldHeight "${x#hh}") ;;   # with hold: the white-probe hold's holdOffset (hh120 = a 120 pt hold)
+      noprobe) extra+=(-ZTronSeamHoldProbe 0) ;;   # with hold: the probe drawn transparent
+      long) extra+=(-ZTronSeamTextLong 1) ;;   # with text: a long text that wraps (R1: it re-wraps under ksize)
+      extra*) v="${x#extra}"; extra+=(-ZTronSeamHeaderExtra "${v//+/,}") ;;   # with text: platform views at the header's top (extrafield+toggle+spinner)
+      ksize) extra+=(-ZTronSeamStretchContent size) ;;   # D76: stretchContent: .keepTextSize (default .keepTextMagnified)
+      switch*) v="${x#switch}"; extra+=(-ZTronSeamStretchSwitch "3,${v//p/.}") ;;   # D76: 3 s after launch, switch stretchContent to the other case over <d> s (switch0: unanimated; switch0p5 = 0.5)
       combo) extra+=(-ZTronSeamScrollBand 0.5 -ZTronSeamWidthThenScroll 0.5) ;;
       together) extra+=(-ZTronSeamScrollBand 0.5 -ZTronSeamWidthWithScroll 1) ;;
       *) echo "unknown scenario extra '$x' in $sc" >&2 ;;
     esac
   done
+  [ "$test" = "hold" ] && extra+=(-ZTronSeamHold 1)   # D76: the hold test is a held refresh (testHold only waits)
   [ -n "${ZS_SEAM_INSET:-}" ] && extra+=(-ZTronSeamInset "$ZS_SEAM_INSET")
   # D65: an .openGap pull is measured against the pull, a rotation / resize during its hold against the hold's gap.
   analyze=""

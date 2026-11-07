@@ -77,6 +77,14 @@ import ZTronScrollView
 // and grows their height instead (12 pt per count step: 60 -> 120 pt for 5 -> 10; no insertion, rows.py --grow reads the
 // first row's drawn height per frame), `-ZTronSeamRowsHost native|plain` hosts the same content in a native `ScrollView`
 // or in no scroll view (references; the lab's buttons still drive the change).
+// M8b-s8 s6 (D76, open item 28): `-ZTronSeamStretchContent magnified|size` is `withScalingHeader`'s `stretchContent:`
+// (`.keepTextMagnified`, the default / `.keepTextSize`); `-ZTronSeamStretchSwitch <delay>,<duration>` switches it to the
+// other case `delay` seconds after launch, in `.linear(duration:)` (0: unanimated); `-ZTronSeamHoldHeight <pt>` is the
+// white-probe hold's `holdOffset` (`.stretch`: s = (R + H) / R), `-ZTronSeamHoldProbe 0` draws the probe transparent;
+// with `-ZTronSeamHeaderText 1`, `-ZTronSeamTextSize <pt>` the text's size (24), `-ZTronSeamTextLong 1` a long text
+// (it wraps), `-ZTronSeamHeaderExtra field,toggle,spinner,material,symbol,button` platform-backed and special views at the
+// header's top; `-ZTronSeamCounters <s>[,<s>...]` prints the DEBUG render counters (`SEAMLAB counters`) at those times;
+// `-ZTronSeamPullTo <pt>` an animated pull to <pt> past the top 1 s after launch (easeInOut 1 s), held 3 s, then back.
 
 enum SeamLab {
     static let red = Color(red: 1, green: 0, blue: 0)
@@ -167,6 +175,8 @@ struct SeamLabScreen: View {
     /// Core check (M8b-s6 close): `-ZTronSeamRetargetNear <eps>` with `-ZTronSeamRetarget <s>`: `s` seconds into the change the height
     /// is retargeted to the DRAWN height + eps (a non-collinear retarget near the presented value).
     @State private var retargetHeight: CGFloat? = nil
+    /// `-ZTronSeamStretchContent` / `-ZTronSeamStretchSwitch` (M8b-s8 s6, D76).
+    @State private var stretchContent = SeamLab.stretchContent
 
     var body: some View {
         if SeamLab.appBanner {
@@ -257,6 +267,29 @@ struct SeamLabScreen: View {
         .background(SeamLab.blue.ignoresSafeArea())
         .overlay(alignment: .topLeading) { if SeamLab.info { SeamLabInfo(state: state) } }
         .task {
+            SeamLab.scheduleCounters()
+            if let (delay, duration) = SeamLab.stretchSwitch {
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: UInt64(max(0, delay) * 1_000_000_000))
+                    let to: ZTronHeaderStretchContent = stretchContent == .keepTextSize ? .keepTextMagnified : .keepTextSize
+                    print("SEAMLAB stretchContent switch -> \(to) over \(duration) s")
+                    if duration > 0 {
+                        withAnimation(.linear(duration: duration)) { stretchContent = to }
+                    } else {
+                        stretchContent = to
+                    }
+                }
+            }
+            if let pt = SeamLab.pullTo {
+                // D76 lab: an animated pull (a transaction-driven scroll past the top), held 3 s, then back.
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    let top = -state.adjustedContentInset.top
+                    withAnimation(.easeInOut(duration: 1.0)) { state.scroll(to: CGPoint(x: 0, y: top - pt)) }
+                    try? await Task.sleep(nanoseconds: 4_000_000_000)
+                    withAnimation(.easeInOut(duration: 1.0)) { state.scroll(to: CGPoint(x: 0, y: top)) }
+                }
+            }
             if let y = SeamLab.startY {
                 try? await Task.sleep(nanoseconds: 600_000_000)
                 state.scroll(to: CGPoint(x: 0, y: y))
@@ -339,7 +372,8 @@ extension SeamLabScreen {
             .scrollIndicators(.hidden)
         var view = SeamLab.noHeader ? base : base
             .withScalingHeader(size: SeamLab.size, collapse: SeamLab.collapse, pull: SeamLab.behavior, fade: SeamLab.fade,
-                               background: SeamLab.background, overflow: SeamLab.overflow) { [tall] _ in SeamLabHeader(tall: tall) }
+                               background: SeamLab.background, overflow: SeamLab.overflow,
+                               stretchContent: stretchContent) { [tall] _ in SeamLabHeader(tall: tall) }
         if let pull = SeamLab.pull { view = view.scalingHeaderPullBehavior(pull) }
         if SeamLab.hold {
             if let (style, ho) = SeamLab.holdBuiltIn {
@@ -352,9 +386,10 @@ extension SeamLabScreen {
             }
             // A held refresh with a white probe as its indicator (centred in the indicator's frame), on the edge
             // `-ZTronSeamHoldEdge` names (open item 19), in the gap or floating (`-ZTronSeamHoldOverlay 1`).
-            var c = ZTronRefreshConfiguration(allowedEdges: Edge.Set(SeamLab.holdEdge))
+            var c = ZTronRefreshConfiguration(holdOffset: SeamLab.holdHeight, allowedEdges: Edge.Set(SeamLab.holdEdge))
             if let r = SeamLab.holdReset { c.resetAnimation = r }
-            return catchInset(view.refresher(refreshView: { _ in Color.white.frame(width: 20, height: 20) },
+            let probe = SeamLab.holdProbe
+            return catchInset(view.refresher(refreshView: { _ in Color.white.frame(width: 20, height: 20).opacity(probe ? 1 : 0) },
                                              overlay: SeamLab.holdOverlay, configuration: c) {
                 try? await Task.sleep(nanoseconds: 1_000_000_000_000)
             })
@@ -516,12 +551,21 @@ struct SeamLabHeader: View {
     var tall = false
 
     var body: some View {
+        #if DEBUG
+        let _ = ZTronRenderCounters.increment("header.content")
+        #endif
         if SeamLab.sticky {
             content.overlay(alignment: .bottom) { Color.white.frame(width: 120, height: 16) }
         } else if SeamLab.ruler {
             content.overlay(alignment: .topLeading) { SeamLabRuler() }
         } else if SeamLab.headerText {
-            content.overlay { Text("Stretch Aa 0123").font(.system(size: 24, weight: .bold)).foregroundColor(.black) }
+            content
+                .overlay {
+                    Text(SeamLab.textLong ? "The quick brown fox jumps over the lazy dog, twice over" : "Stretch Aa 0123")
+                        .font(.system(size: SeamLab.textSize, weight: .bold)).foregroundColor(.black)
+                        .multilineTextAlignment(.center).padding(.horizontal, 16)
+                }
+                .overlay(alignment: .top) { if !SeamLab.extras.isEmpty { SeamLabHeaderExtras().padding(.top, 8) } }
         } else {
             content
         }
@@ -564,6 +608,9 @@ struct SeamLabContent: View {
     var model: SeamLabRowsModel? = nil
 
     var body: some View {
+        #if DEBUG
+        let _ = ZTronRenderCounters.increment("content.body")
+        #endif
         if let model { SeamLabObservedRows(model: model) } else { SeamLabRows(count: rows) }
     }
 }
@@ -709,4 +756,69 @@ extension SeamLab {
         guard let cg = ctx.makeImage() else { return Image(systemName: "xmark") }
         return Image(decorative: cg, scale: 1)
     }()
+}
+
+// M8b-s8 s6 (D76, open item 28): the `stretchContent:` lab flags.
+extension SeamLab {
+    /// `-ZTronSeamStretchContent magnified|size` (default magnified, the API's default).
+    static var stretchContent: ZTronHeaderStretchContent {
+        HeaderDemo.argument("-ZTronSeamStretchContent", "magnified") == "size" ? .keepTextSize : .keepTextMagnified
+    }
+    /// `-ZTronSeamStretchSwitch <delay>,<duration>`: the switch to the other case (duration 0: unanimated).
+    static var stretchSwitch: (Double, Double)? {
+        let parts = HeaderDemo.argument("-ZTronSeamStretchSwitch", "").split(separator: ",").compactMap { Double($0) }
+        guard parts.count == 2 else { return nil }
+        return (parts[0], parts[1])
+    }
+    /// `-ZTronSeamPullTo <pt>`: 1 s after launch an animated pull to <pt> past the top (easeInOut 1 s), held 3 s, then back.
+    static var pullTo: CGFloat? { Double(HeaderDemo.argument("-ZTronSeamPullTo", "")).map { CGFloat($0) } }
+    /// `-ZTronSeamHoldHeight <pt>`: the white-probe hold's `holdOffset` (nil: the indicator's 60 pt).
+    static var holdHeight: CGFloat? { Double(HeaderDemo.argument("-ZTronSeamHoldHeight", "")).map { CGFloat($0) } }
+    /// `-ZTronSeamHoldProbe 0`: the white probe drawn transparent (a screenshot of the header without the square).
+    static var holdProbe: Bool { HeaderDemo.argument("-ZTronSeamHoldProbe", "1") == "1" }
+    /// `-ZTronSeamTextSize <pt>` (default 24) and `-ZTronSeamTextLong 1` (a text that wraps).
+    static var textSize: CGFloat { CGFloat(Double(HeaderDemo.argument("-ZTronSeamTextSize", "24")) ?? 24) }
+    static var textLong: Bool { HeaderDemo.argument("-ZTronSeamTextLong", "0") == "1" }
+    /// `-ZTronSeamHeaderExtra field,toggle,spinner,material,symbol,button`.
+    static var extras: [String] {
+        HeaderDemo.argument("-ZTronSeamHeaderExtra", "").split(separator: ",").map(String.init)
+    }
+
+    /// `-ZTronSeamCounters <s>[,<s>...]`: prints the DEBUG render counters at those times after launch.
+    @MainActor static func scheduleCounters() {
+        #if DEBUG
+        let times = HeaderDemo.argument("-ZTronSeamCounters", "").split(separator: ",").compactMap { Double($0) }
+        for t in times {
+            DispatchQueue.main.asyncAfter(deadline: .now() + t) {
+                let keys = ["content.body", "header.builder", "header.content", "header.frame"]
+                let line = keys.map { "\($0)=\(ZTronRenderCounters.value($0))" }.joined(separator: " ")
+                print("SEAMLAB counters t=\(t) " + line)
+            }
+        }
+        #endif
+    }
+}
+
+/// `-ZTronSeamHeaderExtra` (D76 lab): platform-backed and special views in the header (no ⊘ placeholders in either case;
+/// `.keepTextSize` keeps them sized).
+struct SeamLabHeaderExtras: View {
+    @State private var text = "Field"
+    @State private var on = true
+    @State private var taps = 0
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(SeamLab.extras, id: \.self) { e in
+                switch e {
+                case "field": TextField("f", text: $text).frame(width: 60).background(Color.white)
+                case "toggle": Toggle("", isOn: $on).labelsHidden()
+                case "spinner": ProgressView().progressViewStyle(.circular)
+                case "material": Text("Mat").padding(6).background(.ultraThinMaterial)
+                case "symbol": Image(systemName: "star.fill").font(.system(size: 28)).foregroundColor(.black)
+                case "button": Button("Tap \(taps)") { taps += 1 }.foregroundColor(.black).accessibilityIdentifier("seam.extra.button")
+                default: EmptyView()
+                }
+            }
+        }
+    }
 }

@@ -186,6 +186,17 @@ final class SeamLabUITests: XCTestCase {
         info(app, "wide")
     }
 
+    /// M8b-s8 s6 (D76): nothing but the launch and a wait (`-ZTronSeamHold 1` holds from 0.8 s, and
+    /// `-ZTronSeamStretchSwitch <delay>,<duration>` switches `stretchContent:` during it; `-ZTronSeamHoldWait <s>`, default
+    /// 9 s, is how long the lab is recorded after the launch).
+    func testHold() {
+        let app = launch()
+        XCTAssertTrue(app.buttons["seam.width"].waitForExistence(timeout: 10))
+        print("SEAMLAB mark hold \(Date().timeIntervalSince1970)")
+        Thread.sleep(forTimeInterval: arg("-ZTronSeamHoldWait", 9))
+        info(app, "held")
+    }
+
     /// M8b-s8 s2 (open item 34): with `-ZTronSeamRows <n> -ZTronSeamRowsTo <m>`, `seam.width` changes the content's row count
     /// n -> m (animated 0.5 s unless `-ZTronSeamRowsPlain 1`), then back; scripts/seam/rows.py reads the changed rows.
     func testRows() {
