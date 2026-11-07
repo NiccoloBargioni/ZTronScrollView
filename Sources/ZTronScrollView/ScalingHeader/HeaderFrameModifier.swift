@@ -133,17 +133,17 @@ struct HeaderFrameModifier: ViewModifier {
                                   tracksPull: HeaderFadeMath.tracksPull(fade))
         if live.followsOffset { reporter.heldOffset = live.offset }
         live.natural = state.headerNatural
-        live.layoutShare = Self.layoutShare(stretchContent, metrics: metrics.header, layoutPath: state.usesLayoutProtocol)
+        live.layoutShare = Self.layoutShare(stretchContent, metrics: metrics.header)
         // D79: after a drawn catch every effect that interpolates `o′` draws the model's until its interpolation reaches it.
         if live.followsOffset, let ref = state.catchPinRef { live.catchPin = HeaderCatchPin(ref: ref, model: live.offset) }
         return live
     }
 
     /// D76, `m` for `stretchContent`: 1 for `.keepTextSize`, 0 for `.keepTextMagnified` and for a banner (no vertical
-    /// axis: `stretchContent:` does not apply). C14 (M8b-s8, until step s7): the 15 path (no Layout protocol) draws both
-    /// cases as D69 (`m = 0`): its frame does not grow by a laid-out share yet.
-    static func layoutShare(_ content: ZTronHeaderStretchContent, metrics: HeaderMetrics?, layoutPath: Bool) -> CGFloat {
-        guard content == .keepTextSize, layoutPath, metrics?.vertical != false else { return 0 }
+    /// axis: `stretchContent:` does not apply). Both paths: 16+'s `HeaderSlotLayout` proposes the grown size, the 15
+    /// path's `HeaderFallbackFrame` lays the stack out at it (`HeaderFallbackPlan`).
+    static func layoutShare(_ content: ZTronHeaderStretchContent, metrics: HeaderMetrics?) -> CGFloat {
+        guard content == .keepTextSize, metrics?.vertical != false else { return 0 }
         return 1
     }
 
@@ -442,18 +442,23 @@ nonisolated struct HeaderFallbackFrame: ViewModifier, Animatable {
                     }
                 }
             })
-            .frame(minWidth: 0, maxWidth: .infinity, minHeight: plan.minHeight, maxHeight: plan.maxHeight, alignment: .top)
+            // D76 (`.keepTextSize` pulled `.fit`): the stack's ideal width is the slot's `W` (`stackIdealWidth`), so the
+            // boxes' ideal query measures `N(W)` while the stack is laid out at the grown width; `nil` otherwise.
+            .frame(minWidth: 0, idealWidth: plan.stackIdealWidth, maxWidth: .infinity, minHeight: plan.minHeight,
+                   maxHeight: plan.maxHeight, alignment: .top)
             // D78, the `.fit` box: the stack laid out (and asked for its ideal height) at the slot width.
-            .frame(width: plan.boxWidth)
+            .frame(width: plan.stackWidth)
             .padding(.bottom, plan.innerPad)
-            // The measuring box (the content's own ratio, unlimited; neutral for every other plan).
-            .frame(minWidth: 0, idealWidth: plan.boxIdealWidth, maxWidth: .infinity, minHeight: plan.boxFloor,
-                   maxHeight: plan.fitBox ? .infinity : nil, alignment: .topLeading)
+            // The measuring box (the content's own ratio, unlimited; neutral for every other plan). D76 pulled `.fit`: its
+            // width clamped to the grown `W · s_l` (`boxMinWidth` = `boxMaxWidth`; an ideal query passes through it
+            // unclamped), so the stack is laid out at exactly the grown width whatever the content's ratio.
+            .frame(minWidth: plan.boxMinWidth, idealWidth: plan.boxIdealWidth, maxWidth: plan.boxMaxWidth,
+                   minHeight: plan.boxFloor, maxHeight: plan.fitBox ? .infinity : nil, alignment: .topLeading)
             .aspectRatio(plan.ratio, contentMode: .fit)
             .background(Group {
                 // The box's own size, while there is a box: per frame while a `.fit` header collapses (the leaf's
                 // per-frame layout, the cost class of 16+'s `HeaderSlotLayout`); it reports only a change of `R`.
-                if plan.fitBox {
+                if plan.fitBox && !plan.measuresLayoutBox {
                     GeometryReader { g in
                         let _ = HeaderFallbackFrame.noteBox(g.size, plan: plan, reporter: reporter)
                         Color.clear
@@ -463,16 +468,28 @@ nonisolated struct HeaderFallbackFrame: ViewModifier, Animatable {
             // The layout box: the same ideal width, its ideal height clamped at `L − m′` (the overflow limit), so it is `W`
             // wide at `R = min(N, L)` and proposes the measuring box its size (top leading: a limited measuring box is
             // narrower). Neutral for every other plan (the plan's ratio again: the aspect plan's box fits it exactly, the
-            // neutral ratio keeps the child's size).
+            // neutral ratio keeps the child's size). D76 pulled `.fit`: centred (the clamped measuring box is centred in it,
+            // on the slot's centre), and it carries the measurement (`measuresLayoutBox`).
             .frame(minWidth: 0, idealWidth: plan.boxIdealWidth, maxWidth: .infinity, minHeight: plan.boxFloor,
-                   maxHeight: plan.fitBox ? (plan.boxLimit ?? .infinity) : nil, alignment: .topLeading)
+                   maxHeight: plan.fitBox ? (plan.boxLimit ?? .infinity) : nil, alignment: plan.boxAlignment)
+            .background(Group {
+                if plan.measuresLayoutBox {
+                    GeometryReader { g in
+                        let _ = HeaderFallbackFrame.noteBox(g.size, plan: plan, reporter: reporter)
+                        Color.clear
+                    }
+                }
+            })
             .aspectRatio(plan.ratio, contentMode: .fit)
             // At the committed viewport the layout box takes its ideal ratio at the live height (no width proposal). Both
-            // fits are re-framed at the slot width, top leading; neutral otherwise.
+            // fits are re-framed at the slot width, top leading (D76 pulled `.fit`: centred); neutral otherwise.
             .fixedSize(horizontal: plan.boxFitsHeight, vertical: false)
-            .frame(width: plan.boxWidth, height: plan.boxHeight, alignment: .topLeading)
+            .frame(width: plan.boxWidth, height: plan.boxHeight, alignment: plan.boxAlignment)
             .padding(.bottom, plan.outerPad)
             .frame(minHeight: plan.floor, alignment: .top)
+            // D76 (`.keepTextSize`, non-`.fit`): the stack is proposed the grown `W · s_l` and overflows the slot-wide
+            // frame by `sidePad` on each side, centred (the chrome's frame stays `W`; its clip cuts the sides).
+            .padding(.horizontal, -plan.sidePad)
             .fixedSize(horizontal: false, vertical: true)
             .onPreferenceChange(HeaderRestNaturalKey.self) { r in
                 guard let r, r.size.width > 0 else { return }
@@ -495,7 +512,7 @@ nonisolated struct HeaderFallbackFrame: ViewModifier, Animatable {
     /// asynchronous renderer, as for `HeaderSlotLayout`). `true` when it reported.
     @discardableResult
     static func noteBox(_ size: CGSize, plan: HeaderFallbackPlan, reporter: HeaderNaturalReporter?) -> Bool {
-        guard plan.fitBox, let reporter, let ideal = plan.boxIdealWidth, size.width > 0, size.width.isFinite,
+        guard plan.fitBox, let reporter, let ideal = plan.measureWidth, size.width > 0, size.width.isFinite,
               size.height >= 0, size.height.isFinite, Thread.isMainThread else { return false }
         let r = ideal * size.height / size.width + plan.boxMin
         guard r.isFinite else { return false }
@@ -544,6 +561,22 @@ struct HeaderFallbackPlan: Equatable {
     var boxMin: CGFloat = 0
     var boxFitsHeight = false
     var boxHeight: CGFloat?
+    /// D78: the inner `frame(width:)` (the stack laid out, and asked, at the slot width): `boxWidth` at rest, `nil` for a
+    /// D76 pulled `.fit` (see `init(grownBox:…)`).
+    var stackWidth: CGFloat?
+    /// D76, a pulled `.keepTextSize` `.fit` box (`init(grownBox:…)`): the stack's ideal width `W` (the boxes measure
+    /// `N(W)`), the measuring box clamped to the grown width `W · s_l` (`boxMinWidth` = `boxMaxWidth`), the layout box
+    /// centred and carrying the measurement (`measuresLayoutBox`; `measureWidth` = `W · s_l` is its ideal width). At rest
+    /// and for every other plan: `nil`, 0 / ∞, `boxIdealWidth`, top leading, `false` (today's values).
+    var stackIdealWidth: CGFloat?
+    var boxMinWidth: CGFloat = 0
+    var boxMaxWidth: CGFloat = .infinity
+    var measureWidth: CGFloat?
+    var boxAlignment: Alignment = .topLeading
+    var measuresLayoutBox = false
+    /// D76 (`.keepTextSize`, a non-`.fit` size): half the width the laid-out share adds (`HeaderMath.grownSidePad`), the
+    /// stack's overflow on each side of the slot-wide frame (`.padding(.horizontal, −sidePad)`). 0 otherwise.
+    var sidePad: CGFloat = 0
     /// `q ≤ 1 − boxEpsilon` (the ideal width stays finite at full collapse); `ε = boxFloorHeight` (a larger floor
     /// mis-measures `R − m′ < 100` at full collapse: the box is `(1 − q)(R − m′)` tall there).
     static let boxEpsilon: CGFloat = 1e-6
@@ -557,16 +590,32 @@ struct HeaderFallbackPlan: Equatable {
             minHeight = h; maxHeight = h
             return
         }
+        // D76: the laid-out share of a `.stretch` pull (`.keepTextSize`; exactly 0 for `.keepTextMagnified`, whose plans
+        // are D69 + D78 bit for bit).
+        let gl = live.layoutStretch
         // D78: `R(W, H)` from the slot of this layout pass, as on 16+ (`HeaderSlotLayout`).
         if let slot, slot.width > 0, slot.width.isFinite {
             let H: CGFloat? = slot.height.isFinite && slot.height > 0 ? slot.height : nil
             if size.isFit {
+                if gl > 0, let grown = HeaderFallbackPlan(grownBox: live, m: m, size: size, width: slot.width, height: H,
+                                                          stretch: gl) {
+                    self = grown
+                    return
+                }
                 self = HeaderFallbackPlan(box: live, m: m, size: size, width: slot.width, height: H)
                 return
             }
             let lh = Swift.max(HeaderMath.liveHeight(width: slot.width, containerHeight: H, natural: live.natural, live),
                                Self.minimumHeight)
-            minHeight = lh; maxHeight = lh
+            // D76: laid out at `h + g_l`, `W · s_l` wide (16+'s `HeaderMath.grownSize`), the overflow centred.
+            minHeight = lh + gl; maxHeight = lh + gl
+            sidePad = HeaderMath.grownSidePad(width: slot.width, layoutHeight: lh, stretch: gl)
+            return
+        }
+        // Without a slot (the plan's own tests), a laid-out share grows the state's height at the committed width.
+        if gl > 0 {
+            minHeight = h + gl; maxHeight = h + gl
+            sidePad = HeaderMath.grownSidePad(width: m.width, layoutHeight: h, stretch: gl)
             return
         }
         // `.slideBehind` (D68) lays the stack out at `R` whatever the progress (its translation is `HeaderTranslation`'s):
@@ -618,11 +667,13 @@ extension HeaderFallbackPlan {
         let q = slide ? 0 : Swift.min(Swift.max(live.progress, 0), 1 - Self.boxEpsilon)
         fitBox = true
         boxWidth = width
+        stackWidth = width
         minHeight = 0; maxHeight = .infinity
         innerPad = -mm
         boxFloor = Self.boxFloorHeight
         boxLimit = limit.isFinite ? Swift.max(limit - mm, Self.boxFloorHeight) : nil
         boxIdealWidth = width / (1 - q)
+        measureWidth = boxIdealWidth
         ratio = nil
         outerPad = mm
         boxProgress = q
@@ -639,6 +690,46 @@ extension HeaderFallbackPlan {
             // after that pass), so the clamp never cuts below it (it cut the stack to the new limit before the commit).
             if let l = boxLimit { boxLimit = Swift.max(l, committed.resting - mm) }
         }
+    }
+}
+
+extension HeaderFallbackPlan {
+    /// D76, a pulled `.keepTextSize` `.fit` header (`g_l > 0`, so `q = 0`): 16+'s grown rect, `W · s_l × (R + g_l)` with
+    /// `R = HeaderMath.liveHeight(W, H)` (the committed `R` at the committed viewport, as 16+'s `layoutResting`: a header
+    /// content change moves the header with the content's inset, in the state's commit, as at rest), measured in layout:
+    /// - the stack's ideal width is `W` (`stackIdealWidth`) and nothing between it and the boxes fixes a width, so the
+    ///   boxes' ideal query asks for `N(W)` (a flexible frame proposes its ideal width to an ideal query; i28 §2.5);
+    /// - the measuring box is clamped to `W · s_l` wide (its min = max width; an ideal query passes through it
+    ///   unclamped, its ideal size is `(W · s_l, N)`): the stack is laid out at exactly `W · s_l × (R + g_l)` whatever
+    ///   the content's ratio;
+    /// - the layout box is fitted to the height `R + g_l` (`boxFitsHeight`), so it is `(R + g_l) · W · s_l / N` wide; it
+    ///   is centred in the slot-wide frame and the measuring box in it, so the stack overflows the frame by
+    ///   `(s_l − 1) · W / 2` on each side, centred; the frame (what the chrome scales, clips and fades) is
+    ///   `W × (R + g_l)`;
+    /// - the layout box's size reports `N = W · s_l · height / width` (`measureWidth`), floored at `m′` by the measuring
+    ///   box's floor, unlimited above: the rest box's report (`max(N, m′)`).
+    /// At `g_l → 0` the stack's rect is the rest plan's (`W × R`). `nil` for a zero or non-finite height (the rest plan).
+    fileprivate init?(grownBox live: HeaderLiveInput, m: HeaderMetrics, size: ZTronHeaderSize, width: CGFloat,
+                      height: CGFloat?, stretch gl: CGFloat) {
+        let h = HeaderMath.liveHeight(width: width, containerHeight: height, natural: live.natural, live)
+        guard h > 0, h.isFinite, gl.isFinite else { return nil }
+        let grown = HeaderMath.grownSize(width: width, layoutHeight: h, stretch: gl)
+        let container = live.layoutDriven ? (height ?? live.committedContainer) : live.committedContainer
+        let limit = HeaderMath.overflowLimit(live.overflow, containerHeight: container)
+        let spec = size.minimum
+        let mm = m.collapse.isSlideBehind ? 0 : Swift.min(Swift.max(0, spec.isFinite ? spec : 0), limit)
+        fitBox = true
+        minHeight = 0; maxHeight = .infinity
+        stackIdealWidth = width
+        boxMinWidth = grown.width; boxMaxWidth = grown.width
+        boxFloor = Swift.max(mm, Self.boxFloorHeight)
+        ratio = nil
+        measureWidth = grown.width
+        measuresLayoutBox = true
+        boxAlignment = .top
+        boxFitsHeight = true
+        boxWidth = width
+        boxHeight = grown.height
     }
 }
 

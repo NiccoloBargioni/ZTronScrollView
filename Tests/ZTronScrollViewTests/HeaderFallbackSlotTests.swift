@@ -589,4 +589,138 @@ struct HeaderFallbackSlotTests {
         #expect(!drawn.isEmpty && bad.isEmpty, "\(path) \(size): turns without the header \(bad.count) of \(drawn.count): \(drawn.prefix(8))")
         print("D78 turns \(path) \(size): \(drawn.count) turns, first \(drawn.prefix(4).map { "\($0.height)x\($0.resolved)" })")
     }
+
+    // MARK: D76 `.keepTextSize` on the `.fit` box (M8b-s8 s7, i28 §4.8)
+
+    /// A `.stretch` `.fit` header with `.keepTextSize` (16:9 content: `N(W) = W · 9 / 16`; 4:3 when `tall`), the header
+    /// marker drawn by a size probe, under the content strip of `HeaderStretchScaleTests`.
+    struct GrowFitHost: View {
+        @ObservedObject var model: Model
+        let state: ZTronScrollState
+        let size: ZTronHeaderSize
+        let overflow: ZTronHeaderOverflow
+        let box: HeaderStretchScaleTests.Box
+        let counts: BodyCount
+        var refresher = false
+        var body: some View {
+            let v = ZTronScrollView(.vertical, state: state) { HeaderStretchScaleTests.Content(counts: counts) }
+                .withScalingHeader(size: size, pull: .stretch, overflow: overflow, stretchContent: .keepTextSize) { _ in
+                    GrowFitContent(model: model, box: box)
+                }
+            if refresher {
+                v.refresher(refreshView: { _ in Color.white.frame(width: 20, height: 20) }) {
+                    try? await Task.sleep(nanoseconds: 1_000_000_000_000)
+                }
+            } else {
+                v
+            }
+        }
+    }
+
+    struct GrowFitContent: View {
+        @ObservedObject var model: Model
+        let box: HeaderStretchScaleTests.Box
+        var body: some View {
+            Color.clear.aspectRatio(model.tall ? 4.0 / 3.0 : 16.0 / 9.0, contentMode: .fit)
+                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+                .overlay(HeaderStretchScaleTests.SizeProbe(box: box))
+        }
+    }
+
+    /// i28 §4.8, the four regimes of a pulled `.fit` (`N < m′`, `m′ ≤ N ≤ L`, `L < N ≤ s·L`, `N > s·L`): held at a 60 pt
+    /// pull with `.keepTextSize`, the header content is laid out at 16+'s grown rect `(W · s, R + g)`, `s = (R + g) / R`,
+    /// with `R` the committed one, and the natural height is still measured at the SLOT width (`N(402) = 226.125`, the
+    /// state's natural and the synchronous record), never at the grown width; `R` does not change. Both paths (16+: the
+    /// slot layout's ideal query; 15: the box's flexible ideal width).
+    @Test(arguments: OSPath.allCases, [(ZTronHeaderSize.fit(min: 300), ZTronHeaderOverflow.uncapped),
+                                       (.fit(min: 64), .uncapped), (.fit(min: 64), .capped(fraction: 0.25)),
+                                       (.fit(min: 64), .capped(fraction: 0.15))])
+    func aFitHeaderPulledMeasuresAtTheSlotWidth(path: OSPath, c: (ZTronHeaderSize, ZTronHeaderOverflow)) {
+        let (size, overflow) = c
+        let model = Model(), counts = BodyCount(), box = HeaderStretchScaleTests.Box()
+        let s = makeState(path)
+        let w = withOSPath(path) {
+            window(GrowFitHost(model: model, state: s, size: size, overflow: overflow, box: box, counts: counts))
+        }
+        defer { unhost(w) }
+        settle(s)
+        guard let R = s.peek.metrics.header?.resting else { Issue.record("\(path) \(size): unresolved"); return }
+        let tag = "\(path) \(size) \(overflow)"
+        // The natural height at 402 pt; the 15 box reports it floored at `min` (D78: `max(N, m′)`), 16+ the raw `N`.
+        let N: CGFloat = s.usesLayoutProtocol ? 402 * 9 / 16 : max(402 * 9 / 16, size.minimum)
+        #expect(abs((s.headerNatural ?? -1) - N) < 0.5, "\(tag): natural \(String(describing: s.headerNatural)) at rest")
+        let bodies = counts.bodies
+        for g in [30, 60, 60] as [CGFloat] {
+            s.track(offset: CGPoint(x: 0, y: -g - HeaderMath.base(s.peek.metrics)), zoom: 1)
+            pump(0.15)
+            let laid = CGSize(width: 402 * (R + g) / R, height: R + g)
+            #expect(abs(box.size.width - laid.width) < 0.5 && abs(box.size.height - laid.height) < 0.5,
+                    "\(tag) g \(g): laid out at \(box.size), 16+'s grown rect \(laid) (R \(R))")
+            #expect(abs(box.global.midX - 201) < 0.5, "\(tag) g \(g): centred \(box.global)")
+            #expect(abs((s.headerNatural ?? -1) - N) < 0.5, "\(tag) g \(g): natural \(String(describing: s.headerNatural))")
+            if let live = s.headerNaturalLive {
+                #expect(abs(live.width - 402) < 0.5 && abs(live.height - N) < 0.5,
+                        "\(tag) g \(g): measured \(live) at the slot width")
+            }
+            #expect(abs((s.peek.metrics.header?.resting ?? -1) - R) < 0.01, "\(tag) g \(g): R kept")
+            #expect(abs((s.headerGeometry?.stretch ?? -1) - g) < 0.5,
+                    "\(tag) g \(g): stretch \(String(describing: s.headerGeometry)) resize open \(s.peek.metrics.resize.isOpen)")
+        }
+        s.track(offset: CGPoint(x: 0, y: -HeaderMath.base(s.peek.metrics)), zoom: 1)
+        s.endOfTurn()
+        pump(0.3)
+        #expect(abs(box.size.width - 402) < 0.5 && abs(box.size.height - R) < 0.5, "\(tag): back to rest \(box.size)")
+        #expect(abs((s.headerNatural ?? -1) - N) < 0.5, "\(tag): natural after \(String(describing: s.headerNatural))")
+        #expect(counts.bodies == bodies, "\(tag): content.body 0")
+        print("D76 fit pulled \(tag): R \(R) natural \(String(describing: s.headerNatural)) live \(String(describing: s.headerNaturalLive))")
+    }
+
+    /// i28 §4.8 / C7: a `.fit` header content change (16:9 → 4:3 and back, app-animated) during a 60 pt refresh hold with
+    /// `.keepTextSize` is measured in layout (no measuring pass, no adoption at release): `R` and the natural height follow
+    /// it while held, every drawn frame keeps the header's bottom edge on the content's top and the header at the slot's
+    /// width, and the header is laid out at the grown rect of the new `R`. Both paths, no content body.
+    @Test(arguments: OSPath.allCases)
+    func aFitContentChangeDuringAHoldIsMeasuredInLayout(path: OSPath) {
+        let model = Model(), counts = BodyCount(), box = HeaderStretchScaleTests.Box()
+        let s = makeState(path)
+        let w = withOSPath(path) {
+            hostDriven(GrowFitHost(model: model, state: s, size: .fit(min: 64), overflow: .uncapped, box: box,
+                                   counts: counts, refresher: true))
+        }
+        defer { unhost(w) }
+        settle(s)
+        s.beginRefreshing()
+        pump(1.0)
+        guard let g = s.headerGeometry?.stretch, g > 30 else {
+            Issue.record("\(path): no hold (\(String(describing: s.headerGeometry)))"); return
+        }
+        let bodies = counts.bodies
+        for tall in [true, false] {
+            let tag = "\(path) tall \(tall)"
+            withAnimation(.easeInOut(duration: 0.5)) { model.tall = tall }
+            var worstSeam: CGFloat = 0, worstSide: CGFloat = 0, samples = 0
+            for _ in 0..<45 {
+                pump(1.0 / 60)
+                let hf = HeaderStretchScaleTests.drawnFrames(of: HeaderStretchScaleTests.headerMarker, in: w, presented: true)
+                let cf = HeaderStretchScaleTests.frames(of: HeaderStretchScaleTests.contentMarker, in: w, presented: true)
+                guard let f = hf.first, let c = cf.first else { continue }
+                samples += 1
+                worstSeam = max(worstSeam, abs(f.maxY - c.minY))
+                worstSide = max(worstSide, abs(f.minX), abs(f.maxX - 402))
+            }
+            pump(0.5)
+            let N = 402 * (tall ? 3.0 / 4.0 : 9.0 / 16.0)
+            let R = s.peek.metrics.header?.resting ?? -1
+            #expect(abs(R - N) < 0.5, "\(tag): R \(R) follows the content while held")
+            #expect(abs((s.headerNatural ?? -1) - N) < 0.5, "\(tag): natural \(String(describing: s.headerNatural))")
+            #expect(abs((s.headerGeometry?.stretch ?? -1) - g) < 0.5, "\(tag): the hold kept")
+            #expect(samples >= 30 && worstSeam < 1, "\(tag): seam \(worstSeam) over \(samples) frames")
+            #expect(worstSide < 0.5, "\(tag): drawn at the slot's width (sides \(worstSide))")
+            let laid = CGSize(width: 402 * (R + g) / R, height: R + g)
+            #expect(abs(box.size.width - laid.width) < 0.5 && abs(box.size.height - laid.height) < 0.5,
+                    "\(tag): laid out at \(box.size), the grown rect \(laid)")
+            print("D76 fit hold grow \(tag): R \(R) seam \(worstSeam) sides \(worstSide) samples \(samples)")
+        }
+        #expect(counts.bodies == bodies, "\(path): content.body 0")
+    }
 }

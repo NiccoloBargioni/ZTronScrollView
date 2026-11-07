@@ -149,7 +149,7 @@ struct HeaderStretchContentTests {
     /// every drawn frame keeps the header's outer rect (`W · s × (R + g)` from `top0`, its bottom on the content's top),
     /// and the fixed-size text mark shrinks monotonically from `s` times its size to its point size, over many frames (no
     /// step ≥ ½ of the change). Unanimated, it lands in one frame. The switch runs the header's builder exactly once and
-    /// no content body. 15 path (C14, until s7): both cases draw D69, the mark stays magnified.
+    /// no content body. Both paths.
     @Test(arguments: OSPath.allCases, [true, false])
     func anAnimatedSwitchMorphsInsideTheFrame(path: OSPath, animated: Bool) {
         let box = HeaderStretchScaleTests.Box(), counts = BodyCount(), option = Option()
@@ -165,7 +165,7 @@ struct HeaderStretchContentTests {
             Issue.record("\(path): no hold (\(String(describing: s.headerGeometry)))"); return
         }
         let top0 = HeaderMath.top0(s.peek.metrics), scale = (resting + g) / resting
-        let grows = s.usesLayoutProtocol
+        let grows = true
         let tag = "\(path) \(animated ? "animated" : "unanimated")"
         let bodies = counts.bodies
         #if DEBUG
@@ -225,7 +225,7 @@ struct HeaderStretchContentTests {
 
     /// D76, i28 R8: an animated switch while a finger pulls (the pan writes the target every frame, unanimated): every
     /// drawn frame keeps the header's bottom edge on the content's top, the effect and the layout draw the same `m` (the
-    /// text mark = `20 · (R + g) / layout height`), and the switch ends at the mark's point size. 15 path (C14): D69.
+    /// text mark = `20 · (R + g) / layout height`), and the switch ends at the mark's point size. Both paths.
     @Test(arguments: OSPath.allCases)
     func aSwitchDuringAFingerPullKeepsTheSeam(path: OSPath) {
         let box = HeaderStretchScaleTests.Box(), counts = BodyCount(), option = Option()
@@ -251,7 +251,7 @@ struct HeaderStretchContentTests {
             samples += 1
             worstSeam = max(worstSeam, abs(f.maxY - c.minY))
             let drawnG = f.maxY - top0 - resting
-            if s.usesLayoutProtocol, abs(t.height - 20 * (resting + drawnG) / max(box.size.height, 1)) > 0.05 { unsynced += 1 }
+            if abs(t.height - 20 * (resting + drawnG) / max(box.size.height, 1)) > 0.05 { unsynced += 1 }
             last = (t.height, drawnG)
         }
         pump(0.6)
@@ -259,7 +259,7 @@ struct HeaderStretchContentTests {
         #expect(worstSeam < 0.5, "\(tag): seam \(worstSeam)")
         #expect(unsynced <= 3, "\(tag): \(unsynced) frames where the effect and the layout disagree on m")
         if let t = HeaderStretchScaleTests.frames(of: HeaderStretchScaleTests.textMarker, in: w).first {
-            let end: CGFloat = s.usesLayoutProtocol ? 20 : 20 * (resting + 80) / resting
+            let end: CGFloat = 20
             #expect(abs(t.height - end) < 0.25, "\(tag): the mark ends at \(t.height), not \(end) (last sample \(last))")
         }
         s.track(offset: CGPoint(x: 0, y: -base), zoom: 1)

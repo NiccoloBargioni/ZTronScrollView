@@ -73,10 +73,10 @@ struct HeaderStretchScaleTests {
         [StretchCase(size: $0, content: .keepTextMagnified), StretchCase(size: $0, content: .keepTextSize)]
     }
 
-    /// Whether `.keepTextSize` lays the header out grown on this path: 16+ (`HeaderSlotLayout`); the 15 path draws both
-    /// cases as D69 until M8b-s8 s7 (C14).
+    /// Whether `.keepTextSize` lays the header out grown: on both paths (16+ `HeaderSlotLayout`, 15 / forced
+    /// `HeaderFallbackFrame`, M8b-s8 s7).
     static func grows(_ content: ZTronHeaderStretchContent, _ s: ZTronScrollState) -> Bool {
-        content == .keepTextSize && s.usesLayoutProtocol
+        content == .keepTextSize
     }
 
     /// The content: a marker strip on top (its drawn top is the content's), then a tall filler.

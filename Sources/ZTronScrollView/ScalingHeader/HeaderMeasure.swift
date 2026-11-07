@@ -12,7 +12,8 @@ import SwiftUI
 ///   resize's animated pass), header content changes inside the band and Dynamic Type are measured in layout. This
 ///   measuring pass takes the FIRST measurement (no metrics yet: the box needs the committed `R`): the header is laid
 ///   out at its ideal height (`fixedSize(vertical:)`, cropped by the live frame) with a size reporter, then returns to
-///   the live proposal; it re-arms for a width change only until then (launch-time widths), and on a Dynamic Type change.
+///   the live proposal; it re-arms for a width change or a Dynamic Type change only until then (launch time): after it
+///   the box measures both in layout.
 struct HeaderMeasure: ViewModifier {
     let state: ZTronScrollState
     let active: Bool
@@ -143,7 +144,10 @@ struct HeaderMeasuringPass: ViewModifier {
                     }
                 }
             }
-            .onChangeCompat(of: dynamicType) { _ in arm() }
+            // Dynamic Type: before the first metrics only. After them the box measures the new ideal height in layout
+            // at the slot width (D78), also while a `.keepTextSize` pull lays the stack out wider (D76; the pass's
+            // `fixedSize(vertical:)` would measure at the grown width and step the header: C18, M8b-s8 s7).
+            .onChangeCompat(of: dynamicType) { _ in if state.storage.metrics.header == nil { arm() } }
             .onChangeCompat(of: active) { if $0 { arm() } }
     }
 
