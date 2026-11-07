@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """i28: per-frame text box of the seam lab's header text in a screen recording (the D76 switch gate).
-usage: python3 -I textbox.py rec.mov [--x 40]
+usage: python3 -I textbox.py rec.mov [--x 40] [--from t0] [--to t1] [--held]
 Per decoded frame (ffmpeg rawvideo, pts from ffprobe): the red header's rows at column x, the black text box inside it
 (width x height px) and the first green row below the header (seam px). Prints the series and a summary: the total
 change of the box width, the largest single-frame change as a fraction of it (a step >= 0.5 fails), whether the series is
@@ -46,6 +46,8 @@ def main():
     ap.add_argument("video")
     ap.add_argument("--x", type=int, default=40)
     ap.add_argument("--from", dest="t_from", type=float, default=None, help="ignore frames before this time (s)")
+    ap.add_argument("--to", dest="t_to", type=float, default=None,
+                    help="ignore frames after this time (s): 17.5 recordings show the home screen's red before launch and after exit")
     ap.add_argument("--held", action="store_true",
                     help="only frames whose header bottom is within 1 px of the recording's lowest (a hold's steady frame)")
     a = ap.parse_args()
@@ -65,6 +67,8 @@ def main():
         rows.append((t, top, bot, int(g[0]) if len(g) else -1, int(xx.max() - xx.min() + 1), int(yy.max() - yy.min() + 1)))
     if a.t_from is not None:
         rows = [r for r in rows if r[0] >= a.t_from]
+    if a.t_to is not None:
+        rows = [r for r in rows if r[0] <= a.t_to]
     if a.held and rows:
         lowest = max(r[2] for r in rows)
         rows = [r for r in rows if r[2] >= lowest - 1]
