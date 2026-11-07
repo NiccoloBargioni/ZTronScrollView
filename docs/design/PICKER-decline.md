@@ -19,7 +19,8 @@ SwiftUI attach keeps Buttons, sliders and the wheel working together, so the fix
 The attach stays exactly as it is (`PanGestureAdapter.swift`, D86). Two additions:
 
 1. **Probe.** The D31 window recognizer gains a probe-only mode (`feedsCore: false`) and is installed on 17+ as well while
-   `ztronScrollPickersAbsorbDrags(true)` is in the view's environment. On 15–16 it is the D31 observer itself and does both jobs. At the first finger of a sequence (no other touch of
+   `ztronScrollPickersAbsorbDrags(true)` is in the view's environment, by the outermost `ZTronScrollView` of a tree only: the
+   views nested in it join its `PickerProbeHub` and hear its reports (§5.1: an anchor inside a nested view breaks its drags). On 15–16 it is the D31 observer itself and does both jobs. At the first finger of a sequence (no other touch of
    the event is still down) it walks `touch.view` and its superviews and asks one question: is one of them a wheel, that is a
    `UIPickerView`, or a `UIDatePicker` whose `datePickerStyle == .wheels`? Compact and graphical date pickers are not wheels: a
    vertical drag that starts on them scrolls natively (§5). It reports the answer with
@@ -49,14 +50,18 @@ steppers never see a different pan, because only the report changes, and only fo
 - `Modifiers/ScrollEnvironment.swift`: `View.ztronScrollPickersAbsorbDrags(_ absorbs: Bool = true)`, environment-backed and
   propagating like `ztronScrollYieldsToSheet`; the key defaults to `false`.
 - `Gesture/PanCoordinator.swift`: `pickersAbsorbDrags` (the adapter's mirror; a report is read only while it is true),
-  `touchSequenceBegan(onPicker:)`, `pickerAbsorbs(_:)` at the top of `handle(_:)`.
-- `Gesture/PanGestureAdapter.swift`: reads the environment value and attaches the anchor with `enabled: uikit || absorbs`,
-  `feedsCore: uikit`, `reportsPickers: absorbs`. Off, nothing is installed on 17+ (the shipped path); flipping it adds or
-  removes the anchor there, and on 15–16 `UIKitTouchObserverAnchor.updateUIView` updates the D31 recognizer in place.
+  `pickerProbe` (its hub), `touchSequenceBegan(onPicker:)`, `pickerAbsorbs(_:)` at the top of `handle(_:)`.
+- `Gesture/PickerProbeHub.swift`: the hub (owner + weak members, `report(onPicker:)`) and its environment key. `ZTronScrollView`
+  sets it on its content, `outer ?? own`, constant per identity (like `scrollArbiter`).
+- `Gesture/PanGestureAdapter.swift`: reads the environment value and the outer hub. `reports = absorbs && (uikit || no outer
+  hub)`; the anchor attaches with `enabled: uikit || reports`, `feedsCore: uikit`, `reportsPickers: reports`; a nested view on
+  17+ joins the outer hub instead. Off, nothing is installed on 17+ (the shipped path); flipping it adds or removes the anchor
+  there, and on 15–16 `UIKitTouchObserverAnchor.updateUIView` updates the D31 recognizer in place.
 - Tests: `PickerDeclineTests` (coordinator, nested arbiter, pager, caught motion, cone, latch, a report while off),
   `PickerProbeRuleTests` (the rule on real `UIPickerView`, wheels / compact / inline `UIDatePicker` and plain views; probe-only
   feeds nothing), `PickerAbsorbModifierTests` (the environment value; hosted: 17+ adds and removes a probe-only recognizer,
-  the forced 15–16 shape keeps the D31 one and mirrors the flag). Demo:
+  the forced 15–16 shape keeps the D31 one and mirrors the flag; a nested pair installs one probe on 17+, two D31 recognizers in
+  the 15–16 shape; a nested adapter joins the outer hub), hub tests in `PickerDeclineTests`. Demo:
   `-ZTronControlsWheels`, `-ZTronControlsTopology nested|pager`, probe counters in `Info`, `NativeScrollProbe` (native offsets
   from UIKit, §5). UI: `UIKitControlsUITests.testWheels*`, `testCompactDatePickerDragMeasure`;
   `scripts/test-demo-ui.sh --picker` builds the demo with `ZTRON_DEMO_PICKERS_ABSORB`, which applies the modifier at the app
@@ -130,13 +135,66 @@ flag the wheel turns.
 while the view scrolled (filler drag 0, pager swipe 0). DBG-s4's native "y = 0" checks therefore proved nothing. The demo now reads
 native offsets from UIKit (`NativeScrollProbe`, demo only), and the sanity tests above pin it.
 
+### 5.1 Regression with the modifier on (PICKER-s2, 2026-11-07)
+
+`--picker` applies `ztronScrollPickersAbsorbDrags()` at the demo's root, so every screen of every suite runs with the probe.
+Private clones, own derived data, one lane at a time under `ztron-ui-lane.lock`. Host load swung between 6 and 680 during the day.
+
+**Full suites before the nested fix** (f3897bc; passed / failed / skipped):
+
+| Lane | with the modifier | INTEG-s2 base (88548e7, no modifier) |
+|---|---|---|
+| 27.0, all 252 | 219 / 1 / 32 | 208 / 0 / 32 of 240 |
+| 17.5, all 252 | 217 / 3 / 32 | 207 / 1 / 32 of 240 |
+
+The 12 extra tests are PICKER-s1's wheel tests. The failures:
+- `MixedTopologyUITests`, a `ZTronScrollView` page holding ZTron views (27.0 and 17.5). A horizontal drag on the carousel moved
+  nothing (carousel x = 0; 70 on 27.0 and 58 on 17.5 without the modifier). On 17.5 a vertical drag on the inner list moved the page
+  (page 50, list 1) instead of the list. The same build without `--picker`: 7/7, carousel x = 70.
+- 17.5 `HeaderUITests.testProfileCollapsesAndSnapsImmediately`: "Lost connection to the application". The demo crashed inside
+  XCTest's own logging (`__LIBTRACE_CLIENT_QUARANTINED_DUE_TO_HIGH_LOGGING_VOLUME__` under `-[XCElementSnapshot identifier]`), the
+  same signature as a 2026-11-03 crash from before this work: a harness crash, not the probe.
+
+**Which part breaks the nested view** (the three ZTron-page cases; DEBUG launch arguments in a scratch worktree, not committed):
+
+| Variant | 27.0 carousel x | 17.5 carousel x / list y |
+|---|---|---|
+| modifier on both levels | 0 | 0 / 1 (page 50) |
+| modifier off | 70 | 58 / 50 |
+| outer page only | 70 | 58 / 50 |
+| inner views only | 0 | 0 / 1 (page 50) |
+| both levels, recognizer never added to the window | 0 | 0 / 1 (page 50) |
+
+The cause is the probe's anchor, a zero-size `UIViewRepresentable` in the viewport's background, inside a nested ZTron view. The
+window recognizer is not the cause, and neither is the coordinator, which does nothing without a picker report. Why the anchor
+breaks the inner view's drags is not known. INTEG-s2's 27.0 `--uikit` lane, with the D31 anchor in every view, passed these cases,
+so it also takes the 17+ gesture set.
+
+**Fix** (55abc27): on 17+ only the outermost `ZTronScrollView` installs the probe, and nested views join its hub (§2, §3). 15–16 keep
+one D31 recognizer per view. A consequence: a nested view with the modifier inside an outer view without it gets no reports, so the
+modifier goes around the outermost scroll view.
+
+**After the fix** (55abc27):
+
+| Lane | passed / failed / skipped | Compared with |
+|---|---|---|
+| 27.0 `MixedTopology`, `NestedPager`, `UIKitControls`, `Pager` | 42 / 0 / 0 | carousel x = 70, list 50, as without the modifier |
+| 17.5 the same + `Header` | 51 / 0 / 0 | carousel x = 58, list 50; the Header crash did not recur |
+| 18.5 INTEG-s2's targeted set (Sheet, ScrollDisabled, MixedTopology, UIKitControls, NestedPager, Pan, Refresh, ButtonDrag) | 150 / 5 / 0 | base 138 / 5 / 0: the same `SheetUITests` Y1–Y5 (open item 10, D46; Y1 165 ≠ 0, Y2 60 ≠ 69, Y3 0 ≠ 1, Y4 165 ≠ 0, Y5 0 ≠ 1) |
+| 26.5 the same + ContentOverlay | 159 / 0 / 0 | base 147 / 0 / 0 |
+| 27.0 `--uikit --picker` (the 15–16 shape: D31 recognizer in every view, reporting), all 252 | 199 / 0 / 53 | base `--uikit` 188 / 0 / 52 of 240; every `testWheels*` and ZTron-page case passed |
+
+Unit: 27.0 `ZTronScrollViewTests` 822 / 822 (0 feedback-loop warnings); 17.5 the touched suites 33 / 33. Coverage gate:
+<!-- PICKER-s2 COVERAGE -->
+
+The non-nested results of the pre-fix full suites carry over: the fix changes only what a nested view installs.
+
 ## 6. Open
 
-1. **User: ship or not.** The prototype needs a SPEC S2 amendment: a passive UIKit window recognizer on every OS that reads the hit
-   view's class. It also needs the default switched on (§4). D74's bar for scoped UIKit is 100 % coverage: the coverage gate run with a
-   `--picker` UI lane is still to do.
-2. **15–16.** There the report rides on the D31 observer itself (`feedsCore: true`). It was not run on 17.5 / 27.0 with
-   `-ZTronForceUIKitObserver` either. Measure on the M1 lane, or with `--uikit --picker` here first.
+1. **User: SPEC text.** The opt-in modifier exists (PICKER-s2) but still needs a SPEC S2 amendment: a passive UIKit window
+   recognizer on 17+ that reads the hit view's class, and a new public API (§4). Turning it on by default is a later, separate call.
+2. **15–16.** There the report rides on the D31 observer itself (`feedsCore: true`). The 15–16 shape on 27.0 (`--uikit --picker`)
+   is green (§5.1); real 15.0 / 16.0 runtimes (M1 lane) are still unmeasured.
 3. **Not measured:**
    - a touch on a wheel that catches a decelerating view (ZTron: the catch stops it and settles, with no drag; native is unknown);
    - a pinch whose first finger is on a wheel (the pan's drag samples are dropped; the pinch is unchanged);
@@ -150,3 +208,8 @@ native offsets from UIKit (`NativeScrollProbe`, demo only), and the sanity tests
    `UIKitControlsUITests --native` lane with `NativeScrollProbe`.
 7. Two tests are still measurements, not assertions: `testCompactDatePickerDragMeasure` and
    `testWheelsPagerHorizontalSwipeOnTheWheelMeasure`. Their values are above; turn them into parity assertions when the feature lands.
+8. **The nested anchor (PICKER-s2).** Why a zero-size `UIViewRepresentable` in a nested ZTron view's background breaks that view's
+   drags on the 17+ gesture set is unexplained (§5.1). A user's own `UIViewRepresentable` in the same place may do the same; untested.
+9. **Modifier placement.** With the modifier on an inner view only, under an outer `ZTronScrollView` without it, the inner view joins
+   a hub with no probe and hears nothing. Document "around the outermost scroll view", or let the outer install the probe when a
+   member asks for it.
