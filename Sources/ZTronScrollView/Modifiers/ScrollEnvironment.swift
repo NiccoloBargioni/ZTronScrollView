@@ -229,3 +229,27 @@ extension View {
         environment(\.ztronYieldsToSheet, yields)
     }
 }
+
+private struct PickersAbsorbDragsKey: EnvironmentKey { static let defaultValue = false }
+
+extension EnvironmentValues {
+    /// `View.ztronScrollPickersAbsorbDrags(_:)`; read by the pan adapter only (spike PICKER-s1, D84).
+    var ztronPickersAbsorbDrags: Bool {
+        get { self[PickersAbsorbDragsKey.self] }
+        set { self[PickersAbsorbDragsKey.self] = newValue }
+    }
+}
+
+extension View {
+    /// Lets a wheel picker (`Picker` with `.wheel`, `DatePicker` with `.wheel`) inside a `ZTronScrollView` in this view
+    /// keep a drag that starts on it, as in a native `ScrollView`: the wheel turns and the scroll view stays put. A drag
+    /// within 45° of the horizontal still scrolls a horizontal view or pager; Buttons, sliders and other controls are
+    /// unaffected. While `true` every such scroll view installs a passive window recognizer (UIKit, scoped to
+    /// `Gesture/UIKit/`) that only reads where a touch sequence begins; `false`, the default, installs nothing on
+    /// iOS 17+.
+    /// Environment-backed and propagating. Experimental (spike PICKER-s1, open items 37-39): off until the SPEC S2
+    /// amendment that would make it the default.
+    public func ztronScrollPickersAbsorbDrags(_ absorbs: Bool = true) -> some View {
+        environment(\.ztronPickersAbsorbDrags, absorbs)
+    }
+}

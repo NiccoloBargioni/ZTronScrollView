@@ -59,8 +59,10 @@ final class PanCoordinator: ObservableObject {
     /// change. Held until the observer says the fingers are gone (`touchesEnded`: released then, from the current
     /// time) or that two are down again (`fingerCountChanged(≥ 2)` / `.began`: dropped, the pinch takes over).
     private var heldRelease: (request: ReleaseRequest, env: PanEnvironment)?
-    /// Picker decline (spike PICKER-s1, open items 37-39, `PickerDecline`): the window probe saw this sequence's first
-    /// finger land inside a `UIPickerView` / `UIDatePicker`. Read once, at the first drag sample.
+    /// `View.ztronScrollPickersAbsorbDrags(_:)` (spike PICKER-s1, open items 37-39), mirrored by the pan adapter.
+    var pickersAbsorbDrags = false
+    /// The window probe saw this sequence's first finger land inside a wheel picker. Read once, at the first drag
+    /// sample, and only while `pickersAbsorbDrags` (a report left from before the modifier turned false never declines).
     private var sequenceBeganOnPicker = false
     /// The picker owns this sequence's drag: its drag samples never reach the session (cleared at its `.dragEnded` or by
     /// the next sequence).
@@ -309,7 +311,9 @@ final class PanCoordinator: ObservableObject {
             default: return false
             }
         }
-        guard sequenceBeganOnPicker, case let .dragChanged(translation, _, _) = incoming else { return false }
+        guard sequenceBeganOnPicker, pickersAbsorbDrags, case let .dragChanged(translation, _, _) = incoming else {
+            return false
+        }
         sequenceBeganOnPicker = false
         guard abs(translation.height) >= abs(translation.width) else { return false }
         #if DEBUG

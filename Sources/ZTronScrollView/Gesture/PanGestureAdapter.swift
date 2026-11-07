@@ -16,19 +16,6 @@ enum PanGestureMode: String {
     }
 }
 
-/// Spike PICKER-s1 (open items 37-39, D84): a drag that starts on a wheel / date picker is the picker's, as in a native
-/// `ScrollView`. The D31 window recognizer (probe-only on 17+) flags a sequence whose first finger lands inside a
-/// `UIPickerView` / `UIDatePicker`; the coordinator then drops that sequence's vertical drag. The attach is untouched (D86).
-/// Off unless the build defines `ZTRON_PICKER_DECLINE` (`scripts/test-demo-ui.sh --picker`): no default-path change
-/// without the user's OK.
-enum PickerDecline {
-    #if ZTRON_PICKER_DECLINE
-    static let isOn = true
-    #else
-    static let isOn = false
-    #endif
-}
-
 /// Thin SwiftUI layer: builds the gestures, forwards `PanEvent`s to the coordinator. No logic.
 struct PanGestureAdapter: ViewModifier {
     @ObservedObject var coordinator: PanCoordinator
@@ -42,6 +29,8 @@ struct PanGestureAdapter: ViewModifier {
     @Environment(\.ztronVerticalBounce) private var bounceY
     /// `View.ztronScrollYieldsToSheet(_:)`: while true every gesture below attaches with `GestureMask.subviews`.
     @Environment(\.ztronYieldsToSheet) private var yields
+    /// `View.ztronScrollPickersAbsorbDrags(_:)` (spike PICKER-s1): installs the probe-only window recognizer on 17+.
+    @Environment(\.ztronPickersAbsorbDrags) private var pickersAbsorb
     @Environment(\.displayScale) private var displayScale
     @State private var observer = CatchObserverState()
     /// Fallback observer gating (iOS < 28, D34, D37): the zero-distance drag steals touches from UIKit-backed controls, so
@@ -68,6 +57,7 @@ struct PanGestureAdapter: ViewModifier {
         coordinator.settings.bounceY = bounceY.physics
         coordinator.settings.displayScale = displayScale
         coordinator.yieldsToSheet = yields
+        coordinator.pickersAbsorbDrags = pickersAbsorb
         let arming = armed
         let send: @MainActor (PanEvent) -> Void = { [coordinator] event in
             coordinator.handle(event)
@@ -87,8 +77,8 @@ struct PanGestureAdapter: ViewModifier {
             .modifier(PinchGestureAttach(pinch: PinchGestureAdapter.gesture(coordinator: coordinator, observer: observer),
                                          doubleTap: tap, yields: yields))
             .modifier(CatchArmingProbe(state: gated ? coordinator.state : nil, arming: arming, observer: observer))
-            .modifier(UIKitObserverAttach(enabled: uikit || PickerDecline.isOn, feedsCore: uikit, coordinator: coordinator,
-                                          catchState: observer))
+            .modifier(UIKitObserverAttach(enabled: uikit || pickersAbsorb, feedsCore: uikit,
+                                          reportsPickers: pickersAbsorb, coordinator: coordinator, catchState: observer))
             .onChangeCompat(of: yields) { yielding in
                 // The masked gestures are cancelled by SwiftUI without `onEnded`: forget what they left behind, then end
                 // a sequence in flight like a cancelled touch.
@@ -261,11 +251,13 @@ struct GatedGestureAttach<P: Gesture>: ViewModifier {
 }
 
 /// iOS 15-16 observer path (D31): a zero-size anchor at the viewport's top-leading corner installs the window recognizer
-/// (`Gesture/UIKit/UIKitTouchObserver.swift`). `feedsCore: false` = the probe-only recognizer of `PickerDecline` (17+).
+/// (`Gesture/UIKit/UIKitTouchObserver.swift`). `feedsCore: false` = the probe-only recognizer of
+/// `ztronScrollPickersAbsorbDrags` (17+); `reportsPickers` = that modifier's value.
 /// Anywhere else the content passes through.
 struct UIKitObserverAttach: ViewModifier {
     let enabled: Bool
     var feedsCore = true
+    var reportsPickers = false
     let coordinator: PanCoordinator
     let catchState: CatchObserverState
 
@@ -274,7 +266,8 @@ struct UIKitObserverAttach: ViewModifier {
         #if canImport(UIKit) && os(iOS)
         if enabled {
             content.background(alignment: .topLeading) {
-                UIKitTouchObserverAnchor(coordinator: coordinator, catchState: catchState, feedsCore: feedsCore)
+                UIKitTouchObserverAnchor(coordinator: coordinator, catchState: catchState, feedsCore: feedsCore,
+                                         reportsPickers: reportsPickers)
                     .frame(width: 0, height: 0).allowsHitTesting(false)
             }
         } else {

@@ -7,8 +7,8 @@ import UIKit.UIGestureRecognizerSubclass
 // UIKit in the library: a recognizer that never recognizes, installed on the window, turns touches into `TouchSample`s for
 // the pure `TouchObserverCore`; its outputs reach the same coordinator entry points as `SpatialCatchGesture`'s. Every line
 // here is a straight forward or a one-branch guard (100 % line coverage gate, scripts/coverage-uikit.sh).
-// Spike PICKER-s1 (open items 37-39, `PickerDecline`): the same recognizer, probe-only on 17+, tells the coordinator whether
-// a sequence's first finger landed inside a `UIPickerView` / `UIDatePicker` (public classes, a `superview` walk).
+// Spike PICKER-s1 (open items 37-39, `ztronScrollPickersAbsorbDrags`): the same recognizer, probe-only on 17+, tells the
+// coordinator whether a sequence's first finger landed inside a wheel picker (public classes, a `superview` walk).
 
 /// Passive observer: stays `.possible`, never cancels, delays or blocks another recognizer, and cannot be blocked.
 final class UIKitTouchObserverRecognizer: UIGestureRecognizer, UIGestureRecognizerDelegate {
@@ -18,11 +18,12 @@ final class UIKitTouchObserverRecognizer: UIGestureRecognizer, UIGestureRecogniz
     private weak var catchState: CatchObserverState?
     /// D31 (15-16): touches feed `TouchObserverCore`. False = probe only (17+): the picker check and nothing else.
     let feedsCore: Bool
-    /// `PickerDecline`: at a sequence's first touch-down, the coordinator learns whether it began on a picker.
-    let reportsPickers: Bool
+    /// `ztronScrollPickersAbsorbDrags`: at a sequence's first touch-down, the coordinator learns whether it began on a
+    /// picker.
+    var reportsPickers: Bool
 
     init(anchor: UIView, coordinator: PanCoordinator, catchState: CatchObserverState, feedsCore: Bool = true,
-         reportsPickers: Bool = PickerDecline.isOn) {
+         reportsPickers: Bool = false) {
         self.anchor = anchor
         self.coordinator = coordinator
         self.catchState = catchState
@@ -138,16 +139,20 @@ struct UIKitTouchObserverAnchor: UIViewRepresentable {
     let coordinator: PanCoordinator
     let catchState: CatchObserverState
     var feedsCore = true
+    var reportsPickers = false
 
     func makeUIView(context: Context) -> UIKitTouchAnchorView {
         let view = UIKitTouchAnchorView()
         view.isUserInteractionEnabled = false
         view.recognizer = UIKitTouchObserverRecognizer(anchor: view, coordinator: coordinator, catchState: catchState,
-                                                       feedsCore: feedsCore)
+                                                       feedsCore: feedsCore, reportsPickers: reportsPickers)
         return view
     }
 
-    func updateUIView(_ view: UIKitTouchAnchorView, context: Context) {}
+    /// 15-16: the recognizer stays while the modifier flips (17+ adds and removes the anchor instead).
+    func updateUIView(_ view: UIKitTouchAnchorView, context: Context) {
+        view.recognizer?.reportsPickers = reportsPickers
+    }
 
     static func dismantleUIView(_ view: UIKitTouchAnchorView, coordinator: ()) { view.recognizer?.install(on: nil) }
 }

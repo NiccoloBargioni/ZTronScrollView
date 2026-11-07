@@ -13,8 +13,8 @@ final class UIKitControlsUITests: XCTestCase {
     private var native: Bool { ProcessInfo.processInfo.environment["ZS_NATIVE"] == "1" }
     /// `-ZTronPanGestureMode` (DEBUG): `ZS_PAN_MODE=gesture|high` runs the lane with another attach style, as in `PanUITests`.
     private var mode: String? { ProcessInfo.processInfo.environment["ZS_PAN_MODE"] }
-    /// `ZS_PICKER=1` (`scripts/test-demo-ui.sh --picker`): the build defines `ZTRON_PICKER_DECLINE` (spike PICKER-s1), so the
-    /// required fixes of open items 37-39 are asserted, not expected to fail.
+    /// `ZS_PICKER=1` (`scripts/test-demo-ui.sh --picker`): every demo screen runs under `ztronScrollPickersAbsorbDrags()`
+    /// (spike PICKER-s1), so the required fixes of open items 37-39 are asserted, not expected to fail.
     private var picker: Bool { ProcessInfo.processInfo.environment["ZS_PICKER"] == "1" }
 
     override func setUp() { continueAfterFailure = false }

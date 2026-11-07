@@ -28,7 +28,7 @@ struct PickerDeclineTests {
     }
 
     func makeSide(_ path: OSPath, axes: Axis.Set, content: CGSize, offset: CGPoint = .zero, paging: Bool = false,
-                  viewport: CGSize = CGSize(width: 100, height: 200), clock: Clock) -> Side {
+                  viewport: CGSize = CGSize(width: 100, height: 200), absorbs: Bool = true, clock: Clock) -> Side {
         let s = makeState(path)
         let d = ReleaseDelegate()
         s.delegate = d
@@ -38,6 +38,7 @@ struct PickerDeclineTests {
         s.track(offset: offset, zoom: 1)
         d.log.removeAll()
         let c = withOSPath(path) { PanCoordinator(state: s, axes: axes) }
+        c.pickersAbsorbDrags = absorbs
         return Side(state: s, coord: c, delegate: d)
     }
 
@@ -88,6 +89,17 @@ struct PickerDeclineTests {
         #expect(v.offset == CGPoint(x: 0, y: 300))
         #expect(v.dragCallbacks.isEmpty, "\(v.delegate.log)")
         #expect(!v.coord.isSequenceActive && !v.coord.declinedForPicker && v.state.phase == .idle)
+    }
+
+    /// `ztronScrollPickersAbsorbDrags(false)`, the default: a report (left from before it turned false) never declines.
+    @Test(arguments: OSPath.allCases) func whileTheModifierIsOffAPickerReportChangesNothing(path: OSPath) {
+        let clock = Clock()
+        let v = makeSide(path, axes: .vertical, content: CGSize(width: 100, height: 1000), offset: CGPoint(x: 0, y: 300),
+                         absorbs: false, clock: clock)
+        v.coord.touchSequenceBegan(onPicker: true)
+        drag([v], clock, step: CGSize(width: 0, height: -20))
+        #expect(v.offset.y > 300 && v.dragCallbacks.first == "willBeginDragging")
+        #expect(!v.coord.declinedForPicker)
     }
 
     /// The decline is the sequence's: the next one, from anywhere else, scrolls again.
@@ -280,6 +292,92 @@ struct PickerDeclineTests {
         #expect(!coordinator.isSequenceActive && !coordinator.declinedForPicker)
         #expect(r.state == .possible && r.view === window)
         r.install(on: nil)
+    }
+}
+
+/// `ztronScrollPickersAbsorbDrags(_:)`: an environment value the pan adapter mirrors into the coordinator and into the
+/// window recognizer (hosted, real window).
+@MainActor
+@Suite(.serialized) struct PickerAbsorbModifierTests {
+    @MainActor final class Seen { var values: [String: Bool] = [:] }
+    struct EnvProbe: View {
+        let seen: Seen
+        let tag: String
+        @Environment(\.ztronPickersAbsorbDrags) private var absorbs
+        var body: some View {
+            seen.values[tag] = absorbs
+            return Color.clear.frame(width: 1, height: 1)
+        }
+    }
+
+    @Test func theEnvironmentValueDefaultsToFalsePropagatesAndTheNearestWins() {
+        let seen = Seen()
+        let w = host(VStack {
+            EnvProbe(seen: seen, tag: "none")
+            VStack { VStack { EnvProbe(seen: seen, tag: "grandchild") } }.ztronScrollPickersAbsorbDrags()
+            VStack { EnvProbe(seen: seen, tag: "explicitFalse") }.ztronScrollPickersAbsorbDrags(false)
+            VStack { EnvProbe(seen: seen, tag: "nearestFalse") }
+                .ztronScrollPickersAbsorbDrags(false).ztronScrollPickersAbsorbDrags()
+        })
+        #expect(seen.values["none"] == false && seen.values["grandchild"] == true)
+        #expect(seen.values["explicitFalse"] == false && seen.values["nearestFalse"] == false)
+        _ = w
+    }
+
+    @MainActor final class Model: ObservableObject { @Published var absorbs = false }
+
+    private struct AdapterHost: View {
+        @ObservedObject var model: Model
+        let coordinator: PanCoordinator
+        var body: some View {
+            Color.clear.frame(width: 200, height: 200)
+                .modifier(PanGestureAdapter(coordinator: coordinator, axes: .vertical))
+                .ztronScrollPickersAbsorbDrags(model.absorbs)
+        }
+    }
+
+    func recognizers(_ w: UIWindow) -> [UIKitTouchObserverRecognizer] {
+        (w.gestureRecognizers ?? []).compactMap { $0 as? UIKitTouchObserverRecognizer }
+    }
+
+    /// 17+: off (the default) installs nothing; on installs one probe-only recognizer that reports; off removes it.
+    @Test func onTheSwiftUIObserverPathTheModifierAddsAndRemovesAProbeOnlyRecognizer() {
+        let s = makeState(.preferred)
+        guard !s.usesUIKitTouchObserver else { return }   // a real 15-16 runtime: the next test's shape
+        let c = PanCoordinator(state: s, axes: .vertical)
+        let model = Model()
+        let w = host(AdapterHost(model: model, coordinator: c))
+        #expect(recognizers(w).isEmpty && !c.pickersAbsorbDrags)
+        model.absorbs = true
+        pump(0.15)
+        let r = recognizers(w)
+        #expect(r.count == 1 && r.first?.feedsCore == false && r.first?.reportsPickers == true && c.pickersAbsorbDrags)
+        model.absorbs = false
+        pump(0.15)
+        #expect(recognizers(w).isEmpty && !c.pickersAbsorbDrags)
+        _ = w
+    }
+
+    /// 15-16 shape (D31, forced on a 17+ simulator): the recognizer is there either way, feeds the core, mirrors the flag.
+    @Test func onTheUIKitObserverPathTheRecognizerStaysAndMirrorsTheFlag() {
+        withOSPath(.forcedFallback) {
+            ZTronAvailability.forceUIKitTouchObserver(true)
+            defer { ZTronAvailability.forceUIKitTouchObserver(false) }
+            let s = ZTronScrollState()
+            guard s.usesUIKitTouchObserver else { return }   // release builds cannot force
+            let c = PanCoordinator(state: s, axes: .vertical)
+            let model = Model()
+            let w = host(AdapterHost(model: model, coordinator: c))
+            #expect(recognizers(w).map(\.feedsCore) == [true] && recognizers(w).first?.reportsPickers == false)
+            model.absorbs = true
+            pump(0.15)
+            #expect(recognizers(w).map(\.reportsPickers) == [true] && recognizers(w).first?.feedsCore == true)
+            #expect(c.pickersAbsorbDrags)
+            model.absorbs = false
+            pump(0.15)
+            #expect(recognizers(w).map(\.reportsPickers) == [false] && !c.pickersAbsorbDrags)
+            _ = w
+        }
     }
 }
 #endif

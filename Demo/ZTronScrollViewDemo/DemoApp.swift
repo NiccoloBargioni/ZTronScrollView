@@ -24,32 +24,41 @@ struct DemoApp: App {
 
     var body: some Scene {
         WindowGroup {
-            switch DemoApp.screenName {
-            case "pan": PanScreen()
-            case "controls": ControlsScreen()
-            case "uikitControls": UIKitControlsScreen()
-            case "pager": PagerScreen()
-            case "nestedPager": NestedPagerScreen()
-            case "targets": TargetsScreen()
-            case "positionParity": PositionParityScreen()
-            case "eventLog": EventLogScreen()
-            case "refresh": RefreshScreen()
-            case "profile": ProfileScreen()
-            case "banner": BannerScreen()
-            case "zoom": ZoomScreen()
-            case "image": ImageScreen()
-            case "calibrate": CalibrateScreen()
-            case "resize": ResizeScreen()
-            case "sheet": SheetScreen()
-            case "mixed": MixedTopologyScreen()
-            case "mixedProbe": MixedProbeScreen()
-            case "scrollDisabled": ScrollDisabledScreen()
-            case "buttonDrag": ButtonDragScreen()
-            case "uikitPanPage": UIKitPanPageScreen()
-            case "uikitPanPager": UIKitPanPagerScreen()
-            case "uikitPanDetect": UIKitPanDetectScreen()
-            default: ProofScreen()
-            }
+            // `scripts/test-demo-ui.sh --picker` (spike PICKER-s1): every screen with `ztronScrollPickersAbsorbDrags()`.
+            #if ZTRON_DEMO_PICKERS_ABSORB
+            screen.ztronScrollPickersAbsorbDrags()
+            #else
+            screen
+            #endif
+        }
+    }
+
+    @ViewBuilder private var screen: some View {
+        switch DemoApp.screenName {
+        case "pan": PanScreen()
+        case "controls": ControlsScreen()
+        case "uikitControls": UIKitControlsScreen()
+        case "pager": PagerScreen()
+        case "nestedPager": NestedPagerScreen()
+        case "targets": TargetsScreen()
+        case "positionParity": PositionParityScreen()
+        case "eventLog": EventLogScreen()
+        case "refresh": RefreshScreen()
+        case "profile": ProfileScreen()
+        case "banner": BannerScreen()
+        case "zoom": ZoomScreen()
+        case "image": ImageScreen()
+        case "calibrate": CalibrateScreen()
+        case "resize": ResizeScreen()
+        case "sheet": SheetScreen()
+        case "mixed": MixedTopologyScreen()
+        case "mixedProbe": MixedProbeScreen()
+        case "scrollDisabled": ScrollDisabledScreen()
+        case "buttonDrag": ButtonDragScreen()
+        case "uikitPanPage": UIKitPanPageScreen()
+        case "uikitPanPager": UIKitPanPagerScreen()
+        case "uikitPanDetect": UIKitPanDetectScreen()
+        default: ProofScreen()
         }
     }
 }
