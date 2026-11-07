@@ -761,7 +761,10 @@ height; `min`; `band = max(0, R − min)`;
   the fallback frame (D78) lays the stack out at `(W · s_l, h + g_l)` centred in a `W`-wide frame (a negative horizontal padding
   of `W(s_l − 1)/2` per side lets it overhang, the clip cuts it); a `.fit` header is height-fit at the committed `R` (what 16+
   does: the pass keeps the committed `R` at the committed viewport) and measured on the layout box at the grown width, so a
-  content change during a hold relayouts in the same pass. The switch: a runtime change of `stretchContent:` is a cold change of
+  content change during a hold relayouts in the same pass; in a resize's layout pass (an animated width or rotation while
+  pulled) it takes the D78 rest box, width-fit so it follows the animated proposal with the content, and proposes the stack the
+  grown rect around it (negative paddings `g_l` below and `g_l · W / (2(N′ − m′))` per side, `N′` predicted from the
+  committed pair). The switch: a runtime change of `stretchContent:` is a cold change of
   one value (the header builder runs once, no content body); animated while pulled, `m` interpolates and the content morphs
   inside the same outer rect (text shrinks monotonically from `s` times its size to its point size); unanimated it lands in one
   frame; at rest both cases draw the same pixels. Measured (27.0 / 17.5 / forced): see M8b-s8-s7's handoff.

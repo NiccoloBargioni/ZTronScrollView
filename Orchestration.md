@@ -382,7 +382,7 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
    watch closes one turn in for both); an orientation-flip heuristic would give single-axis system resizes (iPad Split View /
    Stage Manager, Core Animation-interpolated, no iPad lane) back the item 20 symptom (drawn over the content), which is worse
    than a late reveal. Options: accept; or reveal at once when the size change is single-axis and measure on an iPad lane first.
-28. **USER ACCEPTED 2026-11-03 (D76): the fix is the scoped UIKit raster engine of `d76-magnified.md`, built in M8b-s9.** **USER 2026-11-02: FIX (no animation skips or 15–16 look differences are accepted as limits); scheduled in M8b-s8.** **USER RULING 2026-11-02 (D76): an option, not a look change: default `.keepTextMagnified` (magnified as with D69, made crisp); the layout grow that keeps text at its point size is the other case.** **`.stretch` pull blurs text in the header while pulled (2026-11-01, header behaviors step 3 / D69, measured, OPEN; user
+28. **GROW CASE FIXED 2026-11-07 (M8b-s8 s6 16+, s7 15–16): `.keepTextSize` keeps the header text at its point size on 27.0, 17.5 and forced (edge ratio 1.000 against rest, text box = rest); `.keepTextMagnified` crisp path in M8b-s9 (below).** **USER ACCEPTED 2026-11-03 (D76): the fix is the scoped UIKit raster engine of `d76-magnified.md`, built in M8b-s9.** **USER 2026-11-02: FIX (no animation skips or 15–16 look differences are accepted as limits); scheduled in M8b-s8.** **USER RULING 2026-11-02 (D76): an option, not a look change: default `.keepTextMagnified` (magnified as with D69, made crisp); the layout grow that keeps text at its point size is the other case.** **`.stretch` pull blurs text in the header while pulled (2026-11-01, header behaviors step 3 / D69, measured, OPEN; user
    decision)**: the stretch is a render-time scale (D69), so Core Animation scales the header layer's bitmap: a 24 pt
    text's edge width grows 1.25x (17.5) to 1.8x (27.0, forced) at s = 1.25 (seam lab `-ZTronSeamHeaderText 1`, all lanes, not
    only 15-16). Transient (pull and refresh hold), images unaffected in kind. A re-raster would re-run the header body (S4).
@@ -540,6 +540,24 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
    Before item 42 is fixed, `cinset40` cannot show a step-free app animation on any lane. Next: carry the app's
    transaction to the inset-only path for direct state writes (the container's `.transaction` hook sees it one update
    later), then re-measure `cinset40` on 3 lanes (the 17+ cut keeps the pins out of it; 15–16 see item 33's check).
+43. **A pulled `.keepTextSize` `.fit` header's inner stack is drawn at its final grown rect from the viewport commit during
+   an app-animated resize on the 15–16 path (2026-11-07, M8b-s8 s7, measured, OPEN; forced lane on the 27.0 runtime)**: the
+   state commits the new viewport in the first frames of the app's animation (hosted trace, 27.0 and 17.5 alike: one
+   resize pass, then `isCommittedViewport` true). The committed grown plan (height-fit at the committed `R`, measured on
+   the layout box at `W · s_l`) is built from constants. The 27.0 runtime draws them final from that commit, and 17.5
+   interpolates them. Its stack also differs from the resize pass's final stack: the resize pass proposes the stack
+   `W + g_l·W/(N − m′)` wide, and the commit proposes `W · s_l = W + g_l·W/N` wide.
+   - Hosted `aWidthChangeInAHoldIsDrawnWithTheContent` (forced, ksize, narrowing): seam 90.5 pt, lateral 107 pt, step
+     1.0 of 90 on 27.0. It passes on 17.5. The 27.0+ case is in `withKnownIssue("open item 43", isIntermittent: true)`.
+   - Seam lab y27f `fit-rest-stretch-width-hold-ruler-ksize-forced`: the header and content edges pass (0.50 / 0.35 /
+     0.08). Inside the header, a ruler row's white run jumps 309 → 527 px in one frame at the widen's start (rowscan
+     y = 248 px, t 15.93 → 16.01). Aspect-image content looks the same either way.
+   Next: make the commit lay out what the resize pass targets.
+   - Option 1: the resize pass's final stack equals `W · s_l`, so the stack ratio and the box ratio no longer conflict
+     when `m′ > 0`.
+   - Option 2: at a commit that lands a resize, keep the resize construct, which is exact there because `N′ = N`.
+   Then re-measure the hosted test on 27.0 and 17.5 and the lab's ruler rows with rowscan. Real 15.0 / 16.0 behaviour is
+   unknown (M1 Mac).
 
 ## Decisions (keep)
 - D1 Naming map in CLAUDE.md (ZoomScroll → ZTronScroll, `ztronScroll…` modifiers; matches ZTronPages' `ztronPage()`).
@@ -909,6 +927,17 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
     inset snapped to the pixel grid. Its text edges match rest at a ratio of 1.000.
   - A switch morphs inside the frame. Every seam-lab row passes on 3 lanes.
   - The 15 path draws both cases as D69 until s7 (C14).
+  **15–16 BUILT (2026-11-07, M8b-s8 s7, f4eccdc + da40ef5, handoff `docs/progress/M8b-s8-s7.md`):** C14's stopgap is gone; the
+  fallback frame lays the stack out at the grown slot `(W · s_l, h + g_l)` (a negative side padding lets it overhang, the clip
+  cuts it). A pulled `.fit` box is height-fit at the committed `R` and measured on its layout box at the grown width (`N(W)`
+  exact, as 16+), so content and Dynamic Type changes in a hold relayout in the same pass (C7: no noteBox skip, no adoption
+  at release; C18: the measuring pass re-arms on Dynamic Type only before the first metrics, the box covers it after).
+  Forced lane: `.keepTextSize` text edges ×1.000 and box = rest; `.keepTextMagnified` pixel-identical to the s6 (D69) shots.
+  A resize's layout pass while pulled (animated width, rotation) takes the D78 rest box, width-fit, and proposes the stack
+  the grown rect around it through negative paddings (`g_l` below, `g_l·W/(2(N′ − m′))` per side, `N′` predicted from the
+  committed pair, 802537f): the forced `fit-rest-stretch-width-hold-ksize` row read a 90 pt seam and a 159 pt lateral step
+  with the pulled plan alone, 0.50 / 0.34 / 0.13 after. Demo `stretchContent:` picker + 3 HeaderUITests (19/19 × 3 lanes).
+  OPEN: item 43, the inner stack is drawn final from the viewport commit inside an app-animated resize (27.0 runtime, forced).
 - D77 (user, 2026-11-03, on the M8b-s8 i29 design) Item 29 takes the PUBLIC route (the design's D77′): on the 15–16 path one
   layer group G around the content and the `.slideBehind` slot, plus a 0 × 0 `UIViewRepresentable` probe that turns off the public
   `allowsGroupOpacity` on G's layer and on the header's group. It fixes item 29 and makes 15–16 fades equal 17+. G moves every
@@ -1111,3 +1140,4 @@ Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (≤ 2 simulators at 
 | 2026-11-04 | Opus 5.5 workflow subagent (M8b-s8 s2, builder s2-content-anim-stall, retry) | open item 34 closed: the stall is the hosted test process's (no library change). An animated insertion stalls in plain SwiftUI there, and on 27.0 anything under a `geometryGroup()` does too; the app draws the content's own animations on every frame on 3 lanes (seam lab `rows`: 27–28 frames in 0.5 s, step ≤ 0.067, landing ~450 ms). Rig: `hostDriven` / `AppFrameDriver` and `ContentAnimationTickTests` (fa9525d, 777630a). Lab: `rows<n>` / `rowsto<m>` / `internal` / `plain` / `rgrow` / `hnative` / `hplain`, `rows.py` (b8b0b71, b32b40b). An internal change's late last level is SwiftUI's own (native `ScrollView` on 27.0). Unit: the touched suites on 27.0 + 17.5; demo UI ProofUITests + SeamLabUITests on 3 lanes. Handoff `docs/progress/M8b-s8-s2.md` | — |
 | 2026-11-04 | Opus 5.5 workflow subagent (M8b-s8 s5, builder s5-i15b-d78, resumed 2026-11-07) | open item 15 (b) fixed (D78, 432f2fe…106c216: the 15–16 header resolves from its own slot, `HeaderSlotReader`; `.fit` through two ideal-ratio boxes, the measuring box reports N unlimited; `HeaderMath.overflowLimit` / `isCommittedViewport`; the measuring pass re-arms only before metrics and adopts its first measurement at once); rejected d89c745's single box (drew a narrowing at its final size, fixed by 106c216); every item 15 (b) row PASSES on 27.0 forced / preferred and 17.5 forced / preferred (before: up to 115 pt in one frame); 15 (c) stays open with its evidence; SPEC S10; unit 884 / 86 suites on 27.0 + 17.5; demo UI Header + Resize 29 / 29 on 3 lanes; s1–s4 key scenarios no regression (17.5 rtrig40 residual 2.0 = s3 / s4's record, open in the handoff); handoff `docs/progress/M8b-s8-s5.md` | — |
 | 2026-11-07 | Opus 5.5 workflow subagent (M8b-s8 s6, builder s6-d76-api-16) | D76 `stretchContent:` on the 16+ path (905177c, 90313c2): the default `.keepTextMagnified` = D69 bit for bit (hosted layer dumps vs the d291afc reference, PNG identity); `.keepTextSize` = layout grow by `m` with a pixel-snapped clip (i28 R5), text edges ×1.000; switches morph inside the frame (text box step ≤ 0.04, monotone, 27.0 + 17.5); C14: the 15 path draws D69 for both until s7. Lab port a35cf4a + fdd6c49. Unit 10 suites 100/100 on 27.0 + 17.5; HeaderUITests 16/16 × 3 lanes; seam lab 3 lanes + key scenarios of s1–s5. Handoff `docs/progress/M8b-s8-s6.md` | — |
+| 2026-11-07 | Opus 5.5 workflow subagent (M8b-s8 s7, builder s7-d76-15-ui) | D76 `.keepTextSize` on the 15–16 path (f4eccdc, da40ef5, 802537f): C14 stopgap gone, grown slot with clipped overhang, pulled `.fit` height-fit at the committed `R` and measured in layout (C7, C18 Dynamic Type), resize pass = D78 rest box + grow paddings (forced width-hold ksize 90 pt seam → 0.5). Forced text edges ×1.000; switches step 0.03, monotone, 3 lanes. Item 28 grow case fixed (crisp magnified in M8b-s9). Open item 43 (new): a resize in a pulled `.fit` ksize hold draws the inner stack final from the viewport commit on the 27.0 runtime (forced), not fixed. Demo picker + 3 HeaderUITests (19/19 × 3 lanes); unit 11 header suites 99/99 on 27.0 + 17.5; seam lab 3 lanes + s3/s5 keys. Handoff `docs/progress/M8b-s8-s7.md` | — |
