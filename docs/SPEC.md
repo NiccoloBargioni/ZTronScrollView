@@ -512,9 +512,12 @@ extension ZTronScrollView {
         fade: ZTronHeaderFade? = nil,
         background: ZTronHeaderBackground? = nil,         // D61 (user, 2026-10-26): .ambientBlur(radius:) / .frostedGlass(radius:) / .color / .view { }
         overflow: ZTronHeaderOverflow = .uncapped,        // D59 (user): .uncapped / .capped(fraction:) / .refit
+        stretchContent: ZTronHeaderStretchContent = .keepTextMagnified,   // D76 (user, 2026-11-02; amended 2026-11-07, M8b-s8 s6)
         @ViewBuilder header: @escaping (ZTronHeaderProxy) -> Header) -> Self
-    /// The former spelling (amended 2026-11-02): `scalingBehavior:` forwards to `pull:` with `collapse: .compress`. It has
-    /// no default, so `withScalingHeader(size:) { }` is never ambiguous; the fix-it maps `scalingBehavior:` onto `pull:`.
+    /// The former spelling (amended 2026-11-02): `scalingBehavior:` forwards to `pull:` with `collapse: .compress` (and,
+    /// amended 2026-11-07, D76, `stretchContent: .keepTextMagnified`). It has no default, so `withScalingHeader(size:) { }`
+    /// is never ambiguous; the fix-it maps `scalingBehavior:` onto `pull:` (its `renamed:` lists the new member without
+    /// `collapse:` and `stretchContent:`, label for label).
     @available(*, deprecated, renamed: "withScalingHeader(size:pull:snap:fade:background:overflow:header:)",
                message: "scalingBehavior: is now pull:")
     public func withScalingHeader<Header: View>(size: ZTronHeaderSize, scalingBehavior: ZTronHeaderScalingBehavior,
@@ -534,6 +537,14 @@ public enum ZTronHeaderSize: Equatable, Sendable {
     case fit(min: CGFloat = 0)                     // resting height = the header's ideal height at the scroll view's width (measured)
 }
 public enum ZTronHeaderScalingBehavior: Sendable { case preserve, stretch }   // the `pull:` reaction (D69: .stretch is a scale)
+/// D76 (user ruling 2026-11-02; amended 2026-11-07, M8b-s8 s6): with `pull: .stretch`, what the header's content does while a
+/// pull grows it. `.keepTextMagnified` (the default) is D69: the whole header magnified by `s = (R + g) / R` from its top
+/// centre. `.keepTextSize` lays the header out at `(W · s, R + g)` from its top centre, clipped to `W`: text, symbols and
+/// controls keep their point size (sharp), an aspect-fit image grows exactly as with the default. One mechanism, the
+/// laid-out share `m` (0 / 1) of the pull, animatable: an animated change while pulled morphs inside the same frame, an
+/// unanimated one lands in one frame; at rest both draw the same. Built on 16+ in M8b-s8 s6; the 15–16 path draws both
+/// cases as D69 until s7 builds its grown frame.
+public enum ZTronHeaderStretchContent: Hashable, Sendable { case keepTextMagnified, keepTextSize }
 public struct ZTronHeaderCollapseBehavior: Equatable, Sendable {   // D68: a struct, so `.slideBehind` and `.slideBehind(…)` both spell
     public static let compress: Self                  // the default: shrinks from the bottom to `min`, drawn above the content
     public static let slideBehind: Self               // parallax 0.5, no backdrop
