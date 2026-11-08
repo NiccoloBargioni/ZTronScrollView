@@ -43,7 +43,7 @@ Open:
 
 Next:
 1. Done: SPEC draft accepted (D88, 2026-11-08).
-2. If kept: merge `claude/picker-hitview-spike` into the integration branch; mention the modifier in the README / docs.
+2. Done 2026-11-08: merged into main (user). Still to do: mention the modifier in the README / docs.
 3. M1 lane: `UIKitControlsUITests` and `MixedTopologyUITests` with `--picker` on 15.0 / 16.0.
 
 Tests (private clones pk2-*, own derived data, demo UI one lane at a time under `ztron-ui-lane.lock`; passed / failed / skipped):
