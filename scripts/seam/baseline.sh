@@ -2,7 +2,7 @@
 # M8b-3 R5 seam lab: runs a list of scenarios through scripts/seam/measure.sh, one after the other, on one simulator.
 #
 # usage: scripts/seam/baseline.sh <udid> <out-root> <scenario>...
-#   scenario = <size>-<start>-<behavior>-<test>[-<extra>...], test = rotate | rotatel (from landscape) | width | pull | scroll | snap | kbrotate | fling | regrab | rows | hold | fitting, start = rest | half | collapsed | bottom (D75: scrolled to the content's bottom), extras (any order):
+#   scenario = <size>-<start>-<behavior>-<test>[-<extra>...], test = rotate | rotatel (from landscape) | width | pull | scroll | snap | kbrotate | fling | regrab | rows | hold | fitting | pinch, start = rest | half | collapsed | bottom (D75: scrolled to the content's bottom), extras (any order):
 #              forced (the forced-fallback lane), capped | refit (-ZTronHeaderOverflow), ambient | glass | color | view
 #              (-ZTronHeaderBackground), marker (-ZTronSeamMarker 1: a cyan row at content y 320), refresh (-ZTronSeamRefresh 2.5:
 #              a refresher whose action holds 2.5 s, with pull: the refresh hold and its end), band (-ZTronSeamScrollBand 0.5:
@@ -85,6 +85,7 @@ for sc in "$@"; do
       acenter|abottom) extra+=(-ZTronSeamAlign "${x#a}") ;;   # M8b-s8 s8 (D75): defaultScrollAnchor(.center / .bottom, for: .alignment)
       ftop|ffollows|fpinned) extra+=(-ZTronSeamFitting "${x#f}") ;;   # D75: fittingContent: .topAligned / .headerFollows / .headerPinned
       fto*) v="${x#fto}"; extra+=(-ZTronSeamFittingTo "${v//+/,}") ;;   # D75, with fitting: the cases seam.width sets (ftopinned+top; default pinned,top)
+      zoomable) extra+=(-ZTronSeamZoomable 1) ;;   # M8b-s8 s9 (D75): a zoomable lab scroll view (zoomRange 1...4; the pinch test)
       ksize) extra+=(-ZTronSeamStretchContent size) ;;   # D76: stretchContent: .keepTextSize (default .keepTextMagnified)
       switch*) v="${x#switch}"; extra+=(-ZTronSeamStretchSwitch "3,${v//p/.}") ;;   # D76: 3 s after launch, switch stretchContent to the other case over <d> s (switch0: unanimated; switch0p5 = 0.5)
       combo) extra+=(-ZTronSeamScrollBand 0.5 -ZTronSeamWidthThenScroll 0.5) ;;

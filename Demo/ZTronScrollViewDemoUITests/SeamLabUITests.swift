@@ -235,6 +235,24 @@ final class SeamLabUITests: XCTestCase {
         }
     }
 
+    /// M8b-s8 s9 (D75): with `-ZTronSeamZoomable 1`, a pinch out on the content (XCUI `pinch(withScale: 2, velocity: 1)`),
+    /// then one back in (`pinch(withScale: 0.5, velocity: -1)`), 2.5 s apart (the zoom bounce settles).
+    func testPinch() {
+        let app = launch()
+        XCTAssertTrue(app.buttons["seam.width"].waitForExistence(timeout: 10))
+        Thread.sleep(forTimeInterval: 1.5)
+        info(app, "start")
+        let window = app.windows.firstMatch
+        print("SEAMLAB mark pinch \(Date().timeIntervalSince1970)")
+        window.pinch(withScale: 2, velocity: 1)
+        Thread.sleep(forTimeInterval: 2.5)
+        info(app, "zoomed")
+        print("SEAMLAB mark unpinch \(Date().timeIntervalSince1970)")
+        window.pinch(withScale: 0.5, velocity: -1)
+        Thread.sleep(forTimeInterval: 2.5)
+        info(app, "back")
+    }
+
     private func arg(_ name: String, _ d: Double) -> Double {
         if let i = seamArgs.firstIndex(of: name), i + 1 < seamArgs.count, let v = Double(seamArgs[i + 1]) { return v }
         return d

@@ -89,6 +89,8 @@ import ZTronScrollView
 // top|follows|pinned` `withScalingHeader`'s `fittingContent:`, `-ZTronSeamFittingTo <case>[,<case>...]` makes `seam.width` set
 // the next case of the list (easeInOut 0.5 s, unanimated with `-ZTronSeamRowsPlain 1`; testFitting), `-ZTronSeamStart
 // bottom` scrolls to the content's bottom 0.6 s after launch.
+// M8b-s8 s9 (D75): `-ZTronSeamZoomable 1` makes the lab's (vertical) scroll view zoomable (`zoomRange(min: 1, max: 4)`;
+// centred alignment by default, testPinch).
 
 enum SeamLab {
     static let red = Color(red: 1, green: 0, blue: 0)
@@ -396,7 +398,8 @@ extension SeamLabScreen {
         }
             .scrollIndicators(.hidden)
             .defaultScrollAnchor(SeamLab.alignment, for: .alignment)
-        var view = SeamLab.noHeader ? base : base
+        let zoomed = SeamLab.zoomable ? base.zoomRange(min: .absolute(1), max: .absolute(4)) : base
+        var view = SeamLab.noHeader ? zoomed : zoomed
             .withScalingHeader(size: SeamLab.size, collapse: SeamLab.collapse, pull: SeamLab.behavior, fade: SeamLab.fade,
                                background: SeamLab.background, overflow: SeamLab.overflow, fittingContent: fitting,
                                stretchContent: stretchContent) { [tall] _ in SeamLabHeader(tall: tall) }
@@ -732,6 +735,8 @@ extension SeamLab {
         let list = HeaderDemo.argument("-ZTronSeamFittingTo", "").split(separator: ",").compactMap { fittingCase(String($0)) }
         return list.isEmpty ? nil : list
     }
+    /// `-ZTronSeamZoomable 1` (M8b-s8 s9): the scroll view is zoomable (1...4).
+    static var zoomable: Bool { HeaderDemo.argument("-ZTronSeamZoomable", "0") == "1" }
     /// `-ZTronSeamStart bottom`: scrolled to the content's bottom 0.6 s after launch.
     static var startsBottom: Bool { HeaderDemo.argument("-ZTronSeamStart", "rest") == "bottom" }
 }
