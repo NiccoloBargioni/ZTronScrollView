@@ -116,7 +116,9 @@ struct ScrollContainer<Content: View>: View {
         // this view and nothing in the content.
         state.initialOffsetAnchor = config.anchor(.initialOffset, else: envConfig)
         state.sizeChangesAnchor = config.anchor(.sizeChanges, else: envConfig)
-        state.alignmentAnchor = config.anchor(.alignment, else: envConfig)
+        // D75: the alignment anchor is published by the hooks below (`alignmentChanged()`), never during this body.
+        let alignmentAnchor = config.anchor(.alignment, else: envConfig)
+        state.alignmentAnchorCold = alignmentAnchor
         let positionBinding = config.position ?? envConfig.position
         state.positionDriver.bind(positionBinding)
         let position = positionBinding?.read()
@@ -133,6 +135,9 @@ struct ScrollContainer<Content: View>: View {
         // already depends on `envConfig`); it rides on the cold spec, so a change goes through `headerSpecChanged()`.
         let sizing = header?.sizing(pull: config.headerPull ?? envConfig.headerPull ?? .openGap)
         state.headerSpec = sizing
+        // D75: a number that changes with what decides the content's alignment, so the `.transaction` hook below sees the
+        // transaction of a `fittingContent:` or anchor change (the hooks publish the alignment in its animation).
+        let alignmentTicket = state.alignmentTicket(.init(fitting: sizing?.fitting, anchor: alignmentAnchor))
         // D80: the refresh slot behind the content, only on the path without layer groups (the state's flag, fixed for its
         // life: 17+ build the tree without it).
         let refreshBehind = !state.usesGeometryGroup
@@ -211,6 +216,7 @@ struct ScrollContainer<Content: View>: View {
             .modifier(ObserverRegistration(state: state, boxes: observerBoxes))
             .onAppear { state.zoomLimits = effectiveLimits }
             .modifier(PositionTicket(ticket: ticket))
+            .modifier(PositionTicket(ticket: alignmentTicket))   // D75: see `alignmentTicket` above
             .transaction { state.positionDriver.noteTransaction($0) }
             .onAppear { state.positionDriver.receive(position) }
             .onChangeCompat(of: position) { state.positionDriver.receive($0) }
@@ -219,5 +225,7 @@ struct ScrollContainer<Content: View>: View {
             .onChangeCompat(of: effectiveLimits) { state.zoomLimits = $0 }
             .onAppear { state.headerSpecChanged() }
             .onChangeCompat(of: sizing) { _ in state.headerSpecChanged() }
+            .onAppear { state.alignmentChanged() }
+            .onChangeCompat(of: alignmentAnchor) { _ in state.alignmentChanged() }
     }
 }

@@ -59,15 +59,19 @@ struct MeasurementIsolation: ViewModifier {
     }
 }
 
+/// The content's measured size (`setContentSize`). D75: also the content's `.transaction` hook (cold: no body runs), so a
+/// change made inside the content (an `@ObservedObject` only the content observes) is adopted in its own animation even
+/// when the container's hook does not see it (`PositionDriver.animationInTurn`).
 struct ContentSizeMeasure: ViewModifier {
     let state: ZTronScrollState
 
     @ViewBuilder
     func body(content: Content) -> some View {
+        let hooked = content.transaction { state.positionDriver.noteTransaction($0) }
         if state.usesGeometryChange, #available(iOS 16, *) {
-            content.onGeometryChange(for: CGSize.self, of: { $0.size }, action: { state.setContentSize($0) })
+            hooked.onGeometryChange(for: CGSize.self, of: { $0.size }, action: { state.setContentSize($0) })
         } else {
-            content
+            hooked
                 .background(GeometryReader { Color.clear.preference(key: ContentSizeKey.self, value: $0.size) })
                 .onPreferenceChange(ContentSizeKey.self) { state.setContentSize($0) }
         }

@@ -85,7 +85,19 @@ public final class ZTronScrollState {
     /// `defaultScrollAnchor(_:for: .initialOffset)`: where the content starts, applied once at the first layout (M6 s3).
     var initialOffsetAnchor: UnitPoint?
     /// `defaultScrollAnchor(_:for: .alignment)`: where content that fits sits, and the point of a view-aligned item that meets the container.
-    var alignmentAnchor: UnitPoint?
+    /// A write publishes the content's alignment (`alignmentChanged()`); the container's body writes
+    /// `alignmentAnchorCold` instead (no publish during a body) and publishes from its hooks.
+    var alignmentAnchor: UnitPoint? {
+        get { alignmentAnchorCold }
+        set {
+            alignmentAnchorCold = newValue
+            alignmentChanged()
+        }
+    }
+    /// The anchor's cold value (the container's body writes it; `alignmentChanged()` reads it).
+    var alignmentAnchorCold: UnitPoint?
+    private var alignmentTicketKey: AlignmentKey?
+    private var alignmentTicketValue: Double = 0
     /// Keeps a `scrollPosition` binding and this view in step (M6 s3); cold.
     let positionDriver = PositionDriver()
     weak var targetRegistry: (any ScrollTargetRegistry)?
@@ -465,6 +477,7 @@ public final class ZTronScrollState {
     func setMetrics(_ metrics: ScrollMetrics) {
         batch {
             var m = metrics
+            m.alignment = storage.snapshot().metrics.alignment   // the state's own (D75: `alignmentChanged()`)
             m.adjustedContentInset = Self.adjusted(contentInset: m.contentInset, safe: m.safeAreaInsets,
                                                    behavior: contentInsetAdjustmentBehavior, axes: scrollAxes,
                                                    hold: m.refreshHold, header: m.header)
@@ -526,8 +539,22 @@ public final class ZTronScrollState {
             }
             noteIdleGeometryChange(before: old)
             syncCommit(&m, open: false)
-            storage.metrics = m
+            // D75: the measurement is adopted in the animation of the transaction its change came in (the container's
+            // and the content's `.transaction` hooks, `animationInTurn`): the content's shape (`ContentShapeShift`) and
+            // the clamped offset below move on the change's curve, as the content's own rows do. None: instantaneous.
+            // Not in a resize's settle window (the slow reflow below is the resize's: unanimated, D17).
+            let settling = size.width > 0 && size.height > 0 && isInSettleWindow && resizeIntent != nil
+            let follow = hadContent && !settling ? positionDriver.animationInTurn : nil
+            // The shape is written in it only when its drawn padding moves (content that fits); otherwise as before.
+            let z0 = old.presentationZoom
+            let padOld = ResizeMath.geometry(viewport: old.metrics.viewportSize, content: old.metrics.contentSize,
+                                             insets: old.metrics.adjustedContentInset, alignment: old.metrics.alignment.content)
+                .alignmentPadding(at: z0)
+            let padNew = ResizeMath.geometry(viewport: m.viewportSize, content: m.contentSize, insets: m.adjustedContentInset,
+                                             alignment: m.alignment.content).alignmentPadding(at: z0)
+            withAnimationIfAny(padOld != padNew ? follow : nil) { storage.metrics = m }
             #if DEBUG
+            if follow != nil { dbg("cs follow \(f(old.metrics.contentSize))->\(f(size))") }
             if !(idle && hadContent) { dbg("cs idle-skip \(f(old.metrics.contentSize))->\(f(size)) vp:\(f(old.metrics.viewportSize)) idle:\(idle) hadContent:\(hadContent) wroteOffset:false") }
             #endif
             guard idle, hadContent else { return }
@@ -558,7 +585,16 @@ public final class ZTronScrollState {
             } else {
                 o = gNew.clamped(o, at: z)
             }
-            if o != old.presentationOffset { unanimated { writeBoth(offset: o, zoom: z) } }
+            if o != old.presentationOffset {
+                if let follow {
+                    // D75: the clamp on the change's curve; a SwiftUI-drawn library motion, so a touch catches it where
+                    // it is drawn (D79). The shape is not pinned by such a catch (C10).
+                    noteSwiftUIDrawnMotion()
+                    withAnimation(catchable(follow)) { writeBoth(offset: o, zoom: z) }
+                } else {
+                    unanimated { writeBoth(offset: o, zoom: z) }
+                }
+            }
             #if DEBUG
             dbg("cs idle \(f(old.metrics.contentSize))->\(f(size)) vp:\(f(old.metrics.viewportSize)) wroteOffset:\(o != old.presentationOffset) \(f(old.presentationOffset))->\(f(o)) z:\(f(z))")
             #endif
@@ -568,13 +604,61 @@ public final class ZTronScrollState {
         applyPendingHeaderSnap()
     }
 
-    /// Where content sits on an axis where it is smaller than the viewport (design M2 section 5). Not observed.
-    /// Centered once zooming is enabled (SPEC S6), the native top-leading default otherwise. With a scaling header the
-    /// vertical alignment is the top (SPEC S10 Placement): the content starts at the header's bottom edge, so content that
-    /// fits never leaves a gap below the header (review d16: centred content sat 119 pt below it, at rest and pulled).
-    var contentAlignment: UnitPoint {
-        let a = alignmentAnchor ?? (isZoomEnabled ? .center : .topLeading)
-        return headerSpec == nil ? a : UnitPoint(x: a.x, y: 0)
+    /// Where content sits on an axis where it is smaller than the viewport (design M2 section 5): the published value
+    /// (`ScrollMetrics.alignment`, D75), read untracked. See `resolvedAlignment()`.
+    var contentAlignment: UnitPoint { storage.snapshot().metrics.alignment.content }
+
+    /// D75: the content's alignment and the header's lift alignment. Centered once zooming is enabled (SPEC S6), the native
+    /// top-leading default otherwise, or the `.alignment` anchor. With a scaling header, `fittingContent:` decides
+    /// (SPEC S10 Placement): `.topAligned` (D63) zeroes the vertical alignment (the content starts at the header's bottom
+    /// edge: review d16, centred content sat 119 pt below it); `.headerPinned` keeps it (the gap opens below the header);
+    /// `.headerFollows` keeps it and lifts the header by the same alignment (`liftY`; vertical axis only: a banner never
+    /// moves vertically).
+    func resolvedAlignment() -> ContentAlignment {
+        let a = alignmentAnchorCold ?? (isZoomEnabled ? .center : .topLeading)
+        guard let spec = headerSpec else { return ContentAlignment(content: a, liftY: 0) }
+        switch spec.fitting {
+        case .topAligned: return ContentAlignment(content: UnitPoint(x: a.x, y: 0), liftY: 0)
+        case .headerPinned: return ContentAlignment(content: a, liftY: 0)
+        case .headerFollows: return ContentAlignment(content: a, liftY: scrollAxes.contains(.vertical) ? a.y : 0)
+        }
+    }
+
+    /// D75: what decides the content's alignment besides the zoom default (the container's body reads `alignmentTicket`).
+    struct AlignmentKey: Equatable {
+        var fitting: ZTronHeaderFittingContent?
+        var anchor: UnitPoint?
+    }
+
+    /// D75: a number that changes whenever `key` does (cold, read in the container's body like
+    /// `PositionDriver.ticket(for:)`): an animatable `PositionTicket` driven by it makes the container's `.transaction`
+    /// hook see the transaction of a `fittingContent:` or anchor change, which `alignmentChanged()` then adopts.
+    func alignmentTicket(_ key: AlignmentKey) -> Double {
+        if key != alignmentTicketKey {
+            alignmentTicketKey = key
+            alignmentTicketValue += 1
+        }
+        return alignmentTicketValue
+    }
+
+    /// D75: publishes `resolvedAlignment()` when it changed (the anchor, the zoom default, `fittingContent:`), in the
+    /// animation of the transaction the change came in (`withAnimation { fitting = … }` animates the content's shape,
+    /// `ContentShapeShift`); unanimated while a resize is in flight (the resize draws the committed alignment). Never
+    /// from a body: the container calls it from its hooks.
+    func alignmentChanged() {
+        let next = resolvedAlignment()
+        let old = storage.snapshot().metrics
+        guard next != old.alignment else { return }
+        #if DEBUG
+        dbg("align \(old.alignment.content.x),\(old.alignment.content.y)/\(old.alignment.liftY) -> \(next.content.x),\(next.content.y)/\(next.liftY) txAnim:\(positionDriver.animationInTurn != nil)")
+        #endif
+        withAnimationIfAny(isResizeOpen ? nil : positionDriver.animationInTurn) {
+            batch {
+                var m = storage.snapshot().metrics
+                m.alignment = next
+                storage.metrics = m
+            }
+        }
     }
 
     /// Solver geometry for `metrics` (adjusted insets included).
@@ -592,6 +676,7 @@ public final class ZTronScrollState {
         let range = zoomLimits.resolve(unscaledContentSize: m.contentSize, viewportSize: m.viewportSize,
                                        insets: ResizeMath.axisInsets(m.adjustedContentInset))
         resolvedZoom = range
+        alignmentChanged()   // D75: the zoom default (centred once zooming is enabled)
         let s = storage.snapshot()
         guard !isResizeOpen, !range.contains(s.presentationZoom), m.viewportSize.width > 0, m.viewportSize.height > 0,
               !storage.isZooming else { return }

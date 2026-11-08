@@ -24,7 +24,8 @@ extension ZTronScrollView {
     /// top edge is where its uncovered part ends, and its own bottom edge is under the content), pulls (except an
     /// `.openGap` pull, whose gap is the point), refresh holds, snaps, `scrollTo`, rotations and app-driven animated
     /// resizes, with the known limits below.
-    /// Content shorter than the viewport is top-aligned under the header.
+    /// Content shorter than the viewport (below the resting header) is placed by `fittingContent:`: top-aligned under the
+    /// header by default.
     ///
     /// The builder runs once per cold change (install, a parent rebuild), never while scrolling: it receives a
     /// ``ZTronHeaderProxy`` and its children read the live geometry through ``ZTronHeaderGeometryReader``. No body in the
@@ -61,6 +62,11 @@ extension ZTronScrollView {
     ///   - overflow: what the resting height does when it does not fit the scroll view's container (the viewport below
     ///     the safe area): `.uncapped` (the default) keeps it, `.capped(fraction:)` limits it to a fraction of the
     ///     container's height, `.refit` fits it into the container (an aspect fit for `.aspectRatio`).
+    ///   - fittingContent: where content that fits (shorter than the viewport below the resting header) sits relative
+    ///     to the header (``ZTronHeaderFittingContent``): `.topAligned` (the default) starts it at the header's bottom
+    ///     edge; `.headerFollows` keeps its alignment (`defaultScrollAnchor(_:for: .alignment)`) with the header riding on
+    ///     its top edge; `.headerPinned` keeps its alignment below the resting header. A change at run time animates in
+    ///     the transaction it is made in.
     ///   - stretchContent: with `pull: .stretch`, what the content does while a pull grows the header
     ///     (``ZTronHeaderStretchContent``): `.keepTextMagnified` (the default) magnifies the whole header;
     ///     `.keepTextSize` lays it out larger, so text and controls keep their size and an aspect-fit image still grows.
@@ -73,20 +79,22 @@ extension ZTronScrollView {
                                                 snap: ZTronHeaderSnap = .disabled, fade: ZTronHeaderFade? = nil,
                                                 background: ZTronHeaderBackground? = nil,
                                                 overflow: ZTronHeaderOverflow = .uncapped,
+                                                fittingContent: ZTronHeaderFittingContent = .topAligned,
                                                 stretchContent: ZTronHeaderStretchContent = .keepTextMagnified,
                                                 @ViewBuilder header: @escaping (ZTronHeaderProxy) -> Header) -> Self {
         var copy = self
         copy.config.header = HeaderSpec(size: size, behavior: pull, collapse: collapse, snap: snap, fade: fade,
-                                        background: background, overflow: overflow, stretchContent: stretchContent,
-                                        builder: { AnyView(header($0)) })
+                                        background: background, overflow: overflow, fitting: fittingContent,
+                                        stretchContent: stretchContent, builder: { AnyView(header($0)) })
         return copy
     }
 
     /// The former spelling of
-    /// ``withScalingHeader(size:collapse:pull:snap:fade:background:overflow:stretchContent:header:)``: `scalingBehavior:`
-    /// is now `pull:` (same type, same meaning), the header collapses with `.compress` and a `.stretch` pull magnifies it
-    /// (`stretchContent: .keepTextMagnified`). (The rename lists the new member without `collapse:` and
-    /// `stretchContent:`, so the fix-it maps `scalingBehavior:` onto `pull:` label for label.)
+    /// ``withScalingHeader(size:collapse:pull:snap:fade:background:overflow:fittingContent:stretchContent:header:)``:
+    /// `scalingBehavior:` is now `pull:` (same type, same meaning), the header collapses with `.compress`, content that
+    /// fits is top-aligned under it (`fittingContent: .topAligned`) and a `.stretch` pull magnifies it
+    /// (`stretchContent: .keepTextMagnified`). (The rename lists the new member without `collapse:`, `fittingContent:`
+    /// and `stretchContent:`, so the fix-it maps `scalingBehavior:` onto `pull:` label for label.)
     @available(*, deprecated, renamed: "withScalingHeader(size:pull:snap:fade:background:overflow:header:)",
                message: "scalingBehavior: is now pull:")
     public func withScalingHeader<Header: View>(size: ZTronHeaderSize, scalingBehavior: ZTronHeaderScalingBehavior,
@@ -95,7 +103,8 @@ extension ZTronScrollView {
                                                 overflow: ZTronHeaderOverflow = .uncapped,
                                                 @ViewBuilder header: @escaping (ZTronHeaderProxy) -> Header) -> Self {
         withScalingHeader(size: size, pull: scalingBehavior, snap: snap, fade: fade, background: background,
-                          overflow: overflow, stretchContent: .keepTextMagnified, header: header)
+                          overflow: overflow, fittingContent: .topAligned, stretchContent: .keepTextMagnified,
+                          header: header)
     }
 
     /// Where the gap a pull past the top opens with this view's `pull: .preserve` scaling header (D65; it refines

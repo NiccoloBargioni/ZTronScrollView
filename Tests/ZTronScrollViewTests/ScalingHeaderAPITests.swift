@@ -46,6 +46,7 @@ private struct UserBannerScreen: View {
         #expect(spec.size == .aspectRatio(16.0 / 9.0, min: 0) && spec.overflow == .refit && spec.snap == .disabled)
         #expect(spec.fade == .linear(to: Self.bg))
         #expect(spec.stretchContent == .keepTextMagnified, "D76: the deprecated spelling forwards the default")
+        #expect(spec.fitting == .topAligned, "D75: the deprecated spelling forwards the default (D63)")
         _ = UserBannerScreen().body   // the user's shape builds (its body is a value; nothing is rendered)
     }
 
@@ -54,6 +55,15 @@ private struct UserBannerScreen: View {
             .config.header)
         #expect(spec.collapse == .compress && spec.behavior == .preserve && spec.fade == nil)
         #expect(spec.stretchContent == .keepTextMagnified, "D76: the default is D69's look")
+        #expect(spec.fitting == .topAligned && spec.sizing(pull: .openGap).fitting == .topAligned, "D75: the default is D63")
+        // D75: in the sizing (a change runs headerSpecChanged(), which publishes the alignment).
+        let pinned = try #require(ZTronScrollView { Color.clear }
+            .withScalingHeader(size: .fixed(max: 200), fittingContent: .headerPinned, stretchContent: .keepTextSize) { _ in
+                Color.red
+            }
+            .config.header)
+        #expect(pinned.fitting == .headerPinned && pinned.stretchContent == .keepTextSize)
+        #expect(pinned.sizing(pull: .openGap) != spec.sizing(pull: .openGap))
         // D76: carried, render-only (not in the sizing: a change runs no headerSpecChanged()).
         let grow = try #require(ZTronScrollView { Color.clear }
             .withScalingHeader(size: .fixed(max: 200), pull: .stretch, stretchContent: .keepTextSize) { _ in Color.red }

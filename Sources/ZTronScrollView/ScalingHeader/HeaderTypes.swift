@@ -59,6 +59,25 @@ public enum ZTronHeaderScalingBehavior: Sendable {
     case stretch
 }
 
+/// What a scaling header does with content that fits (shorter than the viewport below the resting header): the
+/// `fittingContent:` parameter of `withScalingHeader` (D75). The content's vertical alignment comes from
+/// `defaultScrollAnchor(_:for: .alignment)` (centre for a zoomable view, top otherwise); with a top alignment all cases
+/// look the same. Content that overflows is drawn the same in every case. A change at run time animates in the
+/// transaction it is made in (`withAnimation`), and lands in one frame otherwise.
+public enum ZTronHeaderFittingContent: Hashable, Sendable {
+    /// The default. The content starts at the header's bottom edge whatever its vertical alignment; its horizontal
+    /// alignment is kept. Header and content behave as they do when the content overflows.
+    case topAligned
+    /// The content keeps its alignment and the header rides on its top edge, as if it were the content's first row:
+    /// centred content and header are centred together, with the scroll view's background above the header. With
+    /// `pull: .stretch` the header grows into that space instead, as a pull of the same size would make it grow. Pulls,
+    /// refresh and collapse work from there.
+    case headerFollows
+    /// The header stays at its resting place and the content keeps its alignment in the region below it, with a gap
+    /// between the two (the look of a header pinned as a safe-area inset).
+    case headerPinned
+}
+
 /// What a `pull: .stretch` header's content does while a pull past the top grows the header (the `stretchContent:`
 /// parameter of `withScalingHeader`, D76). In both cases the header's frame grows by the pull with its top edge pinned and
 /// its bottom edge on the content's top, its sides are cut at the scroll view's width, and an aspect-fit image grows from

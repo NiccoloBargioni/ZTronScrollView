@@ -78,6 +78,7 @@ extension ZTronScrollState {
     /// The container's spec changed (install, removal, `size` / behavior / snap): re-resolve at the current width.
     func headerSpecChanged() {
         if headerSpec == nil { headerNatural = nil }
+        alignmentChanged()   // D75: `fittingContent:` (and the header's install / removal) decide the content's alignment
         let m = peek.metrics
         let container = HeaderMath.containerHeight(viewport: m.viewportSize, safe: m.safeAreaInsets,
                                                    adjusted: contentInsetAdjustmentBehavior.edges(for: scrollAxes),

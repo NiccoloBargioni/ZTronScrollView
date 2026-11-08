@@ -87,6 +87,16 @@ struct ScrollMetrics: Equatable, Sendable {
     var resizeGeneration: UInt64 = 0
     /// The resize commit the transform effect maps through (design M5 section 2).
     var resize = ResizeCommit()
+    /// D75: where content that fits sits, published by the state (`ZTronScrollState.alignmentChanged()`, in the
+    /// transaction of the change) so the content's animatable shape (`ContentShapeShift`) can follow it.
+    var alignment = ContentAlignment()
+}
+
+/// D75: the content's alignment (content that fits, `ResizeMath.geometry`'s `alignment`) and the scaling header's lift
+/// alignment (`.headerFollows`: the header rides on the content's top edge, lifted by `slack · liftY`; 0 otherwise).
+struct ContentAlignment: Equatable, Sendable {
+    var content: UnitPoint = .topLeading
+    var liftY: CGFloat = 0
 }
 
 /// Which edges of the safe area become `adjustedContentInset` (UIKit `contentInsetAdjustmentBehavior`).

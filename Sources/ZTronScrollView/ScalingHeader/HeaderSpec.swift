@@ -13,6 +13,9 @@ struct HeaderSpec {
     var fade: ZTronHeaderFade?
     var background: ZTronHeaderBackground?
     var overflow: ZTronHeaderOverflow = .uncapped
+    /// D75, `fittingContent:`: where content that fits sits relative to the header (in `HeaderSizing`: a change runs
+    /// `headerSpecChanged()`, which publishes the content's alignment, `ZTronScrollState.alignmentChanged()`).
+    var fitting: ZTronHeaderFittingContent = .topAligned
     /// D76, `stretchContent:`: render-only (not in `HeaderSizing`): a change runs no `headerSpecChanged()` and leaves the
     /// metrics alone; it reaches the frame leaf through the host's body (one cold run, like a `fade:` change).
     var stretchContent: ZTronHeaderStretchContent = .keepTextMagnified
@@ -21,7 +24,8 @@ struct HeaderSpec {
     /// The state's cold values with the resolved pull behavior (D65: the member, else the environment, else `.openGap`;
     /// resolved by the container, which reads both).
     func sizing(pull: ZTronHeaderPullBehavior) -> HeaderSizing {
-        HeaderSizing(size: size, behavior: behavior, collapse: collapse, snap: snap, overflow: overflow, pull: pull)
+        HeaderSizing(size: size, behavior: behavior, collapse: collapse, snap: snap, overflow: overflow, pull: pull,
+                     fitting: fitting)
     }
 }
 
@@ -36,6 +40,8 @@ struct HeaderSizing: Equatable {
     /// D65: where a `.preserve` header's pull gap opens (carried into `HeaderMetrics.pull`). A change is a cold spec change
     /// (`headerSpecChanged()`), like a behavior change.
     var pull: ZTronHeaderPullBehavior = .openGap
+    /// D75: where content that fits sits (`ZTronScrollState.resolvedAlignment()`); a change is a cold spec change.
+    var fitting: ZTronHeaderFittingContent = .topAligned
 
     /// `HeaderMath.metrics` plus its DEBUG warnings (cold: the state's commits, never the layout path); `nil` while the
     /// width is unknown or `.fit` unmeasured.
