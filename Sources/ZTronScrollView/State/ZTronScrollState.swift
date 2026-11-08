@@ -1571,7 +1571,8 @@ public final class ZTronScrollState {
     /// The library's own SwiftUI-animated write that draws the content away from the model is in flight (a refresh reset:
     /// the hold clears inside `withAnimation`, the model is at rest at once while the content effect interpolates). Opened
     /// by `noteSwiftUIDrawnMotion()`; closed by `beginIntervention()` (a finger down that did not catch, a drag, a pinch,
-    /// a command), `cancelMotion()`, `scroll(to:)`, a drawn catch, and by `drawnAway()` once the drawing reached the model.
+    /// a command), `cancelMotion()`, `scroll(to:)`, a drawn catch, and by `drawnAway()` once the drawing reached the model
+    /// or once the content effect drew its target values since the window opened (`PresentationBox.restSeen`, C-F1).
     /// Only inside it can a touch catch the drawing: a steady drawn / model difference at rest (a slow-path clamp,
     /// `transform.clampedAtRest`) never turns a tap into a catch (a catch locks the content for that touch).
     private var drawnMotionOpen = false
@@ -1593,6 +1594,7 @@ public final class ZTronScrollState {
     func noteSwiftUIDrawnMotion() {
         if !drawnMotionOpen { drawnResetToken = DrawnResetToken() }
         drawnMotionOpen = true
+        probe.armRest()
         clearPin()
         #if DEBUG
         dbg("drawn window open, model \(f(storage.snapshot().presentationOffset))")
@@ -1628,7 +1630,17 @@ public final class ZTronScrollState {
     /// presentation (the animation reached the model: the window closes). The pan and pinch environments count it as
     /// motion without a finger, so a touch then catches it (`interrupt(catching:)`).
     func drawnAway() -> (offset: CGPoint, zoom: CGFloat)? {
-        guard drawnMotionOpen, motion == nil, transactionToken == nil, !storage.isTracking, !storage.isZooming,
+        guard drawnMotionOpen else { return nil }
+        if probe.restSeen {
+            // C-F1: the drawing ended at its target values since the window opened (no touch needed to see it): a later
+            // drawn / model difference (an app-animated inset, a steady clamp at rest) is no library motion to catch.
+            drawnMotionOpen = false
+            #if DEBUG
+            dbg("drawn window closed: the drawing came to rest")
+            #endif
+            return nil
+        }
+        guard motion == nil, transactionToken == nil, !storage.isTracking, !storage.isZooming,
               !isResizeOpen, let d = probe.pending else { return nil }
         let s = storage.snapshot()
         let vp = s.metrics.viewportSize

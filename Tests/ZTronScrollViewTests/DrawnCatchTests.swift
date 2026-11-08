@@ -46,6 +46,40 @@ struct DrawnCatchTests {
         #expect(r.state.drawnAway() == nil, "the window closed: a later drawn / model difference is no drawn motion")
     }
 
+    /// C-F1: a reset nobody touched ends where the effect draws its target values; the window closes there, so a later
+    /// drawn / model difference (an app-animated inset, a steady clamp at rest) never turns a tap into a catch.
+    @Test(arguments: OSPath.allCases) func anUntouchedResetThatCameToRestClosesTheWindow(path: OSPath) async {
+        do {
+            let r = await Self.resetting(path, drawnAt: -40)
+            r.drawn(-20)
+            #expect(r.state.drawnAway() != nil, "mid-reset: open")
+            r.drawn(r.state.peek.presentationOffset.y, atRest: true)     // the reset's last frame: no touch reads it
+            r.tick(120)
+            withAnimation(.easeInOut(duration: 0.4)) { r.state.contentInset.top += 40 }
+            r.drawn(r.state.peek.presentationOffset.y + 20)               // the app's inset animation, mid-flight
+            r.pan.effectsLog.removeAll()
+            r.touchDown()
+            #expect(!r.pan.effectsLog.contains(.catchMotion), "an app inset animation is not caught")
+            #expect(!r.state.catchLocksContent, "the content tap is not swallowed")
+        }
+        do {
+            let r = await Self.resetting(path, drawnAt: -40)
+            r.drawn(r.state.peek.presentationOffset.y - 12, atRest: true) // the reset came to rest on a slow-path clamp
+            r.tick(120)
+            r.pan.effectsLog.removeAll()
+            r.touchDown()
+            #expect(!r.pan.effectsLog.contains(.catchMotion), "a steady clamp at rest is not caught")
+        }
+        do {
+            // A new reset re-arms: a rest frame before it does not close the new window.
+            let r = await Self.resetting(path, drawnAt: -40)
+            r.drawn(0, atRest: true)
+            r.state.noteSwiftUIDrawnMotion()
+            r.drawn(-30)
+            #expect(r.state.drawnAway()?.offset == CGPoint(x: 0, y: -30), "the second window is open")
+        }
+    }
+
     @Test(arguments: OSPath.allCases) func aRestingViewHasNoWindow(path: OSPath) {
         let r = RefreshRig(path)
         r.drawn(-12)                                                  // a steady difference (a slow-path clamp at rest)
@@ -294,6 +328,27 @@ struct DrawnCatchTests {
 
     // MARK: Hosted (S4): a catch runs no content body
 
+    /// C-F1, hosted: the real content effect reports the end of the reset; a tap during a later app-animated inset change
+    /// is not a catch.
+    @Test(arguments: OSPath.allCases) func aFinishedResetLeavesNoWindowForALaterAppAnimation(path: OSPath) {
+        let s = makeState(path)
+        let counts = BodyCount()
+        let w = withOSPath(path) {
+            host(ZTronScrollView(.vertical, state: s) { StatefulContent(counts: counts) }.refresher(style: .default) { })
+        }
+        defer { unhost(w) }
+        s.beginRefreshing(edge: .top)
+        pump(1.0)
+        s.endRefreshing(edge: .top)
+        pump(0.08)
+        #expect(s.drawnAway() != nil, "mid-reset the window is open (\(path))")
+        pump(1.0)                                                // the reset ends; nobody touches
+        withAnimation(.easeInOut(duration: 0.6)) { s.contentInset.top += 40 }
+        pump(0.15)
+        #expect(s.drawnAway() == nil, "an app-animated inset after the reset is no drawn library motion (\(path))")
+        pump(1.0)
+    }
+
     @Test(arguments: OSPath.allCases) func aDrawnCatchRunsNoContentBodyAndOneHostBodyPerWrite(path: OSPath) {
         let s = makeState(path)
         let counts = BodyCount()
@@ -321,7 +376,7 @@ struct DrawnCatchTests {
 
 extension RefreshRig {
     /// The content effect drew `y` (its probe), at the viewport's size unless `size` says otherwise.
-    func drawn(_ y: CGFloat, zoom: CGFloat = 1, size: CGSize? = nil) {
-        state.probe.record(CGPoint(x: 0, y: y), zoom, size: size ?? viewport)
+    func drawn(_ y: CGFloat, zoom: CGFloat = 1, size: CGSize? = nil, atRest: Bool = false) {
+        state.probe.record(CGPoint(x: 0, y: y), zoom, size: size ?? viewport, atRest: atRest)
     }
 }

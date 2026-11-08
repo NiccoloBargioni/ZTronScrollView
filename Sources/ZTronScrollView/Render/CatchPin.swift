@@ -138,4 +138,12 @@ extension ContentTransform {
         c.pinModel = animatableData
         return c
     }
+
+    /// D79: this effect telling its probe when a frame is drawn at the values it is built with (the drawn-motion
+    /// window closes then, even when no touch follows: C-F1).
+    func tracksRest() -> ContentTransform {
+        var c = self
+        c.restModel = animatableData
+        return c
+    }
 }

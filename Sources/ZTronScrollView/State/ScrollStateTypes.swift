@@ -139,6 +139,7 @@ final class PresentationBox: @unchecked Sendable {
     private var _pending: (offset: CGPoint, zoom: CGFloat, size: CGSize)?
     private var _frames = 0
     private var _sizes: [CGSize] = []
+    private var _restSeen = false
 
     var pending: (offset: CGPoint, zoom: CGFloat, size: CGSize)? {
         get { lock.lock(); defer { lock.unlock() }; return _pending }
@@ -149,9 +150,15 @@ final class PresentationBox: @unchecked Sendable {
     /// drawn size's recent motion (a safe-area step tells whether it is drawn yet, `ZTronScrollState.stepDrawn`).
     var recentSizes: [CGSize] { lock.lock(); defer { lock.unlock() }; return _sizes }
 
-    func record(_ offset: CGPoint, _ zoom: CGFloat, size: CGSize = .zero) {
+    /// D79: whether the effect drew its target values (its animatable data at rest, `atRest`) since `armRest()`: the
+    /// SwiftUI-drawn motion that armed it has ended (`ZTronScrollState.drawnAway()` closes the drawn-motion window).
+    var restSeen: Bool { lock.lock(); defer { lock.unlock() }; return _restSeen }
+    func armRest() { lock.lock(); defer { lock.unlock() }; _restSeen = false }
+
+    func record(_ offset: CGPoint, _ zoom: CGFloat, size: CGSize = .zero, atRest: Bool = false) {
         lock.lock(); defer { lock.unlock() }
         _pending = (offset, zoom, size)
+        if atRest { _restSeen = true }
         _frames += 1
         if _sizes.last != size {
             _sizes.append(size)

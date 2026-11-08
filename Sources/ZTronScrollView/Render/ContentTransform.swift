@@ -47,6 +47,9 @@ struct ContentTransform: GeometryEffect {
     /// D79: the catch pin and the model values this effect was built with (`pinned(_:)`, `CatchPin`).
     var pin: CatchPin.Ref?
     var pinModel = TransformVector()
+    /// D79: the values this effect is built with when the host tracks rest (`tracksRest()`); the probe learns a frame
+    /// drawn at them (the drawn motion ended).
+    var restModel: TransformVector?
 
     var animatableData: TransformVector {
         get { TransformVector(ox: offset.x, oy: offset.y, s: scale, top: insets.top, leading: insets.leading,
@@ -110,7 +113,7 @@ struct ContentTransform: GeometryEffect {
             return me.effectValue(size: size)
         }
         let r = resolved(size: size)
-        probe?.record(r.offset, r.scale, size: size)
+        probe?.record(r.offset, r.scale, size: size, atRest: restModel.map { animatableData.within($0) } ?? false)
         #if DEBUG
         if Thread.isMainThread {
             let open = commit.isOpen
@@ -223,7 +226,7 @@ struct TransformHost: ViewModifier {
             .modifier(ContentTransform(offset: offset, scale: scale, insets: metrics.adjustedContentInset,
                                        commit: metrics.resize, limits: state.zoomLimits, alignment: metrics.alignment.content,
                                        paging: state.isPagingEnabled ? axes : [], probe: state.probe)
-                .pinned(state.catchPinRef))
+                .pinned(state.catchPinRef).tracksRest())
             .modifier(ContentShapeShift(shape: shape, committed: shape, scale: scale, insets: metrics.adjustedContentInset,
                                         commit: metrics.resize))   // D75: the drawn shape's padding (ContentShape.swift)
             .modifier(CompletionObserver(state: state))
