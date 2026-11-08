@@ -35,6 +35,19 @@ struct HeaderFittingContentTests {
     /// Body runs of the content (S4).
     final class Bodies { var content = 0 }
 
+    /// An app's bottom `.safeAreaInset` around the scroll view (the seam lab's `kbfake`), animated by the test.
+    final class InsetBox: ObservableObject {
+        @Published var height: CGFloat = 0
+    }
+
+    struct InsetWrap<Content: View>: View {
+        @ObservedObject var box: InsetBox
+        let content: Content
+        var body: some View {
+            content.safeAreaInset(edge: .bottom, spacing: 0) { Color.clear.frame(height: box.height) }
+        }
+    }
+
     struct RowStack: View {
         let n: Int
         let bodies: Bodies
@@ -97,6 +110,8 @@ struct HeaderFittingContentTests {
         var collapse: ZTronHeaderCollapseBehavior = .compress
         var pull: ZTronHeaderPullBehavior = .openGap
         var overlay = false
+        /// Hosts the view in `InsetWrap` with this box.
+        var inset: InsetBox? = nil
     }
 
     /// The drawn header bottom and content top every display frame.
@@ -195,7 +210,8 @@ struct HeaderFittingContentTests {
         let s = makeState(path), ext = Rows(rows), option = Option(fitting), bodies = Bodies()
         let inner: Rows? = change == .internal ? Rows(rows) : nil
         let w = withOSPath(path) {
-            hostDriven(Host(ext: ext, option: option, inner: inner, state: s, bodies: bodies, hold: hold, setup: setup))
+            let h = Host(ext: ext, option: option, inner: inner, state: s, bodies: bodies, hold: hold, setup: setup)
+            return setup.inset.map { hostDriven(InsetWrap(box: $0, content: h)) } ?? hostDriven(h)
         }
         var k = 0
         while s.peek.metrics.header == nil, k < 40 { pump(0.1); k += 1 }
@@ -694,5 +710,36 @@ struct HeaderFittingContentTests {
         let c = Self.motion(contentTops(xs))
         print("D75 \(path) catch during the hold's reset: content \(c); \(seamText(sm))")
         #expect(!sm.isEmpty && sm.allSatisfy { abs($0) <= 1 }, "\(path): \(seamText(sm))")
+    }
+
+    // MARK: Safe-area changes at a fixed viewport (M8b-s8 s9: R2's lift reconstruction, K2)
+
+    /// An app-animated bottom `.safeAreaInset` (150 pt, the seam lab's `kbfake`): fitting centred content moves `150 · a`
+    /// on the app's curve (measured before: 75 pt in one frame) and a following header rides on it every frame (before:
+    /// the lift animated from the slot while the content jumped, 75 pt overlap); top-aligned content and its header stay.
+    @Test(arguments: OSPath.allCases, [ZTronHeaderFittingContent.headerFollows, .topAligned])
+    func anAppAnimatedSafeAreaInsetMovesFittingContentOnItsCurve(path: OSPath, fitting: ZTronHeaderFittingContent) async {
+        var setup = Setup()
+        let box = InsetBox()
+        setup.inset = box
+        let r = host(path, fitting, setup: setup)
+        defer { r.sampler.stop(); unhost(r.window) }
+        let tag = "\(path) \(fitting)"
+        for (to, name) in [(CGFloat(150), "up"), (0, "down")] {
+            await drainMainQueue()
+            let t0 = CACurrentMediaTime()
+            r.sampler.tick(nil)
+            withAnimation(.easeInOut(duration: 0.6)) { box.height = to }
+            pump(1.0)
+            let xs = r.sampler.since(t0)
+            let c = Self.motion(contentTops(xs)), h = Self.motion(headerBottoms(xs)), sm = seams(xs)
+            print("D75 inset \(tag) \(name): content \(c); header \(h); \(seamText(sm))")
+            if fitting == .headerFollows {
+                #expect(abs(c.total - 75) < 1 && c.movesIn500 >= 15 && c.maxStepFraction <= 0.25, "\(tag) \(name): content \(c)")
+                #expect(!sm.isEmpty && sm.allSatisfy { abs($0) <= 1 }, "\(tag) \(name): \(seamText(sm))")
+            } else {
+                #expect(c.range < 0.5 && h.range < 0.5, "\(tag) \(name): nothing moves (content \(c); header \(h))")
+            }
+        }
     }
 }

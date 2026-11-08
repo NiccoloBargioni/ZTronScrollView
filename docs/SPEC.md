@@ -127,6 +127,9 @@ Requirements:
   - Owns the gestures (`.contentShape(Rectangle())`), clipping of both drawing and hit-testing, the overlays (indicators, refresh indicators, scaling header), and the frame-clock driver.
   - Observes its size and safe-area insets, keyboard included (and, for the scaling header's overflow container, how far the keyboard
     reaches above the keyboard-free safe area: a cold probe, D64).
+  - A safe-area change that moves content that fits on an aligned axis (`pad = slack·a`) moves it on a curve, never in one frame
+    (D75, M8b-s8 s9): an app-animated one (`withAnimation` around a `.safeAreaInset` or a bar) in the app's animation. Top-aligned
+    content does not move.
   - Gestures use this untransformed coordinate space, never the transformed content's.
 - **Content layout:**
   - Viewport-sized. Like ScrollView, it proposes `nil` on scrollable axes and the viewport length on the others, and places the content at the origin.
@@ -512,7 +515,7 @@ extension ZTronScrollView {
         fade: ZTronHeaderFade? = nil,
         background: ZTronHeaderBackground? = nil,         // D61 (user, 2026-10-26): .ambientBlur(radius:) / .frostedGlass(radius:) / .color / .view { }
         overflow: ZTronHeaderOverflow = .uncapped,        // D59 (user): .uncapped / .capped(fraction:) / .refit
-        fittingContent: ZTronHeaderFittingContent = .topAligned,         // D75 (user, 2026-11-02; built 2026-11-08, M8b-s8 s8): .topAligned / .headerFollows / .headerPinned
+        fittingContent: ZTronHeaderFittingContent = .topAligned,         // D75 (user, 2026-11-02; built 2026-11-08, M8b-s8 s8 / s9): .topAligned / .headerFollows / .headerPinned
         stretchContent: ZTronHeaderStretchContent = .keepTextMagnified,   // D76 (user, 2026-11-02; amended 2026-11-07; 16+ s6, 15–16 s7)
         @ViewBuilder header: @escaping (ZTronHeaderProxy) -> Header) -> Self
     /// The former spelling (amended 2026-11-02): `scalingBehavior:` forwards to `pull:` with `collapse: .compress` (and,
@@ -584,6 +587,7 @@ public struct ZTronHeaderGeometry: Equatable, Sendable {
     public var minHeight: CGFloat       // `min` as resolved (0 under `.slideBehind`, which ignores it)
     public var restingHeight: CGFloat   // the resolved resting height (the former `maxHeight`)
     public var width: CGFloat           // the scroll view's width
+    public var lift: CGFloat            // ≥ 0; D75 `.headerFollows`: how far the header rides below its resting place (slack·a), else 0
     public static func quantizedProgress(steps: Int) -> (ZTronHeaderGeometry) -> Int   // a transform for the reader: round(progress · steps)
 }
 /// Handle passed to the header builder. It exposes NO geometry, hot or cold: geometry is delivered only inside a reader scope.
@@ -676,7 +680,12 @@ positions and progress share one convention (0 = expanded, 1 = collapsed); the r
   - `.headerPinned` (the pre-D63 look, the look of a header pinned as a safe-area inset): the content keeps its alignment (`pad = slack·a`)
     and the header stays at its resting place; the gap lies between them.
   - `.headerFollows`: the content keeps its alignment and the header rides on its top edge (lifted by `L = slack·a`); `.stretch` grows by
-    `L` at rest instead. Built in M8b-s8 s9 / s10; until then it draws as `.headerPinned`.
+    `L` at rest instead (M8b-s8 s10; until then a `.stretch` header is lifted like a `.preserve` one). The lift (built 2026-11-08,
+    M8b-s8 s9) is the content's own alignment padding with the lift alignment, from the function the content's transform draws it
+    with, evaluated per frame on both header slots and on the top refresh indicator (whose base is the lifted header's: the gap
+    below it under `.openGap`, above it under `.followContent`, the band under `.stretch`), so header bottom and content top
+    coincide on every drawn frame (row changes, option changes, a pinch, a refresh hold, a catch). `ZTronHeaderGeometry.lift`
+    reports it (0 in the other cases and once the content overflows); the unobscured top edge (`obscuredDelta`) includes it.
   - A horizontal-only view (a banner) keeps the content's alignment below the banner in `.headerPinned` / `.headerFollows` (no lift).
   - Transitions: the content's alignment is a published value (`ScrollMetrics.alignment`), and the content's shape (size and alignments) is
     an animatable attribute of its own (`ContentShapeShift`): a content-size change, an option change or an anchor change adopted in an

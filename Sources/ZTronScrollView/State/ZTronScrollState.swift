@@ -921,6 +921,17 @@ public final class ZTronScrollState {
 
     private static func sanitizedKeyboard(_ k: CGFloat) -> CGFloat { k.isFinite ? max(0, k) : 0 }
 
+    /// Whether an inset change moves content that fits on an aligned axis: its alignment padding (`slack · a`) differs.
+    static func alignedPadMoves(old: ScrollMetrics, new: ScrollMetrics, zoom: CGFloat) -> Bool {
+        func pad(_ m: ScrollMetrics) -> CGPoint {
+            ResizeMath.geometry(viewport: m.viewportSize, content: m.contentSize, insets: m.adjustedContentInset,
+                                alignment: m.alignment.content).alignmentPadding(at: zoom)
+        }
+        guard old.contentSize.width > 0, old.contentSize.height > 0 else { return false }
+        let a = pad(old), b = pad(new)
+        return abs(a.x - b.x) > CatchPin.tolerance || abs(a.y - b.y) > CatchPin.tolerance
+    }
+
     private func applyViewport(size: CGSize, safe: EdgeInsets, keyboard: CGFloat, header: CGFloat?) {
         guard size.width.isFinite, size.height.isFinite else { return }
         let before = storage.snapshot()
@@ -985,11 +996,15 @@ public final class ZTronScrollState {
             // them with the header's curve (measured before: the content jumped 75 pt in one frame while the header
             // animated, a seam closing over the animation; seam lab, landscape `.capped(0.5)`, 150 pt inset, 27.0 and
             // 17.5). Without a header height change, or without an animation in the turn, the write stays as it was.
-            let follow = hadViewport && insetsChanged && m.header?.resting != old.header?.resting
-                ? positionDriver.animationInTurn : nil
+            // D75 (M8b-s8 s9): the same for a change that moves content that fits on an aligned axis (`pad = slack · a`,
+            // and the `.headerFollows` lift with it): measured before, a 150 pt app-animated bottom `.safeAreaInset`
+            // moved centred content 75 pt in one frame. Top-aligned content never moves here.
+            let padMoves = hadViewport && insetsChanged && Self.alignedPadMoves(old: old, new: m, zoom: before.presentationZoom)
+            let turn = positionDriver.animationInTurn
+            let follow = hadViewport && insetsChanged && (m.header?.resting != old.header?.resting || padMoves) ? turn : nil
             if hadViewport, insetsChanged {
                 insetFollowSerial &+= 1
-                insetFollow = positionDriver.animationInTurn.map {
+                insetFollow = turn.map {
                     InsetFollow(serial: insetFollowSerial, animation: $0, insets: m.adjustedContentInset)
                 }
             }
