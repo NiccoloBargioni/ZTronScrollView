@@ -545,14 +545,19 @@ public final class ZTronScrollState {
             // Not in a resize's settle window (the slow reflow below is the resize's: unanimated, D17).
             let settling = size.width > 0 && size.height > 0 && isInSettleWindow && resizeIntent != nil
             let follow = hadContent && !settling ? positionDriver.animationInTurn : nil
-            // The shape is written in it only when its drawn padding moves (content that fits); otherwise as before.
+            // The keep / clamp rule's offset (idle, not settling), resolved before the metrics publish.
+            let kept: CGPoint? = idle && hadContent && !settling ? keptOffset(old: old, new: m) : nil
+            let offsetMoves = kept.map { $0 != old.presentationOffset } ?? false
+            // The metrics are written in it when the shape's drawn padding moves (content that fits) or the offset moves
+            // with them: the 15–16 header reads both in one animatable input, and an unanimated metrics write in the turn
+            // of an animated clamp lands that clamp in one frame there (27.0 forced, bottom shrink). Otherwise as before.
             let z0 = old.presentationZoom
             let padOld = ResizeMath.geometry(viewport: old.metrics.viewportSize, content: old.metrics.contentSize,
                                              insets: old.metrics.adjustedContentInset, alignment: old.metrics.alignment.content)
                 .alignmentPadding(at: z0)
             let padNew = ResizeMath.geometry(viewport: m.viewportSize, content: m.contentSize, insets: m.adjustedContentInset,
                                              alignment: m.alignment.content).alignmentPadding(at: z0)
-            withAnimationIfAny(padOld != padNew ? follow : nil) { storage.metrics = m }
+            withAnimationIfAny(padOld != padNew || offsetMoves ? follow : nil) { storage.metrics = m }
             #if DEBUG
             if follow != nil { dbg("cs follow \(f(old.metrics.contentSize))->\(f(size))") }
             if !(idle && hadContent) { dbg("cs idle-skip \(f(old.metrics.contentSize))->\(f(size)) vp:\(f(old.metrics.viewportSize)) idle:\(idle) hadContent:\(hadContent) wroteOffset:false") }
@@ -574,17 +579,8 @@ public final class ZTronScrollState {
                 #endif
                 return
             }
-            let gOld = makeZoomGeometry(old.metrics), gNew = makeZoomGeometry(m)
             let z = old.presentationZoom
-            var o = old.presentationOffset
-            if let a = sizeChangesAnchor {
-                let pOld = CGPoint(x: gOld.x.insets.start + (gOld.x.viewportLength - gOld.x.insets.total) * a.x,
-                                   y: gOld.y.insets.start + (gOld.y.viewportLength - gOld.y.insets.total) * a.y)
-                let u = ZoomSolver.contentPoint(under: pOld, offset: o, scale: z, geometry: gOld)
-                o = ZoomSolver.offset(keeping: u, under: pOld, scale: z, geometry: gNew, clamped: true)
-            } else {
-                o = gNew.clamped(o, at: z)
-            }
+            let o = kept ?? old.presentationOffset
             if o != old.presentationOffset {
                 if let follow {
                     // D75: the clamp on the change's curve; a SwiftUI-drawn library motion, so a touch catches it where
@@ -602,6 +598,19 @@ public final class ZTronScrollState {
         resolveZoomLimits()
         positionDriver.layoutChanged()
         applyPendingHeaderSnap()
+    }
+
+    /// The `.sizeChanges` rule's offset for a content-size change with no resize open: the anchor's content point kept, or
+    /// the old offset clamped to the new geometry, at the drawn zoom.
+    private func keptOffset(old: StorageSnapshot, new m: ScrollMetrics) -> CGPoint {
+        let gOld = makeZoomGeometry(old.metrics), gNew = makeZoomGeometry(m)
+        let z = old.presentationZoom
+        let o = old.presentationOffset
+        guard let a = sizeChangesAnchor else { return gNew.clamped(o, at: z) }
+        let pOld = CGPoint(x: gOld.x.insets.start + (gOld.x.viewportLength - gOld.x.insets.total) * a.x,
+                           y: gOld.y.insets.start + (gOld.y.viewportLength - gOld.y.insets.total) * a.y)
+        let u = ZoomSolver.contentPoint(under: pOld, offset: o, scale: z, geometry: gOld)
+        return ZoomSolver.offset(keeping: u, under: pOld, scale: z, geometry: gNew, clamped: true)
     }
 
     /// Where content sits on an axis where it is smaller than the viewport (design M2 section 5): the published value

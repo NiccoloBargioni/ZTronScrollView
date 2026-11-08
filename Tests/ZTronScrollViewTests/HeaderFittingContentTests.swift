@@ -373,8 +373,10 @@ struct HeaderFittingContentTests {
         #expect(s.isDecelerating, "\(path): the bounce runs")
         withAnimation(.easeInOut(duration: 0.5)) { r.rows.n = 10 }
         pump(1.2)
-        // From the first frame that draws the pull (the finger's write is a one-frame step of its own).
-        let drawnPull = r.sampler.samples.firstIndex { $0.t >= t0 - 2.5 && ($0.content ?? 0) >= rest + 79 } ?? 0
+        // From the frame that draws the pull at its deepest (the finger's write is a one-frame step of its own; on the
+        // preferred path the hosted window may draw it only after the release, so the bounce is measured from its peak).
+        let window = r.sampler.samples.indices.filter { r.sampler.samples[$0].t >= t0 - 2.5 && r.sampler.samples[$0].content != nil }
+        let drawnPull = window.max { (r.sampler.samples[$0].content ?? 0) < (r.sampler.samples[$1].content ?? 0) } ?? 0
         let m = Self.motion(contentTops(Array(r.sampler.samples[drawnPull...])))
         print("D75 \(path) rows during a bounce: content \(m) (pad change \(pad5); waited \(k) pumps for the pull)")
         #expect(m.maxStep < 0.5 * pad5, "\(path): no step >= 0.5 of the pad change (\(m))")
