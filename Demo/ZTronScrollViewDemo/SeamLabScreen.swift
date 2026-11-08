@@ -85,6 +85,10 @@ import ZTronScrollView
 // (it wraps), `-ZTronSeamHeaderExtra field,toggle,spinner,material,symbol,button` platform-backed and special views at the
 // header's top; `-ZTronSeamCounters <s>[,<s>...]` prints the DEBUG render counters (`SEAMLAB counters`) at those times;
 // `-ZTronSeamPullTo <pt>` an animated pull to <pt> past the top 1 s after launch (easeInOut 1 s), held 3 s, then back.
+// M8b-s8 s8 (D75): `-ZTronSeamAlign center|bottom` is `defaultScrollAnchor(_:for: .alignment)`, `-ZTronSeamFitting
+// top|follows|pinned` `withScalingHeader`'s `fittingContent:`, `-ZTronSeamFittingTo <case>[,<case>...]` makes `seam.width` set
+// the next case of the list (easeInOut 0.5 s, unanimated with `-ZTronSeamRowsPlain 1`; testFitting), `-ZTronSeamStart
+// bottom` scrolls to the content's bottom 0.6 s after launch.
 
 enum SeamLab {
     static let red = Color(red: 1, green: 0, blue: 0)
@@ -177,6 +181,9 @@ struct SeamLabScreen: View {
     @State private var retargetHeight: CGFloat? = nil
     /// `-ZTronSeamStretchContent` / `-ZTronSeamStretchSwitch` (M8b-s8 s6, D76).
     @State private var stretchContent = SeamLab.stretchContent
+    /// `-ZTronSeamFitting` / `-ZTronSeamFittingTo` (M8b-s8 s8, D75): `fittingContent:`, and the next case `seam.width` sets.
+    @State private var fitting = SeamLab.fitting
+    @State private var fittingStep = 0
 
     var body: some View {
         if SeamLab.appBanner {
@@ -217,7 +224,9 @@ struct SeamLabScreen: View {
                     }
                     .accessibilityIdentifier("seam.scroll")
                     Button {
-                        if let to = SeamLab.rowsTo {
+                        if SeamLab.fittingCycle != nil {
+                            nextFitting()
+                        } else if let to = SeamLab.rowsTo {
                             toggleRows(to: to)
                         } else if SeamLab.fakeKeyboard != nil {
                             withAnimation(.easeInOut(duration: 1.2)) { kbFake.toggle() }
@@ -294,6 +303,12 @@ struct SeamLabScreen: View {
                 try? await Task.sleep(nanoseconds: 600_000_000)
                 state.scroll(to: CGPoint(x: 0, y: y))
             }
+            if SeamLab.startsBottom {
+                // `-ZTronSeamStart bottom` (M8b-s8 s8, D75): the content scrolled to its bottom (the clamp of a shrink).
+                try? await Task.sleep(nanoseconds: 600_000_000)
+                let g = state.geometry, i = state.adjustedContentInset
+                state.scroll(to: CGPoint(x: 0, y: max(-i.top, g.contentSize.height - g.containerSize.height + i.bottom)))
+            }
             guard SeamLab.hold else { return }
             try? await Task.sleep(nanoseconds: 800_000_000)
             let edge = SeamLab.holdEdge
@@ -327,6 +342,16 @@ extension SeamLabScreen {
             }
         }
         if SeamLab.rowsPlain { change() } else { withAnimation(.easeInOut(duration: 0.5)) { change() } }
+    }
+
+    /// `seam.width` with `-ZTronSeamFittingTo <case>[,<case>...]` (M8b-s8 s8, D75): `fittingContent:` becomes the next case
+    /// of the list (then the list starts over), in `withAnimation(.easeInOut(duration: 0.5))` unless `-ZTronSeamRowsPlain 1`.
+    private func nextFitting() {
+        guard let cycle = SeamLab.fittingCycle, !cycle.isEmpty else { return }
+        let to = cycle[fittingStep % cycle.count]
+        fittingStep += 1
+        print("SEAMLAB fitting -> \(to)")
+        if SeamLab.rowsPlain { fitting = to } else { withAnimation(.easeInOut(duration: 0.5)) { fitting = to } }
     }
 
     /// `seam.scroll`: a transaction-driven scroll between rest and y = 400, or (`-ZTronSeamScrollBand <f>`) the point `f`
@@ -370,9 +395,10 @@ extension SeamLabScreen {
             SeamLabContent(rows: rowCount, model: SeamLab.rowsInternal ? rowsModel : nil)
         }
             .scrollIndicators(.hidden)
+            .defaultScrollAnchor(SeamLab.alignment, for: .alignment)
         var view = SeamLab.noHeader ? base : base
             .withScalingHeader(size: SeamLab.size, collapse: SeamLab.collapse, pull: SeamLab.behavior, fade: SeamLab.fade,
-                               background: SeamLab.background, overflow: SeamLab.overflow,
+                               background: SeamLab.background, overflow: SeamLab.overflow, fittingContent: fitting,
                                stretchContent: stretchContent) { [tall] _ in SeamLabHeader(tall: tall) }
         if let pull = SeamLab.pull { view = view.scalingHeaderPullBehavior(pull) }
         if SeamLab.hold {
@@ -532,6 +558,8 @@ struct SeamLabInfo: View {
                           vp.height, state.adjustedContentInset.top, state.adjustedContentInset.bottom,
                           state.contentOffset.y, g?.restingHeight ?? -1, g?.height ?? -1, g?.progress ?? -1)
         #if DEBUG
+        // M8b-s8 s8 (D75): the S4 counters (content bodies, header builds) since launch.
+        text += " cb=\(ZTronRenderCounters.value("content.body")) hb=\(ZTronRenderCounters.value("header.builder"))"
         if SeamLab.events { text += " EVENTS " + ZTronRenderCounters.eventsJoined }
         #endif
         return text
@@ -677,6 +705,35 @@ extension SeamLab {
     static var rowsGrow: Bool { HeaderDemo.argument("-ZTronSeamRowsGrow", "0") == "1" }
     /// `-ZTronSeamRowsHost native|plain`: the same content in a native `ScrollView`, or in no scroll view (references).
     static var rowsHost: String { HeaderDemo.argument("-ZTronSeamRowsHost", "ztron") }
+}
+
+// MARK: D75 (M8b-s8 s8): content that fits under the header
+extension SeamLab {
+    /// `-ZTronSeamAlign center|bottom`: `defaultScrollAnchor(_:for: .alignment)` (none by default: top-leading).
+    static var alignment: UnitPoint? {
+        switch HeaderDemo.argument("-ZTronSeamAlign", "") {
+        case "center": return .center
+        case "bottom": return .bottom
+        default: return nil
+        }
+    }
+    static func fittingCase(_ name: String) -> ZTronHeaderFittingContent? {
+        switch name {
+        case "top": return .topAligned
+        case "follows": return .headerFollows
+        case "pinned": return .headerPinned
+        default: return nil
+        }
+    }
+    /// `-ZTronSeamFitting top|follows|pinned`: `fittingContent:` (default `.topAligned`, the API's default).
+    static var fitting: ZTronHeaderFittingContent { fittingCase(HeaderDemo.argument("-ZTronSeamFitting", "top")) ?? .topAligned }
+    /// `-ZTronSeamFittingTo <case>[,<case>...]`: `seam.width` sets the next case of the list (testFitting taps once per case).
+    static var fittingCycle: [ZTronHeaderFittingContent]? {
+        let list = HeaderDemo.argument("-ZTronSeamFittingTo", "").split(separator: ",").compactMap { fittingCase(String($0)) }
+        return list.isEmpty ? nil : list
+    }
+    /// `-ZTronSeamStart bottom`: scrolled to the content's bottom 0.6 s after launch.
+    static var startsBottom: Bool { HeaderDemo.argument("-ZTronSeamStart", "rest") == "bottom" }
 }
 
 // MARK: Core check probes (M8b-s6 close): retarget near the drawn size, no header, start offset

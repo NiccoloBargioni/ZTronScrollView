@@ -214,6 +214,25 @@ final class SeamLabUITests: XCTestCase {
         info(app, "back")
     }
 
+    /// M8b-s8 s8 (D75): with `-ZTronSeamFittingTo <case>[,<case>...]`, `seam.width` sets `fittingContent:` to the next case
+    /// of the list (animated 0.5 s unless `-ZTronSeamRowsPlain 1`); one tap per case, 2 s apart.
+    func testFitting() {
+        let app = launch()
+        let button = app.buttons["seam.width"]
+        XCTAssertTrue(button.waitForExistence(timeout: 10))
+        Thread.sleep(forTimeInterval: 1.5)
+        var cases = ["pinned", "top"]
+        if let i = seamArgs.firstIndex(of: "-ZTronSeamFittingTo"), i + 1 < seamArgs.count {
+            cases = seamArgs[i + 1].split(separator: ",").map(String.init)
+        }
+        for c in cases {
+            print("SEAMLAB mark fitting \(c) \(Date().timeIntervalSince1970)")
+            button.tap()
+            Thread.sleep(forTimeInterval: 2.0)
+            info(app, c)
+        }
+    }
+
     private func arg(_ name: String, _ d: Double) -> Double {
         if let i = seamArgs.firstIndex(of: name), i + 1 < seamArgs.count, let v = Double(seamArgs[i + 1]) { return v }
         return d
