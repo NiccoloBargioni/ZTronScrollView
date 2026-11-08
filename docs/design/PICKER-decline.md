@@ -5,7 +5,7 @@ D84 (the picker absorbs the drag, as in a native `ScrollView`), D86 (the non-sha
 without appeal; scoped UIKit at 100 % coverage is acceptable). Builds on D31 (`Gesture/UIKit/UIKitTouchObserver.swift`), U1 C2 / C3
 (`docs/progress/UIKITPAN-s1.md`) and U2's decline (`PanEvent.declined`, `NestedScrollArbiter.participantDeclined`).
 Prototype: branch `claude/picker-hitview-spike`. Since PICKER-s2 (2026-11-07, the user's call) it is an opt-in modifier,
-`View.ztronScrollPickersAbsorbDrags(_:)`, off by default (§4); SPEC amendment drafted 2026-11-08 (D88, §4). Measurements: §5;
+`View.ztronScrollPickersAbsorbDrags(_:)`, off by default (§4); SPEC amendment accepted 2026-11-08 (D88, §4). Measurements: §5;
 regression with the modifier on: §5.1.
 
 ## 1. Problem
@@ -73,7 +73,7 @@ steppers never see a different pan, because only the report changes, and only fo
 - **SPEC S2 / S16 text, opt-in or default.** D31's UIKit exception covers a passive observer on 15–16 only. With the modifier on,
   the same passive recognizer runs on 17+ too and looks at the hit view's class. That needs a SPEC S2 amendment and a
   `ZTronCapability.uikitTouchObserver` doc change even while the modifier is opt-in, and SPEC S2's API list gains
-  `ztronScrollPickersAbsorbDrags`. **Drafted 2026-11-08 (user: "Yes, draft it"; D88), for the user's review:** SPEC S2 (a second
+  `ztronScrollPickersAbsorbDrags`. **Drafted and accepted 2026-11-08 (user: "Yes, draft it", "looks right"; D88):** SPEC S2 (a second
   amendment under the D31 one: probe-only on 17+, one per tree, the wheel question, passivity, same gates), S3 (a row), S11 (the API
   line), S12 "Wheel and date pickers" (default, rule, cone, what it leaves alone, placement, default-on as a later call) and S14 (an
   acceptance bullet); the `ZTronCapability.uikitTouchObserver` and modifier doc comments. S16 is unchanged (ScrollArbitration is not
@@ -197,7 +197,7 @@ The non-nested results of the pre-fix full suites carry over: the fix changes on
 
 ## 6. Open
 
-1. **User: review the SPEC text** drafted 2026-11-08 (D88, §4). Turning it on by default is a later, separate call.
+1. **SPEC text** accepted 2026-11-08 (D88, §4). Turning it on by default is a later, separate call.
 2. **15–16.** There the report rides on the D31 observer itself (`feedsCore: true`). The 15–16 shape on 27.0 (`--uikit --picker`)
    is green (§5.1); real 15.0 / 16.0 runtimes (M1 lane) are still unmeasured.
 3. **Not measured:**
