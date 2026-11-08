@@ -230,8 +230,8 @@ struct HeaderLiftHost: ViewModifier {
 ///
 /// The bottom edge is exact by construction (the chain moves the stack up by the carriers' `L`, `HeaderLiftHost` moves
 /// the slot down by the exact per-frame lift: bottom `= L_exact + R + g`); the carriers' `L` places the top edge, at the
-/// slot's top whenever it equals the lift host's (at rest, under content-size, option, inset and zoom changes and
-/// rotations).
+/// slot's top whenever it equals the lift host's (at rest, under content-size, option, inset and zoom changes). Not in a
+/// rotation yet (open item 46): the carriers read `L` at the committed viewport, the host from the drawn slot (`LiftSpan`).
 enum HeaderStretchLift {
     /// The committed viewport the carriers evaluate the lift at (`HeaderMath.lift`'s).
     static func viewport(_ m: ScrollMetrics) -> CGSize {

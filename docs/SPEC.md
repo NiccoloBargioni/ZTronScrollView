@@ -517,7 +517,7 @@ extension ZTronScrollView {
         fade: ZTronHeaderFade? = nil,
         background: ZTronHeaderBackground? = nil,         // D61 (user, 2026-10-26): .ambientBlur(radius:) / .frostedGlass(radius:) / .color / .view { }
         overflow: ZTronHeaderOverflow = .uncapped,        // D59 (user): .uncapped / .capped(fraction:) / .refit
-        fittingContent: ZTronHeaderFittingContent = .topAligned,         // D75 (user, 2026-11-02; built 2026-11-08, M8b-s8 s8 / s9): .topAligned / .headerFollows / .headerPinned
+        fittingContent: ZTronHeaderFittingContent = .topAligned,         // D75 (user, 2026-11-02; built 2026-11-08, M8b-s8 s8 / s9 / s10): .topAligned / .headerFollows / .headerPinned
         stretchContent: ZTronHeaderStretchContent = .keepTextMagnified,   // D76 (user, 2026-11-02; amended 2026-11-07; 16+ s6, 15–16 s7)
         @ViewBuilder header: @escaping (ZTronHeaderProxy) -> Header) -> Self
     /// The former spelling (amended 2026-11-02): `scalingBehavior:` forwards to `pull:` with `collapse: .compress` (and,
@@ -585,7 +585,7 @@ public struct ZTronHeaderFade: Equatable {           // D70 (2026-11-02): one gr
 public struct ZTronHeaderGeometry: Equatable, Sendable {
     public var progress: CGFloat        // 0 expanded … 1 collapsed (`.slideBehind`: the covered fraction, D68)
     public var height: CGFloat          // the DRAWN height, stretch included (`.slideBehind`: R + g; under `.stretch` drawn scaled, D69)
-    public var stretch: CGFloat         // ≥ 0; always 0 under .preserve
+    public var stretch: CGFloat         // ≥ 0; always 0 under .preserve; D75 `.headerFollows` + `.stretch`: L + g (the lift is grown, `lift` 0)
     public var minHeight: CGFloat       // `min` as resolved (0 under `.slideBehind`, which ignores it)
     public var restingHeight: CGFloat   // the resolved resting height (the former `maxHeight`)
     public var width: CGFloat           // the scroll view's width
@@ -681,14 +681,29 @@ positions and progress share one convention (0 = expanded, 1 = collapsed); the r
     anchor says; the horizontal alignment is kept.
   - `.headerPinned` (the pre-D63 look, the look of a header pinned as a safe-area inset): the content keeps its alignment (`pad = slack·a`)
     and the header stays at its resting place; the gap lies between them.
-  - `.headerFollows`: the content keeps its alignment and the header rides on its top edge (lifted by `L = slack·a`); `.stretch` grows by
-    `L` at rest instead (M8b-s8 s10; until then a `.stretch` header is lifted like a `.preserve` one). The lift (built 2026-11-08,
+  - `.headerFollows`: the content keeps its alignment and the header rides on its top edge (lifted by `L = slack·a`); a `.stretch`
+    header grows by `L` at rest instead (built 2026-11-08, M8b-s8 s10): its top edge stays at its resting place, it is `R + L` tall at
+    rest and `R + L + g` pulled, and it compresses only once the content has moved up by `L` (the geometry at `o′ − L`), in both
+    `stretchContent:` cases (`.keepTextMagnified`: magnified by `(R + g + L)/R`, so magnified at rest, D69's look; `.keepTextSize`:
+    laid out at `grownSize(W, R, g + L)`, text at its point size). `L` is evaluated per frame (the lift's two attributes at the
+    committed viewport, handed to the header's frame as a plain input; never interpolated by layout: at the fit / overflow kink
+    a linear `L` was 25 pt off; a lift that steps inside an animated update is applied unanimated), so header bottom and
+    content top coincide through row changes, option changes, pulls and holds (rotation: open item 46, to fix);
+    `ZTronHeaderGeometry` reports the growth as `stretch` (`lift` 0). The lift (built 2026-11-08,
     M8b-s8 s9) is the content's own alignment padding with the lift alignment, from the function the content's transform draws it
     with, evaluated per frame on both header slots and on the top refresh indicator (whose base is the lifted header's: the gap
     below it under `.openGap`, above it under `.followContent`, the band under `.stretch`), so header bottom and content top
     coincide on every drawn frame (row changes, option changes, a pinch, a refresh hold, a catch). `ZTronHeaderGeometry.lift`
     reports it (0 in the other cases and once the content overflows); the unobscured top edge (`obscuredDelta`) includes it.
   - A horizontal-only view (a banner) keeps the content's alignment below the banner in `.headerPinned` / `.headerFollows` (no lift).
+  - The three pictures (centred content `C` that fits, `slack = 2·L`; `.alignment` top: all three are the first one):
+    ```
+     .topAligned        .headerPinned      .headerFollows      .headerFollows + .stretch
+     [ header R ]       [ header R ]       (background, L)     [ header      ]
+     [ C        ]       (gap, L)           [ header R ]        [ R + L       ]
+     (background)       [ C        ]       [ C        ]        [ C        ]
+                        (gap, L)           (background, L)     (background, L)
+    ```
   - Transitions: the content's alignment is a published value (`ScrollMetrics.alignment`), and the content's shape (size and alignments) is
     an animatable attribute of its own (`ContentShapeShift`): a content-size change, an option change or an anchor change adopted in an
     animated transaction (`withAnimation`, internal and external changes alike) moves fitting content on that curve, the clamped offset
@@ -790,7 +805,10 @@ height; `min`; `band = max(0, R − min)`;
   committed pair). The switch: a runtime change of `stretchContent:` is a cold change of
   one value (the header builder runs once, no content body); animated while pulled, `m` interpolates and the content morphs
   inside the same outer rect (text shrinks monotonically from `s` times its size to its point size); unanimated it lands in one
-  frame; at rest both cases draw the same pixels. Measured (27.0 / 17.5 / forced): see M8b-s8-s7's handoff.
+  frame; at rest both cases draw the same pixels, except a `fittingContent: .headerFollows` header on content that fits, which
+  grows by the lift `L` at rest (amended 2026-11-08, D75, M8b-s8 s10): `g` is then `g + L` in every formula above, so
+  `.keepTextMagnified` is magnified at rest (its crisp path, M8b-s9, gates on `g_s = (1 − m)(g + L) > 0`) and `.keepTextSize`
+  is laid out at `R + L`. Measured (27.0 / 17.5 / forced): see M8b-s8-s7's and M8b-s8-s10's handoffs.
 - **Pull behavior (D65, user 2026-10-27).** `ZTronHeaderPullBehavior` picks the `.preserve` column: the member
   `scalingHeaderPullBehavior(_:)` on the scroll view, else the innermost environment twin `ztronScalingHeaderPullBehavior(_:)` above it,
   else `.openGap`. `.stretch` ignores it; so does a banner (a view without the vertical axis), which keeps the `.followContent`
