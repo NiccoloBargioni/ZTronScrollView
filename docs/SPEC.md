@@ -128,8 +128,9 @@ Requirements:
   - Observes its size and safe-area insets, keyboard included (and, for the scaling header's overflow container, how far the keyboard
     reaches above the keyboard-free safe area: a cold probe, D64).
   - A safe-area change that moves content that fits on an aligned axis (`pad = slack·a`) moves it on a curve, never in one frame
-    (D75, M8b-s8 s9): an app-animated one (`withAnimation` around a `.safeAreaInset` or a bar) in the app's animation. Top-aligned
-    content does not move.
+    (D75, M8b-s8 s9): an app-animated one (`withAnimation` around a `.safeAreaInset` or a bar) in the app's animation; a keyboard change,
+    which arrives with no transaction, in UIKit's keyboard curve (`.interpolatingSpring(mass: 3, stiffness: 1000, damping: 500)`, K2),
+    as SwiftUI's keyboard avoidance moves a native ScrollView's content. Top-aligned content does not move.
   - Gestures use this untransformed coordinate space, never the transformed content's.
 - **Content layout:**
   - Viewport-sized. Like ScrollView, it proposes `nil` on scrollable axes and the viewport length on the others, and places the content at the origin.

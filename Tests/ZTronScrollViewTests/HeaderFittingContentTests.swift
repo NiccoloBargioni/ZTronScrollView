@@ -742,4 +742,35 @@ struct HeaderFittingContentTests {
             }
         }
     }
+
+    /// K2: a keyboard report (no transaction in the turn, as the real keyboard's: D64) that moves fitting centred content
+    /// moves it in `KeyboardInsetFollow`'s curve over many frames (measured before: one frame), the following header on it;
+    /// top-aligned content: no motion. Hosted tests cannot show a keyboard: the state gets the container's report. Two
+    /// rows (120 pt): the content still fits with the keyboard up, so it moves `336 · a` over the whole curve.
+    @Test(arguments: OSPath.allCases, [ZTronHeaderFittingContent.headerFollows, .topAligned])
+    func aKeyboardMovesFittingContentInTheKeyboardsCurve(path: OSPath, fitting: ZTronHeaderFittingContent) async {
+        let r = host(path, fitting, rows: 2)
+        defer { r.sampler.stop(); unhost(r.window) }
+        let tag = "\(path) \(fitting)"
+        let m0 = r.state.peek.metrics
+        let kb: CGFloat = 336
+        for (k, name) in [(kb, "up"), (0, "down")] {
+            await drainMainQueue()
+            let t0 = CACurrentMediaTime()
+            r.sampler.tick(nil)
+            var safe = m0.safeAreaInsets
+            safe.bottom += k
+            r.state.setViewport(ViewportMetrics(size: m0.viewportSize, safeArea: safe, keyboard: k))
+            pump(1.0)
+            let xs = r.sampler.since(t0)
+            let c = Self.motion(contentTops(xs)), h = Self.motion(headerBottoms(xs)), sm = seams(xs)
+            print("D75 K2 \(tag) \(name): content \(c); header \(h); \(seamText(sm))")
+            if fitting == .headerFollows {
+                #expect(abs(c.total - kb / 2) < 1 && c.movesIn500 >= 15 && c.maxStepFraction <= 0.25, "\(tag) \(name): content \(c)")
+                #expect(!sm.isEmpty && sm.allSatisfy { abs($0) <= 1 }, "\(tag) \(name): \(seamText(sm))")
+            } else {
+                #expect(c.range < 0.5 && h.range < 0.5, "\(tag) \(name): nothing moves (content \(c); header \(h))")
+            }
+        }
+    }
 }
