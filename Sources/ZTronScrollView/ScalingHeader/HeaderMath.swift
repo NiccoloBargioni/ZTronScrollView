@@ -157,6 +157,36 @@ struct HeaderLiveInput: Equatable {
         c.translation = translation - l
         return c
     }
+
+    /// This input with the lift `l` in place of `lift` (`lifted(_:)` from the current lift; identity when equal).
+    func relifted(_ l: CGFloat) -> HeaderLiveInput {
+        let l = l.isFinite ? Swift.max(0, l) : 0
+        guard l != lift, let m = metrics, m.vertical, m.behavior == .stretch else { return self }
+        var c = self
+        if followsOffset {
+            c.lift = l
+            return c.at(offset: offset)
+        }
+        let d = l - lift
+        c.lift = l
+        if progress == 0 { c.stretch = stretch + d }
+        c.translation = translation - d
+        return c
+    }
+
+    /// The render-time consumers' animatable data (`HeaderStretchEffect`, `HeaderStretchClip`, `HeaderFadeOverlay`,
+    /// `HeaderTranslation`): `o′`, `m` (D76) and the lift `L` (D75 s10). The carriers hand `L` over per frame (never an
+    /// animated change but in one case: an animated resize, whose update moves the committed viewport and `L` with it;
+    /// there the slot's layout, 16+'s placement and the `.keepTextSize` growth, follows the transaction implicitly, and
+    /// so must the effects, or the magnified stack lost `L` in one frame while its placement moved on the curve: 17.5
+    /// rotate, 69 pt seam, 341 pt lateral).
+    var effectData: AnimatablePair<AnimatablePair<CGFloat, CGFloat>, CGFloat> {
+        get { AnimatablePair(AnimatablePair(offset, layoutShare), lift) }
+        set {
+            self = relifted(newValue.second).at(offset: newValue.first.first)
+            layoutShare = newValue.first.second
+        }
+    }
 }
 
 /// D79: what `HeaderLiveInput` carries while a catch pin holds: the pin and the header offset `o′` of the model.

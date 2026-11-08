@@ -294,9 +294,9 @@ struct HeaderFrameChain {
 nonisolated struct HeaderStretchEffect: GeometryEffect {
     var live: HeaderLiveInput
 
-    var animatableData: AnimatablePair<CGFloat, CGFloat> {
-        get { AnimatablePair(live.offset, live.layoutShare) }
-        set { live = live.at(offset: newValue.first); live.layoutShare = newValue.second }
+    var animatableData: AnimatablePair<AnimatablePair<CGFloat, CGFloat>, CGFloat> {
+        get { live.effectData }
+        set { live.effectData = newValue }
     }
 
     func effectValue(size: CGSize) -> ProjectionTransform {
@@ -324,9 +324,9 @@ nonisolated struct HeaderStretchClip: Shape {
     /// The pixel grid the grown frame's side inset snaps to (0: none).
     var displayScale: CGFloat = 0
 
-    var animatableData: AnimatablePair<CGFloat, CGFloat> {
-        get { AnimatablePair(live.offset, live.layoutShare) }
-        set { live = live.at(offset: newValue.first); live.layoutShare = newValue.second }
+    var animatableData: AnimatablePair<AnimatablePair<CGFloat, CGFloat>, CGFloat> {
+        get { live.effectData }
+        set { live.effectData = newValue }
     }
 
     func path(in rect: CGRect) -> Path {
@@ -350,9 +350,10 @@ nonisolated struct HeaderStretchClip: Shape {
 nonisolated struct HeaderTranslation: GeometryEffect {
     var live: HeaderLiveInput
 
-    var animatableData: CGFloat {
-        get { live.offset }
-        set { live = live.at(offset: newValue) }
+    /// `o′` and the lift `L` (`HeaderLiveInput.effectData`: an animated resize moves `L` on the layout's curve).
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(live.offset, live.lift) }
+        set { live = live.relifted(newValue.second).at(offset: newValue.first) }
     }
 
     func effectValue(size: CGSize) -> ProjectionTransform {
@@ -895,9 +896,9 @@ nonisolated struct HeaderFadeOverlay: ViewModifier, Animatable {
     let fade: ZTronHeaderFade?
 
     /// `o′` and the laid-out share `m` (D76).
-    var animatableData: AnimatablePair<CGFloat, CGFloat> {
-        get { AnimatablePair(live.offset, live.layoutShare) }
-        set { live = live.at(offset: newValue.first); live.layoutShare = newValue.second }
+    var animatableData: AnimatablePair<AnimatablePair<CGFloat, CGFloat>, CGFloat> {
+        get { live.effectData }
+        set { live.effectData = newValue }
     }
 
     @MainActor func body(content: Content) -> some View {
