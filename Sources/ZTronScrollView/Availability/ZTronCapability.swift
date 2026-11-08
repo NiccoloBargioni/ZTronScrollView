@@ -62,6 +62,8 @@ public enum ZTronCapability: String, CaseIterable, Sendable, Hashable {
     /// below iOS 17 (`preferredOSCeiling`), never on 17+ (which keeps the `DragGesture` fallback with its documented
     /// divergences) and never alongside `SpatialEventGesture`. Fallback: `DragGesture(minimumDistance: 0)` as on 17.
     /// DEBUG only: ``ZTronAvailability/forceUIKitTouchObserver(_:)`` turns it on for 17+ simulators.
+    /// Opt-in exception (SPEC S2 amendment 2026-11-08, D88): while `ztronScrollPickersAbsorbDrags(true)` is set, the
+    /// same recognizer also runs on 17+, probe-only (it feeds nothing to the core); this capability stays unavailable there.
     case uikitTouchObserver
     /// `TimelineView(.animation)` (iOS 15). Always available: never gated, never forced.
     case frameClock

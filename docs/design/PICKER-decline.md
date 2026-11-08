@@ -5,7 +5,8 @@ D84 (the picker absorbs the drag, as in a native `ScrollView`), D86 (the non-sha
 without appeal; scoped UIKit at 100 % coverage is acceptable). Builds on D31 (`Gesture/UIKit/UIKitTouchObserver.swift`), U1 C2 / C3
 (`docs/progress/UIKITPAN-s1.md`) and U2's decline (`PanEvent.declined`, `NestedScrollArbiter.participantDeclined`).
 Prototype: branch `claude/picker-hitview-spike`. Since PICKER-s2 (2026-11-07, the user's call) it is an opt-in modifier,
-`View.ztronScrollPickersAbsorbDrags(_:)`, off by default (§4). Measurements: §5; regression with the modifier on: §5.1.
+`View.ztronScrollPickersAbsorbDrags(_:)`, off by default (§4); SPEC amendment drafted 2026-11-08 (D88, §4). Measurements: §5;
+regression with the modifier on: §5.1.
 
 ## 1. Problem
 
@@ -72,7 +73,11 @@ steppers never see a different pan, because only the report changes, and only fo
 - **SPEC S2 / S16 text, opt-in or default.** D31's UIKit exception covers a passive observer on 15–16 only. With the modifier on,
   the same passive recognizer runs on 17+ too and looks at the hit view's class. That needs a SPEC S2 amendment and a
   `ZTronCapability.uikitTouchObserver` doc change even while the modifier is opt-in, and SPEC S2's API list gains
-  `ztronScrollPickersAbsorbDrags`. Not written here (ask first).
+  `ztronScrollPickersAbsorbDrags`. **Drafted 2026-11-08 (user: "Yes, draft it"; D88), for the user's review:** SPEC S2 (a second
+  amendment under the D31 one: probe-only on 17+, one per tree, the wheel question, passivity, same gates), S3 (a row), S11 (the API
+  line), S12 "Wheel and date pickers" (default, rule, cone, what it leaves alone, placement, default-on as a later call) and S14 (an
+  acceptance bullet); the `ZTronCapability.uikitTouchObserver` and modifier doc comments. S16 is unchanged (ScrollArbitration is not
+  touched; `participantDeclined` is library-internal). CLAUDE.md's non-negotiables are not changed (ask).
 - **Default on (later, if wanted).** Flip the key's `defaultValue` to `true`; the modifier stays as the way out.
 - **Coverage.** `scripts/coverage-uikit.sh` lists `PickerProbeRuleTests` and `PickerAbsorbModifierTests` (§5.1 has the gate run).
 - **15–16.** The report shares the D31 recognizer there. Verify on the M1 lane.
@@ -192,8 +197,7 @@ The non-nested results of the pre-fix full suites carry over: the fix changes on
 
 ## 6. Open
 
-1. **User: SPEC text.** The opt-in modifier exists (PICKER-s2) but still needs a SPEC S2 amendment: a passive UIKit window
-   recognizer on 17+ that reads the hit view's class, and a new public API (§4). Turning it on by default is a later, separate call.
+1. **User: review the SPEC text** drafted 2026-11-08 (D88, §4). Turning it on by default is a later, separate call.
 2. **15–16.** There the report rides on the D31 observer itself (`feedsCore: true`). The 15–16 shape on 27.0 (`--uikit --picker`)
    is green (§5.1); real 15.0 / 16.0 runtimes (M1 lane) are still unmeasured.
 3. **Not measured:**
@@ -212,5 +216,5 @@ The non-nested results of the pre-fix full suites carry over: the fix changes on
 8. **The nested anchor (PICKER-s2).** Why a zero-size `UIViewRepresentable` in a nested ZTron view's background breaks that view's
    drags on the 17+ gesture set is unexplained (§5.1). A user's own `UIViewRepresentable` in the same place may do the same; untested.
 9. **Modifier placement.** With the modifier on an inner view only, under an outer `ZTronScrollView` without it, the inner view joins
-   a hub with no probe and hears nothing. Document "around the outermost scroll view", or let the outer install the probe when a
-   member asks for it.
+   a hub with no probe and hears nothing. The SPEC draft documents "at or above the outermost scroll view" (S12); letting the outer
+   install the probe when a member asks for it remains an option.

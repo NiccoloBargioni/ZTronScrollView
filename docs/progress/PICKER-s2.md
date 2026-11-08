@@ -29,8 +29,8 @@ Decisions:
   window sees the same touches, so one per tree loses nothing.
 
 Open:
-1. SPEC S2 / S16 text is not written. Even opt-in, the modifier puts a passive UIKit recognizer on 17+ and adds a public API
-   (design §4). Ask the user first.
+1. SPEC text drafted 2026-11-08 (user: "Yes, draft it"; D88): S2, S3, S11, S12 "Wheel and date pickers", S14; S16 unchanged;
+   CLAUDE.md not changed. Awaiting the user's review (design §4).
 2. Why a zero-size `UIViewRepresentable` in a nested ZTron view's background breaks its drags on the 17+ gesture set (not on the
    D31 `--uikit` path) is unexplained. Any user `UIViewRepresentable` in that place might do the same; not tested.
 3. A nested view with the modifier inside an outer view without it gets no reports (document: modifier around the outermost view).
@@ -42,7 +42,7 @@ Open:
 7. PICKER-s1's open 3–7 stand (design §6).
 
 Next:
-1. User: write the SPEC S2 amendment for the opt-in modifier (or leave it a spike).
+1. User: review the SPEC draft (D88); then the merge below.
 2. If kept: merge `claude/picker-hitview-spike` into the integration branch; mention the modifier in the README / docs.
 3. M1 lane: `UIKitControlsUITests` and `MixedTopologyUITests` with `--picker` on 15.0 / 16.0.
 

@@ -61,6 +61,19 @@ Requirements:
       view never moved on 18.0–18.6, `docs/progress/DBG-s3.md`; D34, confirmed by the user 2026-10-21), on 26.0–27.0 it begins at the touch-down itself (a
       `Stepper`, a segmented `Picker`, a compact `DatePicker` and a `ColorPicker` never reacted to a tap, `docs/progress/DBG-s4.md`; D37, confirmed by the user 2026-10-21).
       So 18.x to 27.x take the iOS 17 row; iOS 28 is the first release to re-measure (`UIKitControlsUITests`) before the library may use `SpatialEventGesture` there.
+  - **Amendment 2026-11-08 (user, D88) — the opt-in picker probe, every OS.** The recognizer above has one more job, and on 17+ it may run for it,
+    **only while `ztronScrollPickersAbsorbDrags(true)`** (S11; semantics in S12 "Wheel and date pickers") is in a view's environment. Off, the
+    default, the rules above are unchanged and 17+ installs no UIKit object. Rules (design `docs/design/PICKER-decline.md`):
+    - On 17+ the recognizer runs **probe-only**: it feeds nothing to the touch-observer core, so the catch, the centroid and the count keep the S3
+      "17 to 27" and "28+" rows. The outermost `ZTronScrollView` of a tree installs the one probe; the views nested in it hear its report (a probe anchor
+      inside a nested view broke that view's drags on 17.5 and 27.0, design §5.1). On 15–16 the D31 observer itself carries the report.
+    - The probe asks one question, at the first finger of a touch sequence: is `touch.view` (UIKit's own hit-test result; the probe performs no
+      hit-test) or one of its superviews a wheel, that is a `UIPickerView` or a `UIDatePicker` whose `datePickerStyle == .wheels`? Only `is` / `as?`
+      checks of those two public classes and a `superview` walk: no class names, no SwiftUI internal types, no other UIKit class. DEBUG builds may
+      record the observed class names for measurements; they are never matched.
+    - It stays exactly as passive as above (never leaves `.possible`, cancels and delays nothing, simultaneous with everything, prevents nothing).
+      What the answer decides (the scroll view declines that drag) is decided in SwiftUI, by the pan coordinator.
+    - Same directory, same `#if`, same coverage and scope gates (S14 §5).
 - **Minimum deployment:** iOS/iPadOS 15.0, the lowest Xcode 27 accepts.
   - Every newer API sits behind `if #available` / `@available`.
   - Each gated API has a fallback that keeps the same public API and behavior.
@@ -80,6 +93,7 @@ Requirements:
 | Raw touches: catch, centroid, count, timestamps — 28+ | `SpatialEventGesture` (API iOS 18, used from 28: D34, D37) | see the 17 and 15–16 rows (Amendment 2026-10-20 (user)) |
 | Raw touches — 17 to 27 (D34, D37) | — | `DragGesture(minimumDistance: 0)`, armed only while content moves or a touch is down (`CatchArming`): touch-down a few ms late, count = 1, no centroid |
 | Raw touches — 15–16 | UIKit touch observer (S2 amendment): touch-down at rest, live centroid, count, lift, cancel | `DragGesture(minimumDistance: 0)` as on 17 (`forceFallback(.uikitTouchObserver)`) |
+| A drag starts on a wheel picker — every OS, opt-in (D88) | UIKit touch observer, probe-only on 17+ (S2 amendment 2026-11-08), while `ztronScrollPickersAbsorbDrags(true)` | none: off (the default), the drag turns the wheel and also scrolls the content (S12 "Wheel and date pickers") |
 | Pinch — 28+ | `MagnifyGesture` (17) + live centroid from the observer | — |
 | Pinch — 17 to 27 (D34, D37) | `MagnifyGesture` | centroid = `startLocation` + pan-drag follow (focal estimate); one-finger lift ends the pinch |
 | Pinch — 15–16 | `MagnificationGesture` for recognition only; magnification = distance ratio of the two observed touches, centroid = their mean (Amendment 2026-10-20 (user)) | `MagnificationGesture` + drag-location focal estimate (`.dragOnly`) |
@@ -725,6 +739,9 @@ extension View { public func ztronScrollArbitrationParticipant(_ registration: Z
 // Sheet cooperation — Amendment 2026-10-21 (SHEET-s1; design `docs/design/SHEET-spike.md` §5, semantics in S12 "Inside a bottom sheet"):
 extension View { public func ztronScrollYieldsToSheet(_ yields: Bool = true) -> some View }   // environment; propagates; true = inert to drags (gestures masked `.subviews`) so the sheet gets them
 
+// Wheel pickers — Amendment 2026-11-08 (user, D88; design `docs/design/PICKER-decline.md`, semantics in S12 "Wheel and date pickers", UIKit rules in S2):
+extension View { public func ztronScrollPickersAbsorbDrags(_ absorbs: Bool = true) -> some View }   // environment; propagates; default false; true = a drag that starts on a wheel within 45° of vertical is the wheel's; apply at or above the outermost ZTronScrollView
+
 // Content-integral overlay — Amendment 2026-10-21 (user; design `docs/design/M6b-content-overlay.md`, semantics §1, mechanism §2):
 // Revision 2026-10-21 (user): every `.relative` takes a clamped unit type; fillMaxWidth / fillMaxHeight take a length for the free axis.
 public struct ZTronUnitLength: Hashable, Sendable, ExpressibleByFloatLiteral, ExpressibleByIntegerLiteral {
@@ -889,6 +906,8 @@ Coexistence with a delegate object:
     every topology), expected failures naming open items 37 (18.x and below), 38 (nested inner, pager page, view that holds scroll views) and 39 (26+). On 26+ D40's
     plain `.gesture` pan absorbs it but freezes a drag that starts on a SwiftUI Button (an ancestor `.gesture` gets no touch while the press lives), and
     `.highPriorityGesture` breaks the UIKit slider and the wheel, so the non-shared pan stays `.simultaneousGesture` (D86, applying D74) until the picker fix after U3.
+    **Amendment 2026-11-08 (user, D88):** the picker fix leaves the attach as it is and ships opt-in, as `ztronScrollPickersAbsorbDrags(_:)` (S12 "Wheel and date
+    pickers"); without the modifier the expected failures above stand, and with it on (`scripts/test-demo-ui.sh --picker`) they are strict.
   - **Inside SwiftUI's own `ScrollView`** (DBG-s8, D47; `design/NESTED-arbitration.md` §6.1). **Below iOS 26** both pans follow the finger: the page scrolls under a drag that starts on a ZTron view (60 pt: 50 pt on 17.5 and 18.5) and the
     view's pan sees almost nothing (its gesture space moves with the page: a vertical list in a vertical page does not scroll, a horizontal carousel works). **From iOS 26, in an app linked against the 26 SDK**, UIKit gives the touch to
     the first recognizer that begins and a tie (both begin in the same touch sample) to the SwiftUI one, whose win drops the page's pan for the rest of the touch: **the ZTron view takes every drag that starts on it, also a vertical one
@@ -995,6 +1014,33 @@ from the sheet. This is a SwiftUI/UIKit fact, not a ZTronScrollView property (a 
   never-touched view opens a medium sheet scrolled by half the difference (169 pt); `defaultScrollAnchor(.top, for: .sizeChanges)` (S7's one override) keeps it at the top through every resize. Not changed:
   restoring "content wins" on 18.x needs the exclusive attach (`.gesture`), whose costs for ancestors and nested views are measured separately (D40); treating the presentation transient as the first layout is a
   library change of its own. Both are follow-ups, tests pin the current behaviour (`SheetUITests.testTheSheetTreatsOursLikeAPlainSimultaneousDrag`, `ScrollDisabledUITests.testSheetMediumStartsAtTheTop` expected failure on 18.x).
+### Wheel and date pickers — Amendment 2026-11-08 (user, D88; design `docs/design/PICKER-decline.md`, spikes PICKER-s1 / s2; measured on 17.5, 18.5, 26.5, 27.0, plain / nested / pager)
+
+A native `ScrollView` lets a `Picker(.wheel)` or `DatePicker(.wheel)` keep a drag that starts on it: the wheel turns and no scroll view moves (D84: required,
+on every OS and in every topology). The pan here is a `.simultaneousGesture` (D86), so it recognizes alongside the wheel's own pan and no SwiftUI attach keeps
+Buttons, UIKit sliders and the wheel working together.
+
+- **Default (modifier off).** A vertical drag that starts on a wheel also scrolls the content (y = 50 for a 60 pt drag on 18.5 / 26.5 / 27.0, 1 on 17.5). On 18.5 and
+  later a `Picker(.wheel)` does not even change its selection (the content follows the finger, the wheel sees about 10 pt and snaps back). Open items 37–39
+  stay open on this path, as expected failures in `UIKitControlsUITests`. Nothing UIKit is installed on 17+.
+- **`ztronScrollPickersAbsorbDrags(_ absorbs: Bool = true)`** (S11; environment-backed, propagates, no member twin: SwiftUI has no counterpart, a native
+  `ScrollView` always does this). While `true`:
+  - A touch sequence whose first finger lands on a wheel (a `UIPickerView`, or a `UIDatePicker` in its `.wheels` style; S2 amendment 2026-11-08) and whose
+    first drag sample is within 45° of vertical (`abs(dy) >= abs(dx)`) belongs to the wheel. Every `ZTronScrollView` under the finger declines it (U2's
+    `.declined`: no drag callbacks; a motion the touch-down caught settles where it stopped) and drops the sequence's drag samples up to its end; a nested
+    container is told (`participantDeclined`) and resolves past the declined view, so no scroll view in the tree moves. The touch-down, the lift and a cancel
+    still pass: tracking, the catch and the arbiter's sequence open and close as before.
+  - A flatter first sample stays the scroll views' (the wheel's pan fails across its axis in UIKit): a horizontal pager or carousel pages from the wheel, as
+    natively (ox = 376–385 vs native 376–386). The cone is static; UIKit's boundary depends on speed (U1 C2), and diagonals at 30–60° are not measured.
+  - Compact and graphical `DatePicker`s are not wheels: a vertical drag that starts on them scrolls, as natively (y = 110). Other UIKit scrollers inside the
+    content (`TextEditor`, `Map`, a web view) are not covered; a general rule would name `UIScrollView`, which S2 forbids.
+  - Sequences that do not start on a wheel are untouched: Buttons (`ButtonDragUITests`), sliders, steppers and text fields see the same pan as with the
+    modifier off. The attach does not change.
+  - **Placement:** at or above the outermost `ZTronScrollView` of a tree. On 17+ the outermost view owns the one probe (S2), so a nested view that has the
+    modifier, under an outermost view that does not, hears no reports and behaves as off.
+  - Flipping it adds or removes the probe (17+) or retunes the D31 recognizer in place (15–16) and changes nothing else; S4 holds (no content body is
+    re-evaluated by the flag beyond what any environment key costs; not yet measured as `SheetYieldTests` does for the sheet flag).
+- **Default on** is a later, separate decision: the key's default flips to `true` and the modifier stays as the way out.
 
 ## S13 · Pitfalls
 
@@ -1107,6 +1153,11 @@ For each item, state how it was verified (counters, `Self._printChanges()`, the 
 - **UIKit touch observer gates** (Amendment 2026-10-20 (user)), both run by the test-runner at every milestone end and before any commit that touches `Sources/ZTronScrollView/Gesture/UIKit/`; a failure blocks the commit:
   - **Coverage gate** — `scripts/coverage-uikit.sh`: **100 % line coverage** of every file under `Sources/ZTronScrollView/Gesture/UIKit/`, measured on the `ZS_DEST` simulator (Debug, `-enableCodeCoverage YES`, `-resultBundlePath`) as the union of two runs: the package unit tests and the demo UI tests launched with `-ZTronForceUIKitObserver` (with and without `-ZTronForceAllFallbacks`); `xcrun xccov view --report --json` / `--archive --file` filtered to that directory; exits 1 below 100 % and prints every uncovered line. Lines executed only by a direct call of an override with an empty touch set count for coverage but not for behavior (the design says which lines those are and how their behavior is proven instead).
   - **Scope gate** — `scripts/check-uikit-scope.sh`: `import UIKit` (and `UIKit.`-qualified names, `UIViewRepresentable`) appear only under that directory; every file there that imports UIKit starts with `#if canImport(UIKit) && os(iOS)`; `UIScrollView`, `UIHostingController`, `NSClassFromString`, `value(forKey`, `Mirror(` appear nowhere in `Sources/` or `Packages/`; exits 1 otherwise.
+- **Wheel pickers** (Amendment 2026-11-08 (user, D88)): with the modifier on app-wide (`scripts/test-demo-ui.sh --picker`, which builds the demo with
+  `ZTRON_DEMO_PICKERS_ABSORB`), the wheel rows of `UIKitControlsUITests` are strict (y = 0 in the plain, nested and pager topologies, as native) and the whole
+  demo UI suite shows no failure beyond the default lane's, on 17.5, 18.x, 26.x and 27.0, plus `--uikit --picker` for the 15–16 shape (real 15.0 / 16.0 on
+  the M1 lane). With it off, 17+ installs no UIKit object (`PickerAbsorbModifierTests`). The wheel rule and the cone are unit-tested (`PickerProbeRuleTests`,
+  `PickerDeclineTests`) and sit inside both UIKit gates above.
 - **Rotation:** keeps the visible center within 1 pt, with no jump frame. Check it at fit, zoomed in, near edges, in a pager, mid-deceleration, and with a scaling header.
 - **Targets:** a fling lands exactly on a target modified by the delegate, a behavior, or header snapping.
 - **Content-integral overlay** (Amendment 2026-10-21 (user)): in the user trees, rotate ×4 zoomed on a detail: the marker overlay's screen
