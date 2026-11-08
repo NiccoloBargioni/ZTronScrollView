@@ -42,6 +42,7 @@ struct DemoApp: App {
             case "sheet": SheetScreen()
             case "scrollDisabled": ScrollDisabledScreen()
             case "seamlab": SeamLabScreen()
+            case "shortContent": ShortContentScreen()
             default: ProofScreen()
             }
         }
