@@ -743,10 +743,12 @@ struct HeaderFittingContentTests {
         }
     }
 
-    /// K2: a keyboard report (no transaction in the turn, as the real keyboard's: D64) that moves fitting centred content
-    /// moves it in `KeyboardInsetFollow`'s curve over many frames (measured before: one frame), the following header on it;
-    /// top-aligned content: no motion. Hosted tests cannot show a keyboard: the state gets the container's report. Two
-    /// rows (120 pt): the content still fits with the keyboard up, so it moves `336 · a` over the whole curve.
+    /// K2: a keyboard-hide report (no transaction in the turn, as the real keyboard's: D64) that moves fitting centred
+    /// content moves it in `KeyboardInsetFollow`'s curve over many frames (measured before: one frame), the following
+    /// header on it; a show report is written as it comes (the real one lands inside UIKit's keyboard animation, which
+    /// Core Animation interpolates: seam lab `kbreal`), the header on the content in that frame too; top-aligned content:
+    /// no motion. Hosted tests cannot show a keyboard: the state gets the container's report. Two rows (120 pt): the
+    /// content still fits with the keyboard up, so it moves `336 · a`.
     @Test(arguments: OSPath.allCases, [ZTronHeaderFittingContent.headerFollows, .topAligned])
     func aKeyboardMovesFittingContentInTheKeyboardsCurve(path: OSPath, fitting: ZTronHeaderFittingContent) async {
         let r = host(path, fitting, rows: 2)
@@ -766,7 +768,10 @@ struct HeaderFittingContentTests {
             let c = Self.motion(contentTops(xs)), h = Self.motion(headerBottoms(xs)), sm = seams(xs)
             print("D75 K2 \(tag) \(name): content \(c); header \(h); \(seamText(sm))")
             if fitting == .headerFollows {
-                #expect(abs(c.total - kb / 2) < 1 && c.movesIn500 >= 15 && c.maxStepFraction <= 0.25, "\(tag) \(name): content \(c)")
+                #expect(abs(c.total - kb / 2) < 1, "\(tag) \(name): content \(c)")
+                if k == 0 {
+                    #expect(c.movesIn500 >= 15 && c.maxStepFraction <= 0.25, "\(tag) \(name): content \(c)")
+                }
                 #expect(!sm.isEmpty && sm.allSatisfy { abs($0) <= 1 }, "\(tag) \(name): \(seamText(sm))")
             } else {
                 #expect(c.range < 0.5 && h.range < 0.5, "\(tag) \(name): nothing moves (content \(c); header \(h))")

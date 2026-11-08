@@ -135,7 +135,8 @@ struct KeyboardProbeLayout: Layout {
 }
 
 /// D75 K2 (M8b-s8 s9): the curve a keyboard-driven inset change that moves aligned fitting content is written in when the
-/// turn has no transaction of its own (D64: the keyboard's report arrives with none). UIKit's keyboard animation curve as
+/// turn has no transaction of its own (D64: the keyboard's report arrives with none) and the keyboard hides (a shown
+/// keyboard's report lands inside UIKit's keyboard animation, which Core Animation already interpolates). UIKit's keyboard animation curve as
 /// a spring (mass 3, stiffness 1000, damping 500; iOS 13+, the same on 15–16), so the content (and a `.headerFollows`
 /// header) moves with the keyboard as SwiftUI's keyboard avoidance moves a native ScrollView's content.
 enum KeyboardInsetFollow {

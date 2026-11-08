@@ -999,12 +999,15 @@ public final class ZTronScrollState {
             // D75 (M8b-s8 s9): the same for a change that moves content that fits on an aligned axis (`pad = slack · a`,
             // and the `.headerFollows` lift with it): measured before, a 150 pt app-animated bottom `.safeAreaInset`
             // moved centred content 75 pt in one frame. K2: a keyboard change arrives with no transaction in the turn
-            // (D64 logs, `txAnim:false`); one that moves such content is written in UIKit's keyboard curve
-            // (`KeyboardInsetFollow`), as SwiftUI's keyboard avoidance moves a native ScrollView's (measured before: a
-            // one-frame step with the real keyboard, seam lab `kbrotate`). Top-aligned content never moves here.
+            // (D64 logs, `txAnim:false`). Shown, its report lands inside UIKit's keyboard animation, so Core Animation
+            // interpolates the content's and the header's layers together (seam lab `kbreal`, 27.0 preferred and forced:
+            // 79 pt over 25 frames, seam <= 0.67; a SwiftUI animation on top split them, the header 43 pt ahead). Hidden,
+            // it lands outside it (79 pt in one frame): one that moves such content is written in UIKit's keyboard curve
+            // (`KeyboardInsetFollow`), as SwiftUI's keyboard avoidance moves a native ScrollView's. Top-aligned content
+            // never moves here.
             let padMoves = hadViewport && insetsChanged && Self.alignedPadMoves(old: old, new: m, zoom: before.presentationZoom)
             let keyboardFollow = padMoves && positionDriver.animationInTurn == nil
-                && m.keyboardExtension != old.keyboardExtension ? KeyboardInsetFollow.animation : nil
+                && m.keyboardExtension < old.keyboardExtension ? KeyboardInsetFollow.animation : nil
             let turn = positionDriver.animationInTurn ?? keyboardFollow
             let follow = hadViewport && insetsChanged && (m.header?.resting != old.header?.resting || padMoves) ? turn : nil
             if hadViewport, insetsChanged {
