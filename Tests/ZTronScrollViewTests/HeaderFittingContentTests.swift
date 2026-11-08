@@ -86,7 +86,8 @@ struct HeaderFittingContentTests {
             if setup.zoomable { scroll = scroll.zoomRange(min: .absolute(1), max: .absolute(4)) }
             let view = scroll
             .defaultScrollAnchor(.center, for: .alignment)
-            .withScalingHeader(size: .fixed(min: 64, max: 240), collapse: setup.collapse, fittingContent: option.fitting) { _ in
+            .withScalingHeader(size: .fixed(min: 64, max: 240), collapse: setup.collapse, pull: setup.behavior,
+                               fittingContent: option.fitting, stretchContent: setup.stretchContent) { _ in
                 HeaderFittingContentTests.color(HeaderFittingContentTests.headerMarker)
             }
             .scalingHeaderPullBehavior(setup.pull)
@@ -112,6 +113,9 @@ struct HeaderFittingContentTests {
         var overlay = false
         /// Hosts the view in `InsetWrap` with this box.
         var inset: InsetBox? = nil
+        /// M8b-s8 s10: `pull: .stretch` and its `stretchContent:` case.
+        var behavior: ZTronHeaderScalingBehavior = .preserve
+        var stretchContent: ZTronHeaderStretchContent = .keepTextMagnified
     }
 
     /// The drawn header bottom and content top every display frame.
@@ -776,6 +780,187 @@ struct HeaderFittingContentTests {
             } else {
                 #expect(c.range < 0.5 && h.range < 0.5, "\(tag) \(name): nothing moves (content \(c); header \(h))")
             }
+        }
+    }
+    // MARK: `.stretch` takes the lift (M8b-s8 s10, design M8b-s8-d75 §2.2 item 5 on D76)
+
+    static func stretchSetup(_ content: ZTronHeaderStretchContent) -> Setup {
+        var setup = Setup()
+        setup.behavior = .stretch
+        setup.stretchContent = content
+        return setup
+    }
+
+    /// The header marker's layer: its unscaled layout height (`bounds`) and its drawn frame. `.keepTextSize` lays the
+    /// stack out grown (drawn = laid out: crisp), `.keepTextMagnified` scales a stack laid out at `R` (D69).
+    static func headerLayer(in window: UIWindow) -> (layout: CGFloat, drawn: CGRect)? {
+        let root = window.layer.presentation() ?? window.layer
+        var out: (CGFloat, CGRect)?
+        func visit(_ layer: CALayer) {
+            if out == nil, let c = layer.backgroundColor {
+                var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+                let m = headerMarker
+                if UIColor(cgColor: c).getRed(&r, green: &g, blue: &b, alpha: &a), a > 0.5,
+                   abs(r - m.r) < 0.02, abs(g - m.g) < 0.02, abs(b - m.b) < 0.02 {
+                    out = (layer.bounds.height, layer.convert(layer.bounds, to: root))
+                }
+            }
+            layer.sublayers?.forEach(visit)
+        }
+        visit(root)
+        return out
+    }
+
+    /// At rest on content that fits, a `.headerFollows` `.stretch` header grows by the lift instead of riding down on it:
+    /// top edge at its resting top, height `R + L`, bottom edge the content's top; `.keepTextSize` lays it out at that
+    /// height (crisp), `.keepTextMagnified` scales its resting layout by `(R + L) / R` (D69, C13); the reader reports the
+    /// growth as stretch. Overflowing content: no growth. Then a pull adds `g`, and the compression starts only once the
+    /// content has moved up by `L` (a rubber band of the fitting content).
+    @Test(arguments: OSPath.allCases, [ZTronHeaderStretchContent.keepTextMagnified, .keepTextSize])
+    func aStretchingHeaderGrowsByTheLiftAndCompressesAfterIt(path: OSPath, content: ZTronHeaderStretchContent) async {
+        let r = host(path, .headerFollows, setup: Self.stretchSetup(content))
+        defer { r.sampler.stop(); unhost(r.window) }
+        let tag = "\(path) \(content)"
+        let s = r.state
+        let m = s.peek.metrics
+        let R = m.header?.resting ?? 0
+        let top0 = HeaderMath.top0(m)
+        let L = pad(s, contentHeight: 300)
+        func check(_ name: String, height: CGFloat, compressed: Bool = false) {
+            pump(0.3)
+            let x = r.sampler.samples.last
+            let hb = x?.header ?? -1, ht = x?.headerTop ?? -1, c = x?.content ?? -2
+            let layer = Self.headerLayer(in: r.window)
+            print(String(format: "D75 stretch %@ %@: top %.2f (rest %.2f), bottom %.2f, content %.2f, height %.2f (expected %.2f), layout %.2f",
+                         tag, name, ht, top0, hb, c, hb - ht, height, layer?.layout ?? -1))
+            #expect(abs(ht - top0) < 0.5, "\(tag) \(name): the top edge stays at rest (\(ht) vs \(top0))")
+            #expect(abs((hb - ht) - height) < 0.5, "\(tag) \(name): height \(hb - ht), expected \(height)")
+            #expect(abs(c - hb) < 0.5, "\(tag) \(name): header bottom = content top (seam \(c - hb))")
+            if let layer, !compressed {
+                if content == .keepTextSize {
+                    #expect(abs(layer.layout - height) < 0.5, "\(tag) \(name): laid out grown, unscaled (\(layer.layout))")
+                } else {
+                    #expect(abs(layer.layout - R) < 0.5, "\(tag) \(name): laid out at R and magnified (\(layer.layout))")
+                }
+            }
+        }
+        #expect(L > 50, "\(tag): the content fits (\(L))")
+        check("rest", height: R + L)
+        let g = s.geometry.header
+        #expect(abs((g?.stretch ?? 0) - L) < 0.5 && (g?.lift ?? -1) == 0 && abs((g?.height ?? 0) - (R + L)) < 0.5,
+                "\(tag): the reader reports the growth as stretch (\(String(describing: g)))")
+        #expect(abs(HeaderMath.obscuredDelta(offset: s.peek.targetOffset, zoom: 1, metrics: m) - L) < 0.5,
+                "\(tag): the unobscured top is the grown header's bottom")
+        let top = s.peek.presentationOffset
+        s.beginTracking(); s.beginDragging()
+        // Two writes: the hosted window sometimes draws neither layer for the first drag write from rest (the content or
+        // the header stays at rest 0.3 s on 27.0's preferred path, both cases, also before the lift was grown); a finger
+        // writes every frame.
+        s.writeDragOffset(CGPoint(x: top.x, y: top.y - 79))
+        pump(0.05)
+        s.writeDragOffset(CGPoint(x: top.x, y: top.y - 80))
+        check("pulled 80", height: R + L + 80)
+        s.writeDragOffset(CGPoint(x: top.x, y: top.y + L / 2))
+        check("up L/2", height: R + L / 2)
+        s.writeDragOffset(CGPoint(x: top.x, y: top.y + L + 40))
+        check("up L + 40", height: R - 40, compressed: true)
+        s.writeDragOffset(top)
+        check("back", height: R + L)
+        s.endTracking()
+        pump(0.5)
+        r.rows.n = 10
+        check("overflowing", height: R)
+    }
+
+    /// Rows inserted and removed, animated (5 → 10 → 5: across the fit / overflow kink, where a layout-interpolated lift
+    /// was 25 pt off): the grown header's top edge stays, its bottom edge is the content's top every drawn frame, and it
+    /// moves on the change's curve; no content body runs but the rows' own.
+    @Test(arguments: OSPath.allCases, [ZTronHeaderStretchContent.keepTextMagnified, .keepTextSize])
+    func aStretchingHeaderFollowsRowChangesAcrossTheKink(path: OSPath, content: ZTronHeaderStretchContent) async {
+        for change in Change.allCases {
+        let r = host(path, .headerFollows, change: change, setup: Self.stretchSetup(content))
+        defer { r.sampler.stop(); unhost(r.window) }
+        let tag = "\(path) \(content) \(change)"
+        let pad5 = pad(r.state, contentHeight: 300)
+        for (to, name) in [(10, "grow"), (5, "shrink")] {
+            await drainMainQueue()
+            let t0 = CACurrentMediaTime()
+            r.sampler.tick(nil)
+            withAnimation(.easeInOut(duration: 0.5)) { r.rows.n = to }
+            pump(0.8)
+            let xs = r.sampler.since(t0)
+            let tops = xs.compactMap { x in x.headerTop.map { (x.t, $0) } }
+            let c = Self.motion(contentTops(xs)), h = Self.motion(headerBottoms(xs)), t = Self.motion(tops), sm = seams(xs)
+            print("D75 stretch rows \(tag) \(name): content \(c); header \(h); top \(t); \(seamText(sm))")
+            #expect(abs(h.total - pad5) < 0.5 && h.movesIn500 >= 20 && h.maxStepFraction <= 0.25, "\(tag) \(name): header \(h)")
+            #expect(t.range < 0.5, "\(tag) \(name): the top edge stays (\(t))")
+            #expect(!sm.isEmpty && sm.allSatisfy { abs($0) <= 1 }, "\(tag) \(name): \(seamText(sm))")
+        }
+        }
+    }
+
+    /// Rows inserted while a refresh hold retracts (clock-driven writes of `o′` every frame, the common case): the lift's
+    /// carriers keep the rows' curve (they do not share the consumers' attribute), the seam stays and the indicator is
+    /// never drawn over the content.
+    /// `follow`: the s9 baseline (`.preserve` `.followContent`, the lifted header without a stretch).
+    enum HoldRows: String, CaseIterable, Sendable { case magnified, size, follow }
+
+    @Test(arguments: OSPath.allCases, HoldRows.allCases)
+    func aStretchingHeaderKeepsRowsCurveDuringAHoldRelease(path: OSPath, rows: HoldRows) async {
+        var setup = Self.stretchSetup(rows == .size ? .keepTextSize : .keepTextMagnified)
+        if rows == .follow { setup.behavior = .preserve; setup.pull = .followContent }
+        let content = rows
+        let r = host(path, .headerFollows, hold: true, setup: setup)
+        defer { r.sampler.stop(); unhost(r.window) }
+        let tag = "\(path) \(content)"
+        let s = r.state
+        await drainMainQueue()
+        let t0 = CACurrentMediaTime()
+        r.sampler.tick(nil)
+        s.beginRefreshing()
+        pump(1.2)
+        let pad5 = pad(s, contentHeight: 300)
+        s.endRefreshing()
+        pump(0.05)
+        withAnimation(.easeInOut(duration: 0.5)) { r.rows.n = 10 }
+        pump(1.2)
+        let xs = r.sampler.since(t0)
+        var over = 0
+        for x in xs {
+            if let i = x.indicator, !i.isNull, i.height > 0.5, let c = x.content, i.maxY > c + 0.5 { over += 1 }
+        }
+        let tops = xs.compactMap { x in x.headerTop.map { (x.t, $0) } }
+        let h = Self.motion(headerBottoms(xs)), t = Self.motion(tops), sm = seams(xs)
+        print("D75 stretch hold release + rows \(tag): header \(h); top \(t); over \(over); \(seamText(sm)) (pad \(pad5))")
+        #expect(over == 0, "\(tag): the indicator is never over the content")
+        // `.preserve` `.followContent` rides down on the lift (its top moves); a stretching header's top edge stays.
+        if rows != .follow { #expect(t.range < 0.5, "\(tag): the top edge stays (\(t))") }
+        #expect(!sm.isEmpty && sm.allSatisfy { abs($0) <= 1 }, "\(tag): \(seamText(sm))")
+        #expect(h.maxStep < 0.5 * max(pad5, 1), "\(tag): no step >= 0.5 of the change (\(h))")
+    }
+
+    /// An animated option change into and out of `.headerFollows` with `.stretch`: the header grows by `L` from its top
+    /// edge (which stays) as the content moves down, on the change's curve, seam ≤ 1 pt every frame.
+    @Test(arguments: OSPath.allCases, [ZTronHeaderStretchContent.keepTextMagnified, .keepTextSize])
+    func aStretchingHeaderGrowsWithAnAnimatedOptionChange(path: OSPath, content: ZTronHeaderStretchContent) async {
+        let r = host(path, .topAligned, setup: Self.stretchSetup(content))
+        defer { r.sampler.stop(); unhost(r.window) }
+        let tag = "\(path) \(content)"
+        let pad5 = pad(r.state, contentHeight: 300)
+        for (to, name) in [(ZTronHeaderFittingContent.headerFollows, "top -> follows"), (.headerPinned, "follows -> pinned"),
+                           (.headerFollows, "pinned -> follows"), (.topAligned, "follows -> top")] {
+            await drainMainQueue()
+            let t0 = CACurrentMediaTime()
+            r.sampler.tick(nil)
+            withAnimation(.easeInOut(duration: 0.5)) { r.option.fitting = to }
+            pump(0.8)
+            let xs = r.sampler.since(t0)
+            let tops = xs.compactMap { x in x.headerTop.map { (x.t, $0) } }
+            let h = Self.motion(headerBottoms(xs)), t = Self.motion(tops), sm = seams(xs)
+            print("D75 stretch option \(tag) \(name): header \(h); top \(t); \(seamText(sm))")
+            #expect(abs(h.total - pad5) < 0.5 && h.movesIn500 >= 20 && h.maxStepFraction <= 0.25, "\(tag) \(name): header \(h)")
+            #expect(t.range < 0.5, "\(tag) \(name): the top edge stays (\(t))")
+            if !name.contains("pinned") { #expect(sm.allSatisfy { abs($0) <= 1 }, "\(tag) \(name): \(seamText(sm))") }
         }
     }
 }

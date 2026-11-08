@@ -27,6 +27,8 @@ final class CatchPin: @unchecked Sendable {
         case headerStretch, headerClip, headerTranslation, headerSlot, headerFallback, headerFade
         /// D75: the lift's transform-vector effect (`HeaderLiftBase`), per slot.
         case lift(HeaderLift.Slot)
+        /// D75 `.headerFollows` + `.stretch`: the header frame's lift carrier (`HeaderStretchLiftBase`; one header slot).
+        case headerLift
     }
 
     /// What a host hands its effect while the pin holds: the catch's number and the pin. Equal by number and identity.

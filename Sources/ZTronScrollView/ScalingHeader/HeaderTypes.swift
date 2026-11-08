@@ -70,8 +70,10 @@ public enum ZTronHeaderFittingContent: Hashable, Sendable {
     case topAligned
     /// The content keeps its alignment and the header rides on its top edge, as if it were the content's first row:
     /// centred content and header are centred together, with the scroll view's background above the header. With
-    /// `pull: .stretch` the header grows into that space instead, as a pull of the same size would make it grow. Pulls,
-    /// refresh and collapse work from there.
+    /// `pull: .stretch` the header grows into that space instead, as a pull of the same size would make it grow: its top
+    /// edge stays at its resting place, it is taller by that space at rest (magnified by it with
+    /// ``ZTronHeaderStretchContent/keepTextMagnified``, laid out larger with ``ZTronHeaderStretchContent/keepTextSize``),
+    /// and it starts to collapse only once the content has moved up by it. Pulls, refresh and collapse work from there.
     case headerFollows
     /// The header stays at its resting place and the content keeps its alignment in the region below it, with a gap
     /// between the two (the look of a header pinned as a safe-area inset).
@@ -84,6 +86,8 @@ public enum ZTronHeaderFittingContent: Hashable, Sendable {
 /// its top centre; they differ in the content's fixed-size parts (text, symbols, controls, padding, fixed frames).
 /// `pull: .preserve` and a banner (no vertical axis) ignore it. A change while the header is pulled (a refresh hold)
 /// morphs between the two inside the same frame when it is animated (`withAnimation`), and lands in one frame otherwise.
+/// With `fittingContent: .headerFollows` on content that fits, the header is grown at rest too (by the space the content
+/// leaves above it), so the two cases differ at rest there: "the pull" below is that space plus the pull.
 public enum ZTronHeaderStretchContent: Hashable, Sendable {
     /// The default: the whole header is magnified with the pull, `(R + g) / R` times from its top centre (`R` its resting
     /// height, `g` the pull), its text, symbols and controls included, as if the resting header were zoomed in (D69). No
@@ -320,7 +324,8 @@ public struct ZTronHeaderGeometry: Equatable, Sendable {
     /// readers inside it too: a child sized from `height` is scaled once more; size it from `restingHeight` for an
     /// unscaled size.
     public var height: CGFloat
-    /// ≥ 0: how much `.stretch` grew the header past its resting height; always 0 under `.preserve` (a pull opens a gap
+    /// ≥ 0: how much `.stretch` grew the header past its resting height (with `fittingContent: .headerFollows` on content
+    /// that fits, the lift `slack · alignment` at rest plus the pull); always 0 under `.preserve` (a pull opens a gap
     /// below a preserved header, or moves it down by that amount with `ZTronHeaderPullBehavior.followContent`).
     public var stretch: CGFloat
     /// The size's `min` as resolved (0 under `.slideBehind`, which ignores it).
@@ -331,7 +336,8 @@ public struct ZTronHeaderGeometry: Equatable, Sendable {
     public var width: CGFloat
     /// ≥ 0: how far `fittingContent: .headerFollows` moved the header down from its resting place to ride on the top edge
     /// of content that fits (`slack · alignment`, the content's own alignment padding); 0 in the other cases and once the
-    /// content overflows. The header's drawn top edge is its resting top edge plus `lift`.
+    /// content overflows. The header's drawn top edge is its resting top edge plus `lift`. 0 under `pull: .stretch`, whose
+    /// header grows by that amount instead (its top edge stays at rest; `stretch` and `height` include it).
     public var lift: CGFloat = 0
 
     /// What a reader sees before the header resolves or without a header: all zeros.

@@ -118,8 +118,7 @@ struct HeaderLiftBase: GeometryEffect {
     }
 
     func effectValue(size: CGSize) -> ProjectionTransform {
-        let l = lift(size: size)
-        return ProjectionTransform(CGAffineTransform(translationX: 0, y: l))
+        ProjectionTransform(CGAffineTransform(translationX: 0, y: lift(size: size)))
     }
 
     /// This effect with the pin of the last drawn catch and its host's target values as the pin's model.
@@ -211,4 +210,127 @@ struct HeaderLiftHost: ViewModifier {
                                                                insets: metrics.adjustedContentInset, commit: metrics.resize),
                                       span: span))
     }
+}
+
+/// D75 `.headerFollows` + `.stretch` (M8b-s8 s10, design M8b-s8-d75 §2.2 item 5): the header grows by the lift `L` instead
+/// of riding down on it, in both `stretchContent:` cases (`.keepTextMagnified` scales by `(h + g + L)/h`,
+/// `.keepTextSize` lays the stack out at `grownSize(…, stretch: g + L)`), and compresses only once the content has moved
+/// up by `L` (`HeaderLiveInput.lifted(_:)`: the geometry at `o″ = o′ − L`).
+///
+/// `L` is not linear in a content-size change's progress (`max(0, ·)` at the fit / overflow kink: a layout-interpolated
+/// `L` was 25 pt off mid-transition for 300 → 600 pt), so the five consumers of the header's live input cannot
+/// interpolate it; and it must not share their attribute (`o′`, `m`): on 27.0 an unanimated write cancels the in-flight
+/// animation of the attribute it lands on, and the finger and the clock write `o′` every frame (rows inserted while a
+/// hold retracts is the common case). So `L` is evaluated per frame by two animatable carriers around the header's
+/// frame chain, the lift's own two attributes (`HeaderLiftBase` / `HeaderLiftShift`) at the committed viewport, and
+/// handed to the chain as a PLAIN input (`HeaderFrameChain.build(_:lift:)`): an animation of the consumers' `o′` / `m`
+/// is untouched by it (their animatable data does not change), and the shape carrier's animation is untouched by
+/// finger writes of `o′`. The transform carrier takes the offset only while the header lifts (it mirrors the lift's
+/// and the content's cancellations there); elsewhere a transaction-driven scroll never re-runs its body per frame.
+///
+/// The bottom edge is exact by construction (the chain moves the stack up by the carriers' `L`, `HeaderLiftHost` moves
+/// the slot down by the exact per-frame lift: bottom `= L_exact + R + g`); the carriers' `L` places the top edge, at the
+/// slot's top whenever it equals the lift host's (at rest, under content-size, option, inset and zoom changes and
+/// rotations).
+enum HeaderStretchLift {
+    /// The committed viewport the carriers evaluate the lift at (`HeaderMath.lift`'s).
+    static func viewport(_ m: ScrollMetrics) -> CGSize {
+        m.resize.current.viewport.height > 0 ? m.resize.current.viewport : m.viewportSize
+    }
+
+    /// The carriers compute: a vertical `.stretch` header (the lift is 0 there while the committed and the drawn lift
+    /// alignments are 0, i.e. outside `.headerFollows` and its animated way in or out).
+    static func applies(_ m: ScrollMetrics) -> Bool {
+        guard let h = m.header else { return false }
+        return h.vertical && h.behavior == .stretch
+    }
+}
+
+/// `L(TV, S_committed)` at the committed viewport (`HeaderLiftBase`'s value at rest): the transform vector animatable (an
+/// inset, zoom or hold animation moves it with the content; while the header lifts the offset is in it too, so the
+/// writes that cancel the content's and the lift's animations on 27.0 cancel this one alike). Takes the catch pin as
+/// `HeaderLiftBase` does. Hands the value on to `HeaderStretchLiftShift`.
+nonisolated struct HeaderStretchLiftBase: ViewModifier, Animatable {
+    var base: ContentTransform
+    let viewport: CGSize
+    /// Compute the lift (a `.stretch` vertical header with live lift inputs); 0 otherwise.
+    let stretch: Bool
+    var pin: CatchPin.Ref?
+    var pinModel = TransformVector()
+    let shift: HeaderStretchLiftShift
+
+    /// `HeaderLiftBase`'s transform vector (the host passes a zero offset while the header does not lift: a
+    /// transaction-driven scroll then never re-runs this body per frame).
+    var animatableData: TransformVector {
+        get { base.animatableData }
+        set { base.animatableData = newValue }
+    }
+
+    func lift() -> CGFloat {
+        guard stretch else { return 0 }
+        var t = base
+        if let pin, pin.pins(.headerLift, converged: t.animatableData.within(pinModel)) { t.animatableData = pinModel }
+        return HeaderLift.value(t, viewport: viewport)
+    }
+
+    @MainActor func body(content: Content) -> some View {
+        var next = shift
+        next.base = lift()
+        return content.modifier(next)
+    }
+
+    /// This carrier with the pin of the last drawn catch and its host's target values as the pin's model.
+    func pinned(_ ref: CatchPin.Ref?) -> HeaderStretchLiftBase {
+        guard let ref else { return self }
+        var c = self
+        c.pin = ref
+        c.pinModel = animatableData
+        return c
+    }
+}
+
+/// `L(TV, S_drawn) − L(TV, S_committed)` at the committed viewport (`HeaderLiftShift`'s value at rest), the shape
+/// animatable (a content-size or `fittingContent:` change), zoom and insets plain, not pinned (C10). Builds the header's
+/// frame chain with `L = base + shift` as a plain input.
+nonisolated struct HeaderStretchLiftShift: ViewModifier, Animatable {
+    var shift: ContentShapeShift
+    let viewport: CGSize
+    let stretch: Bool
+    /// `HeaderStretchLiftBase`'s value this frame.
+    var base: CGFloat = 0
+    let chain: HeaderFrameChain
+
+    var animatableData: ContentShape {
+        get { shift.shape }
+        set { shift.shape = newValue }
+    }
+
+    func lift() -> CGFloat {
+        guard stretch else { return 0 }
+        let lifted = ContentShapeShift(shape: shift.shape.lift, committed: shift.committed.lift, scale: shift.scale,
+                                       insets: shift.insets, commit: shift.commit)
+        let l = base + lifted.delta(size: viewport).y
+        return l.isFinite ? max(0, l) : 0
+    }
+
+    @MainActor func body(content: Content) -> some View {
+        let l = lift()
+        let memo = chain.liftMemo
+        let jumped = memo.map { m in
+            defer { m.last = l }
+            return m.last.map { abs($0 - l) > 0.001 } ?? false
+        } ?? false
+        // A lift that changed in this update is applied as it is, never layout-animated: the carriers already give it
+        // per frame, and a lift that steps inside an animated update (a refresh hold's release re-splits the lift's two
+        // attributes: 94 + 0 -> 0 + 119 in one frame, the content and `HeaderLiftHost` step with it) was otherwise
+        // interpolated by the layout over the update's curve (16+'s slot placement and the `.keepTextSize` growth, 15's
+        // grown frame): 25 pt top edge, 30 pt seam (hosted, 27.0). The chain's own animatable data is untouched in every
+        // other update (the first update of an animated change evaluates the carriers at their old values).
+        return chain.build(content, lift: l).transaction { t in if jumped { t.animation = nil } }
+    }
+}
+
+/// The last lift `HeaderStretchLiftShift` handed to the chain (one per header, `HeaderFrameModifier`'s state).
+final class HeaderStretchLiftMemo: @unchecked Sendable {
+    var last: CGFloat?
 }

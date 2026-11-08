@@ -1,4 +1,5 @@
 import SwiftUI
+import ZTronScrollPhysics
 
 /// D78 (open item 15 (b)): the header's frame leaf with the slot's size on the 15 path. 16+: `HeaderFrameModifier` itself
 /// (its `HeaderSlotLayout` is proposed `W × H`). 15 / forced: a `GeometryReader` around it, the header slot (the overlay /
@@ -85,39 +86,54 @@ struct HeaderFrameModifier: ViewModifier {
     var slot: CGSize? = nil
     @StateObject private var relay = ChannelRelay()
     @StateObject private var reporter = HeaderNaturalReporter()
+    @State private var liftMemo = HeaderStretchLiftMemo()
     /// D76: the clip snaps a grown frame's side inset to the pixel grid (`HeaderMath.stretchClip`).
     @Environment(\.displayScale) private var displayScale
 
-    @ViewBuilder
     func body(content: Content) -> some View {
-        let live = wake()
-        let scale = displayScale
-        // The geometry's input (no fade pull): the slot, the frames and the effects never re-lay out for the fade.
-        let shape = live.geometry
-        let visible = shape.visibleHeight > 0.5
-        let group = state.usesGeometryGroup
-        let fade = fade
-        // The layout half: 16+ `HeaderSlotLayout` (fills the overlay, places the header at its live frame), 15 / forced
-        // `HeaderFallbackFrame`. The branch is a `let` flag fixed at state creation (R6): the identity never changes.
-        if state.usesLayoutProtocol, #available(iOS 16, *) {
-            HeaderSlotLayout(live: shape, reporter: reporter) {
-                Self.chrome(content, live: live, fade: fade, visible: visible, group: group, grownFrame: true,
-                            displayScale: scale)
+        // D75 `.headerFollows` + `.stretch` (`HeaderStretchLift`): the lift's two attributes evaluated per frame around the
+        // chain, handed to it as a plain input. Real zoom, insets and shape on every vertical `.stretch` header (an option
+        // change into or out of `.headerFollows` then animates from real values, as `HeaderLiftHost`'s; the lift is 0 while
+        // both lift alignments are); while it lifts (`lifting`) the offset too, read and snapped exactly as `HeaderLiftHost`
+        // reads it, so the carrier's transform vector takes the same writes as the lift's and the content's (on 27.0 an
+        // unanimated write cancels an inset animation in flight: the three must cancel together). Constants (the identity,
+        // never animated) on every other header.
+        let storage = state.storage
+        let metrics = storage.metrics
+        let stretch = HeaderStretchLift.applies(metrics)
+        let lifting = stretch && (metrics.alignment.liftY != 0 || state.headerSpec?.fitting == .headerFollows)
+        let live = wake(phase: lifting)
+        let chain = HeaderFrameChain(live: live, state: state, fade: fade, slot: slot, reporter: reporter,
+                                     displayScale: displayScale, liftMemo: lifting ? liftMemo : nil)
+        let viewport = HeaderStretchLift.viewport(metrics)
+        let base: ContentTransform, shape: ContentShape
+        if stretch {
+            var offset = CGPoint.zero
+            if lifting {
+                offset = storage.targetOffset
+                if storage.phase == .idle, !metrics.resize.isOpen {
+                    offset = CGPoint(x: ContentGeometry.snap(offset.x, scale: displayScale),
+                                     y: ContentGeometry.snap(offset.y, scale: displayScale))
+                }
             }
+            base = HeaderLift.transform(offset: offset, scale: storage.targetZoom, metrics: metrics,
+                                        limits: state.zoomLimits, paging: state.isPagingEnabled ? state.scrollAxes : [])
+            shape = ContentShape(size: metrics.resize.current.contentSize, alignment: metrics.alignment)
         } else {
-            Self.chrome(content.modifier(HeaderFallbackFrame(live: shape, state: state, slot: slot, reporter: reporter)),
-                        live: live, fade: fade, visible: visible, group: group, grownFrame: false, displayScale: scale)
-                .modifier(HeaderTranslation(live: shape))
-                // The slot: the header at the top of the whole overlay. Without it a header exactly as tall as the
-                // region between the safe areas was placed against the bottom safe area (34 pt low; measured).
-                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .top)
+            base = HeaderLift.transform(offset: .zero, scale: 1, metrics: ScrollMetrics(), limits: ZoomLimits(), paging: [])
+            shape = ContentShape()
         }
+        let shift = HeaderStretchLiftShift(shift: ContentShapeShift(shape: shape, committed: shape, scale: base.scale,
+                                                                    insets: base.insets, commit: base.commit),
+                                           viewport: viewport, stretch: stretch, chain: chain)
+        return content.modifier(HeaderStretchLiftBase(base: base, viewport: viewport, stretch: stretch, shift: shift)
+                                    .pinned(stretch ? state.catchPinRef : nil))
     }
 
     /// Subscribes (15–16 channels; 17+ tracks the reads below), counts the run and reads the state's half of the frame.
-    private func wake() -> HeaderLiveInput {
+    private func wake(phase: Bool = false) -> HeaderLiveInput {
         if let storage = state.storage as? ChannelStorage {
-            relay.subscribe(to: [.target, .metrics], of: storage)
+            relay.subscribe(to: phase ? [.target, .metrics, .phase] : [.target, .metrics], of: storage)
         }
         #if DEBUG
         ZTronRenderCounters.increment("header.frame")
@@ -217,6 +233,46 @@ struct HeaderFrameModifier: ViewModifier {
     }
 }
 
+/// The header's frame chain (`HeaderFrameModifier`'s, built per run of the leaf or of the lift carriers around it): the
+/// layout half (16+ `HeaderSlotLayout`, which fills the overlay and places the header at its live frame; 15 / forced
+/// `HeaderFallbackFrame` + `HeaderTranslation`) and the chrome. The branch is a `let` flag fixed at state creation (R6):
+/// the identity never changes. `lift`: D75 `.headerFollows` + `.stretch` (`HeaderLiveInput.lifted(_:)`), 0 otherwise.
+struct HeaderFrameChain {
+    let live: HeaderLiveInput
+    let state: ZTronScrollState
+    let fade: ZTronHeaderFade?
+    let slot: CGSize?
+    let reporter: HeaderNaturalReporter
+    let displayScale: CGFloat
+    var liftMemo: HeaderStretchLiftMemo? = nil
+
+    @MainActor @ViewBuilder
+    func build<V: View>(_ content: V, lift: CGFloat) -> some View {
+        let live = self.live.lifted(lift)
+        let scale = displayScale
+        // The geometry's input (no fade pull): the slot, the frames and the effects never re-lay out for the fade.
+        let shape = live.geometry
+        let visible = shape.visibleHeight > 0.5
+        let group = state.usesGeometryGroup
+        let fade = fade
+        if state.usesLayoutProtocol, #available(iOS 16, *) {
+            HeaderSlotLayout(live: shape, reporter: reporter) {
+                HeaderFrameModifier.chrome(content, live: live, fade: fade, visible: visible, group: group, grownFrame: true,
+                                           displayScale: scale)
+            }
+        } else {
+            HeaderFrameModifier.chrome(content.modifier(HeaderFallbackFrame(live: shape, state: state, slot: slot,
+                                                                            reporter: reporter)),
+                                       live: live, fade: fade, visible: visible, group: group, grownFrame: false,
+                                       displayScale: scale)
+                .modifier(HeaderTranslation(live: shape))
+                // The slot: the header at the top of the whole overlay. Without it a header exactly as tall as the
+                // region between the safe areas was placed against the bottom safe area (34 pt low; measured).
+                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .top)
+        }
+    }
+}
+
 /// D69: the `.stretch` growth as a render-time scale of the framed stack, anchored at its top centre: `s = (h + g) / h`
 /// with `h` the stack's own LAYOUT height (`size`: the slot's `h_L(W, H)` on 16+, `HeaderFallbackFrame`'s on 15 / forced)
 /// and `g = live.stretch`, so the scaled stack's bottom edge is `top + h + g`, the content's top, and an aspect-fit image
@@ -230,6 +286,11 @@ struct HeaderFrameModifier: ViewModifier {
 /// (D69 bit for bit), nothing for `.keepTextSize` (the stack is laid out grown, `size` is `(W · s_l, h + g)`), and
 /// `s_eff = (h + g) / (h + g_l)` inside an animated switch. The crisp `.keepTextMagnified` path (M8b-s9) attaches here,
 /// to `g_s`.
+///
+/// D75 `.headerFollows` + `.stretch` (M8b-s8 s10): `g` includes the lift `L` (`HeaderLiveInput.lifted(_:)`), so the scale
+/// is `(h + g + L) / h` and a header on content that fits is magnified AT REST (C13). M8b-s9's crisp path must therefore
+/// gate on `g_s > 0` (`(1 − m) · (g + L) > 0`), not on a pull, and cover `0 < m < 1` (an animated `stretchContent:`
+/// switch) as well as an `L` that changes while nothing is pulled (rows, the option, a pinch, a hold).
 nonisolated struct HeaderStretchEffect: GeometryEffect {
     var live: HeaderLiveInput
 

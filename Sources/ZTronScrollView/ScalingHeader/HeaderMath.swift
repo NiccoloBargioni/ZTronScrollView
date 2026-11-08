@@ -64,6 +64,15 @@ struct HeaderLiveInput: Equatable {
     /// change morphs between the two in the same frame; strictly between 0 and 1 only inside such a change. Set by
     /// `HeaderFrameModifier.wake()`; `at(offset:)` and `pinned(_:)` keep it (the catch pin replaces `o′` only).
     var layoutShare: CGFloat = 0
+    /// D75 `.headerFollows` + `.stretch` (M8b-s8 s10): the lift `L` the header grows by instead of riding down on it.
+    /// The geometry is derived at `o″ = o′ − L` (`at(offset:)`: the stretch is `L + g` at rest and pulled, the
+    /// compression starts once the content has moved up by `L`) and the stack is moved UP by `L`
+    /// (`translation`), while `HeaderLiftHost` moves the slot DOWN by the exact per-frame lift: the bottom edge is
+    /// the lifted one, term for term, and the top edge stays at the slot's top. A plain input, evaluated per frame by
+    /// `HeaderStretchLiftBase` / `HeaderStretchLiftShift` (the lift's two attributes at the committed viewport), never
+    /// interpolated by the five consumers (a layout-interpolated `L` is 25 pt off at the fit / overflow kink). 0 in
+    /// every other configuration, so the input is bit for bit as without it.
+    var lift: CGFloat = 0
 
     var layoutDriven: Bool { metrics?.vertical == true }
 
@@ -123,12 +132,29 @@ struct HeaderLiveInput: Equatable {
         var c = self
         c.offset = o
         guard followsOffset, let m = metrics else { return c }
-        let g = HeaderMath.geometry(o: o, m: m)
+        // D75 `.stretch` lift: the geometry at `o″ = o′ − L`, the stack moved up by `L` (`lift`); the fade's pull stays
+        // the finger's (`o′`).
+        let o2 = lift == 0 ? o : o - lift
+        let g = HeaderMath.geometry(o: o2, m: m)
         c.progress = g.progress
         c.stretch = g.stretch
-        c.translation = HeaderMath.translation(o: o, m: m)
+        c.translation = lift == 0 ? HeaderMath.translation(o: o, m: m) : HeaderMath.translation(o: o2, m: m) - lift
         c.stateHeight = Self.layoutHeight(m, progress: g.progress)
         if c.tracksPull { c.pull = HeaderMath.pullDistance(o: o) }
+        return c
+    }
+
+    /// D75 `.headerFollows` + `.stretch`: this input with the lift `l` (`lift`), re-derived. While a resize is open (the
+    /// intent's anchor, `followsOffset` false) an anchor at or above rest grows by `l` too and the stack moves up by `l`;
+    /// an anchor in the band keeps its progress (content that fits has no band to scroll in; only a rubber band reaches
+    /// it). Identity for `l == 0` and without a `.stretch` vertical header.
+    func lifted(_ l: CGFloat) -> HeaderLiveInput {
+        guard l.isFinite, l > 0, let m = metrics, m.vertical, m.behavior == .stretch else { return self }
+        var c = self
+        c.lift = l
+        if followsOffset { return c.at(offset: offset) }
+        if progress == 0 { c.stretch = stretch + l }
+        c.translation = translation - l
         return c
     }
 }

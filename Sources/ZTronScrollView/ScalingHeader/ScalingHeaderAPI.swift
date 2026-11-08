@@ -71,8 +71,9 @@ extension ZTronScrollView {
     ///     (``ZTronHeaderStretchContent``): `.keepTextMagnified` (the default) magnifies the whole header;
     ///     `.keepTextSize` lays it out larger, so text and controls keep their size and an aspect-fit image still grows.
     ///     A change while the header is pulled morphs between the two inside the same frame when animated
-    ///     (`withAnimation`), and lands in one frame otherwise; at rest both draw the same. A change runs the header's
-    ///     builder once (a cold change), never its content per frame.
+    ///     (`withAnimation`), and lands in one frame otherwise; at rest both draw the same, except with
+    ///     `fittingContent: .headerFollows` on content that fits, where the header is grown at rest. A change runs the
+    ///     header's builder once (a cold change), never its content per frame.
     ///   - header: the header's content, built once per cold change.
     public func withScalingHeader<Header: View>(size: ZTronHeaderSize, collapse: ZTronHeaderCollapseBehavior = .compress,
                                                 pull: ZTronHeaderScalingBehavior = .preserve,
