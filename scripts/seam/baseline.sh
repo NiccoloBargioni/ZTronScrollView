@@ -93,7 +93,7 @@ for sc in "$@"; do
     esac
   done
   [ "$test" = "hold" ] && extra+=(-ZTronSeamHold 1)   # D76: the hold test is a held refresh (testHold only waits)
-  [ "$test" = "fitting" ] && [[ "-$rest-" != *-fto* ]] && extra+=(-ZTronSeamFittingTo pinned,top)   # D75: top -> pinned -> top
+  [ "$test" = "fitting" ] && [[ " ${extra[*]} " != *" -ZTronSeamFittingTo "* ]] && extra+=(-ZTronSeamFittingTo pinned,top)   # D75: top -> pinned -> top (not "-fto*": ftop matches it)
   [ -n "${ZS_SEAM_INSET:-}" ] && extra+=(-ZTronSeamInset "$ZS_SEAM_INSET")
   # D65: an .openGap pull is measured against the pull, a rotation / resize during its hold against the hold's gap.
   analyze=""

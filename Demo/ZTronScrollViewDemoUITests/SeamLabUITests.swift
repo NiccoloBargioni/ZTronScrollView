@@ -204,6 +204,7 @@ final class SeamLabUITests: XCTestCase {
         let button = app.buttons["seam.width"]
         XCTAssertTrue(button.waitForExistence(timeout: 10))
         Thread.sleep(forTimeInterval: 1.5)
+        info(app, "start")
         print("SEAMLAB mark rows \(Date().timeIntervalSince1970)")
         button.tap()
         Thread.sleep(forTimeInterval: 2.0)
@@ -221,6 +222,7 @@ final class SeamLabUITests: XCTestCase {
         let button = app.buttons["seam.width"]
         XCTAssertTrue(button.waitForExistence(timeout: 10))
         Thread.sleep(forTimeInterval: 1.5)
+        info(app, "start")
         var cases = ["pinned", "top"]
         if let i = seamArgs.firstIndex(of: "-ZTronSeamFittingTo"), i + 1 < seamArgs.count {
             cases = seamArgs[i + 1].split(separator: ",").map(String.init)
