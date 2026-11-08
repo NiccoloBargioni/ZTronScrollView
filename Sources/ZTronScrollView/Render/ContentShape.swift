@@ -53,8 +53,9 @@ struct ContentShape: VectorArithmetic {
 /// plain inputs (a pinch or an inset change re-evaluates it with its animatable data unchanged). Not pinned by a catch
 /// (D79, C10): a content-size animation runs through a catch, as UIKit's content size changes do.
 ///
-/// 0 while a resize draws (the resize's reflow is the commit's, D17) and whenever the drawn shape is the committed one, so
-/// at rest it is the identity, bit for bit.
+/// While a resize draws, the resize's own reflow is the commit's (D17); only an animation of the shape already in flight
+/// is added on its geometry (C-F2). 0 whenever the drawn shape is the committed one, so at rest it is the identity, bit
+/// for bit.
 struct ContentShapeShift: GeometryEffect {
     /// The drawn (interpolated) shape.
     var shape: ContentShape
@@ -81,13 +82,33 @@ struct ContentShapeShift: GeometryEffect {
     }
 
     /// The alignment padding of `shape` minus that of the committed shape, at `size`.
+    ///
+    /// While a resize draws, `ContentTransform` draws the padding of the geometry
+    /// presented at `size` (`ResizeMath.resolve`: the commit's content size, insets and viewport there). The in-flight
+    /// part of a shape animation, `shape − committed`, rides on that geometry (C-F2: a rotation or an app-animated resize
+    /// opening while a content-size or `fittingContent:` animation runs dropped its remaining `pad(drawn) −
+    /// pad(committed)` in the resize's first frame, up to `slack · a`); it ends on the shape's own curve.
     func delta(size: CGSize) -> CGPoint {
-        guard shape != committed, isPlainFrame(size: size) else { return .zero }
-        let cur = commit.current
-        let v = cur.viewport.width <= 0 || cur.viewport.height <= 0 ? size : cur.viewport
-        let a = ResizeMath.geometry(viewport: v, content: shape.size, insets: insets, alignment: shape.alignment)
+        guard shape != committed else { return .zero }
+        let v: CGSize, content: CGSize, drawn: CGSize, ins: EdgeInsets
+        if isPlainFrame(size: size) {
+            let cur = commit.current
+            v = cur.viewport.width <= 0 || cur.viewport.height <= 0 ? size : cur.viewport
+            content = committed.size
+            drawn = shape.size
+            ins = insets
+        } else {
+            guard commit.isOpen else { return .zero }   // drawn at another size with no resize: as before C-F2
+            let p = ResizeMath.presented(commit, size: size)
+            v = size
+            content = p.contentSize
+            drawn = CGSize(width: max(0, content.width + shape.width - committed.width),
+                           height: max(0, content.height + shape.height - committed.height))
+            ins = ResizeMath.plus(p.insets, insets, minus: commit.current.insets)
+        }
+        let a = ResizeMath.geometry(viewport: v, content: drawn, insets: ins, alignment: shape.alignment)
             .alignmentPadding(at: scale)
-        let b = ResizeMath.geometry(viewport: v, content: committed.size, insets: insets, alignment: committed.alignment)
+        let b = ResizeMath.geometry(viewport: v, content: content, insets: ins, alignment: committed.alignment)
             .alignmentPadding(at: scale)
         return CGPoint(x: a.x - b.x, y: a.y - b.y)
     }
