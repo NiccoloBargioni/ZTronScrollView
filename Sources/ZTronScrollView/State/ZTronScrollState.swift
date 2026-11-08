@@ -548,16 +548,19 @@ public final class ZTronScrollState {
             // The keep / clamp rule's offset (idle, not settling), resolved before the metrics publish.
             let kept: CGPoint? = idle && hadContent && !settling ? keptOffset(old: old, new: m) : nil
             let offsetMoves = kept.map { $0 != old.presentationOffset } ?? false
-            // The metrics are written in it when the shape's drawn padding moves (content that fits) or the offset moves
-            // with them: the 15–16 header reads both in one animatable input, and an unanimated metrics write in the turn
-            // of an animated clamp lands that clamp in one frame there (27.0 forced, bottom shrink). Otherwise as before.
+            // The metrics are written in it when the shape's drawn padding moves (content that fits), on its plain curve: a
+            // catch must not cut the shape (C10). When only the offset moves with them (no pad change), they go out in the
+            // clamp's own catchable write: the 15–16 header reads both in one animatable input, and an unanimated metrics
+            // write in the turn of an animated clamp lands that clamp in one frame there (27.0 forced, bottom shrink),
+            // while a second animation for the metrics in that turn (plain beside catchable) drops its frames.
             let z0 = old.presentationZoom
             let padOld = ResizeMath.geometry(viewport: old.metrics.viewportSize, content: old.metrics.contentSize,
                                              insets: old.metrics.adjustedContentInset, alignment: old.metrics.alignment.content)
                 .alignmentPadding(at: z0)
             let padNew = ResizeMath.geometry(viewport: m.viewportSize, content: m.contentSize, insets: m.adjustedContentInset,
                                              alignment: m.alignment.content).alignmentPadding(at: z0)
-            withAnimationIfAny(padOld != padNew || offsetMoves ? follow : nil) { storage.metrics = m }
+            let together = offsetMoves && follow != nil && padOld == padNew
+            if !together { withAnimationIfAny(padOld != padNew ? follow : nil) { storage.metrics = m } }
             #if DEBUG
             if follow != nil { dbg("cs follow \(f(old.metrics.contentSize))->\(f(size))") }
             if !(idle && hadContent) { dbg("cs idle-skip \(f(old.metrics.contentSize))->\(f(size)) vp:\(f(old.metrics.viewportSize)) idle:\(idle) hadContent:\(hadContent) wroteOffset:false") }
@@ -586,7 +589,10 @@ public final class ZTronScrollState {
                     // D75: the clamp on the change's curve; a SwiftUI-drawn library motion, so a touch catches it where
                     // it is drawn (D79). The shape is not pinned by such a catch (C10).
                     noteSwiftUIDrawnMotion()
-                    withAnimation(catchable(follow)) { writeBoth(offset: o, zoom: z) }
+                    withAnimation(catchable(follow)) {
+                        if together { storage.metrics = m }
+                        writeBoth(offset: o, zoom: z)
+                    }
                 } else {
                     unanimated { writeBoth(offset: o, zoom: z) }
                 }
