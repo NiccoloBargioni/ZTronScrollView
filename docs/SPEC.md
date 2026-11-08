@@ -179,7 +179,7 @@ The transform is driven by *target* values. The public `contentOffset`/`zoomScal
 - `contentSize` = unscaled size × `zoomScale`.
 - `adjustedContentInset` = `contentInset` + safe area, per `contentInsetAdjustmentBehavior`.
 - Per axis: min = −inset(start); max = max(min, contentSize + inset(end) − viewport).
-- Content smaller than the viewport is placed per `defaultScrollAnchor(_:for: .alignment)`. Default: native behavior, or `.center` when zooming is enabled (Photos-like). With a scaling header the vertical alignment is the top (S10 Placement, "Content that fits").
+- Content smaller than the viewport is placed per `defaultScrollAnchor(_:for: .alignment)`. Default: native behavior, or `.center` when zooming is enabled (Photos-like). With a scaling header, `withScalingHeader(…, fittingContent:)` decides the vertical alignment, top by default (S10 Placement, "Content that fits", D75).
 
 ### Pan
 
@@ -512,12 +512,13 @@ extension ZTronScrollView {
         fade: ZTronHeaderFade? = nil,
         background: ZTronHeaderBackground? = nil,         // D61 (user, 2026-10-26): .ambientBlur(radius:) / .frostedGlass(radius:) / .color / .view { }
         overflow: ZTronHeaderOverflow = .uncapped,        // D59 (user): .uncapped / .capped(fraction:) / .refit
+        fittingContent: ZTronHeaderFittingContent = .topAligned,         // D75 (user, 2026-11-02; built 2026-11-08, M8b-s8 s8): .topAligned / .headerFollows / .headerPinned
         stretchContent: ZTronHeaderStretchContent = .keepTextMagnified,   // D76 (user, 2026-11-02; amended 2026-11-07; 16+ s6, 15–16 s7)
         @ViewBuilder header: @escaping (ZTronHeaderProxy) -> Header) -> Self
     /// The former spelling (amended 2026-11-02): `scalingBehavior:` forwards to `pull:` with `collapse: .compress` (and,
-    /// amended 2026-11-07, D76, `stretchContent: .keepTextMagnified`). It has no default, so `withScalingHeader(size:) { }`
-    /// is never ambiguous; the fix-it maps `scalingBehavior:` onto `pull:` (its `renamed:` lists the new member without
-    /// `collapse:` and `stretchContent:`, label for label).
+    /// amended 2026-11-07, D76, `stretchContent: .keepTextMagnified`; amended 2026-11-08, D75, `fittingContent: .topAligned`). It has no
+    /// default, so `withScalingHeader(size:) { }` is never ambiguous; the fix-it maps `scalingBehavior:` onto `pull:` (its `renamed:` lists
+    /// the new member without `collapse:`, `fittingContent:` and `stretchContent:`, label for label).
     @available(*, deprecated, renamed: "withScalingHeader(size:pull:snap:fade:background:overflow:header:)",
                message: "scalingBehavior: is now pull:")
     public func withScalingHeader<Header: View>(size: ZTronHeaderSize, scalingBehavior: ZTronHeaderScalingBehavior,
@@ -666,11 +667,22 @@ positions and progress share one convention (0 = expanded, 1 = collapsed); the r
   its resting height is reserved as part of `adjustedContentInset.top` (`aci.top = safe.top + R + contentInset.top (+ refresh hold)`), the
   content's proposal, size and layout never change while the header collapses or stretches (S4.1), the header is drawn in the viewport
   layer above the content (z-order), and accessibility reads it before the content (sort priority).
-- **Content that fits (amended 2026-10-27, review d16; D63, pending user confirmation):** with a header, content smaller than the viewport is aligned to the TOP vertically
-  (it starts at the header's bottom edge), whatever `defaultScrollAnchor(_:for: .alignment)` or the zoom default (`.center`) says; the
-  horizontal alignment is kept. Centred, it sat `pad` below the header (119 pt for a 300 pt content), at rest and under a pull, against
-  "the content starts below it". Decision for the lead / user to confirm; the alternative (the header follows the centred content's top,
-  a gap above it) also needs `.stretch` to grow by `pad` at rest.
+- **Content that fits (amended 2026-10-27, review d16; D63; amended 2026-11-08, D75, user ruling 2026-11-02: an option):** what a header
+  does with content smaller than the viewport below its resting height is `withScalingHeader(…, fittingContent:)`
+  (`ZTronHeaderFittingContent`, design `docs/design/M8b-s8-d75-short-content.md`). `slack = max(0, V − aci.top − aci.bottom − c·s)`,
+  `a` the `.alignment` anchor's (or the zoom default's) `y`:
+  - `.topAligned` (the default, D63): the content is aligned to the TOP vertically (it starts at the header's bottom edge) whatever the
+    anchor says; the horizontal alignment is kept.
+  - `.headerPinned` (the pre-D63 look, the look of a header pinned as a safe-area inset): the content keeps its alignment (`pad = slack·a`)
+    and the header stays at its resting place; the gap lies between them.
+  - `.headerFollows`: the content keeps its alignment and the header rides on its top edge (lifted by `L = slack·a`); `.stretch` grows by
+    `L` at rest instead. Built in M8b-s8 s9 / s10; until then it draws as `.headerPinned`.
+  - A horizontal-only view (a banner) keeps the content's alignment below the banner in `.headerPinned` / `.headerFollows` (no lift).
+  - Transitions: the content's alignment is a published value (`ScrollMetrics.alignment`), and the content's shape (size and alignments) is
+    an animatable attribute of its own (`ContentShapeShift`): a content-size change, an option change or an anchor change adopted in an
+    animated transaction (`withAnimation`, internal and external changes alike) moves fitting content on that curve, the clamped offset
+    included (a shrink while scrolled to the bottom); unanimated, it lands in one frame (as native). A touch during such an animation
+    catches the clamped offset where it is drawn (D79); the shape runs through it (it is not pinned).
 - **Horizontal scroll views:** the header is stacked above the horizontally scrolling content, full viewport width, the same way (a top
   inset of `R`); the content's height proposal is the viewport height minus the header. The header is driven by the **vertical** offset
   only, so on a view whose `axes` exclude `.vertical` it is a fixed banner: no collapse, no stretch, `progress` 0, `stretch` 0 (`.stretch`
