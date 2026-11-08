@@ -852,6 +852,10 @@ struct HeaderFittingContentTests {
         #expect(abs(HeaderMath.obscuredDelta(offset: s.peek.targetOffset, zoom: 1, metrics: m) - L) < 0.5,
                 "\(tag): the unobscured top is the grown header's bottom")
         let top = s.peek.presentationOffset
+        let bodies = r.bodies.content
+        #if DEBUG
+        let builds = ZTronRenderCounters.value("header.builder")
+        #endif
         s.beginTracking(); s.beginDragging()
         // Two writes: the hosted window sometimes draws neither layer for the first drag write from rest (the content or
         // the header stays at rest 0.3 s on 27.0's preferred path, both cases, also before the lift was grown); a finger
@@ -866,6 +870,12 @@ struct HeaderFittingContentTests {
         check("up L + 40", height: R - 40, compressed: true)
         s.writeDragOffset(top)
         check("back", height: R + L)
+        // S4: pulling, the compression and the way back run no content body and no header build.
+        #expect(r.bodies.content == bodies, "\(tag): no content body (\(r.bodies.content - bodies))")
+        #if DEBUG
+        #expect(ZTronRenderCounters.value("header.builder") == builds,
+                "\(tag): no header build (\(ZTronRenderCounters.value("header.builder") - builds))")
+        #endif
         s.endTracking()
         pump(0.5)
         r.rows.n = 10

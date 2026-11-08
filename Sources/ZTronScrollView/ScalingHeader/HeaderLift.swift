@@ -316,8 +316,13 @@ nonisolated struct HeaderStretchLiftShift: ViewModifier, Animatable {
     @MainActor func body(content: Content) -> some View {
         let l = lift()
         let memo = chain.liftMemo
+        let vp = viewport
         let jumped = memo.map { m in
-            defer { m.last = l }
+            defer { m.last = l; m.viewport = vp }
+            // Not across a resize (the committed viewport changed: a rotation, a width or height change): the slot's
+            // size is animated in that update and the stack's frame must follow it (17.5 rotate: the stack took the new
+            // width in one frame, 341 pt lateral, with the transaction removed); the lift's step there is the commit's.
+            guard m.viewport == nil || m.viewport == vp else { return false }
             return m.last.map { abs($0 - l) > 0.001 } ?? false
         } ?? false
         // A lift that changed in this update is applied as it is, never layout-animated: the carriers already give it
@@ -333,4 +338,5 @@ nonisolated struct HeaderStretchLiftShift: ViewModifier, Animatable {
 /// The last lift `HeaderStretchLiftShift` handed to the chain (one per header, `HeaderFrameModifier`'s state).
 final class HeaderStretchLiftMemo: @unchecked Sendable {
     var last: CGFloat?
+    var viewport: CGSize?
 }
