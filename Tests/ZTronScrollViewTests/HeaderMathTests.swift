@@ -1,5 +1,6 @@
 import SwiftUI
 import Testing
+import ZTronScrollPhysics
 @testable import ZTronScrollView
 
 /// Design M8b §3 test 6 (and the pure halves of 8 / 10): the header math, no state.
@@ -602,5 +603,41 @@ import Testing
         after.catchPin = nil
         #expect(after == live(-52), "bit for bit the unpinned frame")
         #expect(frame.pinned(.headerStretch).offset == -20, "the stretch's latch holds")
+    }
+
+    // MARK: D75 `.headerFollows` lift (M8b-s8 s9)
+
+    /// `L = slack · liftY`, the content's own alignment padding with the lift alignment: slack = viewport − adjusted insets
+    /// − content · zoom; 0 for content that overflows, without a lift alignment, without a vertical header; the zoom counts;
+    /// a refresh hold narrows it as it does the content's (until D71); `obscuredDelta` adds it.
+    @Test func liftIsTheSlackTimesTheLiftAlignment() {
+        var m = Self.metrics(Self.profile)
+        m.contentSize = CGSize(width: 402, height: 300)
+        m.resize.current = ResizeCommit.Snapshot(viewport: m.viewportSize, contentSize: m.contentSize, insets: m.adjustedContentInset)
+        m.resize.previous = m.resize.current
+        let aci = m.adjustedContentInset
+        let slack = 874 - aci.top - aci.bottom - 300
+        #expect(slack > 200)
+        #expect(HeaderMath.lift(zoom: 1, metrics: m) == 0, "no lift alignment: 0")
+        m.alignment = ContentAlignment(content: .center, liftY: 0.5)
+        #expect(abs(HeaderMath.lift(zoom: 1, metrics: m) - slack * 0.5) < 1e-9)
+        m.alignment = ContentAlignment(content: .bottom, liftY: 1)
+        #expect(abs(HeaderMath.lift(zoom: 1, metrics: m) - slack) < 1e-9)
+        #expect(abs(HeaderMath.lift(zoom: 1.5, metrics: m) - max(0, slack - 150)) < 1e-9, "the zoom scales the content")
+        #expect(HeaderMath.lift(zoom: 3, metrics: m) == 0, "overflowing: 0")
+        let delta0 = HeaderMath.obscuredDelta(offset: CGPoint(x: 0, y: -aci.top), zoom: 1, metrics: m)
+        #expect(abs(delta0 - slack) < 1e-9, "obscuredDelta adds L at rest")
+        var banner = Self.profile
+        banner.vertical = false
+        var b = m
+        b.header = banner
+        #expect(HeaderMath.lift(zoom: 1, metrics: b) == 0, "a banner never lifts")
+        b.header = nil
+        #expect(HeaderMath.lift(zoom: 1, metrics: b) == 0, "no header: 0")
+        // The pure core is `ContentTransform.resolved`'s padding, term for term.
+        let t = HeaderLift.transform(offset: .zero, scale: 1, metrics: m, limits: ZoomLimits(), paging: [])
+        let content = ContentTransform(offset: .zero, scale: 1, insets: aci, commit: m.resize, limits: ZoomLimits(),
+                                       alignment: .bottom, paging: [], probe: nil)
+        #expect(HeaderLift.value(t, viewport: m.viewportSize) == content.resolved(size: m.viewportSize).pad.y)
     }
 }

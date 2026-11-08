@@ -11,13 +11,15 @@ import ZTronScrollPhysics
 /// insertions, open item 34). A 402 x 874 window, `.fixed(min: 64, max: 240)`, `.defaultScrollAnchor(.center, for:
 /// .alignment)`, rows of 60 pt: 5 rows (300 pt) fit, 10 (600 pt) overflow the region below the resting header.
 ///
-/// `.headerFollows` draws as `.headerPinned` until its lift is built (M8b-s8 s9); this suite covers `.topAligned` and
-/// `.headerPinned`.
+/// `.headerFollows` (M8b-s8 s9): the header rides on the content's top edge, lifted by `slack · a` (`HeaderLift.swift`):
+/// its bottom edge is the content's top on every drawn frame (grow, shrink, the clamp, option changes, a pinch, a refresh
+/// hold and a catch of its reset).
 @MainActor
 @Suite(.serialized)
 struct HeaderFittingContentTests {
     static let headerMarker = (r: 0.13, g: 0.26, b: 0.39)
     static let contentMarker = (r: 0.47, g: 0.11, b: 0.23)
+    static let indicatorMarker = (r: 0.91, g: 0.62, b: 0.05)
     static func color(_ m: (r: Double, g: Double, b: Double)) -> Color { Color(red: m.r, green: m.g, blue: m.b) }
 
     final class Rows: ObservableObject {
@@ -61,19 +63,25 @@ struct HeaderFittingContentTests {
         let state: ZTronScrollState
         let bodies: Bodies
         var hold = false
+        var setup = Setup()
 
         var body: some View {
             let inner = inner, bodies = bodies, ext = ext.n
-            let view = ZTronScrollView(.vertical, state: state) {
+            var scroll = ZTronScrollView(.vertical, state: state) {
                 if let inner { Inner(rows: inner, bodies: bodies) } else { RowStack(n: ext, bodies: bodies) }
             }
+            if setup.zoomable { scroll = scroll.zoomRange(min: .absolute(1), max: .absolute(4)) }
+            let view = scroll
             .defaultScrollAnchor(.center, for: .alignment)
-            .withScalingHeader(size: .fixed(min: 64, max: 240), fittingContent: option.fitting) { _ in
+            .withScalingHeader(size: .fixed(min: 64, max: 240), collapse: setup.collapse, fittingContent: option.fitting) { _ in
                 HeaderFittingContentTests.color(HeaderFittingContentTests.headerMarker)
             }
+            .scalingHeaderPullBehavior(setup.pull)
             return Group {
                 if hold {
-                    view.refresher(refreshView: { _ in Color.clear.frame(width: 20, height: 20) }) {
+                    view.refresher(refreshView: { _ in
+                        HeaderFittingContentTests.color(HeaderFittingContentTests.indicatorMarker).frame(width: 20, height: 20)
+                    }, overlay: setup.overlay) {
                         try? await Task.sleep(nanoseconds: 1_000_000_000_000)
                     }
                 } else {
@@ -83,9 +91,18 @@ struct HeaderFittingContentTests {
         }
     }
 
+    /// The s9 variations of the host (defaults: the s8 host).
+    struct Setup {
+        var zoomable = false
+        var collapse: ZTronHeaderCollapseBehavior = .compress
+        var pull: ZTronHeaderPullBehavior = .openGap
+        var overlay = false
+    }
+
     /// The drawn header bottom and content top every display frame.
     @MainActor final class Sampler: NSObject {
-        struct S { var t: CFTimeInterval; var header: CGFloat?; var content: CGFloat? }
+        struct S { var t: CFTimeInterval; var header: CGFloat?; var content: CGFloat?; var headerTop: CGFloat? = nil
+                   var indicator: CGRect? = nil }
         var samples: [S] = []
         weak var window: UIWindow?
         private var link: CADisplayLink?
@@ -97,29 +114,36 @@ struct HeaderFittingContentTests {
         }
         @objc func tick(_ l: CADisplayLink?) {
             guard let w = window else { return }
-            samples.append(S(t: CACurrentMediaTime(),
-                             header: HeaderFittingContentTests.frames(of: HeaderFittingContentTests.headerMarker, in: w).first?.maxY,
-                             content: HeaderFittingContentTests.frames(of: HeaderFittingContentTests.contentMarker, in: w).first?.minY))
+            let h = HeaderFittingContentTests.frames(of: HeaderFittingContentTests.headerMarker, in: w).first
+            samples.append(S(t: CACurrentMediaTime(), header: h?.maxY,
+                             content: HeaderFittingContentTests.frames(of: HeaderFittingContentTests.contentMarker, in: w).first?.minY,
+                             headerTop: h?.minY,
+                             indicator: HeaderFittingContentTests.frames(of: HeaderFittingContentTests.indicatorMarker, in: w,
+                                                                         clipped: true).first))
         }
         func stop() { link?.invalidate(); link = nil }
         func since(_ t: CFTimeInterval) -> [S] { samples.filter { $0.t >= t } }
     }
 
-    /// The window frames of the layers filled with `marker`, as drawn now (the presentation tree).
-    static func frames(of marker: (r: Double, g: Double, b: Double), in window: UIWindow) -> [CGRect] {
+    /// The window frames of the layers filled with `marker`, as drawn now (the presentation tree); `clipped`: the part
+    /// left visible by the ancestors that clip (`masksToBounds`; an empty rect when nothing of it is).
+    static func frames(of marker: (r: Double, g: Double, b: Double), in window: UIWindow, clipped: Bool = false) -> [CGRect] {
         var out: [CGRect] = []
         let root = window.layer.presentation() ?? window.layer
-        func visit(_ layer: CALayer) {
+        func visit(_ layer: CALayer, _ clip: CGRect) {
+            var clip = clip
+            if clipped, layer.masksToBounds { clip = clip.intersection(layer.convert(layer.bounds, to: root)) }
             if let c = layer.backgroundColor {
                 var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
                 if UIColor(cgColor: c).getRed(&r, green: &g, blue: &b, alpha: &a), a > 0.5,
                    abs(r - marker.r) < 0.02, abs(g - marker.g) < 0.02, abs(b - marker.b) < 0.02 {
-                    out.append(layer.convert(layer.bounds, to: root))
+                    let f = layer.convert(layer.bounds, to: root)
+                    out.append(clipped ? f.intersection(clip) : f)
                 }
             }
-            layer.sublayers?.forEach(visit)
+            layer.sublayers?.forEach { visit($0, clip) }
         }
-        visit(root)
+        visit(root, .infinite)
         return out
     }
 
@@ -167,11 +191,11 @@ struct HeaderFittingContentTests {
     enum Change: String, CaseIterable, Sendable { case `internal`, external }
 
     func host(_ path: OSPath, _ fitting: ZTronHeaderFittingContent, rows: Int = 5, change: Change = .external,
-              hold: Bool = false) -> Rig {
+              hold: Bool = false, setup: Setup = Setup()) -> Rig {
         let s = makeState(path), ext = Rows(rows), option = Option(fitting), bodies = Bodies()
         let inner: Rows? = change == .internal ? Rows(rows) : nil
         let w = withOSPath(path) {
-            hostDriven(Host(ext: ext, option: option, inner: inner, state: s, bodies: bodies, hold: hold))
+            hostDriven(Host(ext: ext, option: option, inner: inner, state: s, bodies: bodies, hold: hold, setup: setup))
         }
         var k = 0
         while s.peek.metrics.header == nil, k < 40 { pump(0.1); k += 1 }
@@ -447,5 +471,228 @@ struct HeaderFittingContentTests {
         #expect(k.maxStepFraction < 0.5, "\(path): no jump at the catch (\(k))")
         #expect(abs(s.peek.presentationOffset.y - caught) < 0.5, "\(path): held under the finger")
         s.endTracking()
+    }
+
+    // MARK: `.headerFollows`: the lift (M8b-s8 s9)
+
+    /// The header-content seams of the frames that drew both (content top − header bottom).
+    func seams(_ xs: [Sampler.S]) -> [CGFloat] {
+        xs.compactMap { s in
+            guard let c = s.content, let h = s.header else { return nil }
+            return c - h
+        }
+    }
+
+    func seamText(_ xs: [CGFloat]) -> String { String(format: "seam %.2f...%.2f over %d frames", xs.min() ?? 0, xs.max() ?? 0, xs.count) }
+
+    /// The forced lane's (15–16 path) and the preferred path's lift at rest: `slack · a`, the header's bottom edge the
+    /// content's top; overflowing content: no lift; the geometry and `obscuredDelta` report it.
+    @Test(arguments: OSPath.allCases)
+    func aFollowingHeaderRidesOnFittingContentAtRest(path: OSPath) {
+        let r = host(path, .headerFollows)
+        defer { r.sampler.stop(); unhost(r.window) }
+        let expected = pad(r.state, contentHeight: 300)
+        let m = r.state.peek.metrics
+        let restingBottom = HeaderMath.top0(m) + (m.header?.resting ?? 0)
+        let s = r.sampler.samples.last
+        let seam = (s?.content ?? -1) - (s?.header ?? 0)
+        let lift = (s?.header ?? 0) - restingBottom
+        #expect(expected > 50 && abs(lift - expected) < 0.5, "\(path): lift at rest \(lift) = slack · a \(expected)")
+        #expect(abs(seam) < 0.5, "\(path): header bottom = content top (seam \(seam))")
+        #expect(abs(HeaderMath.lift(zoom: 1, metrics: m) - expected) < 0.5)
+        #expect(abs((r.state.geometry.header?.lift ?? 0) - expected) < 0.5, "\(path): the reader reports the lift")
+        r.rows.n = 10
+        pump(0.4)
+        let t = r.sampler.samples.last
+        #expect(abs((t?.header ?? 0) - restingBottom) < 0.5, "\(path): overflowing content: no lift")
+        #expect(abs((t?.content ?? -1) - (t?.header ?? 0)) < 0.5)
+    }
+
+    @Test(arguments: OSPath.allCases, Change.allCases)
+    func aFollowingHeaderGrowsAndShrinksWithItsContent(path: OSPath, change: Change) async {
+        let r = host(path, .headerFollows, change: change)
+        defer { r.sampler.stop(); unhost(r.window) }
+        let tag = "\(path) \(change)"
+        let pad5 = pad(r.state, contentHeight: 300)
+        for (to, name) in [(10, "grow"), (5, "shrink")] {
+            await drainMainQueue()
+            let t0 = CACurrentMediaTime()
+            r.sampler.tick(nil)
+            withAnimation(.easeInOut(duration: 0.5)) { r.rows.n = to }
+            pump(0.8)
+            let xs = r.sampler.since(t0)
+            let c = Self.motion(contentTops(xs)), h = Self.motion(headerBottoms(xs)), sm = seams(xs)
+            print("D75 follows \(tag) \(name): content \(c); header \(h); \(seamText(sm))")
+            #expect(abs(c.total - pad5) < 0.5 && c.movesIn500 >= 20 && c.maxStepFraction <= 0.25, "\(tag) \(name): content \(c)")
+            #expect(abs(h.total - pad5) < 0.5 && h.movesIn500 >= 20, "\(tag) \(name): the header moves with it (\(h))")
+            #expect(!sm.isEmpty && sm.allSatisfy { abs($0) <= 1 }, "\(tag) \(name): \(seamText(sm))")
+        }
+    }
+
+    @Test(arguments: OSPath.allCases)
+    func aShrinkAtTheBottomKeepsTheFollowingHeaderOnTheContent(path: OSPath) async {
+        let r = host(path, .headerFollows, rows: 10)
+        defer { r.sampler.stop(); unhost(r.window) }
+        let m = r.state.peek.metrics
+        let maxY = m.contentSize.height - (m.viewportSize.height - m.adjustedContentInset.bottom)
+        r.state.setContentOffset(CGPoint(x: 0, y: maxY), animated: false)
+        pump(0.4)
+        await drainMainQueue()
+        let t0 = CACurrentMediaTime()
+        r.sampler.tick(nil)
+        withAnimation(.easeInOut(duration: 0.5)) { r.rows.n = 5 }
+        pump(0.8)
+        let xs = r.sampler.since(t0)
+        let c = Self.motion(contentTops(xs)), h = Self.motion(headerBottoms(xs)), sm = seams(xs)
+        print("D75 follows \(path) shrink at the bottom: content \(c); header \(h); \(seamText(sm))")
+        #expect(c.total > 30 && c.movesIn500 >= 20 && c.maxStepFraction <= 0.25, "\(path): content \(c)")
+        #expect(sm.allSatisfy { abs($0) <= 1 }, "\(path): \(seamText(sm))")
+    }
+
+    /// `top → follows` (both move together), `follows → pinned` (the header slides up, the content stays), `pinned →
+    /// follows` (back), `follows → top` (both).
+    @Test(arguments: OSPath.allCases)
+    func optionChangesIntoAndOutOfFollowsAnimate(path: OSPath) async {
+        let r = host(path, .topAligned)
+        defer { r.sampler.stop(); unhost(r.window) }
+        let pad5 = pad(r.state, contentHeight: 300)
+        let steps: [(ZTronHeaderFittingContent, String, contentMoves: Bool, headerMoves: Bool, seam: Bool)] = [
+            (.headerFollows, "top -> follows", true, true, true), (.headerPinned, "follows -> pinned", false, true, false),
+            (.headerFollows, "pinned -> follows", false, true, false), (.topAligned, "follows -> top", true, true, true),
+        ]
+        for (to, name, contentMoves, headerMoves, seam) in steps {
+            await drainMainQueue()
+            let bodies = r.bodies.content
+            let t0 = CACurrentMediaTime()
+            r.sampler.tick(nil)
+            withAnimation(.easeInOut(duration: 0.5)) { r.option.fitting = to }
+            pump(0.8)
+            let xs = r.sampler.since(t0)
+            let c = Self.motion(contentTops(xs)), h = Self.motion(headerBottoms(xs)), sm = seams(xs)
+            print("D75 \(path) \(name): content \(c); header \(h); \(seamText(sm))")
+            if contentMoves {
+                #expect(abs(c.total - pad5) < 0.5 && c.movesIn500 >= 20 && c.maxStepFraction <= 0.25, "\(path) \(name): \(c)")
+            } else {
+                #expect(c.range < 0.5, "\(path) \(name): the content stays (\(c))")
+            }
+            if headerMoves {
+                #expect(abs(h.total - pad5) < 0.5 && h.movesIn500 >= 20 && h.maxStepFraction <= 0.25, "\(path) \(name): \(h)")
+            }
+            if seam { #expect(sm.allSatisfy { abs($0) <= 1 }, "\(path) \(name): \(seamText(sm))") }
+            #expect(r.bodies.content == bodies, "\(path) \(name): no content body")
+        }
+    }
+
+    /// A pinch on a zoomable view (the slack shrinks with `c · s`): unanimated zoom writes every frame, then an animated
+    /// zoom back; the header keeps riding on the content.
+    @Test(arguments: OSPath.allCases)
+    func aPinchOnAZoomableFollowingViewKeepsTheSeam(path: OSPath) async {
+        var setup = Setup()
+        setup.zoomable = true
+        let r = host(path, .headerFollows, setup: setup)
+        defer { r.sampler.stop(); unhost(r.window) }
+        let s = r.state
+        await drainMainQueue()
+        let t0 = CACurrentMediaTime()
+        r.sampler.tick(nil)
+        var z: CGFloat = 1
+        while z < 1.5 {
+            z += 0.02
+            s.setZoomScale(z, animated: false)
+            pump(1.0 / 60)
+        }
+        pump(0.3)
+        let pinch = r.sampler.since(t0)
+        let h1 = Self.motion(headerBottoms(pinch)), sm1 = seams(pinch)
+        print("D75 \(path) pinch: header \(h1); \(seamText(sm1))")
+        #expect(h1.total > 40, "\(path): the lift follows the zoom (\(h1))")
+        #expect(sm1.allSatisfy { abs($0) <= 1 }, "\(path) pinch: \(seamText(sm1))")
+        let t1 = CACurrentMediaTime()
+        r.sampler.tick(nil)
+        s.setZoomScale(1, animated: true)
+        pump(0.8)
+        let back = r.sampler.since(t1)
+        let h2 = Self.motion(headerBottoms(back)), sm2 = seams(back)
+        print("D75 \(path) animated zoom back: header \(h2); \(seamText(sm2))")
+        #expect(h2.total > 40 && h2.maxStepFraction < 0.5, "\(path): \(h2)")
+        #expect(sm2.allSatisfy { abs($0) <= 1 }, "\(path) zoom back: \(seamText(sm2))")
+    }
+
+    /// A refresh hold in `.headerFollows`: the indicator's base is the drawn (lifted) header, never over the content
+    /// (`.openGap`: between the header's bottom and the content's top; `.followContent`: above the header), both collapse
+    /// modes, from the hold's begin through its end (the slack narrows by the hold until D71: content and header alike).
+    enum HoldCase: String, CaseIterable, Sendable { case openGap, followContent, openGapSlide, followContentSlide }
+
+    @Test(arguments: OSPath.allCases, HoldCase.allCases)
+    func aHoldInFollowsKeepsTheIndicatorAtTheLiftedHeader(path: OSPath, hold: HoldCase) async {
+        let pull: ZTronHeaderPullBehavior = hold == .openGap || hold == .openGapSlide ? .openGap : .followContent
+        let slide = hold == .openGapSlide || hold == .followContentSlide
+        var setup = Setup()
+        setup.pull = pull
+        setup.collapse = slide ? .slideBehind : .compress
+        let r = host(path, .headerFollows, hold: true, setup: setup)
+        defer { r.sampler.stop(); unhost(r.window) }
+        let s = r.state
+        let tag = "\(path) \(pull) \(slide ? "slideBehind" : "compress")"
+        await drainMainQueue()
+        let t0 = CACurrentMediaTime()
+        r.sampler.tick(nil)
+        s.beginRefreshing()
+        pump(1.2)
+        let held = r.sampler.samples.last
+        s.endRefreshing()
+        pump(1.2)
+        let xs = r.sampler.since(t0)
+        var over = 0, offBase = 0, frames = 0
+        var worstOver: CGFloat = 0, worstBase: CGFloat = 0
+        for x in xs {
+            guard let i = x.indicator, !i.isNull, i.height > 0.5, let c = x.content, let hb = x.header, let ht = x.headerTop else { continue }
+            frames += 1
+            if i.maxY > c + 0.5 { over += 1; worstOver = max(worstOver, i.maxY - c) }
+            switch pull {
+            case .openGap:
+                if i.minY < hb - 0.5 { offBase += 1; worstBase = max(worstBase, hb - i.minY) }
+            case .followContent:
+                if i.maxY > ht + 0.5 { offBase += 1; worstBase = max(worstBase, i.maxY - ht) }
+            }
+        }
+        if let h = held {
+            print(String(format: "D75 %@ held: indicator %.1f...%.1f, header %.1f...%.1f, content %.1f, lift %.1f", tag,
+                         h.indicator?.minY ?? -1, h.indicator?.maxY ?? -1, h.headerTop ?? -1, h.header ?? -1, h.content ?? -1,
+                         HeaderMath.lift(zoom: 1, metrics: s.peek.metrics)))
+        }
+        print("D75 \(tag) hold: \(frames) indicator frames, \(over) over the content (\(worstOver)), \(offBase) off the header's edge (\(worstBase)); \(seamText(seams(xs)))")
+        #expect(held?.indicator != nil, "\(tag): the indicator is drawn while held")
+        #expect(frames > 10 && over == 0 && offBase == 0, "\(tag)")
+        if pull == .openGap, let i = held?.indicator, let hb = held?.header, let c = held?.content {
+            #expect(abs((i.midY) - (hb + c) / 2) < 0.75, "\(tag): centred in the gap below the lifted header")
+        }
+    }
+
+    /// D79 / C10: a catch during the hold's reset (an inset animation the library draws): the lift takes the content's
+    /// pinned transform vector, so no `Δslack · a` seam opens at the catch.
+    @Test(arguments: OSPath.allCases)
+    func aCatchDuringTheHoldsResetKeepsTheFollowingSeam(path: OSPath) async {
+        var setup = Setup()
+        setup.pull = .followContent   // the header rides on the content through the hold (the seam is 0 throughout)
+        let r = host(path, .headerFollows, hold: true, setup: setup)
+        defer { r.sampler.stop(); unhost(r.window) }
+        let s = r.state
+        s.beginRefreshing()
+        pump(1.2)
+        await drainMainQueue()
+        let t0 = CACurrentMediaTime()
+        r.sampler.tick(nil)
+        s.endRefreshing()
+        pump(0.12)
+        s.interrupt(catching: true)
+        s.beginTracking()
+        pump(0.5)
+        s.endTracking()
+        pump(0.8)
+        let xs = r.sampler.since(t0), sm = seams(xs)
+        let c = Self.motion(contentTops(xs))
+        print("D75 \(path) catch during the hold's reset: content \(c); \(seamText(sm))")
+        #expect(!sm.isEmpty && sm.allSatisfy { abs($0) <= 1 }, "\(path): \(seamText(sm))")
     }
 }

@@ -383,6 +383,10 @@ struct RefreshIndicatorsHost: View {
                st.mode != .notRefreshing || st.dragPosition > 0 || coordinator.retractions[edge] != nil {
                 RefreshEdgeIndicator(coordinator: coordinator, state: state, edge: edge, spec: spec, refresh: st,
                                      retract: coordinator.retractions[edge], layer: layer)
+                    // D75 `.headerFollows`: the top base `+ L`, evaluated per frame by the header's own lift (the leaf is
+                    // viewport-sized), so the indicator stays at the lifted header's edge (`HeaderLift.swift`).
+                    .modifier(HeaderLiftHost(state: state, axes: state.scrollAxes, viewportSized: true,
+                                             slot: layer == .front ? .refresh : .refreshBehind, active: edge == .top))
             }
         }
     }

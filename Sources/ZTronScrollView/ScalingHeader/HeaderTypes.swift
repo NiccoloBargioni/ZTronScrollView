@@ -329,6 +329,10 @@ public struct ZTronHeaderGeometry: Equatable, Sendable {
     public var restingHeight: CGFloat
     /// The scroll view's width.
     public var width: CGFloat
+    /// ≥ 0: how far `fittingContent: .headerFollows` moved the header down from its resting place to ride on the top edge
+    /// of content that fits (`slack · alignment`, the content's own alignment padding); 0 in the other cases and once the
+    /// content overflows. The header's drawn top edge is its resting top edge plus `lift`.
+    public var lift: CGFloat = 0
 
     /// What a reader sees before the header resolves or without a header: all zeros.
     static let unresolved = ZTronHeaderGeometry(progress: 0, height: 0, stretch: 0, minHeight: 0, restingHeight: 0, width: 0)

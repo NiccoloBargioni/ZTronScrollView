@@ -182,6 +182,8 @@ struct ScrollContainer<Content: View>: View {
                 HeaderOverlay(spec: header, state: state, behind: true)
                     .ignoresSafeArea(.all, edges: edges.subtracting([.top, .bottom]))
                     .ignoresSafeArea(.keyboard, edges: .bottom)
+                    .modifier(HeaderLiftHost(state: state, axes: axes, viewportSized: false, slot: .headerBehind,
+                                             active: header?.collapse.kind.isSlideBehind == true))   // D75 lift
             }
             // Scaling header (M8b-3), attached AFTER `.ignoresSafeArea`: SwiftUI places its slot's top edge at the safe-area
             // top in the same layout pass as the container size (no state, so a rotation or an animated resize moves it with
@@ -193,10 +195,14 @@ struct ScrollContainer<Content: View>: View {
             // The keyboard is not part of the container (D64): the slot also ignores the `.keyboard` region on the bottom
             // edge, so showing or hiding the keyboard never changes `R` (the state resolves the same region:
             // `ScrollMetrics.keyboardExtension` from `ViewportObserver`'s probe); the content's inset still includes it.
+            // D75 `.headerFollows`: the lift (`HeaderLiftHost`, `ScalingHeader/HeaderLift.swift`) moves the slot's header
+            // onto fitting content's top edge, the content's padding term for term; identity on a view that never lifts.
             .overlay(alignment: .top) {
                 HeaderOverlay(spec: header, state: state)
                     .ignoresSafeArea(.all, edges: edges.subtracting([.top, .bottom]))
                     .ignoresSafeArea(.keyboard, edges: .bottom)
+                    .modifier(HeaderLiftHost(state: state, axes: axes, viewportSized: false, slot: .headerFront,
+                                             active: header.map { !$0.collapse.kind.isSlideBehind } ?? false))
             }
             // Above the header (z-order contract), in the viewport's own frame again, so their metric coordinates hold.
             .overlay(RefreshOverlay(state: state, pan: coordinator, holder: refreshHolder, axes: axes,

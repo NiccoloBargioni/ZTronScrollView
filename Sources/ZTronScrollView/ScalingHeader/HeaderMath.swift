@@ -1,4 +1,5 @@
 import SwiftUI
+import ZTronScrollPhysics
 
 /// A snapshot's header facts for the resize math (M8b-3): `base` = `adjustedContentInset.top − refreshHold.top` (`o′ = o.y +
 /// base`) and the collapse band. Interpolated with the drawn geometry like the insets.
@@ -470,6 +471,19 @@ enum HeaderMath {
         m.header.map { geometry(o: headerOffset(offset: offset, zoom: zoom, metrics: m), m: $0) }
     }
 
+    /// D75 `.headerFollows`: the committed lift `L = slack · liftY`, the content's alignment padding with the lift
+    /// alignment, from the function the content's transform draws it with (`ContentTransform.resolved`, at the committed
+    /// viewport; `HeaderLift`). 0 without a vertical header, for the other `fittingContent:` cases and for content that
+    /// overflows. `zoom` is the content's (a pinch changes the slack). The drawn header and the top refresh indicator
+    /// evaluate the same function per frame (`HeaderLiftHost`); readers, `obscuredDelta` and the geometry report this one.
+    static func lift(zoom: CGFloat, metrics m: ScrollMetrics) -> CGFloat {
+        guard let header = m.header, header.vertical, m.alignment.liftY != 0 else { return 0 }
+        let v = m.resize.current.viewport.height > 0 ? m.resize.current.viewport : m.viewportSize
+        let t = HeaderLift.transform(offset: .zero, scale: zoom.isFinite && zoom > 0 ? zoom : 1, metrics: m,
+                                     limits: ZoomLimits(), paging: [])
+        return max(0, HeaderLift.value(t, viewport: v))
+    }
+
     /// The header's top edge: the safe-area top the content adjusts for (`aci.top` without the developer inset, the
     /// hold and the reserved resting height).
     static func top0(_ m: ScrollMetrics) -> CGFloat {
@@ -484,6 +498,8 @@ enum HeaderMath {
     /// that moves down with the content (D61), placement as the refresher says. `nil` (the plain base, `aci.top − hold`,
     /// which follows the adjusted inset in a resize) without a vertical header and for `.preserve` `.openGap` (D65): the
     /// header stays still and the gap `[top0 + ci.top + R, … + pull]` opens below it, exactly where the plain base is.
+    /// D75 `.headerFollows`: every top base here (and the plain one) is the resting header's; the indicator is moved by the
+    /// lift `L` frame by frame with the header (`HeaderLiftHost` on the top leaf), so it stays at the lifted header's edge.
     static func refreshTop(_ m: ScrollMetrics) -> (base: CGFloat, overlay: Bool)? {
         guard let header = m.header, header.vertical else { return nil }
         switch header.behavior {
@@ -495,12 +511,13 @@ enum HeaderMath {
     /// How far the visible header's bottom edge is from where the resting header's would be (`top0 + R`), `h_v +
     /// translation − R` (`−c` in the band, in both collapse modes: a `.slideBehind` header's covered part is the content's;
     /// under a pull `g` for `.stretch` and `.preserve` `.followContent`, 0 for `.preserve` `.openGap`, whose header stays
-    /// still: D65, pre-D61 `h − R`): the unobscured top edge is `adjustedContentInset.top + delta` (indicators,
-    /// `scrollTo`, the resize centre).
+    /// still: D65, pre-D61 `h − R`), plus the `.headerFollows` lift `L` (D75, `lift(zoom:metrics:)`): the unobscured top edge
+    /// is `adjustedContentInset.top + delta` (indicators, `scrollTo`, the resize centre).
     static func obscuredDelta(offset: CGPoint, zoom: CGFloat, metrics m: ScrollMetrics) -> CGFloat {
         guard let header = m.header else { return 0 }
         let o = headerOffset(offset: offset, zoom: zoom, metrics: m)
-        return visibleHeight(o: o, m: header) + translation(o: o, m: header) - header.resting
+        // D75: a `.headerFollows` header rides `L` below its resting place (`lift`).
+        return visibleHeight(o: o, m: header) + translation(o: o, m: header) - header.resting + lift(zoom: zoom, metrics: m)
     }
 
     /// The offset (y) that keeps the header's collapse progress across a change of its metrics (`size`, a new `.fit`

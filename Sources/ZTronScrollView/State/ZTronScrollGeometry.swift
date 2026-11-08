@@ -41,7 +41,10 @@ public struct ZTronScrollGeometry: Equatable {
         let m = metrics
         guard m.header != nil else { return nil }
         let offset = m.resize.isOpen ? (isTracked ? storage.targetOffset : storage.snapshot().targetOffset) : contentOffset
-        return HeaderMath.geometry(offset: offset, zoom: m.header?.vertical == true ? 1 : zoomScale, metrics: m)
+        var g = HeaderMath.geometry(offset: offset, zoom: m.header?.vertical == true ? 1 : zoomScale, metrics: m)
+        // D75: the `.headerFollows` lift (reads the zoom only on a view that lifts: a pinch changes the slack).
+        if m.alignment.liftY != 0 { g?.lift = HeaderMath.lift(zoom: zoomScale, metrics: m) }
+        return g
     }
 
     public nonisolated static func == (l: Self, r: Self) -> Bool {

@@ -25,6 +25,8 @@ final class CatchPin: @unchecked Sendable {
         /// in both slots; each effect keeps its own latch, so the one that does not draw never ends the drawn one's).
         case refreshBehind(Edge)
         case headerStretch, headerClip, headerTranslation, headerSlot, headerFallback, headerFade
+        /// D75: the lift's transform-vector effect (`HeaderLiftBase`), per slot.
+        case lift(HeaderLift.Slot)
     }
 
     /// What a host hands its effect while the pin holds: the catch's number and the pin. Equal by number and identity.
