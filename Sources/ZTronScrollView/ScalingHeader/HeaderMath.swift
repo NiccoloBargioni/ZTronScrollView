@@ -70,7 +70,11 @@ struct HeaderLiveInput: Equatable {
     /// (`translation`), while `HeaderLiftHost` moves the slot DOWN by the exact per-frame lift: the bottom edge is
     /// the lifted one, term for term, and the top edge stays at the slot's top. A plain input, evaluated per frame by
     /// `HeaderStretchLiftBase` / `HeaderStretchLiftShift` (the lift's two attributes at the committed viewport), never
-    /// interpolated by the five consumers (a layout-interpolated `L` is 25 pt off at the fit / overflow kink). 0 in
+    /// not interpolated by the two layouts (`HeaderSlotLayout`, `HeaderFallbackFrame`: a layout-interpolated `L` is 25 pt
+    /// off at the fit / overflow kink). The three render-time effects (`HeaderStretchEffect`, `HeaderStretchClip`,
+    /// `HeaderFadeOverlay`) and the 15–16 path's `HeaderTranslation` DO carry it in their animatable data
+    /// (`effectData`), so an animated resize moves `L` on the same curve as the slot's implicitly animated layout; the
+    /// unanimated lift step (`HeaderStretchLiftShift`'s memo, E1) keeps every other update from interpolating it. 0 in
     /// every other configuration, so the input is bit for bit as without it.
     var lift: CGFloat = 0
 
@@ -572,8 +576,15 @@ enum HeaderMath {
     static func obscuredDelta(offset: CGPoint, zoom: CGFloat, metrics m: ScrollMetrics) -> CGFloat {
         guard let header = m.header else { return 0 }
         let o = headerOffset(offset: offset, zoom: zoom, metrics: m)
+        let l = lift(zoom: zoom, metrics: m)
+        // D75: a `.stretch` header grows by the lift instead: its top edge stays, its geometry is the one at `o′ − L`
+        // (as drawn, `HeaderLiveInput.at(offset:)`, and as `ZTronScrollGeometry.header` reports it; past the band the
+        // `o′`-based sum clamps at the minimum while the drawn bottom keeps moving: C-F3).
+        if header.behavior == .stretch, l > 0 {
+            return visibleHeight(o: o - l, m: header) + translation(o: o - l, m: header) - header.resting
+        }
         // D75: a `.headerFollows` header rides `L` below its resting place (`lift`).
-        return visibleHeight(o: o, m: header) + translation(o: o, m: header) - header.resting + lift(zoom: zoom, metrics: m)
+        return visibleHeight(o: o, m: header) + translation(o: o, m: header) - header.resting + l
     }
 
     /// The offset (y) that keeps the header's collapse progress across a change of its metrics (`size`, a new `.fit`

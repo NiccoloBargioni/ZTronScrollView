@@ -974,3 +974,36 @@ struct HeaderFittingContentTests {
         }
     }
 }
+
+extension HeaderFittingContentTests {
+    /// C-F3: the unobscured top edge (`obscuredDelta`, the indicator track) of a `.stretch` `.headerFollows` header is its
+    /// drawn bottom, also past the band (a rubber band up on fitting content: the geometry at `o′ − L`).
+    @Test(arguments: OSPath.allCases)
+    func aStretchingFollowingHeadersObscuredEdgeIsItsDrawnBottomPastTheBand(path: OSPath) async {
+        let r = host(path, .headerFollows, setup: Self.stretchSetup(.keepTextMagnified))
+        defer { r.sampler.stop(); unhost(r.window) }
+        let s = r.state
+        let m = s.peek.metrics
+        let R = m.header?.resting ?? 0, band = m.header?.band ?? 0
+        let top0 = HeaderMath.top0(m)
+        let L = pad(s, contentHeight: 300)
+        let top = s.peek.presentationOffset
+        pump(0.3)
+        s.beginTracking(); s.beginDragging()
+        var worst: CGFloat = 0, report = ""
+        for up: CGFloat in [-60, 0, L / 2, band - 10, band + 20, L + 40, L + band - 20, L + band + 30] {
+            s.writeDragOffset(CGPoint(x: top.x, y: top.y + up - 1))
+            pump(0.05)
+            s.writeDragOffset(CGPoint(x: top.x, y: top.y + up))
+            pump(0.3)
+            let hb = r.sampler.samples.last?.header ?? -1
+            let delta = HeaderMath.obscuredDelta(offset: s.peek.presentationOffset, zoom: 1, metrics: s.peek.metrics)
+            let edge = top0 + R + delta
+            report += String(format: " up %.0f: drawn %.1f edge %.1f;", up, hb, edge)
+            worst = max(worst, abs(edge - hb))
+        }
+        s.endTracking()
+        pump(0.5)
+        #expect(L > 0 && worst < 0.5, "\(path) R \(R) band \(band) L \(L): worst \(worst):\(report)")
+    }
+}
