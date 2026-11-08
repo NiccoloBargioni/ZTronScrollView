@@ -607,6 +607,31 @@ import ZTronScrollPhysics
 
     // MARK: D75 `.headerFollows` lift (M8b-s8 s9)
 
+    /// R2 (M8b-s8 s9): the lift's viewport follows the content's track from the drawn slot height. The seam lab's
+    /// bottom-pinned height change (event log, 27.0): the animated commit 874 -> 373.3 (slot 778 -> 311.3), then the top
+    /// safe-area step one turn later (the track shifted by -62 to 812 -> 311.3, the slot by 0); an inset-only change keeps
+    /// the viewport; a track that moves the viewport but not the slot keeps `v1 - h1`.
+    @Test func liftTrackFollowsTheContentsTrack() {
+        let t = LiftTrack()
+        _ = t.span(start: 874, v: 874, h: 778)
+        let a = t.span(start: 874, v: 373.3, h: 311.3)
+        #expect(abs(a.viewport(slot: 778) - 874) < 0.01 && abs(a.viewport(slot: 311.3) - 373.3) < 0.01)
+        #expect(abs(a.viewport(slot: 544.65) - 623.65) < 0.01, "halfway")
+        let b = t.span(start: 812, v: 311.3, h: 311.3)
+        #expect(abs(b.viewport(slot: 778) - 812) < 0.01 && abs(b.viewport(slot: 311.3) - 311.3) < 0.01, "\(b)")
+        let c = t.span(start: 311.3, v: 311.3, h: 311.3)   // closed
+        #expect(abs(c.viewport(slot: 311.3) - 311.3) < 0.01)
+        let i = LiftTrack()
+        _ = i.span(start: 874, v: 874, h: 778)
+        let d = i.span(start: 874, v: 874, h: 628)          // a 150 pt bottom `.safeAreaInset`
+        #expect(d.viewport(slot: 700) == 874)
+        let k = LiftTrack()
+        _ = k.span(start: 874, v: 874, h: 778)
+        let e = k.span(start: 874, v: 800, h: 778)          // the viewport moves, the slot does not
+        #expect(abs(e.viewport(slot: 778) - 800) < 0.01)
+        #expect(LiftSpan().viewport(slot: 500) == 500, "viewport-sized (the refresh indicator)")
+    }
+
     /// `L = slack · liftY`, the content's own alignment padding with the lift alignment: slack = viewport − adjusted insets
     /// − content · zoom; 0 for content that overflows, without a lift alignment, without a vertical header; the zoom counts;
     /// a refresh hold narrows it as it does the content's (until D71); `obscuredDelta` adds it.

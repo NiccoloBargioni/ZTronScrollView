@@ -39,35 +39,53 @@ enum HeaderLift {
     }
 }
 
-/// R2 (M8b-s8 s9): the viewport height the content's transform is drawn at, from the drawn slot height. `(v0, h0)` and
-/// `(v1, h1)` are the committed (viewport, slot) heights before and after their last change: SwiftUI draws both frames
-/// along the same curve in one transaction, so the viewport moves with the slot's progress (extrapolated past either end
-/// as `ResizeMath.progress` is: a spring's overshoot, a retarget). A slot that does not move (a pair closer than a pixel:
-/// a keyboard, which the slot ignores; the first layout) keeps the committed difference `v1 − h1`. Measured before
-/// (`slot + dv` with the committed `dv`): a 150 pt app-animated bottom `.safeAreaInset` drew the lift over the animation
-/// while the content's pad had moved (75 pt overlap), and a bottom-pinned height change left 15.7 pt gaps (seam lab).
+/// R2 (M8b-s8 s9): the viewport height the content's transform is drawn at, from the drawn slot height, along the
+/// content's own track. `(v0, v1)` is the resize commit's track (`ResizeCommit.previous` / `current` viewport heights, the
+/// span `ContentTransform` maps its drawn size on), `(h0, h1)` the slot heights at its ends: SwiftUI draws the viewport and
+/// the slot along the same curve in one transaction, so the viewport moves with the slot's progress (extrapolated past
+/// either end as `ResizeMath.progress` is: a spring's overshoot, a retarget). A safe-area step committed during the
+/// resize shifts the content's track by the step (`ResizeMath.shifted`) and the slot's by the slot's own step (a
+/// bottom-pinned height change: the viewport's top leaves the status bar one turn after the animated commit, 62 pt off
+/// the viewport and 0 off the slot; measured before with the last two commits as the pair: the lift 34 · a = 16 pt above
+/// the content until it overflowed). A track that does not change the viewport (an inset-only change: an app-animated
+/// `.safeAreaInset`, a keyboard) draws at `v1`; a slot that does not move while the viewport does keeps `v1 − h1`.
+/// `LiftSpan()` is the identity (a viewport-sized slot).
 struct LiftSpan: Equatable, Sendable {
     var v0: CGFloat = 0, h0: CGFloat = 0, v1: CGFloat = 0, h1: CGFloat = 0
 
     func viewport(slot h: CGFloat) -> CGFloat {
+        guard v1 > 0 else { return h }   // `LiftSpan()`: the slot is the viewport (the refresh indicator), or no layout yet
+        let tol = ContentTransform.pixelTolerance
+        guard abs(v1 - v0) > tol else { return v1 }
         let dh = h1 - h0
-        guard abs(dh) > ContentTransform.pixelTolerance else { return h + (v1 - h1) }
+        guard abs(dh) > tol else { return h + (v1 - h1) }
         return v0 + (h - h0) / dh * (v1 - v0)
     }
 }
 
-/// The host's record of the committed (viewport, slot) heights (`LiftSpan`): a change moves the current pair to the
-/// previous one. Written by the host's body, read nowhere else (not observed).
+/// The host's record of the content's track and the slot heights at its ends (`LiftSpan`). A new track starts at the
+/// last committed slot height; a safe-area step (the track's start moved by the same amount as its end) shifts the slot's
+/// start by the slot's step. Written by the host's body, read nowhere else (not observed).
 final class LiftTrack {
-    private var previous: (v: CGFloat, h: CGFloat)?
-    private var current: (v: CGFloat, h: CGFloat)?
+    private var track: LiftSpan?
 
-    func span(v: CGFloat, h: CGFloat) -> LiftSpan {
-        guard v > 0 else { return LiftSpan(v0: v, h0: h, v1: v, h1: h) }   // before the first layout: nothing recorded
-        if let c = current, c.v != v || c.h != h { previous = c }
-        current = (v, h)
-        let p = previous ?? (v, h)
-        return LiftSpan(v0: p.v, h0: p.h, v1: v, h1: h)
+    /// `start`: the commit's track start (`ResizeCommit.previous` viewport height); `v`, `h`: the committed viewport and
+    /// slot heights.
+    func span(start: CGFloat, v: CGFloat, h: CGFloat) -> LiftSpan {
+        guard v > 0, start > 0 else { return LiftSpan(v0: v, h0: h, v1: v, h1: h) }   // before the first layout
+        let tol: CGFloat = 0.01
+        guard let t = track else {
+            let s = LiftSpan(v0: v, h0: h, v1: v, h1: h)
+            track = s
+            return s
+        }
+        if abs(t.v0 - start) <= tol, abs(t.v1 - v) <= tol, abs(t.h1 - h) <= tol { return t }
+        var s = LiftSpan(v0: start, h0: t.h1, v1: v, h1: h)
+        if abs(start - t.v1) > tol, abs((start - t.v0) - (v - t.v1)) <= tol {
+            s.h0 = t.h0 + (h - t.h1)   // a step: both tracks shifted by their own step
+        }
+        track = s
+        return s
     }
 }
 
@@ -178,9 +196,11 @@ struct HeaderLiftHost: ViewModifier {
             span = LiftSpan()
         } else {
             let v = metrics.resize.current.viewport.height > 0 ? metrics.resize.current.viewport : metrics.viewportSize
-            span = track.span(v: v.height, h: HeaderMath.containerHeight(viewport: v, safe: metrics.safeAreaInsets,
-                                                                         adjusted: state.contentInsetAdjustmentBehavior.edges(for: axes),
-                                                                         keyboard: metrics.keyboardExtension))
+            let start = metrics.resize.previous.viewport.height > 0 ? metrics.resize.previous.viewport.height : v.height
+            let h = HeaderMath.containerHeight(viewport: v, safe: metrics.safeAreaInsets,
+                                               adjusted: state.contentInsetAdjustmentBehavior.edges(for: axes),
+                                               keyboard: metrics.keyboardExtension)
+            span = track.span(start: start, v: v.height, h: h)
         }
         let t = HeaderLift.transform(offset: offset, scale: scale, metrics: metrics, limits: state.zoomLimits,
                                      paging: state.isPagingEnabled ? axes : [])
