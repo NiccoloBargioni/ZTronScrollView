@@ -424,20 +424,27 @@ struct HeaderStretchScaleTests {
         let m = HeaderMetrics(min: 64, resting: 240, behavior: .stretch, width: 402)
         var live = HeaderLiveInput(size: .fixed(min: 64, max: 240), metrics: m, stateHeight: 240, followsOffset: true)
         var effect = HeaderStretchEffect(live: live), clip = HeaderStretchClip(live: live)
-        effect.animatableData = AnimatablePair(-50, 0)
-        clip.animatableData = AnimatablePair(-50, 0)
+        effect.animatableData = AnimatablePair(AnimatablePair(-50, 0), 0)
+        clip.animatableData = AnimatablePair(AnimatablePair(-50, 0), 0)
         #expect(effect.live.stretch == 50 && clip.live.stretch == 50 && effect.live.stateHeight == 240,
                 "following: the stretch re-derived, the layout height not (\(effect.live))")
         live.followsOffset = false
         live.stretch = 60
         effect = HeaderStretchEffect(live: live)
-        effect.animatableData = AnimatablePair(-10, 0)
+        effect.animatableData = AnimatablePair(AnimatablePair(-10, 0), 0)
         #expect(effect.live.stretch == 60, "held: only o′ moves")
         // D76: the second component is the laid-out share; it moves only `m` (and the pin, D79, replaces only `o′`).
-        effect.animatableData = AnimatablePair(-10, 0.5)
+        effect.animatableData = AnimatablePair(AnimatablePair(-10, 0.5), 0)
         #expect(effect.live.stretch == 60 && effect.live.layoutShare == 0.5 && effect.live.layoutStretch == 30
                     && effect.live.scaleStretch == 30, "\(effect.live)")
-        #expect(effect.animatableData == AnimatablePair(-10, 0.5))
+        #expect(effect.animatableData == AnimatablePair(AnimatablePair(-10, 0.5), 0))
+        // D75 s10: the third component is the lift `L` (an animated resize moves it on the layout's curve): held, it adds
+        // to the stretch at rest and moves the stack up by the change; back to 0 restores the input.
+        effect.animatableData = AnimatablePair(AnimatablePair(-10, 0.5), 20)
+        #expect(effect.live.lift == 20 && effect.live.stretch == 80 && effect.live.translation == live.translation - 20,
+                "\(effect.live)")
+        effect.animatableData = AnimatablePair(AnimatablePair(-10, 0.5), 0)
+        #expect(effect.live.lift == 0 && effect.live.stretch == 60 && effect.live.translation == live.translation)
     }
 
     /// D76 math (pure): the clip without a laid-out share is D69's `HeaderStretchClip.rect` bit for bit; with one it is the
