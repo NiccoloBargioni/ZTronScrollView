@@ -699,6 +699,37 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
    fixer r1, pre-existing, OPEN)**: fails in a 4-test set at ee0eaed and at HEAD, passes alone at ee0eaed, 16e484f and HEAD;
    the full 27.0 suite (load 100–330) and the 17.5 suite fail it, alone it passes 2 / 2. Next: find the shared state it reads
    (global counters, the D79 drawn-motion window of a previous test's state) and isolate it.
+55. **PA1: the D31 anchor adds a zero-size accessibility element (2026-11-07, D76 gap-A 1, pre-existing, OPEN, FIX)**:
+   with `-ZTronForceUIKitObserver` the XCUI tree lists an extra `Other {0,62,0,0}` (27.0) / `{0,59,0,0}` (17.5); a native
+   header lists none. An empty accessibility representation on the anchor removes it (0 lines, 27.0 p, 17.5). Evidence:
+   side-session notes `m8b-s8-resume/d76-magnified.md` §12.11.
+56. **PA2: the header background's accessibility idiom leaves an unlabelled element (2026-11-07, D76 gap-A 2, pre-existing,
+   OPEN, FIX)**: `Other {0,-11,402,313}` / `{0,-9.3,393,308.3}` with the ambient background (27.0 / 17.5); a native header
+   with a plain background lists none. An empty representation removes it. Evidence: §12.11.
+57. **PA3: the header's `.contain` accessibility container spans the viewport at rest (2026-11-07, D76 gap-A 3,
+   pre-existing, OPEN, FIX)**: `{0,62,402,778}` / `{0,59,393,759}` vs a native `.contain` header `{0,62,402,240}` /
+   `{0,59,393,240}` (27.0 p, 17.5). VoiceOver impact unmeasured. Evidence: §12.11.
+58. **PA4: a hidden header's controls stay in the XCUI tree, hittable, and taps do nothing (2026-11-07, D76 gap-A 4,
+   pre-existing, OPEN, FIX)**: hittable = true at unclipped frames y 124–128 (27.0) / 67–72 (17.5); a native header scrolled
+   past is hittable = false at its real frame, a native zero-height clipped header is absent. Evidence: §12.11.
+59. **PA5: `snapHeader(to:)` collapsed before the first layout leaves the banner partly shown (2026-11-07, D76 gap-A,
+   pre-existing, OS-dependent, OPEN, FIX)**: the banner stays 52 pt (27.0, 2/2 launches) / 90.7 pt (17.5) tall and its
+   controls act; 18.6 hides it fully; a native scroll view started past the header shows 0 pt; the API doc promises the
+   first layout. Evidence: §12.11.
+60. **C2: the first frame of a pull or an app-animated scroll is expensive with the D76 engine off (2026-11-07, D76 gap-C 2,
+   pre-existing, Release too, OPEN, FIX)**: first pulled frame busy 27.0 p 9.8–29.0 ms vs native `.scaleEffect` 0.2–4.5;
+   17.5 3.0–8.0 vs 0.9–1.9. Round 4: both `.disabled` isEnabled flips (ContentInteractionGate, HeaderInteractionGate) fire in
+   the start frame; round 5 (d76-cost5) narrows `.disabled` to isDragging (§16.11 point 1, accepted as a fix). Evidence:
+   §12.11, §15, §16, d76-cost5 `cost5-C.md`.
+61. **V7: the engine-off path costs 1.0–1.5 ms per pulled frame, unchanged in Release (2026-11-08, d76-cost2, OPEN, FIX)**:
+   17.5 P25 off 1.09–1.43 ms, 27.0 p 1.08–1.45 (SwiftUI graph of the header chrome); V7-S / V7-G cut 0.03–0.10. The user's
+   bar: total per-frame cost ≤ native. Evidence: §13, `d76-cost2/cost2-F.md`, `d76-cost3/cost3-O.md`.
+62. **The scaling header's appear costs 1.6–2.0× native (2026-11-09, d76-cost4, OPEN, FIX)**: measured on 27.0 and 17.5 in
+   round 4; round 5's cost5-A spike targets it. Evidence: §16, `d76-cost5/cost5-A.md`.
+63. **Unclassed, re-check: C6 and B1 (2026-11-07, D76 gap-V / gap-B, OPEN)**: C6 = 17.5 `header.builder` runs twice at
+   launch in 4 of 32 launches, engine on and off (0 of 48 on 27.0); next: a native `ScrollView` with the same header
+   counting its body runs over 32 launches. B1 = D69's bitmap at s 1.08 differed between launches once, not reproduced
+   (0 px in 9 launches). Evidence: §12.11.
 
 ## Decisions (keep)
 - D1 Naming map in CLAUDE.md (ZoomScroll → ZTronScroll, `ztronScroll…` modifiers; matches ZTronPages' `ztronPage()`).
