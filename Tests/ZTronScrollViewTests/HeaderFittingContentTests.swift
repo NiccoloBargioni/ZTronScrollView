@@ -1043,14 +1043,25 @@ extension HeaderFittingContentTests {
         narrowing(path: path, content: content, fitting: .topAligned)
     }
 
-    func narrowing(path: OSPath, content: ZTronHeaderStretchContent, fitting: ZTronHeaderFittingContent) {
+    /// Open item 47's lab case (M8b-s8 fixer r2): the lift stepped in the last update before the narrowing (an unanimated
+    /// rows change), and nothing re-evaluated the lift's carrier since. The narrowing's animated layout update reached the
+    /// stack through that update's transaction modifier, which still removed the animation: the stack drew its final width
+    /// from the first frame (the seam lab's `fixed-rest-stretch-width-acenter-ffollows-rows5`, 155-159 pt lateral on every
+    /// lane, intermittent: it passed when another update re-evaluated the carrier first).
+    @Test(arguments: OSPath.allCases, [ZTronHeaderStretchContent.keepTextMagnified, .keepTextSize])
+    func aStretchingFollowingHeaderNarrowsAfterALiftStep(path: OSPath, content: ZTronHeaderStretchContent) {
+        narrowing(path: path, content: content, fitting: .headerFollows, stepFirst: true)
+    }
+
+    func narrowing(path: OSPath, content: ZTronHeaderStretchContent, fitting: ZTronHeaderFittingContent,
+                   stepFirst: Bool = false) {
         var setup = Self.stretchSetup(content)
         let box = WidthBox()
         setup.width = box
         let r = host(path, fitting, setup: setup)
         defer { r.sampler.stop(); unhost(r.window) }
         pump(0.3)
-        let bodies = r.bodies.content
+        var bodies = r.bodies.content
         func sample() -> (header: CGRect, content: CGRect)? {
             guard let h = Self.frames(of: Self.headerMarker, in: r.window, clipped: true).first,
                   let c = Self.frames(of: Self.contentMarker, in: r.window).first else { return nil }
@@ -1058,7 +1069,12 @@ extension HeaderFittingContentTests {
         }
         let fmt = { (x: CGRect) in String(format: "%.1f,%.1f %.1fx%.1f", x.minX, x.minY, x.width, x.height) }
         for narrow in [true, false] {
-            let tag = "\(path) \(content) \(fitting) narrow \(narrow)"
+            let tag = "\(path) \(content) \(fitting) narrow \(narrow)\(stepFirst ? " after a lift step" : "")"
+            if stepFirst {   // the lift steps (rows 5 <-> 6, unanimated) in the last update before the narrowing
+                r.rows.n = r.rows.n == 5 ? 6 : 5
+                pump(0.3)
+                bodies = r.bodies.content   // the rows change re-evaluates content (not the narrowing)
+            }
             ZTronRenderCounters.events.removeAll()
             withAnimation(.easeInOut(duration: 0.6)) { box.narrow = narrow }
             var frames: [(header: CGRect, content: CGRect)] = []
@@ -1075,15 +1091,13 @@ extension HeaderFittingContentTests {
             let trace = frames.prefix(8).map { fmt($0.header) + " | " + fmt($0.content) }.joined(separator: "; ")
                 + "; layers " + chains.joined(separator: " // ") + "; events " + ZTronRenderCounters.eventsJoined
             #expect(frames.count >= 30, "\(tag): sampled \(frames.count)")
-            // Open item 47 (S-REV-S8-1): on 16+ a narrowing draws a lifted `.stretch` stack at its final width from the
-            // first frames (hosted 27.0 and 17.5; the seam lab passes 17.5); widening passes (the slot's animated clip
-            // hides it).
-            withKnownIssue("open item 47", isIntermittent: true) {
-                #expect(lateral < 1, "\(tag): header sides vs content sides, worst \(lateral); \(trace)")
-                #expect(seam < 1, "\(tag): header bottom vs content top, worst \(seam); \(trace)")
-            } when: { fitting == .headerFollows && path == .preferred }
+            // Open item 47 (S-REV-S8-1, fixed in M8b-s8 fixer r2): the lift memo removed the narrowing's transaction in
+            // the reflow's update (`HeaderStretchLiftShift`), so 16+ drew the lifted stack at its final width from the
+            // first frames (161 pt lateral, hosted 27.0 and 17.5).
+            #expect(lateral < 1, "\(tag): header sides vs content sides, worst \(lateral); \(trace)")
+            #expect(seam < 1, "\(tag): header bottom vs content top, worst \(seam); \(trace)")
+            #expect(r.bodies.content == bodies, "\(tag): no content body (S4)")
         }
-        #expect(r.bodies.content == bodies, "\(path) \(content): no content body (S4)")
     }
 }
 

@@ -318,21 +318,32 @@ nonisolated struct HeaderStretchLiftShift: ViewModifier, Animatable {
         let l = lift()
         let memo = chain.liftMemo
         let vp = viewport
-        let jumped = memo.map { m in
-            defer { m.last = l; m.viewport = vp }
-            // Not across a resize (the committed viewport changed: a rotation, a width or height change): the slot's
-            // size is animated in that update and the stack's frame must follow it (17.5 rotate: the stack took the new
-            // width in one frame, 341 pt lateral, with the transaction removed); the lift's step there is the commit's.
-            guard m.viewport == nil || m.viewport == vp else { return false }
-            return m.last.map { abs($0 - l) > 0.001 } ?? false
-        } ?? false
+        let open = shift.commit.isOpen
+        _ = memo.map { m in   // counts the lift's steps (`jumps`)
+            defer { m.last = l; m.viewport = vp; m.open = open }
+            // Not across a resize (the committed viewport changed: a rotation, a width or height change), nor while one
+            // is open or in the update that closes it: the slot's size is animated by the resize's transaction and the
+            // stack's frame must follow it; the lift's steps there are the commit's (the reflow's `cs open` update keeps
+            // the committed viewport and moved `L` by more than the tolerance: with the transaction removed the stack
+            // took its final width in one frame, 161 pt lateral in a narrowing, open item 47; 17.5 rotate: 341 pt).
+            guard !open, !m.open, m.viewport == nil || m.viewport == vp else { return false }
+            guard let last = m.last, abs(last - l) > 0.001 else { return false }
+            m.jumps &+= 1
+            return true
+        }
         // A lift that changed in this update is applied as it is, never layout-animated: the carriers already give it
         // per frame, and a lift that steps inside an animated update (a refresh hold's release re-splits the lift's two
         // attributes: 94 + 0 -> 0 + 119 in one frame, the content and `HeaderLiftHost` step with it) was otherwise
         // interpolated by the layout over the update's curve (16+'s slot placement and the `.keepTextSize` growth, 15's
         // grown frame): 25 pt top edge, 30 pt seam (hosted, 27.0). The chain's own animatable data is untouched in every
         // other update (the first update of an animated change evaluates the carriers at their old values).
-        return chain.build(content, lift: l).transaction { t in if jumped { t.animation = nil } }
+        //
+        // Keyed by the memo's step count, not a `.transaction` closure that tests whether this update stepped the lift: SwiftUI keeps the
+        // closure of the carrier's last evaluation and runs it on every later transaction that reaches the stack, also
+        // updates that do not re-evaluate the carrier. A lift step in the last update before an app-animated narrowing
+        // (the lab's launch, or an unanimated rows change) removed the narrowing's animation from the stack, which drew its
+        // final width from the first frame: 155-159 pt lateral, intermittent on every lane (open item 47, M8b-s8 fixer r2).
+        return chain.build(content, lift: l).animation(nil, value: memo?.jumps ?? 0)
     }
 }
 
@@ -340,4 +351,8 @@ nonisolated struct HeaderStretchLiftShift: ViewModifier, Animatable {
 final class HeaderStretchLiftMemo: @unchecked Sendable {
     var last: CGFloat?
     var viewport: CGSize?
+    /// The last update's resize commit was open (open item 47).
+    var open = false
+    /// How many updates stepped the lift (`.animation(nil, value:)`'s key, open item 47).
+    var jumps = 0
 }
