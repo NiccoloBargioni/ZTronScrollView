@@ -118,13 +118,14 @@ struct HeaderFrameModifier: ViewModifier {
             }
             base = HeaderLift.transform(offset: offset, scale: storage.targetZoom, metrics: metrics,
                                         limits: state.zoomLimits, paging: state.isPagingEnabled ? state.scrollAxes : [])
-            shape = ContentShape(size: metrics.resize.current.contentSize, alignment: metrics.alignment)
+            shape = metrics.shapeModel   // R1-RC1-1: a resize's reflow in `shapeBase`, as the content's
         } else {
             base = HeaderLift.transform(offset: .zero, scale: 1, metrics: ScrollMetrics(), limits: ZoomLimits(), paging: [])
             shape = ContentShape()
         }
         let shift = HeaderStretchLiftShift(shift: ContentShapeShift(shape: shape, committed: shape, scale: base.scale,
-                                                                    insets: base.insets, commit: base.commit),
+                                                                    insets: base.insets, commit: base.commit,
+                                                                    base: stretch ? metrics.shapeBase : ContentShape()),
                                            viewport: viewport, stretch: stretch, chain: chain)
         return content.modifier(HeaderStretchLiftBase(base: base, viewport: viewport, stretch: stretch, shift: shift)
                                     .pinned(stretch ? state.catchPinRef : nil))

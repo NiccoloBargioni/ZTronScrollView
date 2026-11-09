@@ -90,6 +90,18 @@ struct ScrollMetrics: Equatable, Sendable {
     /// D75: where content that fits sits, published by the state (`ZTronScrollState.alignmentChanged()`, in the
     /// transaction of the change) so the content's animatable shape (`ContentShapeShift`) can follow it.
     var alignment = ContentAlignment()
+    /// R1-RC1-1 (M8b-s8 fixer r2): the part of the committed shape changed WITHOUT an animation while a resize draws (the
+    /// reflow of a resize commit, `ZTronScrollState.setContentSize` / `alignmentChanged()`), kept out of the shape
+    /// effects' animatable data (`shapeModel`): on 27.0 an unanimated write of an animatable attribute cancels the
+    /// animation in flight on it (a rows animation that a width change opened mid-flight dropped its remaining 0.72 in
+    /// one frame; 17.5 composes the write additively), so the reflow is a plain input of `ContentShapeShift` (`base`) and the shape's own animation
+    /// keeps its curve. `.zero` until the first such reflow (then the effects are bit-identical to before).
+    var shapeBase = ContentShape()
+
+    /// D75: the committed shape (the inputs of the alignment padding besides the viewport, the insets and the zoom).
+    var shape: ContentShape { ContentShape(size: resize.current.contentSize, alignment: alignment) }
+    /// The shape effects' animatable data: `shape − shapeBase` (`shape` exactly while `shapeBase` is `.zero`).
+    var shapeModel: ContentShape { shapeBase == .zero ? shape : shape - shapeBase }
 }
 
 /// D75: the content's alignment (content that fits, `ResizeMath.geometry`'s `alignment`) and the scaling header's lift

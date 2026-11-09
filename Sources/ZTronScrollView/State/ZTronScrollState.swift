@@ -182,6 +182,9 @@ public final class ZTronScrollState {
         var header: CGFloat
         var offset: CGPoint
         var zoom: CGFloat
+        /// R1-RC1-2: the turn's content-size change was adopted in an animation that moves the drawn padding: the
+        /// shape effects (`ContentShapeShift`) carry it, so a resize opened later in the turn does not interpolate it again.
+        var shapeAnimated = false
     }
     private var turnOrigin: TurnOrigin?
     private var turnHopPending = false
@@ -518,7 +521,9 @@ public final class ZTronScrollState {
             var m = old.metrics
             m.contentSize = size
             if isResizeOpen {
+                let before = m.shape
                 syncCommit(&m, open: true)
+                m.shapeBase = m.shapeBase + (m.shape - before)   // R1-RC1-1: the reflow is no write of the shape's animation
                 // The reflowed content size is placed by the same intent (D17): the normalized centre is relative to
                 // the zoomed content, so the drawn centre follows the reflow; at fit stays at fit.
                 let r = ResizeMath.resolve(size: m.resize.current.viewport, offset: old.targetOffset, scale: old.targetZoom,
@@ -560,7 +565,10 @@ public final class ZTronScrollState {
             let padNew = ResizeMath.geometry(viewport: m.viewportSize, content: m.contentSize, insets: m.adjustedContentInset,
                                              alignment: m.alignment.content).alignmentPadding(at: z0)
             let together = offsetMoves && follow != nil && padOld == padNew
+            // R1-RC1-1: a resize's slow reflow is unanimated (D17): it moves the shape's base, not its animatable data.
+            if settling { m.shapeBase = m.shapeBase + (m.shape - old.metrics.shape) }
             if !together { withAnimationIfAny(padOld != padNew ? follow : nil) { storage.metrics = m } }
+            if padOld != padNew, follow != nil { turnOrigin?.shapeAnimated = true }
             #if DEBUG
             if follow != nil { dbg("cs follow \(f(old.metrics.contentSize))->\(f(size))") }
             if !(idle && hadContent) { dbg("cs idle-skip \(f(old.metrics.contentSize))->\(f(size)) vp:\(f(old.metrics.viewportSize)) idle:\(idle) hadContent:\(hadContent) wroteOffset:false") }
@@ -670,7 +678,10 @@ public final class ZTronScrollState {
         withAnimationIfAny(isResizeOpen ? nil : positionDriver.animationInTurn) {
             batch {
                 var m = storage.snapshot().metrics
+                let before = m.shape
                 m.alignment = next
+                // R1-RC1-1: unanimated while a resize draws: the base moves, an animation of the shape in flight keeps its curve.
+                if isResizeOpen { m.shapeBase = m.shapeBase + (m.shape - before) }
                 storage.metrics = m
             }
         }
@@ -1100,6 +1111,10 @@ public final class ZTronScrollState {
                 // interpolates from it too. A motion interrupted just now stopped at the current presentation (one
                 // tick newer than the origin's): that is where the user sees the content, so the anchor comes from it.
                 cap = origin.snapshot; header = origin.header
+                // R1-RC1-2: a content-size change of this turn that the shape effects animate is theirs: the track starts
+                // from the committed content size, so it is not drawn twice (the effects add the drawn shape's remainder on
+                // the presented geometry, C-F2). Hosted 17.5 / 27.0: +145 pt (1.2 of the change) in the resize's first frame.
+                if origin.shapeAnimated { cap.contentSize = commitOld.current.contentSize }
                 if !interrupted { offset = origin.offset; scale = origin.zoom }
             }
             turnOrigin = nil

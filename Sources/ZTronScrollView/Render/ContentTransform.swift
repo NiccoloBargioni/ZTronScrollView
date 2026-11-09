@@ -219,7 +219,7 @@ struct TransformHost: ViewModifier {
         // Content is not hit-testable while it moves without a finger (a catching touch must not fire a Button) or
         // while a drag is recognized (a Button under the finger is cancelled instead of firing on lift).
         let blocked = (storage.phase == .decelerating || storage.phase == .animating) && !storage.isTracking || storage.isDragging
-        let shape = ContentShape(size: metrics.resize.current.contentSize, alignment: metrics.alignment)   // D75
+        let shape = metrics.shapeModel   // D75 (R1-RC1-1: the reflow of a resize in `shapeBase`)
         return content
             .modifier(ContentLayerGroup(useGeometryGroup: state.usesGeometryGroup, hasHeader: hasHeader))
             .modifier(ContentInteractionGate(blocked: blocked))
@@ -228,7 +228,7 @@ struct TransformHost: ViewModifier {
                                        paging: state.isPagingEnabled ? axes : [], probe: state.probe)
                 .pinned(state.catchPinRef).tracksRest())
             .modifier(ContentShapeShift(shape: shape, committed: shape, scale: scale, insets: metrics.adjustedContentInset,
-                                        commit: metrics.resize))   // D75: the drawn shape's padding (ContentShape.swift)
+                                        commit: metrics.resize, base: metrics.shapeBase))   // D75: the drawn shape's padding (ContentShape.swift)
             .modifier(CompletionObserver(state: state))
     }
 }

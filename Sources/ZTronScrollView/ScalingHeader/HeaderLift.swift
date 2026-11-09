@@ -145,7 +145,7 @@ struct HeaderLiftShift: GeometryEffect {
 
     func effectValue(size: CGSize) -> ProjectionTransform {
         let lifted = ContentShapeShift(shape: shift.shape.lift, committed: shift.committed.lift, scale: shift.scale,
-                                       insets: shift.insets, commit: shift.commit)
+                                       insets: shift.insets, commit: shift.commit, base: shift.base.lift)
         let d = lifted.delta(size: CGSize(width: size.width, height: span.viewport(slot: size.height))).y
         return ProjectionTransform(CGAffineTransform(translationX: 0, y: d))
     }
@@ -203,11 +203,12 @@ struct HeaderLiftHost: ViewModifier {
         }
         let t = HeaderLift.transform(offset: offset, scale: scale, metrics: metrics, limits: state.zoomLimits,
                                      paging: state.isPagingEnabled ? axes : [])
-        let shape = ContentShape(size: metrics.resize.current.contentSize, alignment: metrics.alignment)
+        let shape = metrics.shapeModel   // R1-RC1-1: a resize's reflow in `shapeBase`, as the content's
         return content
             .modifier(HeaderLiftBase(base: t, span: span, slot: slot).pinned(state.catchPinRef))
             .modifier(HeaderLiftShift(shift: ContentShapeShift(shape: shape, committed: shape, scale: scale,
-                                                               insets: metrics.adjustedContentInset, commit: metrics.resize),
+                                                               insets: metrics.adjustedContentInset, commit: metrics.resize,
+                                                               base: metrics.shapeBase),
                                       span: span))
     }
 }
@@ -308,7 +309,7 @@ nonisolated struct HeaderStretchLiftShift: ViewModifier, Animatable {
     func lift() -> CGFloat {
         guard stretch else { return 0 }
         let lifted = ContentShapeShift(shape: shift.shape.lift, committed: shift.committed.lift, scale: shift.scale,
-                                       insets: shift.insets, commit: shift.commit)
+                                       insets: shift.insets, commit: shift.commit, base: shift.base.lift)
         let l = base + lifted.delta(size: viewport).y
         return l.isFinite ? max(0, l) : 0
     }

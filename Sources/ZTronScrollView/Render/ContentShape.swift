@@ -54,8 +54,9 @@ struct ContentShape: VectorArithmetic {
 /// (D79, C10): a content-size animation runs through a catch, as UIKit's content size changes do.
 ///
 /// While a resize draws, the resize's own reflow is the commit's (D17); only an animation of the shape already in flight
-/// is added on its geometry (C-F2). 0 whenever the drawn shape is the committed one, so at rest it is the identity, bit
-/// for bit.
+/// is added on its geometry (C-F2). The reflow reaches this effect as a plain input (`base`), never as a write of its
+/// animatable data: on 27.0 that unanimated write cancelled the shape animation in flight (R1-RC1-1; 17.5 composes it
+/// additively). 0 whenever the drawn shape is the committed one, so at rest it is the identity, bit for bit.
 struct ContentShapeShift: GeometryEffect {
     /// The drawn (interpolated) shape.
     var shape: ContentShape
@@ -64,6 +65,9 @@ struct ContentShapeShift: GeometryEffect {
     let scale: CGFloat
     let insets: EdgeInsets
     let commit: ResizeCommit
+    /// R1-RC1-1: the part of the committed shape a resize reflowed without an animation (`ScrollMetrics.shapeBase`), a
+    /// plain input: the drawn shape is `shape + base`, the committed one `committed + base`.
+    var base = ContentShape()
 
     var animatableData: ContentShape {
         get { shape }
@@ -90,6 +94,8 @@ struct ContentShapeShift: GeometryEffect {
     /// pad(committed)` in the resize's first frame, up to `slack · a`); it ends on the shape's own curve.
     func delta(size: CGSize) -> CGPoint {
         guard shape != committed else { return .zero }
+        let shape = base == .zero ? shape : shape + base
+        let committed = base == .zero ? committed : committed + base
         let v: CGSize, content: CGSize, drawn: CGSize, ins: EdgeInsets
         if isPlainFrame(size: size) {
             let cur = commit.current
