@@ -690,8 +690,10 @@ positions and progress share one convention (0 = expanded, 1 = collapsed); the r
     `stretchContent:` cases (`.keepTextMagnified`: magnified by `(R + g + L)/R`, so magnified at rest, D69's look; `.keepTextSize`:
     laid out at `grownSize(W, R, g + L)`, text at its point size). `L` is evaluated per frame (the lift's two attributes at the
     committed viewport, handed to the header's frame as a plain input; never interpolated by layout: at the fit / overflow kink
-    a linear `L` was 25 pt off; a lift that steps inside an animated update is applied unanimated), so header bottom and
-    content top coincide through row changes, option changes, pulls and holds (rotation: open item 46, to fix);
+    a linear `L` was 25 pt off; a lift that steps inside an animated update is applied unanimated, in that update only and
+    never while a resize is open: M8b-s8 fixer r2, a3f190c), so header bottom and content top coincide through row changes, option
+    changes, pulls, holds and app-animated width changes (defects queued as fixes, not limits: rotation, open item 46; a rows animation
+    crossed with an app-animated resize at the content's bottom, in either order or in one turn, open items 49–52);
     `ZTronHeaderGeometry` reports the growth as `stretch` (`lift` 0). The lift (built 2026-11-08,
     M8b-s8 s9) is the content's own alignment padding with the lift alignment, from the function the content's transform draws it
     with, evaluated per frame on both header slots and on the top refresh indicator (whose base is the lifted header's: the gap

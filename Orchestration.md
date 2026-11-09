@@ -1,6 +1,6 @@
 # ZTronScrollView · Orchestration (resume here)
 
-Last updated: 2026-11-02 (header behaviors closer on `claude/cool-stonebraker-0015c9`: D68–D70 final, handoff `docs/progress/M8b-s7.md`; our open item 24 renumbered 27; open items 27–33; next free on this branch D75 (D71 DBG-s12, D72–D74 main) and open item 34) · previous: 2026-10-20 05:05 (side session M8b-s0 acting as orchestrator: step 3, D27 and the integrated verification of the fan-out green at f985f95; weekly all-models 44% ·
+Last updated: 2026-11-09 (M8b-s8 closer on `claude/cool-stonebraker-0015c9`: D75–D80 built / ruled, handoff `docs/progress/M8b-s8.md`; open items 15 (b), 27 (instant / delay), 28 (grow case), 31–34, 41, 47 FIXED; open 15 (c), 35, 42–46, 48–54; next free D81 on this branch (main D84 / D86 / D88, other branches D82 / D85 / D87 / D89–D92: re-check) and open item 55) · previous: 2026-11-02 (header behaviors closer on `claude/cool-stonebraker-0015c9`: D68–D70 final, handoff `docs/progress/M8b-s7.md`; our open item 24 renumbered 27; open items 27–33; next free on this branch D75 (D71 DBG-s12, D72–D74 main) and open item 34) · previous: 2026-10-20 05:05 (side session M8b-s0 acting as orchestrator: step 3, D27 and the integrated verification of the fan-out green at f985f95; weekly all-models 44% ·
 Fable 79%; 2026-10-19 session 3 + s3-C ended at 20% · 39%) · Status: **M0–M4 done ·
 physics calibrated (unit) · M5 rotation: user full-screen tree PASSES criteria A+B on 27.0 + 17.5 (D18/D19) · criterion C
 fixed in code (D20, staggered lift; probe + ZoomUITests 7/7 on 27.0 pref+forced, 17.5 pref) · user bounce report fixed
@@ -35,6 +35,15 @@ M8-8 build from the amended SPEC S9/S10/S11 + `docs/design/M8b-refresh-header.md
   - one text size at ×1.29;
   - the redraw cost at large pulls;
   - 17.5's 1/255 after a release.
+- 2026-11-09 21:45: **batch M8b-s8 CLOSED** (closer, HEAD after fc44000; handoff `docs/progress/M8b-s8.md`, closer section first).
+  Built: D75 `fittingContent:` (`.topAligned` default / `.headerFollows` / `.headerPinned`), D76 `stretchContent:`
+  (`.keepTextMagnified` default = D69 bit for bit / `.keepTextSize`), D78 (15–16 header from its slot), D79 (catch where the reset
+  is drawn), D80 (headerless gap indicator behind the content, D66 retired). Fixed: items 15 (b), 27 (instant / delay), 28 (grow
+  case), 31, 32, 33, 41, 47; item 34 closed (no library change). Ruled for M8b-s9: 28 (`.keepTextMagnified` crisp path, D76), 29
+  and 27's 15–16 rotation-start residual (D77). OPEN (all FIX, none accepted): 15 (c), 35, 42, 43, 44, 45, 46, 48, and the
+  re-check-2 findings 49–52 (rows animation + app resize at the bottom / in either order / in one turn; header final width on
+  `.preserve`), 53–54 (red tests). Before merging: fix them (Next step 6 (d)), then the full unit suite and the demo UI on 3 lanes
+  (the last full runs were at ee0eaed; fc44000 had targeted runs only).
 - How to re-run batch M8b-s8 from the start. Its workflow script (persistent copy):
   `~/Library/Application Support/Claude/side-session-notes/local_f8af3d20-fa63-46a8-9079-ddf859cc4879/m8b-s8-resume/m8b-s8-workflow.js`
   (a new session cannot resume the old run id; run the script fresh, after re-pointing its `SP` / `S8` constants to the new
@@ -162,7 +171,7 @@ physics 111 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-
    `docs/design/UIKIT-touch-observer.md` §builder split (core `Gesture/UIKit/TouchObserverCore.swift` + `TouchObserverCoreTests`
    100 %, `ZTronCapability.uikitTouchObserver`, state let); then (b) shell + wiring + `UIKitObserverUITests` + the two gate
    scripts, coverage chased to 100 % on 27.0 and 17.5 with `-ZTronForceUIKitObserver`; (c) docs. Open questions answered (R1–R6 in the design note).
-6. [ ] **M8b header behaviors (D68–D70): the user decides, checks on a device, then merges** — built 2026-11-02, closed 2026-11-02
+6. [ ] **M8b header behaviors (D68–D70) + batch M8b-s8 (D75–D80): fix the open items, the user checks on a device, then merges** — built 2026-11-02, closed 2026-11-02
    (`docs/progress/M8b-s7.md`, branch `claude/cool-stonebraker-0015c9` at the closer's docs commit; not merged into main). Next, in order:
     (a) **USER RULINGS 2026-11-02 (done deciding): every open item here is FIXED, none is accepted as a limit** ("Animations skip are
     not acceptable"; 28 and 29 "will be fixed"): batch **M8b-s8** = items 15 (b), 27, 28, 29, 31, 32, 33 (triage, then fix if ours),
@@ -173,6 +182,17 @@ physics 111 · arbitration 39. Designs: `docs/design/{design-note,M1-physics,MC-
    (c) the user merges into main with the merge notes in M8b-s7 (main's 250 pt/s release gate and its re-derived `HeaderStateTests`,
    BTN open item 11, the iOS 26+ hosting rule for the three new hosted suites, our open items 28–33 against main's next free number,
    D71 (another branch) and D72–D74 (main) taken), then the full unit suite and demo UI on 27.0 / 17.5 / forced.
+   (d) **M8b-s8 CLOSED 2026-11-09** (`docs/progress/M8b-s8.md`): (a)'s batch is built (D75, D76 API + grow case, D78, D79, D80;
+   items 15 (b), 27 instant / delay, 28 grow case, 31, 32, 33, 41, 47 fixed with numbers). Next, in order:
+   1. a fix batch for the OPEN items, all FIX by the user's rule: 49–52 (rows animation × app-animated resize at the bottom, in
+      either order, in one turn; `.preserve` header at its final width) with 46 (`.stretch` `.headerFollows` rotation, the
+      span-based lift), then 48 (17.5 keyboard), 42 (app-animated inset during a pull), 43 (15–16 `.keepTextSize` `.fit` hold
+      resize), 45 (15–16 pinch of fitting content), 15 (c) (scroll command during a resize), 35 (trigger stall); tests 44, 53, 54;
+   2. then the full unit suite and the demo UI on 27.0 preferred / 17.5 / 27.0 forced at that HEAD (the last full runs were at
+      ee0eaed, before fixer r1 / r2);
+   3. batch M8b-s9: D76's crisp `.keepTextMagnified` path (accepted 2026-11-03) + D77 (item 29, item 27's rotation residual);
+   4. the user's M1 lane runs the real 15.0 / 16.0 checklist in `docs/progress/M8b-s8.md` (section "Real iOS 15.0 / 16.0");
+   5. the user answers the naming questions there (defaults are built) and merges with its merge notes.
 
 **Builder kickoff template** (any part):
 ```
@@ -233,7 +253,7 @@ Budget ~1–2% weekly. 2 failed attempts → advisor once → stop and hand off.
 8. N-a/N-b handoffs: `docs/progress/NESTED-s1.md`, `NESTED-s2.md` (N-b done 2026-10-20; SPEC S11/S12 amendment + parity row written). Still open: user device check of the pager + zoomer on `.innerWhenZoomed` incl. a second finger landing during an outer-owned drag (not scriptable in XCUITest), ZTronPages adoption (R6), three-level phase 2. **User 2026-10-25:** stays open until ZTronPages exists.
 9. M6 s3 leftovers (`docs/progress/M6-s3.md`): R5 on 17.5 (SwiftUI's `scrollPosition(id:)` reported 0 in the aligned comparison, only ours is asserted there); `scrollTo(point:)` is an offset, not SwiftUI's content-space point (untested against native); native `ScrollPosition` bridge exercised on 18+ only through a hosted `ScrollView` (edge); lazy content (R2) is M9's; the full demo UI suite was not re-run (TargetsUITests only). **User 2026-10-25: compare against native** — behavioural parity is mission-critical wherever the native version shows no defect (R5 on 17.5, `scrollTo(point:)` vs SwiftUI's content-space point, the `ScrollPosition` bridge). Comparison session proposed.
 10. **Sheets (SHEET-s1, 2026-10-21, `docs/design/SHEET-spike.md`, `docs/progress/SHEET-s1.md`)**: inside a `.sheet` a drag that starts on a `ZTronScrollView` never moves or dismisses the sheet (content always wins at every detent; not ZTron-specific: any recognized SwiftUI `DragGesture` / `SpatialEventGesture` does the same; header / grabber drags still work). Pure-SwiftUI fix measured: mask the gestures with `including: .subviews` per detent (`ztronScrollYieldsToSheet(_:)`, ~1–1.5 %); live top-edge hand-off needs UIKit. DECIDED (user, 2026-10-21): both: the limitation text + parity rows are written (SPEC S8/S11/S12 amendment 2026-10-21, D36) and `ztronScrollYieldsToSheet(_:)` goes to a builder session. **BUILT (SHEET-s2, 2026-10-21, `docs/progress/SHEET-s2.md`)**: the flag masks pan / observer / pinch / double tap with `.subviews` (iOS 18+ `isEnabled:`), a drag / pinch in flight ends like a cancelled touch, a deceleration settles on its own; `SheetUITests` Y1–Y6 + `SheetYieldTests` green on 27.0 + 17.5 (preferred, forced, `--uikit`); open: the user's real 15/16 run. Found on the way: SwiftUI `.scrollDisabled` did not stop a `ZTronScrollView` (`.ztronScrollDisabled` did) — FIXED by DBG-s6 (D38; the reader never ran), and the "9 pt residual offset" was the harness readout resizing the viewport, not the library. **CLOSED (user, 2026-10-25): OK** — `ztronScrollYieldsToSheet(_:)` merged into main (cdca45e, unit 673/673 on 27.0 + 17.5).
-15. **Scaling header limits (M8b-s4…s6, D62, SPEC S10 "Seamless edges")**: (a) **D75 API, alignment, shape BUILT 2026-11-08 (M8b-s8 s8, 2db4012…4b8178f, handoff `docs/progress/M8b-s8-s8.md`): `fittingContent:` `.topAligned` (default = D63) / `.headerPinned` built, `.headerFollows` draws as pinned until s9 (lift) and s10 (stretch).** **Lift BUILT 2026-11-08 (M8b-s8 s9, 9ebe1bd…7f57020, handoff `docs/progress/M8b-s8-s9.md`): the header rides on fitting content on both slots and the top refresh indicator; K2 (hide only) shipped; `.stretch` by `L` at rest is s10.** **Stretch BUILT 2026-11-08 (M8b-s8 s10, a24ac2c…f0e6d31) except rotation (open item 46, FIX).** **USER RULING 2026-11-02: D63 becomes an enum parameter of `withScalingHeader`, default = D63's behaviour (D75 if free; scheduled in M8b-s8)**; was "D63 needs the user's yes": under a scaling header, content that fits is top-aligned vertically (alternative: the header follows the centred content, a gap above it, `.stretch` grows by the pad at rest); (b) ~~**USER 2026-11-02: FIX (no animation skips or 15–16 look differences are accepted as limits); scheduled in M8b-s8.** 15/16 path only: an overflow-limited `R` (`.capped` / `.refit`) lands in one frame at the commit of an app-driven animated resize (forced lane 70 / 35 / 31 pt, 84 pt `.fixed`, 115 pt landscape; a width change lands the width too: `.capped(0.25)` half covered,
+15. **Scaling header limits (M8b-s4…s6, D62, SPEC S10 "Seamless edges")**: (a) **M8b-s8 CLOSED 2026-11-09: D75 built (API + alignment + shape + lift + stretch; fixer r1 / r2: C-F1–C-F4, R1-RC1-1–4); still open under it: rotation of a stretching `.headerFollows` header (item 46), the 17.5 keyboard step (48), the rows-animation × app-resize family (49–52).** **D75 API, alignment, shape BUILT 2026-11-08 (M8b-s8 s8, 2db4012…4b8178f, handoff `docs/progress/M8b-s8-s8.md`): `fittingContent:` `.topAligned` (default = D63) / `.headerPinned` built, `.headerFollows` draws as pinned until s9 (lift) and s10 (stretch).** **Lift BUILT 2026-11-08 (M8b-s8 s9, 9ebe1bd…7f57020, handoff `docs/progress/M8b-s8-s9.md`): the header rides on fitting content on both slots and the top refresh indicator; K2 (hide only) shipped; `.stretch` by `L` at rest is s10.** **Stretch BUILT 2026-11-08 (M8b-s8 s10, a24ac2c…f0e6d31) except rotation (open item 46, FIX).** **USER RULING 2026-11-02: D63 becomes an enum parameter of `withScalingHeader`, default = D63's behaviour (D75 if free; scheduled in M8b-s8)**; was "D63 needs the user's yes": under a scaling header, content that fits is top-aligned vertically (alternative: the header follows the centred content, a gap above it, `.stretch` grows by the pad at rest); (b) ~~**USER 2026-11-02: FIX (no animation skips or 15–16 look differences are accepted as limits); scheduled in M8b-s8.** 15/16 path only: an overflow-limited `R` (`.capped` / `.refit`) lands in one frame at the commit of an app-driven animated resize (forced lane 70 / 35 / 31 pt, 84 pt `.fixed`, 115 pt landscape; a width change lands the width too: `.capped(0.25)` half covered,
 402 → 241 pt, seam 29.3 pt and lateral 159.3 pt in one frame, closing over 1.1 s, `.compress` and `.slideBehind(1)` alike, S-RS-2 of the
 header behaviors review, 2026-11-02), and a `.fit` header inside the band steps on app-driven resizes; rotations are seamless there; possible fix: a cold slot-level reader (resizes only) around the 15-path frame~~ **FIXED 2026-11-04 (M8b-s8 s5, D78, 432f2fe…106c216)**: the 15–16 header resolves from its own slot (the cold `HeaderSlotReader`, closure on resizes only) and `.fit` through two ideal-ratio boxes, so the animated pass lays it out at its final `R(W, H)` and the viewport commit re-sets nothing; every row of the table below PASSES (|seam| ≤ 1 pt, lateral ≤ 1 pt, no 60 Hz step ≥ 0.5 of the change) on 27.0 forced and preferred, 17.5 forced and preferred; counters (`HeaderFallbackSlotTests`): scroll / collapse / pull `header.slot` 0, `header.builder` 0; a resize `header.slot` ≥ 1 on 15–16, 0 on 16+, builder 0, content bodies 0; (c) **open, queued as a fix (user rule 2026-11-02; not the header path: D78 design §1.4)**: a scroll command issued while an animated resize is open (`combo`) is not seamless (the M5 intervention snaps the content: `beginIntervention()` (`State/ZTronScrollState.swift` 365) → `closeResize()` (1137) writes the final metrics and offset unanimated while the header keeps animating; lateral, back segment: forced 50.0 pt (`base27f`), forced with spike A 52.1, 27.0 preferred 53.3 with a 29.8 pt gap and a 31.2 pt content step, fraction 0.25, so 16+ too; direction: close or retarget the resize inside the app's animated transaction instead of unanimated; needs its own design); (d) `compositingGroup` cost on a real iOS 15/16 device unmeasured; (e) `ZTronScrollState.stepDrawn` is a heuristic over the last three drawn sizes (bounded by the step it misjudges).
     Item 15 (b), seam lab (`scripts/seam/baseline.sh`; before 7206175, after 106c216; forced = `-ZTronForceAllFallbacks`;
@@ -508,6 +528,13 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
    `-internal`, `-noheader`, `-rgrow`, with `-hnative` / `-hplain` references): ≥ 20 frames in 0.5 s, step < 0.5, landing
    ~450 ms, seam 0, and no late last level where native has none (d75 §10 item 7).
 
+35. **A main-thread stall right after a refresh trigger (2026-11-03, M8b-s8 plan item 35 / refresh design §8, measured in s1,
+   pre-existing, OPEN, FIX)**: the frame after a `.system` trigger stalls 30–77 ms (95–123 ms in a lane's first scenario after a
+   build), on every lane; the arrow → spinner cross-fade (item 41) now starts 1–3 frames after that stalled frame (before, the
+   swap landed in it). s1's evidence: the ProgressView creation dominates (`docs/progress/M8b-s8-s1.md` l.76). Next: profile on an
+   idle machine (Instruments Time Profiler, 27.0 and 17.5), then pre-create the spinner hidden or move its creation out of the
+   trigger's frame; measure with `handover.py` (no frame gap > 25 ms at the trigger). Real 15/16: the same trace on the M1.
+
 41. **The arrow → spinner cross-fade and a begin's look switch were never drawn (2026-11-03, M8b-s8 s1, measured; pre-existing
    for the cross-fade; FIXED; numbered 36 in 170c1d3 / 542f59c and 39 in 8558f70 / d114c6f / 782513b: M9-s1 took 36, main
    37–38, INTEG-s2 39–40)**: before, at every trigger on every lane the arrow was drawn at full intensity on one frame and the
@@ -624,6 +651,54 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
    (the machine-wide UI lock was held by another session). Next: log both writes' transactions on 17.5; candidates: write a
    turn's second inset-only write with the first write's animation, or coalesce same-turn inset-only writes. Re-measure
    kbreal-info on 17.5 and kbreal on 27.0 / forced. 15/16 check: keyboard over centred fitting content moves it only up.
+
+49. **A rows animation at the content's bottom drops its remainder in one frame when an app-animated resize opens mid-flight
+   (2026-11-09, M8b-s8 recheck 2 / RC2-1, HIGH, measured, pre-existing at fa4278b, OPEN, FIX)**: R1-RC1-1 fixed this for centred
+   content only. Seam lab `fixed-bottom-preserve-rows-rows10-rowsto5-acenter-<fitting>-rtw0p15` (content at its bottom, rows 10 → 5
+   animated, app width change 0.15 s in): content and header step together, 27.0 120.8 pt in one frame (0.85 of the 142 pt change,
+   `ftop` = default) / 0.55 (`ffollows`); forced 115.3 pt (0.81); 17.5 137.3 pt (0.85 / 0.60). Control without the width change:
+   0.057 on all lanes. Hosted scratch (`s8/recheck2/ScratchRC2Tests.swift`, RC2b 'later'): 52–57 pt at the resize open, 0.89–0.92
+   `.topAligned`, 0.28–0.32 pinned / follows, both OSes and paths. Suspect: the clamp part of the shrink (the keep / clamp offset,
+   `State/ZTronScrollState.swift` ~1087) is rewritten unanimated by the resize open, as the pad was before 5a10e38. Next: carry
+   the clamp's remainder the way `shapeBase` carries the pad; hosted test from the scratch file. Real 15/16: a narrowing that
+   starts during a shrink at the bottom keeps content and header on the shrink's curve.
+
+50. **A `.preserve` header is drawn at its final narrowed width from the first frame of an app width animation that opens
+   during a rows animation at the bottom (2026-11-09, recheck 2 / RC2-2, HIGH, measured, pre-existing at fa4278b, OPEN, FIX;
+   item 47's symptom without `.stretch`)**: same scenarios as item 49: lateral 157.6 pt over 61 frames on 27.0 (header right edge
+   42 pt, content's 199.6 pt; montage `s8/recheck2/img/b-mont.png`), forced 158.5 pt over 62 frames, 17.5 0.18–0.33. fa4278b:
+   157.6 (`ftop`) / 159.3 (`ffollows`). The same width change from rest passes (0.31 / 0.28 / 0.17). Suspect: a lift / alignment
+   step in the update before the resize commit strips the frame chain's animation (item 47's family, `HeaderFrameModifier.swift`
+   ~118). Fix with 49. Real 15/16: the header's sides stay on the content's through that width change.
+
+51. **A rows animation that starts while an app-animated resize is open loses its curve (2026-11-09, recheck 2 / RC2-3, HIGH,
+   measured hosted only, pre-existing at fa4278b, OPEN, FIX; the reverse order of R1-RC1-1)**: `setContentSize`'s
+   `isResizeOpen` branch (`State/ZTronScrollState.swift` ~523) adopts the animated content-size change without its animation
+   (now into `shapeBase`). Hosted `scratchRC2WidthThenRows` (width 0.6 s, rows 5 → 10 0.5 s from 0.3 s in): 60.7–67.8 pt in one
+   frame (0.51–0.57), back leg 29.7–45.5 pt (0.25–0.38; `.keepTextSize` 0.94 at fa4278b); from 0.15 s in: 0.10–0.16. 27.0 and
+   17.5, both paths, `.preserve` and both `.stretch` cases, pinned and follows. No lab knob yet (add width-then-rows). Real 15/16:
+   rows inserted during an app width animation move centred content on the rows' curve.
+
+52. **Rows 10 → 5 at the bottom and an app width change in ONE `withAnimation`: the header jumps 59–62 pt at the end
+   (2026-11-09, recheck 2 / RC2-4, HIGH, measured hosted only, pre-existing at fa4278b, OPEN, FIX)**: hosted RC2b 'same' (offset
+   240, `box.narrow = true` in the same 0.5 s animation): the header bottom moves in 1 frame (62.0 pt at 560 ms), the seam grows
+   2.6 → 62.0 pt from 80 ms on (`.topAligned`, `.headerFollows`), the `.topAligned` content moves only 10 frames (ends at 210 ms);
+   17.5 59 pt, both paths; without the width change seam 0.15. Suspect: `ZTronScrollState.swift` ~1108 (the shrink's clamp and
+   the resize's commit in one turn). Also: rows at the bottom then a width change 0.15 s later in the same turn (RC2b
+   'sameLater', hosted rig only) went from a −5.1 pt reversal + 50 ms hold (fa4278b) to +56.9 pt (0.315) + 50 ms hold (5a10e38's
+   `shapeAnimated`); re-check it with 49–52's fix. Real 15/16: in a combined shrink + width animation the header rides the
+   content's top on every frame.
+
+53. **`HeaderFittingContentTests.aResizeOpenedDuringARowsAnimationKeepsItsCurve` is red on 27.0 (2026-11-09, recheck 2 /
+   RC2-5, LOW, test harness, OPEN)**: 5 / 5 runs on this host (load 5–150), 3–9 issues per run (largest step 0.17–0.76 against
+   0.15) with 30–240 ms gaps between samples; 17.5 2 / 2 green. The same scenarios in recheck 1's scratch test pass when run after
+   it and show the same stalls (0.359 with no resize) when run first: a first-in-process hitch, not a product step. Next: a
+   warm-up animation before the measured legs, or a stall-tolerant measure (skip legs whose sample gap > 25 ms, as the lab does).
+
+54. **`RefreshRetractTests.aResetThatSwiftUIAnimatesCarriesTheIndicatorWithTheContent` is order-dependent (2026-11-09, M8b-s8
+   fixer r1, pre-existing, OPEN)**: fails in a 4-test set at ee0eaed and at HEAD, passes alone at ee0eaed, 16e484f and HEAD;
+   the full 27.0 suite (load 100–330) and the 17.5 suite fail it, alone it passes 2 / 2. Next: find the shared state it reads
+   (global counters, the D79 drawn-motion window of a previous test's state) and isolate it.
 
 ## Decisions (keep)
 - D1 Naming map in CLAUDE.md (ZoomScroll → ZTronScroll, `ztronScroll…` modifiers; matches ZTronPages' `ztronPage()`).
@@ -1004,6 +1079,12 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
   committed pair, 802537f): the forced `fit-rest-stretch-width-hold-ksize` row read a 90 pt seam and a 159 pt lateral step
   with the pulled plan alone, 0.50 / 0.34 / 0.13 after. Demo `stretchContent:` picker + 3 HeaderUITests (19/19 × 3 lanes).
   OPEN: item 43, the inner stack is drawn final from the viewport commit inside an app-animated resize (27.0 runtime, forced).
+  **Final (M8b-s8 closer, 2026-11-09): BUILT** as ruled: `stretchContent: ZTronHeaderStretchContent = .keepTextMagnified`, right
+  after `fittingContent:`; `.keepTextMagnified` = D69 bit for bit on both paths, `.keepTextSize` = the grow case on both paths (item
+  28's grow case FIXED: text edge ratio 1.000 against rest on 27.0 / 17.5 / forced, before 1.25× on 17.5 and 1.8× on 27.0 and
+  forced at s = 1.25); a switch costs one `header.builder` run and is seamless (R8, mixseq). The mechanism (laid-out share `m`,
+  magnified share `g_s = g − m·g`) leaves `g_s` as the attachment point of the crisp path, so M8b-s9 adds it with no API change.
+  Item 28 for `.keepTextMagnified` (the blur) is scheduled in M8b-s9, not a finding of this batch. Open under it: 43, 46.
 - D77 (user, 2026-11-03, on the M8b-s8 i29 design) Item 29 takes the PUBLIC route (the design's D77′): on the 15–16 path one
   layer group G around the content and the `.slideBehind` slot, plus a 0 × 0 `UIViewRepresentable` probe that turns off the public
   `allowsGroupOpacity` on G's layer and on the header's group. It fixes item 29 and makes 15–16 fades equal 17+. G moves every
@@ -1136,6 +1217,15 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
   - Measured (seam lab, 27.0 / 17.5 / forced, both D76 cases): rows 5 ↔ 10, pull (KEY forced: seam ≤ 0.167, 0.06 per
     vsync), hold opengap / follow / hoverlay, switch1: seam ≤ 0.5, no lateral, steps ≤ 0.21 except the hold's +30 pt
     one-frame content step (C11 / D71, the same before). **Rotation FAILS (open item 46).**
+  - Fixer r1 / r2 (2026-11-09): the D79 window closes at the drawn rest (C-F1, 16e484f); `obscuredDelta` of a lifted `.stretch`
+    header at `o′ − L` (C-F3, 2da5dc7); a resize's reflow moves the plain base `ScrollMetrics.shapeBase`, never the shape
+    effects' animatable data (27.0 cancelled the rows animation in flight; `TurnOrigin.shapeAnimated`; R1-RC1-1–3, 5a10e38); the
+    stretch lift memo strips the layout animation with `.animation(nil, value: memo.jumps)`, not a retained `.transaction`
+    closure, never while a resize is open (item 47, a3f190c: lateral 155–159 → ≤ 0.67 pt on every lane).
+  - **Final (M8b-s8 closer, 2026-11-09): BUILT**, signature `withScalingHeader(size:collapse:pull:snap:fade:background:overflow:
+    fittingContent:stretchContent:header:)`, source-compatible (defaulted; the deprecated `scalingBehavior:` overload forwards
+    `.topAligned` / `.keepTextMagnified`); names are the plan's defaults (user questions in `docs/progress/M8b-s8.md`). OPEN under
+    it (FIX): 46 (rotation of a stretching `.headerFollows` header), 48 (17.5 keyboard), 49–52 (rows animation × app resize).
 - D78 (2026-11-04, M8b-s8 s5, open item 15 (b); design `docs/design/M8b-s8-i15b-15path-resize.md`) The 15–16 header
   resolves its frame from its own slot, as 16+'s `HeaderSlotLayout` does, so an app-animated resize lays it out at its
   final `R(W, H)` in the animated pass (U0) and the unanimated viewport commit (U1) re-sets nothing (D51 / D62).
@@ -1263,3 +1353,4 @@ Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (≤ 2 simulators at 
 | 2026-11-08 | Opus 5.5 workflow subagent (M8b-s8 s10, builder s10-d75-stretch) | D75 stretch built (a24ac2c, 8cbec47, f0e6d31, test fix in the docs commit): `.headerFollows` + `.stretch` grows by `L` in both D76 cases (geometry at `o′ − L`, carriers `HeaderStretchLiftBase` / `HeaderStretchLiftShift` around `HeaderFrameChain`, E1 unanimated lift step, `L` in the effects' animatable data); demo "Short content" (375ac43); SPEC S10 + D76 amendment. Seam lab 3 lanes × 2 cases: rows, pull (KEY forced 0.167 / 0.06), holds, switch1 seam ≤ 0.5; **rotation fails (open item 46)**. Regression keys s2/s6/s7/s8/s9 unchanged; unit 62 tests / 5 suites on 27.0 + 17.5 (only open item 44); demo UI 49/49 × 3 lanes. | — |
 | 2026-11-09 | Opus 5.5 workflow subagent (M8b-s8 fixer r1) | C-F1 D79 window closes at the drawn rest (16e484f); C-F3 / C-F4 obscuredDelta at `o′ − L` past the band + lift doc (2da5dc7); C-F2 shape remainder kept across a resize opening mid-animation (65df4f4); SPEC S9 / S10 amendments. NOT fixed: S-REV-S8-1 → open item 47 (27.0 lab 159 pt lateral; hosted narrowing test as known issue, measured facts + bisect plan), S-REV-S8-2 → open item 48 (17.5 kbreal +17 pt; no free UI lane). Item 44 pre-existing; 43 / 46 not attempted. Unit 95 tests / 10 suites: 17.5 green, 27.0 green at low load (5 frame-count failures at load 285–480 pass alone). Full 27.0 suite 926 / 89: only item 44, load-sensitive frame counts and a pre-existing order-dependent RefreshRetractTests case. Demo UI and the 3-lane lab NOT run (UI lock held by UIKITPAN-s4 > 2 h). Handoff `docs/progress/M8b-s8.md` | — |
 | 2026-11-09 | Opus 5.5 workflow subagent (M8b-s8 fixer r2) | R1-RC1-1 / -2 / -3 fixed (5a10e38): a resize's reflow moves the content shape's plain base (`ScrollMetrics.shapeBase`), never the shape effects' animatable data (27.0 cancelled the rows animation in flight: 0.72 / 1.0 of the change in one frame); `TurnOrigin.shapeAnimated` ends the C-F2 double count (+145 pt hosted). R1-RC1-4 = open item 47 fixed (a3f190c): the stretch lift memo strips the layout animation with `.animation(nil, value: jumps)` instead of a retained `.transaction` closure, never while a resize is open. Seam lab `rtw<s>` extra (b1a4a13). Lab at HEAD: rtw / width / ksize / ksize-text lateral ≤ 0.67, steps ≤ 0.27 of the change on 27.0, forced, 17.5 (were 155–159 pt, 0.72 / 1.0). Unit touched set 113 / 12 suites green on 27.0 + 17.5; demo UI Header + Resize 32/32 × 3 lanes. Item 46 rotation unchanged. Handoff `docs/progress/M8b-s8.md` | — |
+| 2026-11-09 | Opus 5.5 workflow subagent (M8b-s8 closer) | batch M8b-s8 closed at fc44000 + docs: D75 / D76 built (API + grow case; `.keepTextMagnified` crisp path → M8b-s9), D78–D80 built, D77 ruled (M8b-s9); items 15 (b), 27 (instant / delay), 28 (grow), 31, 32, 33, 41, 47 FIXED, 34 closed; new open items 35 (trigger stall) and 49–54 (recheck 2's RC2-1–5, order-dependent refresh test); handoff `docs/progress/M8b-s8.md` (closer section: designs, plan, steps, findings, suites, per-item numbers, real 15/16 checklist, merge notes), SPEC S10 note, STATE row, parity rows 35 / 40 / 43. No suite re-run (last full runs at ee0eaed). | not measured |
