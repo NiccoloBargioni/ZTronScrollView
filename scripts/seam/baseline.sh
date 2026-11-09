@@ -88,6 +88,7 @@ for sc in "$@"; do
       zoomable) extra+=(-ZTronSeamZoomable 1) ;;   # M8b-s8 s9 (D75): a zoomable lab scroll view (zoomRange 1...4; the pinch test)
       ksize) extra+=(-ZTronSeamStretchContent size) ;;   # D76: stretchContent: .keepTextSize (default .keepTextMagnified)
       switch*) v="${x#switch}"; extra+=(-ZTronSeamStretchSwitch "3,${v//p/.}") ;;   # D76: 3 s after launch, switch stretchContent to the other case over <d> s (switch0: unanimated; switch0p5 = 0.5)
+      rtw*) v="${x#rtw}"; extra+=(-ZTronSeamRowsThenWidth "${v//p/.}") ;;   # with rowsto: seam.width also toggles the width <s> s into the rows animation (rtw0p15 = 0.15; M8b-s8 R1-RC1-1)
       combo) extra+=(-ZTronSeamScrollBand 0.5 -ZTronSeamWidthThenScroll 0.5) ;;
       together) extra+=(-ZTronSeamScrollBand 0.5 -ZTronSeamWidthWithScroll 1) ;;
       *) echo "unknown scenario extra '$x' in $sc" >&2 ;;

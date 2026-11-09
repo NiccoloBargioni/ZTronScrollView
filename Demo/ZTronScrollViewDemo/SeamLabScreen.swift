@@ -230,6 +230,13 @@ struct SeamLabScreen: View {
                             nextFitting()
                         } else if let to = SeamLab.rowsTo {
                             toggleRows(to: to)
+                            if let delay = SeamLab.rowsThenWidth {
+                                // `-ZTronSeamRowsThenWidth <s>` (M8b-s8 R1-RC1-1): an app-animated width change opens <s> s into the rows animation.
+                                Task { @MainActor in
+                                    try? await Task.sleep(nanoseconds: UInt64(max(0, delay) * 1_000_000_000))
+                                    withAnimation(SeamLab.resizeAnimation) { narrow.toggle(); retargetHeight = nil }
+                                }
+                            }
                         } else if SeamLab.fakeKeyboard != nil {
                             withAnimation(.easeInOut(duration: 1.2)) { kbFake.toggle() }
                         } else if SeamLab.realKeyboard {
@@ -702,6 +709,9 @@ extension SeamLab {
     static var rowsTo: Int? { Int(HeaderDemo.argument("-ZTronSeamRowsTo", "")) }
     /// `-ZTronSeamRowsInternal 1`: the count lives in a model only the content observes.
     static var rowsInternal: Bool { HeaderDemo.argument("-ZTronSeamRowsInternal", "0") == "1" }
+    /// `-ZTronSeamRowsThenWidth <s>`: with `-ZTronSeamRowsTo`, `seam.width` also toggles the width, animated, <s> s into the
+    /// rows animation (M8b-s8 R1-RC1-1).
+    static var rowsThenWidth: Double? { Double(HeaderDemo.argument("-ZTronSeamRowsThenWidth", "")) }
     /// `-ZTronSeamRowsPlain 1`: the count changes without an animation.
     static var rowsPlain: Bool { HeaderDemo.argument("-ZTronSeamRowsPlain", "0") == "1" }
     /// `-ZTronSeamRowsGrow 1`: the content keeps n rows; the count sets their height (12 pt per step) instead.
