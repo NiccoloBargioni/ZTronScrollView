@@ -48,7 +48,8 @@ struct ViewportObserver: ViewModifier {
     /// viewport (what the effect is asked about) is that frame plus the ignored insets.
     let edges: Edge.Set
 
-    private func metrics(size: CGSize, safe: EdgeInsets) -> ViewportMetrics {
+    /// Nonisolated: `onGeometryChange` calls its transform outside the main actor.
+    private nonisolated static func metrics(size: CGSize, safe: EdgeInsets, edges: Edge.Set) -> ViewportMetrics {
         ViewportMetrics(size: CGSize(width: size.width + (edges.contains(.leading) ? safe.leading : 0) + (edges.contains(.trailing) ? safe.trailing : 0),
                                      height: size.height + (edges.contains(.top) ? safe.top : 0) + (edges.contains(.bottom) ? safe.bottom : 0)),
                         safeArea: safe)
@@ -56,15 +57,16 @@ struct ViewportObserver: ViewModifier {
 
     @ViewBuilder
     func body(content: Content) -> some View {
+        let edges = edges
         if state.usesGeometryChange, #available(iOS 16, *) {
             content.onGeometryChange(for: ViewportMetrics.self,
-                                     of: { metrics(size: $0.size, safe: $0.safeAreaInsets) },
+                                     of: { Self.metrics(size: $0.size, safe: $0.safeAreaInsets, edges: edges) },
                                      action: { state.setViewport($0) })
         } else {
             content
                 .background(GeometryReader {
                     Color.clear.preference(key: ViewportMetricsKey.self,
-                                           value: metrics(size: $0.size, safe: $0.safeAreaInsets))
+                                           value: Self.metrics(size: $0.size, safe: $0.safeAreaInsets, edges: edges))
                 })
                 .onPreferenceChange(ViewportMetricsKey.self) { state.setViewport($0) }
         }

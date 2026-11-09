@@ -255,8 +255,7 @@ struct GeometryObserverModifier<T: Equatable>: ViewModifier {
 
     @available(iOS 18, *)
     private var nativeTransform: @Sendable (ScrollGeometry) -> T {
-        let boxed = UncheckedTransform(transform)
-        return { native in boxed.run(native) }
+        UncheckedTransform(transform).sendable
     }
 }
 
@@ -265,6 +264,10 @@ private final class UncheckedTransform<T>: @unchecked Sendable {
     let transform: (ZTronScrollGeometry) -> T
     private var result: T?
     init(_ transform: @escaping (ZTronScrollGeometry) -> T) { self.transform = transform }
+
+    /// Formed here, outside the main actor, so the closure does not capture `T.Type` in an isolated context.
+    @available(iOS 18, *)
+    var sendable: @Sendable (ScrollGeometry) -> T { { native in self.run(native) } }
 
     @available(iOS 18, *)
     func run(_ native: ScrollGeometry) -> T {
