@@ -38,5 +38,17 @@ Next:
 2. Item 48: log both inset writes' transactions on 17.5, then fix and re-measure kbreal-info.
 3. Items 46 and 43, with item 47's finding.
 
-Tests: see the Orchestration session log row (unit suites on 27.0 and 17.5, final run of this session).
+Tests:
+- Touched unit set (11 suites requested, 95 tests in 10 suites):
+  - 17.5: green (2 known issues = item 47).
+  - 27.0: 5 frame-count failures at load 285–480. All 5 pass alone at load 46.
+- Full 27.0 suite at HEAD: 926 tests, 89 suites, 22 issues in 6 tests at load 200–330.
+  - Item 44.
+  - Two frame-count tests.
+  - Two tests that pass alone.
+  - `RefreshRetractTests.aResetThatSwiftUIAnimatesCarriesTheIndicatorWithTheContent`: order-dependent and pre-existing. It fails in the same 4-test set at ee0eaed and passes alone at ee0eaed, 16e484f and HEAD.
+- C-F1: DrawnCatchTests 16/16 on 27.0.
+- C-F2: ContentShapeResizeTests on 27.0 and 17.5.
+- Demo UI (HeaderUITests, RefreshUITests): NOT run. The machine-wide UI lock was held by session UIKITPAN-s4 for over 2 h (30 min wait timed out).
+- Seam lab: rec2 (27.0) for the width rows only. Run the 3-lane lab and demo UI before merging.
 Usage: not measured.
