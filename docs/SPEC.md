@@ -465,6 +465,9 @@ Calibrate the defaults side by side with UIRefreshControl.
     interpolation reaches it, so no rest of the reset is drawn after the catch (the only mechanism on 15–16). Seam lab
     (`hreset4-fdown`), 27.0 / 17.5 / forced: the band falls by at most the reset's own motion + 1 pt before the catch (before up
     to 26.7 pt), the spinner stays 20 pt and centred in the band, 0 frames over the content, 0 jumps, 0 vanishings.
+    Amended 2026-11-09 (M8b-s8 fixer, C-F1): the drawn-motion window that makes such a touch a catch closes once the content
+    has DRAWN the values it was built with (the reset came to rest), not only at the next model write: a tap after an
+    untouched reset is an ordinary tap, also while an app animates an inset or the offset rests on a clamp.
 - **One action per pull.** Only one refresh runs at a time. Never call the action twice for one pull. Cancel the async task when the view disappears.
 - **Disabled** while `zoomScale` is above minimum (configurable) and while scrolling is disabled.
 - **Haptic at trigger:** `.sensoryFeedback` on iOS 17+. On iOS 15–16 there is no haptic, because UIKit isn't allowed; document this.
@@ -694,7 +697,9 @@ positions and progress share one convention (0 = expanded, 1 = collapsed); the r
     with, evaluated per frame on both header slots and on the top refresh indicator (whose base is the lifted header's: the gap
     below it under `.openGap`, above it under `.followContent`, the band under `.stretch`), so header bottom and content top
     coincide on every drawn frame (row changes, option changes, a pinch, a refresh hold, a catch). `ZTronHeaderGeometry.lift`
-    reports it (0 in the other cases and once the content overflows); the unobscured top edge (`obscuredDelta`) includes it.
+    reports it (0 in the other cases and once the content overflows); the unobscured top edge (`obscuredDelta`) includes it
+    (amended 2026-11-09, M8b-s8 fixer, C-F3: for a `.stretch` `.headerFollows` header it is the drawn bottom, the geometry at
+    `o′ − L` plus its translation, also past the band, where the sum `+ L` put the indicator track up to 119 pt low).
   - A horizontal-only view (a banner) keeps the content's alignment below the banner in `.headerPinned` / `.headerFollows` (no lift).
   - The three pictures (centred content `C` that fits, `slack = 2·L`; `.alignment` top: all three are the first one):
     ```

@@ -40,6 +40,22 @@ struct HeaderFittingContentTests {
         @Published var height: CGFloat = 0
     }
 
+    /// The app's animated width (the seam lab's `seam.width`: 60 % of the container, centred), animated by the test.
+    final class WidthBox: ObservableObject {
+        @Published var narrow = false
+    }
+
+    struct WidthWrap<Content: View>: View {
+        @ObservedObject var box: WidthBox
+        let content: Content
+        var body: some View {
+            GeometryReader { g in
+                content.frame(width: box.narrow ? g.size.width * 0.6 : g.size.width, height: g.size.height)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+
     struct InsetWrap<Content: View>: View {
         @ObservedObject var box: InsetBox
         let content: Content
@@ -116,6 +132,8 @@ struct HeaderFittingContentTests {
         /// M8b-s8 s10: `pull: .stretch` and its `stretchContent:` case.
         var behavior: ZTronHeaderScalingBehavior = .preserve
         var stretchContent: ZTronHeaderStretchContent = .keepTextMagnified
+        /// Hosts the view in `WidthWrap` with this box (S-REV-S8-1).
+        var width: WidthBox? = nil
     }
 
     /// The drawn header bottom and content top every display frame.
@@ -215,6 +233,7 @@ struct HeaderFittingContentTests {
         let inner: Rows? = change == .internal ? Rows(rows) : nil
         let w = withOSPath(path) {
             let h = Host(ext: ext, option: option, inner: inner, state: s, bodies: bodies, hold: hold, setup: setup)
+            if let box = setup.width { return hostDriven(WidthWrap(box: box, content: h)) }
             return setup.inset.map { hostDriven(InsetWrap(box: $0, content: h)) } ?? hostDriven(h)
         }
         var k = 0
@@ -1005,5 +1024,95 @@ extension HeaderFittingContentTests {
         s.endTracking()
         pump(0.5)
         #expect(L > 0 && worst < 0.5, "\(path) R \(R) band \(band) L \(L): worst \(worst):\(report)")
+    }
+}
+
+extension HeaderFittingContentTests {
+    /// S-REV-S8-1: an app-animated width change of a `.stretch` `.headerFollows` header over centred fitting content is
+    /// drawn with the content in both `stretchContent:` cases (the seam lab's 27.0 `fixed-rest-stretch-width-acenter-ffollows
+    /// -rows5`: the header drew its final width from the first frame, 159 pt lateral): every sampled frame keeps the
+    /// header's sides on the content's and its bottom on the content's top. No content body.
+    @Test(arguments: OSPath.allCases, [ZTronHeaderStretchContent.keepTextMagnified, .keepTextSize])
+    func aStretchingFollowingHeaderNarrowsWithTheContent(path: OSPath, content: ZTronHeaderStretchContent) {
+        narrowing(path: path, content: content, fitting: .headerFollows)
+    }
+
+    /// The `.topAligned` control of `aStretchingFollowingHeaderNarrowsWithTheContent` (the seam lab's `ftop` row passed).
+    @Test(arguments: OSPath.allCases, [ZTronHeaderStretchContent.keepTextMagnified, .keepTextSize])
+    func aStretchingTopAlignedHeaderNarrowsWithTheContent(path: OSPath, content: ZTronHeaderStretchContent) {
+        narrowing(path: path, content: content, fitting: .topAligned)
+    }
+
+    func narrowing(path: OSPath, content: ZTronHeaderStretchContent, fitting: ZTronHeaderFittingContent) {
+        var setup = Self.stretchSetup(content)
+        let box = WidthBox()
+        setup.width = box
+        let r = host(path, fitting, setup: setup)
+        defer { r.sampler.stop(); unhost(r.window) }
+        pump(0.3)
+        let bodies = r.bodies.content
+        func sample() -> (header: CGRect, content: CGRect)? {
+            guard let h = Self.frames(of: Self.headerMarker, in: r.window, clipped: true).first,
+                  let c = Self.frames(of: Self.contentMarker, in: r.window).first else { return nil }
+            return (h, c)
+        }
+        let fmt = { (x: CGRect) in String(format: "%.1f,%.1f %.1fx%.1f", x.minX, x.minY, x.width, x.height) }
+        for narrow in [true, false] {
+            let tag = "\(path) \(content) \(fitting) narrow \(narrow)"
+            ZTronRenderCounters.events.removeAll()
+            withAnimation(.easeInOut(duration: 0.6)) { box.narrow = narrow }
+            var frames: [(header: CGRect, content: CGRect)] = []
+            var chains: [String] = []
+            for i in 0..<45 {
+                pump(1.0 / 60)
+                if let f = sample() { frames.append(f) }
+                if i == 2 || i == 10 { chains.append(Self.markerChain(Self.headerMarker, in: r.window)) }
+            }
+            pump(0.4)
+            let lateral = frames.map { max(abs($0.header.minX - $0.content.minX), abs($0.header.maxX - $0.content.maxX)) }
+                .max() ?? .infinity
+            let seam = frames.map { abs($0.header.maxY - $0.content.minY) }.max() ?? .infinity
+            let trace = frames.prefix(8).map { fmt($0.header) + " | " + fmt($0.content) }.joined(separator: "; ")
+                + "; layers " + chains.joined(separator: " // ") + "; events " + ZTronRenderCounters.eventsJoined
+            #expect(frames.count >= 30, "\(tag): sampled \(frames.count)")
+            // Open item 47 (S-REV-S8-1): on 16+ a narrowing draws a lifted `.stretch` stack at its final width from the
+            // first frames (hosted 27.0 and 17.5; the seam lab passes 17.5); widening passes (the slot's animated clip
+            // hides it).
+            withKnownIssue("open item 47", isIntermittent: true) {
+                #expect(lateral < 1, "\(tag): header sides vs content sides, worst \(lateral); \(trace)")
+                #expect(seam < 1, "\(tag): header bottom vs content top, worst \(seam); \(trace)")
+            } when: { fitting == .headerFollows && path == .preferred }
+        }
+        #expect(r.bodies.content == bodies, "\(path) \(content): no content body (S4)")
+    }
+}
+
+
+extension HeaderFittingContentTests {
+    /// The marker layer and its ancestors (presented frames; `MTB`: masks to bounds, `mask`: a mask layer), for a failure
+    /// message.
+    static func markerChain(_ marker: (r: Double, g: Double, b: Double), in window: UIWindow) -> String {
+        let root = window.layer.presentation() ?? window.layer
+        let fmt = { (x: CGRect) in String(format: "%.1f,%.1f %.1fx%.1f", x.minX, x.minY, x.width, x.height) }
+        var out = ""
+        func visit(_ layer: CALayer, _ chain: [CALayer]) {
+            guard out.isEmpty else { return }
+            if let c = layer.backgroundColor {
+                var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+                if UIColor(cgColor: c).getRed(&r, green: &g, blue: &b, alpha: &a), a > 0.5,
+                   abs(r - marker.r) < 0.02, abs(g - marker.g) < 0.02, abs(b - marker.b) < 0.02 {
+                    out = (chain + [layer]).reversed().prefix(7).map { l in
+                        var d = fmt(l.convert(l.bounds, to: root))
+                        if l.masksToBounds { d += " MTB" }
+                        if let m = l.mask { d += " mask " + fmt(m.convert(m.bounds, to: root)) }
+                        return d
+                    }.joined(separator: " < ")
+                    return
+                }
+            }
+            layer.sublayers?.forEach { visit($0, chain + [layer]) }
+        }
+        visit(root, [])
+        return out
     }
 }

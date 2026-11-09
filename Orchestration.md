@@ -557,11 +557,13 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
      when `m′ > 0`.
    - Option 2: at a commit that lands a resize, keep the resize construct, which is exact there because `N′ = N`.
    Then re-measure the hosted test on 27.0 and 17.5 and the lab's ruler rows with rowscan. Real 15.0 / 16.0 behaviour is
-   unknown (M1 Mac).
+   unknown (M1 Mac). 2026-11-09 (M8b-s8 fixer r1): not attempted
+   (budget); same family as item 47 (a stack drawn final from the viewport commit on the 27.0 runtime).
 44. **`HeaderFallbackSlotTests.aRuntimeOverflowChangeFollowsTheSameSequence` q0.5 fails (2026-11-08, M8b-s8 s9, OPEN,
    pre-existing)**: `atNew` is empty or off by ≥ 0.5 on both paths, 27.0 and 17.5, in the 24-suite runs at 7f57020 and when
    run alone at f7138c0 (before the lift's state changes). Order / timing dependent; q0 / q1 pass. Next: trace `atNew`
-   against the commit frame in isolation and under the suite order.
+   against the commit frame in isolation and under the suite order. 2026-11-09 (M8b-s8 fixer r1): pre-existing confirmed, it
+   fails 2/2 alone at ee0eaed on both OSes and both paths (suites agent); not changed by C-F1…C-F4.
 45. **A pinch of fitting content at the top differs between the 15–16 and 17+ paths (2026-11-08, M8b-s8 s9, measured, OPEN,
    pre-existing, no lift)**: seam lab `fixed-rest-preserve-pinch-rows5-{fpinned,ftop,ffollows}-zoomable` on 27.0 (pixel column
    x = 60). On 17+, the zoom overscrolls at the top while the fingers hold: the content top sits 44–49 pt below the header and
@@ -580,6 +582,33 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
    from the DRAWN viewport per frame (`LiftSpan`, R2). Next: give the chain the span-based lift (evaluate the scale's and
    the placement's `L` where the slot's drawn size is known, as `HeaderLiftHost` does), then re-measure the 6 rotate
    scenarios on 3 lanes and the hold / rows keys.
+   2026-11-09 (M8b-s8 fixer r1): not attempted (budget spent on items 47 / 48). Item 47 shares the symptom (a lifted stack
+   drawn at its final width from the first frames of a resize) and may share the cause; fix them together.
+47. **A `.stretch` `.headerFollows` header narrows ahead of the content on 16+ (2026-11-09, M8b-s8 fixer r1, S-REV-S8-1, HIGH,
+   measured, OPEN, FIX)**: seam lab `fixed-rest-stretch-width-acenter-ffollows-rows5[-ksize]` 27.0 preferred: 159.3 pt lateral
+   (the `-ksize-text` row passes, 0.67). Hosted `HeaderFittingContentTests.aStretchingFollowingHeaderNarrowsWithTheContent`
+   (preferred, both `stretchContent:` cases, 27.0 and 17.5 hosted; the 17.5 lab passes): lateral 160.7 / 101 pt on the NARROW
+   leg only (widening passes: the slot's animated clip hides a header at its final width). The `.topAligned` control
+   (`aStretchingTopAlignedHeaderNarrowsWithTheContent`) passes. The test is in `withKnownIssue("open item 47")`.
+   Measured facts: the stack's layer (and its clip's) is at the final width from frame 2 while the slot's clip is still at the
+   old one; `L` stays 119.000 through the change (carrier events); `HeaderSlotLayout`'s placement (bounds, y, proposal, layout
+   stretch, stretch, translation) is bit-identical between the animated pass and the unanimated `vp size` / `cs open` commit;
+   E1 (`jumped`) never fires. Refuted (no change): a bounds-only clip path, a layout side clip (HeaderSideClip), a normalized
+   clip input, ulp-stable resize targets (`ulpStable`), a 1e-6 lift memo in `HeaderStretchLiftShift`. Next: find which
+   render-time piece that exists only with `L > 0` (the scale effect with `s != 1`, the y −L placement under `HeaderLiftHost`,
+   the carriers' re-evaluation at the commit) gives the stack unanimated geometry on 27.0: bisect by forcing each to its
+   `L = 0` value in the hosted test, then make that piece bit-stable across the commit or move it to a per-frame effect.
+   15/16 check: the forced lane passes; on real 15/16 watch the header's sides against the content's in an app-animated width
+   change.
+48. **17.5: the system keyboard over centred fitting content steps it 17 pt the wrong way (2026-11-09, M8b-s8 fixer r1,
+   S-REV-S8-2, measured, OPEN, FIX)**: seam lab `fixed-rest-preserve-width-acenter-ffollows-rows5-kbreal-info` 17.5: header
+   bottom and content top move +17 pt (down) at the keyboard's first frames and hold 5 frames (the seam stays closed). Events
+   (one turn, both `txAnim:true`, applyViewport's inset-only branch): bottom inset 34 -> 370 (17.5 counts the home indicator
+   twice), then 370 -> 336; +17 = the transient's 34 pt / 2. The drawn values match the second write drawn without its
+   animation (`336 − 336·(1 − p)`) while the first runs on the keyboard's curve. Not fixed: no fix candidate could be measured
+   (the machine-wide UI lock was held by another session). Next: log both writes' transactions on 17.5; candidates: write a
+   turn's second inset-only write with the first write's animation, or coalesce same-turn inset-only writes. Re-measure
+   kbreal-info on 17.5 and kbreal on 27.0 / forced. 15/16 check: keyboard over centred fitting content moves it only up.
 
 ## Decisions (keep)
 - D1 Naming map in CLAUDE.md (ZoomScroll → ZTronScroll, `ztronScroll…` modifiers; matches ZTronPages' `ztronPage()`).
@@ -1217,3 +1246,4 @@ Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (≤ 2 simulators at 
 | 2026-11-08 | Opus 5.5 workflow subagent (M8b-s8 s8, builder s8-d75-shape) | D75 part 1 built (2db4012, e03fc97, b527241: `fittingContent:` `.topAligned` / `.headerFollows` (draws pinned until s9) / `.headerPinned`, published `ScrollMetrics.alignment`, `ContentShapeShift`, `setContentSize` in the animation of its turn, metrics follow an animated clamp on 15–16); lab `fitting`, `-ZTronSeamStart bottom`, extras `acenter` `abottom` `ftop` `ffollows` `fpinned` (eda4455, 4b8178f); the bottom-shrink clamp 1 frame → 26–27 frames on 3 lanes; earlier key scenarios unchanged; unit 76 tests / 10 suites on 27.0 + 17.5 (tick-suite stalls as at base); demo UI 31/31 and 44/44 × 3 lanes; handoff `docs/progress/M8b-s8-s8.md` | — |
 | 2026-11-08 | Opus 5.5 workflow subagent (M8b-s8 s9, builder s9-d75-lift) | D75 lift built (9ebe1bd, 49c3d65, 7f57020: `HeaderLiftBase` / `HeaderLiftShift` / `HeaderLiftHost` on both header slots + top refresh indicator, `LiftSpan` / `LiftTrack` R2, `HeaderMath.lift`, obscuredDelta + L, `ZTronHeaderGeometry.lift`); inset-only changes moving aligned fitting content follow the turn; K2 `KeyboardInsetFollow` hide only (90ce814 → 99402c8); lab pinch (f7138c0). Key 17.5 ffollows rest gap 69.3 → seam ≤ 0.333 on 3 lanes; R2 15.8 → 0.167; kbfake 1 frame → 70 frames. Extended rows + s1–s8 keys unchanged; unit 244 tests / 24 suites on 27.0 + 17.5 (only open item 44, pre-existing); demo UI 56/56 × 3 lanes. Open items 44, 45 (new); hold rows to re-run after D71. Handoff `docs/progress/M8b-s8-s9.md` | — |
 | 2026-11-08 | Opus 5.5 workflow subagent (M8b-s8 s10, builder s10-d75-stretch) | D75 stretch built (a24ac2c, 8cbec47, f0e6d31, test fix in the docs commit): `.headerFollows` + `.stretch` grows by `L` in both D76 cases (geometry at `o′ − L`, carriers `HeaderStretchLiftBase` / `HeaderStretchLiftShift` around `HeaderFrameChain`, E1 unanimated lift step, `L` in the effects' animatable data); demo "Short content" (375ac43); SPEC S10 + D76 amendment. Seam lab 3 lanes × 2 cases: rows, pull (KEY forced 0.167 / 0.06), holds, switch1 seam ≤ 0.5; **rotation fails (open item 46)**. Regression keys s2/s6/s7/s8/s9 unchanged; unit 62 tests / 5 suites on 27.0 + 17.5 (only open item 44); demo UI 49/49 × 3 lanes. | — |
+| 2026-11-09 | Opus 5.5 workflow subagent (M8b-s8 fixer r1) | C-F1 D79 window closes at the drawn rest (16e484f); C-F3 / C-F4 obscuredDelta at `o′ − L` past the band + lift doc (2da5dc7); C-F2 shape remainder kept across a resize opening mid-animation (65df4f4); SPEC S9 / S10 amendments. NOT fixed: S-REV-S8-1 → open item 47 (27.0 lab 159 pt lateral; hosted narrowing test as known issue, measured facts + bisect plan), S-REV-S8-2 → open item 48 (17.5 kbreal +17 pt; no free UI lane). Item 44 pre-existing; 43 / 46 not attempted. Unit 95 tests / 10 suites: 17.5 green, 27.0 green at low load (5 frame-count failures at load 285–480 pass alone). Demo UI: see handoff. Handoff `docs/progress/M8b-s8.md` | — |
