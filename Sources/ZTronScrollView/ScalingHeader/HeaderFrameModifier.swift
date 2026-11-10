@@ -87,6 +87,8 @@ struct HeaderFrameModifier: ViewModifier {
     @StateObject private var relay = ChannelRelay()
     @StateObject private var reporter = HeaderNaturalReporter()
     @State private var liftMemo = HeaderStretchLiftMemo()
+    /// `FirstUseWarm`: 1 -> 0 at appear, added to the share outside [0, 1] (clamped away: drawn identically).
+    @State private var warm: CGFloat = 1
     /// D76: the clip snaps a grown frame's side inset to the pixel grid (`HeaderMath.stretchClip`).
     @Environment(\.displayScale) private var displayScale
 
@@ -129,6 +131,7 @@ struct HeaderFrameModifier: ViewModifier {
                                            viewport: viewport, stretch: stretch, chain: chain)
         return content.modifier(HeaderStretchLiftBase(base: base, viewport: viewport, stretch: stretch, shift: shift)
                                     .pinned(stretch ? state.catchPinRef : nil))
+            .onAppear { if warm != 0 { FirstUseWarm.run { warm = 0 } } }   // FirstUseWarm (cost3-O, mapped by cost3-V)
     }
 
     /// Subscribes (15–16 channels; 17+ tracks the reads below), counts the run and reads the state's half of the frame.
@@ -151,6 +154,7 @@ struct HeaderFrameModifier: ViewModifier {
         if live.followsOffset { reporter.heldOffset = live.offset }
         live.natural = state.headerNatural
         live.layoutShare = Self.layoutShare(stretchContent, metrics: metrics.header)
+        if warm != 0 { live.layoutShare = live.layoutShare >= 1 ? 1 + warm : (live.layoutShare <= 0 ? -warm : live.layoutShare) }
         // D79: after a drawn catch every effect that interpolates `o′` draws the model's until its interpolation reaches it.
         if live.followsOffset, let ref = state.catchPinRef { live.catchPin = HeaderCatchPin(ref: ref, model: live.offset) }
         return live
@@ -351,10 +355,11 @@ nonisolated struct HeaderStretchClip: Shape {
 nonisolated struct HeaderTranslation: GeometryEffect {
     var live: HeaderLiveInput
 
-    /// `o′` and the lift `L` (`HeaderLiveInput.effectData`: an animated resize moves `L` on the layout's curve).
-    var animatableData: AnimatablePair<CGFloat, CGFloat> {
-        get { AnimatablePair(live.offset, live.lift) }
-        set { live = live.relifted(newValue.second).at(offset: newValue.first) }
+    /// `o′`, the share `m` (`FirstUseWarm` warms it; read only clamped) and the lift `L`
+    /// (`HeaderLiveInput.effectData`: an animated resize moves `L` on the layout's curve).
+    var animatableData: AnimatablePair<AnimatablePair<CGFloat, CGFloat>, CGFloat> {
+        get { live.effectData }
+        set { live.effectData = newValue }
     }
 
     func effectValue(size: CGSize) -> ProjectionTransform {
@@ -861,20 +866,36 @@ struct HeaderLayerGroup: ViewModifier {
     }
 }
 
-/// The content's hit-testing gate (D11) for the header, in its own leaf on `.phase` (so the frame leaf never wakes on a
+/// The content's interaction gate (D11) for the header, in its own leaf on `.phase` (so the frame leaf never wakes on a
 /// phase edge): no press while the content moves without a finger or while a drag is recognized; a drag that starts on
-/// a header button scrolls.
+/// a header button scrolls. This leaf holds the `.disabled` half (on the header content only); the hit-testing half is
+/// `HeaderHitGate`, outside the header's layer group.
 struct HeaderInteractionGate: ViewModifier {
     let state: ZTronScrollState
     @StateObject private var relay = ChannelRelay()
 
     func body(content: Content) -> some View {
         if let storage = state.storage as? ChannelStorage { relay.subscribe(to: [.phase], of: storage) }
-        let storage = state.storage
-        let blocked = (storage.phase == .decelerating || storage.phase == .animating) && !storage.isTracking || storage.isDragging
-        return content
-            .allowsHitTesting(!blocked)
-            .disabled(blocked)
+        return content.disabled(HeaderHitGate.blocked(state.storage))
+    }
+}
+
+/// The hit-testing half of the header's gate (D11), in its own leaf on `.phase`, applied OUTSIDE the header's layer
+/// group (`HeaderSlotReader`). Inside it, the flip at every motion's start and end made SwiftUI re-configure the header's
+/// drawn layers (27.0: every header text's drawing layer re-displayed, twice per motion: on the first frame of a pull
+/// and of its release, cost3-O; cost2-F with the engine). Above the group only the group changes. Same hit area:
+/// everything it adds (background, fade) is never hit-testable.
+struct HeaderHitGate: ViewModifier {
+    let state: ZTronScrollState
+    @StateObject private var relay = ChannelRelay()
+
+    @MainActor static func blocked(_ storage: any StateStorage) -> Bool {
+        (storage.phase == .decelerating || storage.phase == .animating) && !storage.isTracking || storage.isDragging
+    }
+
+    func body(content: Content) -> some View {
+        if let storage = state.storage as? ChannelStorage { relay.subscribe(to: [.phase], of: storage) }
+        return content.allowsHitTesting(!Self.blocked(state.storage))
     }
 }
 

@@ -162,7 +162,7 @@ Fade blend (D70), per frame, on the visible band `u ∈ [0, 1]` (`u = 0` the hea
 - Hit-testing: the content layer is above the header, but the content's hit area is its own drawn frame (the transform is a
   `GeometryEffect`, applied to hit-testing; `ContentLayoutHost`'s box, the overlay host and the gates add no hit area), so touches
   in the uncovered band `[top0 − k·c, top0 + R − c]` fall through to the header in the background; a drag that starts there
-  scrolls (the pan is on the container). Covered parts are unreachable, as they are hidden. `HeaderInteractionGate` and the
+  scrolls (the pan is on the container). Covered parts are unreachable, as they are hidden. `HeaderInteractionGate` (`.disabled`), `HeaderHitGate` (hit-testing, above the layer group) and the
   `visible` gate (`h_v > 0.5`) apply unchanged. VERIFY on 27.0 / 17.5 / forced with the demo's `taps` counter (§5).
 - Content background requirement + remedy: the content must paint its own background where it covers the header (a `List` row
   with a clear background shows the header through the text). Library remedy, cheap and structural: `.slideBehind(parallax:,

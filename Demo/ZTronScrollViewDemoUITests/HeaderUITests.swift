@@ -206,6 +206,27 @@ final class HeaderUITests: XCTestCase {
         assertNoBodies(i, "button")
     }
 
+    /// D11 header gate (its hit-testing half sits above the header's layer group, `HeaderHitGate`, d76 cost2-F): a tap on
+    /// the header's button while the content bounces back from a pull (no finger, `.decelerating` / `.animating`) catches
+    /// the motion and does not fire the button; at rest the same spot fires it. `ZS_HEADER_EXTRA` (space-separated launch
+    /// arguments) is the sensitivity hook for scratch builds.
+    func testHeaderButtonCatchDuringBounceDoesNotFire() {
+        let extra = ProcessInfo.processInfo.environment["ZS_HEADER_EXTRA"].map { $0.split(separator: " ").map(String.init) } ?? []
+        let app = launch("banner", ["-ZTronHeaderSize", "fixed"] + extra)
+        let button = element(app, "header.button")
+        XCTAssertTrue(button.waitForExistence(timeout: 3))
+        let spot = button.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        drag(app, from: (0.5, 0.35), to: (0.5, 0.95), hold: 0, velocity: .fast)
+        spot.tap()
+        Thread.sleep(forTimeInterval: 1.5)
+        XCTAssertEqual(info(app, "catch").double("taps"), 0, "a tap that catches the bounce-back does not fire the header's button")
+        spot.tap()
+        Thread.sleep(forTimeInterval: 0.3)
+        let i = info(app, "rest")
+        XCTAssertEqual(i.double("taps"), 1, "at rest the same spot fires it")
+        assertNoBodies(i, "catch")
+    }
+
     // MARK: slideBehind (D68)
 
     /// The `header.` identifiers VoiceOver reaches, in VoiceOver's order (the demo's `VoiceOverTree`, read on Info into

@@ -12,22 +12,24 @@ enum ContentGeometry {
 struct TransformVector: VectorArithmetic {
     var ox: CGFloat = 0, oy: CGFloat = 0, s: CGFloat = 0
     var top: CGFloat = 0, leading: CGFloat = 0, bottom: CGFloat = 0, trailing: CGFloat = 0
+    /// A spare scalar that feeds nothing drawn (`FirstUseWarm`).
+    var w: CGFloat = 0
 
     static var zero: TransformVector { TransformVector() }
     static func + (l: Self, r: Self) -> Self {
         Self(ox: l.ox + r.ox, oy: l.oy + r.oy, s: l.s + r.s, top: l.top + r.top, leading: l.leading + r.leading,
-             bottom: l.bottom + r.bottom, trailing: l.trailing + r.trailing)
+             bottom: l.bottom + r.bottom, trailing: l.trailing + r.trailing, w: l.w + r.w)
     }
     static func - (l: Self, r: Self) -> Self {
         Self(ox: l.ox - r.ox, oy: l.oy - r.oy, s: l.s - r.s, top: l.top - r.top, leading: l.leading - r.leading,
-             bottom: l.bottom - r.bottom, trailing: l.trailing - r.trailing)
+             bottom: l.bottom - r.bottom, trailing: l.trailing - r.trailing, w: l.w - r.w)
     }
     mutating func scale(by rhs: Double) {
         let k = CGFloat(rhs)
-        ox *= k; oy *= k; s *= k; top *= k; leading *= k; bottom *= k; trailing *= k
+        ox *= k; oy *= k; s *= k; top *= k; leading *= k; bottom *= k; trailing *= k; w *= k
     }
     var magnitudeSquared: Double {
-        Double(ox * ox + oy * oy + s * s + top * top + leading * leading + bottom * bottom + trailing * trailing)
+        Double(ox * ox + oy * oy + s * s + top * top + leading * leading + bottom * bottom + trailing * trailing + w * w)
     }
 }
 
@@ -50,11 +52,14 @@ struct ContentTransform: GeometryEffect {
     /// D79: the values this effect is built with when the host tracks rest (`tracksRest()`); the probe learns a frame
     /// drawn at them (the drawn motion ended).
     var restModel: TransformVector?
+    /// `FirstUseWarm`'s spare scalar (drawn nowhere).
+    var warm: CGFloat = 0
 
     var animatableData: TransformVector {
         get { TransformVector(ox: offset.x, oy: offset.y, s: scale, top: insets.top, leading: insets.leading,
-                              bottom: insets.bottom, trailing: insets.trailing) }
+                              bottom: insets.bottom, trailing: insets.trailing, w: warm) }
         set {
+            warm = newValue.w
             offset = CGPoint(x: newValue.ox, y: newValue.oy)
             scale = newValue.s
             insets = EdgeInsets(top: newValue.top, leading: newValue.leading, bottom: newValue.bottom, trailing: newValue.trailing)
@@ -199,6 +204,7 @@ struct TransformHost: ViewModifier {
     var hasHeader = false
     @Environment(\.displayScale) private var displayScale
     @StateObject private var relay = ChannelRelay()
+    @State private var warm: CGFloat = 1     // `FirstUseWarm`: 1 -> 0 at appear
 
     func body(content: Content) -> some View {
         if let storage = state.storage as? ChannelStorage {
@@ -225,29 +231,45 @@ struct TransformHost: ViewModifier {
             .modifier(ContentInteractionGate(blocked: blocked))
             .modifier(ContentTransform(offset: offset, scale: scale, insets: metrics.adjustedContentInset,
                                        commit: metrics.resize, limits: state.zoomLimits, alignment: metrics.alignment.content,
-                                       paging: state.isPagingEnabled ? axes : [], probe: state.probe)
+                                       paging: state.isPagingEnabled ? axes : [], probe: state.probe, warm: warm)
                 .pinned(state.catchPinRef).tracksRest())
             .modifier(ContentShapeShift(shape: shape, committed: shape, scale: scale, insets: metrics.adjustedContentInset,
                                         commit: metrics.resize, base: metrics.shapeBase))   // D75: the drawn shape's padding (ContentShape.swift)
             .modifier(CompletionObserver(state: state))
+            .modifier(ContentHitGate(blocked: blocked))   // above the transform: no content re-configuration on a phase edge
+            .onAppear { if warm != 0 { FirstUseWarm.run { warm = 0 } } }
     }
 }
 
-/// The content's hit-testing gate (D11), in a leaf of its own: its only input is `blocked`, so its body (and with it the
+/// The content's interaction gate (D11), in a leaf of its own: its only input is `blocked`, so its body (and with it the
 /// `.disabled` environment transform it applies) runs when `blocked` flips (motion start and end), never on the transform
 /// host's per-frame evaluations. Applied inline in that body, `.disabled(blocked)` was a new environment transform on
 /// every frame of a scroll or zoom: every control in the content was laid out again on every frame, and a control in a
 /// content-integral overlay placed the overlay `Layout` (and measured its `.ideal` overlays) on every frame (27.0 under
 /// host load: 42–67 placements in a pinch, bound 2; hosted on 27.0: one per frame; 17.5: none; open item 17). One `Bool`, no
-/// padding: equal and byte-identical while unchanged (D43). The header's controls have their own gate on `.phase`
-/// (`HeaderInteractionGate`).
+/// padding: equal and byte-identical while unchanged (D43). The header's controls have their own gate: two leaves
+/// on `.phase`, `.disabled` on the header content (`HeaderInteractionGate`) and hit-testing above the header's layer
+/// group (`HeaderHitGate`), so a phase edge never re-configures the header's drawn layers (27.0). This leaf holds the
+/// content's `.disabled` half; the hit-testing half is `ContentHitGate`, above the content transform.
 struct ContentInteractionGate: ViewModifier {
     let blocked: Bool
 
     func body(content: Content) -> some View {
-        content
-            .allowsHitTesting(!blocked)
-            .disabled(blocked)
+        content.disabled(blocked)
+    }
+}
+
+/// The hit-testing half of the content's gate (D11), a leaf of its own (one `Bool`, equal and byte-identical while
+/// unchanged, D43) applied ABOVE the content transform (`TransformHost`). Inside it, the flip at a motion's start and end
+/// re-configured the content's drawn layers in that frame (17.5: the content's layer drawn 59 pt off the header for one
+/// display frame at the end of an animated zoom in `.headerFollows`; 27.0: absent from the presentation tree for one
+/// frame; cost4-T), as the header's own flip did inside its layer group (`HeaderHitGate`). Same hit area: everything
+/// between the two positions (the transform, the shape shift, the completion observer) is geometry, not content.
+struct ContentHitGate: ViewModifier {
+    let blocked: Bool
+
+    func body(content: Content) -> some View {
+        content.allowsHitTesting(!blocked)
     }
 }
 

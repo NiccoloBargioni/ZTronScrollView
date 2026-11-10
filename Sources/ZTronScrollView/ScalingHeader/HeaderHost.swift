@@ -37,6 +37,7 @@ struct HeaderHost: View {
             .background(HeaderBackgroundView(background: spec.background, copy: built))
             .modifier(HeaderSlotReader(state: state, size: spec.size, overflow: spec.overflow, fade: spec.fade,
                                        stretchContent: spec.stretchContent))
+            .modifier(HeaderHitGate(state: state))       // above the layer group: no header redraw on a phase edge
             .accessibilityElement(children: .contain)
             .accessibilitySortPriority(1)                // "precedes the content": announced before it
     }
