@@ -720,16 +720,34 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
    pre-existing, Release too, OPEN, FIX)**: first pulled frame busy 27.0 p 9.8–29.0 ms vs native `.scaleEffect` 0.2–4.5;
    17.5 3.0–8.0 vs 0.9–1.9. Round 4: both `.disabled` isEnabled flips (ContentInteractionGate, HeaderInteractionGate) fire in
    the start frame; round 5 (d76-cost5) narrows `.disabled` to isDragging (§16.11 point 1, accepted as a fix). Evidence:
-   §12.11, §15, §16, d76-cost5 `cost5-C.md`.
+   §12.11, §15, §16, d76-cost5 `cost5-C.md`. 2026-11-10 (M8b-cost-fold): cost4-T, the D11 narrowing and cost5-A are folded;
+   C2 passes on 27.0 p D/R and 17.5 D/R only WITH cost5-C's HT6, which is NOT folded (its ScrollTo row is red), and fails
+   27.0 f at n (HT6V r0 4.9 ms vs NT 4.78). The warm-up now runs in leaves of its own (F1 fix, 7a89524), not re-measured.
+   Next: round 6 (`docs/progress/M8b-cost-fold.md`).
 61. **V7: the engine-off path costs 1.0–1.5 ms per pulled frame, unchanged in Release (2026-11-08, d76-cost2, OPEN, FIX)**:
    17.5 P25 off 1.09–1.43 ms, 27.0 p 1.08–1.45 (SwiftUI graph of the header chrome); V7-S / V7-G cut 0.03–0.10. The user's
    bar: total per-frame cost ≤ native. Evidence: §13, `d76-cost2/cost2-F.md`, `d76-cost3/cost3-O.md`.
 62. **The scaling header's appear costs 1.6–2.0× native (2026-11-09, d76-cost4, OPEN, FIX)**: measured on 27.0 and 17.5 in
-   round 4; round 5's cost5-A spike targets it. Evidence: §16, `d76-cost5/cost5-A.md`.
+   round 4; round 5's cost5-A spike targets it. Evidence: §16, `d76-cost5/cost5-A.md`. 2026-11-10 (M8b-cost-fold):
+   cost5-A's cuts are folded (0d796b1) and the appear still FAILS vs native on every lane measured (27.0 p D cold zt 66.3 vs
+   31.1 ms, cold zth 68.6 vs 32.2; 17.5 D cold zt 36.9 vs 34.8, zth 57.1 vs 39.0; 27.0 f unmeasured): the gap is first-use
+   instantiation of the container's distinct types, and closing it needs them cut by about 3-4x (a restructuring, not a cut).
 63. **Unclassed, re-check: C6 and B1 (2026-11-07, D76 gap-V / gap-B, OPEN)**: C6 = 17.5 `header.builder` runs twice at
    launch in 4 of 32 launches, engine on and off (0 of 48 on 27.0); next: a native `ScrollView` with the same header
    counting its body runs over 32 launches. B1 = D69's bitmap at s 1.08 differed between launches once, not reproduced
    (0 px in 9 launches). Evidence: §12.11.
+64. **An app's appear-time animated `scroll(to:)` under a scaling header is dropped (2026-11-10, M8b-cost-fold, pre-existing,
+   OPEN, FIX)**: `.onAppear { withAnimation(.linear(duration: 1.2)) { s.scroll(to: (0, 600)) } }` on a
+   `.withScalingHeader(size: .fixed(min: 64, max: 240))` view: the drawn content stays at rest (content top 302 at every
+   frame), phase idle at 0.6 s, both paths, 27.0, on the tip 4e47af8, 0d796b1 and 1f11bfb. Without a header the same idiom
+   animates (FirstUseWarmTests). Native: a ScrollView's appear-time scrollTo runs. Next: trace the target through the
+   header's first resolution (likely re-based to the start edge). Evidence: side-session `d76-fold/` f1-tip / f1-head / f1b.
+65. **Order-dependent header rows in full and partial runs (2026-11-10, M8b-cost-fold, OPEN)**:
+   `HeaderStretchScaleTests.aStretchHoldKeepsTheScaleAcrossAnAnimatedWidthChange` `.keepTextSize` red in 2-suite runs on
+   27.0 (0d796b1 both paths, 7a89524 preferred; seam 90 pt, lateral 80 pt) and green alone on the tip, 0ce0213, 6dfc6f4 and in
+   both full runs at 1f11bfb; `HeaderStretchContentTests.aSwitchDuringAFingerPullKeepsTheSeam` p (4 unsynced vs 3) and
+   `HeaderFittingContentTests.aStretchingHeaderFollowsRowChangesAcrossTheKink` p `.keepTextSize` (19 moving frames vs 20) red
+   in the 17.5 full run, 41/41 alone on 1f11bfb and on 0d796b1. Next: find the shared state, as item 54.
 
 ## Decisions (keep)
 - D1 Naming map in CLAUDE.md (ZoomScroll → ZTronScroll, `ztronScroll…` modifiers; matches ZTronPages' `ztronPage()`).
@@ -1386,3 +1404,4 @@ Xcode 27.0 (27A266a), Swift 6.4, macOS 27, 8 cores / 24 GB (≤ 2 simulators at 
 | 2026-11-09 | Opus 5.5 workflow subagent (M8b-s8 fixer r1) | C-F1 D79 window closes at the drawn rest (16e484f); C-F3 / C-F4 obscuredDelta at `o′ − L` past the band + lift doc (2da5dc7); C-F2 shape remainder kept across a resize opening mid-animation (65df4f4); SPEC S9 / S10 amendments. NOT fixed: S-REV-S8-1 → open item 47 (27.0 lab 159 pt lateral; hosted narrowing test as known issue, measured facts + bisect plan), S-REV-S8-2 → open item 48 (17.5 kbreal +17 pt; no free UI lane). Item 44 pre-existing; 43 / 46 not attempted. Unit 95 tests / 10 suites: 17.5 green, 27.0 green at low load (5 frame-count failures at load 285–480 pass alone). Full 27.0 suite 926 / 89: only item 44, load-sensitive frame counts and a pre-existing order-dependent RefreshRetractTests case. Demo UI and the 3-lane lab NOT run (UI lock held by UIKITPAN-s4 > 2 h). Handoff `docs/progress/M8b-s8.md` | — |
 | 2026-11-09 | Opus 5.5 workflow subagent (M8b-s8 fixer r2) | R1-RC1-1 / -2 / -3 fixed (5a10e38): a resize's reflow moves the content shape's plain base (`ScrollMetrics.shapeBase`), never the shape effects' animatable data (27.0 cancelled the rows animation in flight: 0.72 / 1.0 of the change in one frame); `TurnOrigin.shapeAnimated` ends the C-F2 double count (+145 pt hosted). R1-RC1-4 = open item 47 fixed (a3f190c): the stretch lift memo strips the layout animation with `.animation(nil, value: jumps)` instead of a retained `.transaction` closure, never while a resize is open. Seam lab `rtw<s>` extra (b1a4a13). Lab at HEAD: rtw / width / ksize / ksize-text lateral ≤ 0.67, steps ≤ 0.27 of the change on 27.0, forced, 17.5 (were 155–159 pt, 0.72 / 1.0). Unit touched set 113 / 12 suites green on 27.0 + 17.5; demo UI Header + Resize 32/32 × 3 lanes. Item 46 rotation unchanged. Handoff `docs/progress/M8b-s8.md` | — |
 | 2026-11-09 | Opus 5.5 workflow subagent (M8b-s8 closer) | batch M8b-s8 closed at fc44000 + docs: D75 / D76 built (API + grow case; `.keepTextMagnified` crisp path → M8b-s9), D78–D80 built, D77 ruled (M8b-s9); items 15 (b), 27 (instant / delay), 28 (grow), 31, 32, 33, 41, 47 FIXED, 34 closed; new open items 35 (trigger stall) and 49–54 (recheck 2's RC2-1–5, order-dependent refresh test); handoff `docs/progress/M8b-s8.md` (closer section: designs, plan, steps, findings, suites, per-item numbers, real 15/16 checklist, merge notes), SPEC S10 note, STATE row, parity rows 35 / 40 / 43. No suite re-run (last full runs at ee0eaed). | not measured |
+| 2026-11-10 | Opus 5.5 workflow subagent (M8b-cost-fold fixer and closer) | D76 cost rounds' tip line folded: cost4-T (0ce0213), D11 narrowed to `.disabled` only while dragging (6dfc6f4, ruling 16.11.1), cost5-A (0d796b1); fold review F1 FIXED (7a89524: the first-use warm-up in leaves of its own; an appear-time animated `scroll(to:)` was drawn at once, FirstUseWarmTests), F3 FIXED (1f11bfb: `InteractionGate` predicates), F5 message count only (14 classes, not 13). NOT folded: HT6 (red ScrollTo row), the engine. Hosted full at 1f11bfb: 27.0 933 tests, 34 issues (11 known): 44, 54, parallax, rowChangeTicks stall; 17.5 933, 24 issues (8 known): 44, 54, rowChangeTicks, two order-flaky rows (item 65). Demo UI full (207 per lane): 27.0 0 failures, 17.5 the 2 known (pager, testControlsUsable), 27.0 forced 0. New items 64, 65; handoff `docs/progress/M8b-cost-fold.md` | |
