@@ -688,6 +688,71 @@ struct RefreshIndicatorTests {
         unhost(w)
     }
 
+    // MARK: hooks without an indicator host (cost5-A)
+
+    /// The front slot's hooks hang on a leaf that always exists: a container with reach-edge twins and no refresher (so no
+    /// indicator host) still runs them at appear. Its watchers register and fire at the edge, and the announcer is
+    /// installed with the pan's coordinator (the same hook).
+    @Test(arguments: OSPath.allCases) func aReachOnlyContainerRunsTheRefreshHooks(path: OSPath) {
+        let s = makeState(path)
+        let counts = BodyCount()
+        final class Hits { var n = 0 }
+        let hits = Hits()
+        let w = withOSPath(path) {
+            host(ZTronScrollView(.vertical, state: s) { StatefulContent(counts: counts) }
+                .onZTronScrollReachEdge(.bottom, threshold: 10) { hits.n += 1 })
+        }
+        pump(0.3)
+        let refresh = try! #require(s.refresh)
+        #expect(refresh.specs.isEmpty, "no refresher")
+        #expect(refresh.announce != nil, "the appear hook ran")
+        #expect(s.reachEdgeWatchers.count == 1 && s.reachEdgeWatchers[0].edge == .bottom)
+        #expect(hits.n == 0, "the top of the content is not its bottom")
+        s.setContentOffset(CGPoint(x: 0, y: 2000), animated: false)   // past the end of 1000 pt of content
+        pump(0.1)
+        #expect(hits.n == 1, "the watcher fires at the bottom")
+        unhost(w)
+    }
+
+    final class RefresherSwitch: ObservableObject {
+        @Published var on = false
+    }
+
+    struct GainsARefresher: View {
+        @ObservedObject var model: RefresherSwitch
+        let state: ZTronScrollState
+        let counts: BodyCount
+
+        var body: some View {
+            let view = ZTronScrollView(.vertical, state: state) { StatefulContent(counts: counts) }
+            return model.on ? view.refresher { } : view   // one type: the container keeps its identity
+        }
+    }
+
+    /// A container that gains a refresher after its first appearance: the hooks ran at that appearance (no indicator host
+    /// then), the new signature applies the spec, and the pan feeds the engine (a state-driven pull reaches `.pulling`).
+    @Test(arguments: OSPath.allCases) func aContainerThatGainsARefresherLaterIsWiredToThePan(path: OSPath) {
+        let s = makeState(path)
+        let counts = BodyCount()
+        let model = RefresherSwitch()
+        let w = withOSPath(path) { host(GainsARefresher(model: model, state: s, counts: counts)) }
+        pump(0.3)
+        let refresh = try! #require(s.refresh)
+        #expect(refresh.specs.isEmpty && refresh.announce != nil, "wired at appear without a refresher")
+        model.on = true
+        pump(0.3)
+        #expect(Set(refresh.specs.keys) == [.top], "the change hook applied the new refresher")
+        let rest = -s.adjustedContentInset.top
+        s.beginTracking()
+        s.beginDragging()
+        s.writeDragOffset(CGPoint(x: 0, y: rest - 40))
+        s.flushPendingScroll()
+        #expect(refresh.states[.top]?.mode == .pulling, "the pan samples the engine: \(String(describing: refresh.states[.top]))")
+        s.endTracking()
+        refresh.cancelAll()
+        unhost(w)
+    }
+
     @Test(arguments: OSPath.allCases) func theHolderReconcilesWatchersInPlace(path: OSPath) {
         let s = makeState(path)
         let holder = RefreshHolder(state: s)

@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import ZTronScrollPhysics
 
 /// One refresher as the coordinator runs it: its look, its tunables and what it starts (resolved by the refresher API,
@@ -49,6 +50,10 @@ final class DoneToken: @unchecked Sendable {
 /// visible time on a one-shot timer. The container owns it next to the `PanCoordinator` (M8b-2); the pan feeds it.
 @MainActor
 final class RefreshCoordinator: ObservableObject {
+    /// Stored (cost4-A): the synthesized `objectWillChange` reflects over every stored property for `@Published` fields
+    /// (one first-use conformance lookup per field type at the first appearance); this class has none.
+    nonisolated(unsafe) let objectWillChange = ObservableObjectPublisher()
+
     let state: ZTronScrollState
     private(set) var specs: [Edge: RefresherSpec] = [:]
     private(set) var engines: [Edge: RefreshEngine] = [:]

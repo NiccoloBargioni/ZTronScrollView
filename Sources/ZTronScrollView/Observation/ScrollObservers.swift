@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 // Observation modifiers (SPEC S8-2, design M7 §2). Each exists as a member of `ZTronScrollView` returning `Self` (binds to
 // that view only) and as an `onZTronScroll…` `View` twin carried by the environment (binds to every `ZTronScrollView` below
@@ -20,6 +21,10 @@ struct ObserverDescriptor {
 /// The boxes of one container, by descriptor key across the parent's re-evaluations (cold, never observed).
 @MainActor
 final class ObserverStore: ObservableObject {
+    /// Stored (cost4-A): the synthesized `objectWillChange` reflects over every stored property for `@Published` fields
+    /// (one first-use conformance lookup per field type at the first appearance); this class has none.
+    nonisolated(unsafe) let objectWillChange = ObservableObjectPublisher()
+
     private var boxes: [AnyHashable: ObserverBox] = [:]
 
     func boxes(for descriptors: [ObserverDescriptor]) -> [ObserverBox] {

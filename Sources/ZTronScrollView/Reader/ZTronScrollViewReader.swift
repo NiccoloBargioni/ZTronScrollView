@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 /// How a programmatic scroll animates when the caller names it (design M6 §2): `.uikit` is `setContentOffset(_:animated:)`'s
 /// curve on the state clock, `.swiftUI` runs through the transaction path (the effect interpolates the target), and
@@ -16,6 +17,10 @@ public enum ZTronScrollAnimation: Equatable {
 /// comes after the ones that have one, in appear order.
 @MainActor
 final class ProxyScope: ObservableObject, Equatable {
+    /// Stored (cost4-A): the synthesized `objectWillChange` reflects over every stored property for `@Published` fields
+    /// (one first-use conformance lookup per field type at the first appearance); this class has none.
+    nonisolated(unsafe) let objectWillChange = ObservableObjectPublisher()
+
     private struct WeakScope { weak var scope: ProxyScope? }
 
     private(set) var members: [ZTronScrollState] = []

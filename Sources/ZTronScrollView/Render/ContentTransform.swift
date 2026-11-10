@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import ZTronScrollPhysics
 
 /// Pixel snapping (the alignment padding and visible center live in `ResizeMath`).
@@ -324,6 +325,10 @@ struct ContentLayerGroup: ViewModifier {
 /// (`ContentLayerGroup`) and the refresh indicator box's (`RefreshIndicatorGroup`). DEBUG: the decision in the render
 /// counters' notes under `note`.
 final class GroupLatch: ObservableObject {
+    /// Stored (cost4-A): the synthesized `objectWillChange` reflects over every stored property for `@Published` fields
+    /// (one first-use conformance lookup per field type at the first appearance); this class has none.
+    let objectWillChange = ObservableObjectPublisher()
+
     private var value: Bool?
     private let note: String
 

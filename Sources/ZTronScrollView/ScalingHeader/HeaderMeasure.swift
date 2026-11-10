@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 /// `.fit`'s natural height (SPEC S10 "Natural height", design M8b §2.6): the header's ideal height at the viewport width,
 /// measured directly (never from the height on screen, which would feed back) and reported to the state, where a change
@@ -37,6 +38,10 @@ struct HeaderMeasure: ViewModifier {
 /// are not a resize (a header content change). Dedupes; never publishes.
 @MainActor
 final class HeaderNaturalReporter: ObservableObject {
+    /// Stored (cost4-A): the synthesized `objectWillChange` reflects over every stored property for `@Published` fields
+    /// (one first-use conformance lookup per field type at the first appearance); this class has none.
+    nonisolated(unsafe) let objectWillChange = ObservableObjectPublisher()
+
     private weak var state: ZTronScrollState?
     /// The frame leaf's last followed header offset (`HeaderLiveInput.offset`), held while a resize is open. Plain storage
     /// (never published): the leaf's body writes it.

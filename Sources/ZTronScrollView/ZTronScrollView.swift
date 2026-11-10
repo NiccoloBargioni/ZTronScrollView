@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import ZTronScrollPhysics
 
 /// Pure-SwiftUI scroll view. M2: render path only (offset / zoom transform, frame clock, programmatic commands);
@@ -67,6 +68,10 @@ extension ZTronScrollView {
 /// Owns the state created by `init(_:showsIndicators:content:)`; created once per view identity.
 @MainActor
 final class StateHolder: ObservableObject {
+    /// Stored (cost4-A): the synthesized `objectWillChange` reflects over every stored property for `@Published` fields
+    /// (one first-use conformance lookup per field type at the first appearance); this class has none.
+    nonisolated(unsafe) let objectWillChange = ObservableObjectPublisher()
+
     let state = ZTronScrollState()
 }
 
@@ -141,6 +146,9 @@ struct ScrollContainer<Content: View>: View {
         // D80: the refresh slot behind the content, only on the path without layer groups (the state's flag, fixed for its
         // life: 17+ build the tree without it).
         let refreshBehind = !state.usesGeometryGroup
+        // cost4-A: the header slots from the first evaluation with a header on (`headerSlotsAttached`).
+        if header != nil { state.headerSlotsAttached = true }
+        let headerSlots = state.headerSlotsAttached
         return content
             // `.slideBehind(backdrop:)` (D68): the color behind the content, in content space (under the transform and the
             // content-integral overlays: it moves with the content and covers exactly its rect, so a `.slideBehind` header
@@ -179,11 +187,13 @@ struct ScrollContainer<Content: View>: View {
             // it (the content's hit area is its own drawn frame). Both slots are always attached; `HeaderOverlay` shows
             // the header in the one of its mode.
             .background(alignment: .top) {
-                HeaderOverlay(spec: header, state: state, behind: true)
-                    .ignoresSafeArea(.all, edges: edges.subtracting([.top, .bottom]))
-                    .ignoresSafeArea(.keyboard, edges: .bottom)
-                    .modifier(HeaderLiftHost(state: state, axes: axes, viewportSized: false, slot: .headerBehind,
-                                             active: header?.collapse.kind.isSlideBehind == true))   // D75 lift
+                if headerSlots {
+                    HeaderOverlay(spec: header, state: state, behind: true)
+                        .ignoresSafeArea(.all, edges: edges.subtracting([.top, .bottom]))
+                        .ignoresSafeArea(.keyboard, edges: .bottom)
+                        .modifier(HeaderLiftHost(state: state, axes: axes, viewportSized: false, slot: .headerBehind,
+                                                 active: header?.collapse.kind.isSlideBehind == true))   // D75 lift
+                }
             }
             // Scaling header (M8b-3), attached AFTER `.ignoresSafeArea`: SwiftUI places its slot's top edge at the safe-area
             // top in the same layout pass as the container size (no state, so a rotation or an animated resize moves it with
@@ -198,11 +208,13 @@ struct ScrollContainer<Content: View>: View {
             // D75 `.headerFollows`: the lift (`HeaderLiftHost`, `ScalingHeader/HeaderLift.swift`) moves the slot's header
             // onto fitting content's top edge, the content's padding term for term; identity on a view that never lifts.
             .overlay(alignment: .top) {
-                HeaderOverlay(spec: header, state: state)
-                    .ignoresSafeArea(.all, edges: edges.subtracting([.top, .bottom]))
-                    .ignoresSafeArea(.keyboard, edges: .bottom)
-                    .modifier(HeaderLiftHost(state: state, axes: axes, viewportSized: false, slot: .headerFront,
-                                             active: header.map { !$0.collapse.kind.isSlideBehind } ?? false))
+                if headerSlots {
+                    HeaderOverlay(spec: header, state: state)
+                        .ignoresSafeArea(.all, edges: edges.subtracting([.top, .bottom]))
+                        .ignoresSafeArea(.keyboard, edges: .bottom)
+                        .modifier(HeaderLiftHost(state: state, axes: axes, viewportSized: false, slot: .headerFront,
+                                                 active: header.map { !$0.collapse.kind.isSlideBehind } ?? false))
+                }
             }
             // Above the header (z-order contract), in the viewport's own frame again, so their metric coordinates hold.
             .overlay(RefreshOverlay(state: state, pan: coordinator, holder: refreshHolder, axes: axes,
@@ -220,18 +232,60 @@ struct ScrollContainer<Content: View>: View {
             .modifier(PanGestureAdapter(coordinator: coordinator, axes: axes, doubleTap: doubleTap ?? envDoubleTap,
                                         nestedPolicy: nestedPolicy))
             .modifier(ObserverRegistration(state: state, boxes: observerBoxes))
-            .onAppear { state.zoomLimits = effectiveLimits }
             .modifier(PositionTicket(ticket: ticket))
             .modifier(PositionTicket(ticket: alignmentTicket))   // D75: see `alignmentTicket` above
             .transaction { state.positionDriver.noteTransaction($0) }
-            .onAppear { state.positionDriver.receive(position) }
-            .onChangeCompat(of: position) { state.positionDriver.receive($0) }
-            .onAppear { proxyScope?.attach(state) }
+            .modifier(ContainerHooks(state: state, proxyScope: proxyScope,
+                                     values: .init(position: position, limits: effectiveLimits, sizing: sizing,
+                                                   anchor: alignmentAnchor)))
+    }
+}
+
+/// The container's appear / disappear / change hooks in one modifier (cost4-A). They were five `onAppear`, one
+/// `onDisappear` and four `onChangeCompat` stacked on the container's chain: every one a new wrapper type over the whole
+/// chain (an `onChangeCompat` also an `AnyView` of it on 17+), each one first-use conformance lookups at the first
+/// appearance. Same actions, same order: SwiftUI runs stacked `onAppear` (and `onChange`) actions inner first (27.0,
+/// 17.5), so the merged appear runs them as they were stacked, and a change runs the changed values' actions in their
+/// stacking order (position, zoom limits, header sizing, alignment anchor). The values a change compares against are the
+/// ones the last appear or change saw (`ContainerHookValues.Box`), on every OS.
+struct ContainerHooks: ViewModifier {
+    let state: ZTronScrollState
+    let proxyScope: ProxyScope?
+    let values: ContainerHookValues
+    @State private var last = ContainerHookValues.Box()
+
+    func body(content: Content) -> some View {
+        let state = state, proxyScope = proxyScope, values = values, last = last
+        return content
+            .onAppear {
+                last.value = values
+                state.zoomLimits = values.limits
+                state.positionDriver.receive(values.position)
+                proxyScope?.attach(state)
+                state.headerSpecChanged()
+                state.alignmentChanged()
+            }
             .onDisappear { proxyScope?.detach(state) }
-            .onChangeCompat(of: effectiveLimits) { state.zoomLimits = $0 }
-            .onAppear { state.headerSpecChanged() }
-            .onChangeCompat(of: sizing) { _ in state.headerSpecChanged() }
-            .onAppear { state.alignmentChanged() }
-            .onChangeCompat(of: alignmentAnchor) { _ in state.alignmentChanged() }
+            .onChangeCompat(of: values) { new in
+                let old = last.value
+                last.value = new
+                if old?.position != new.position { state.positionDriver.receive(new.position) }
+                if old?.limits != new.limits { state.zoomLimits = new.limits }
+                if old?.sizing != new.sizing { state.headerSpecChanged() }
+                if old?.anchor != new.anchor { state.alignmentChanged() }
+            }
+    }
+}
+
+/// What `ContainerHooks` watches.
+struct ContainerHookValues: Equatable {
+    var position: ZTronScrollPosition?
+    var limits: ZoomLimits
+    var sizing: HeaderSizing?
+    var anchor: UnitPoint?
+
+    /// The values the last appear or change saw (never published).
+    final class Box {
+        var value: ContainerHookValues?
     }
 }

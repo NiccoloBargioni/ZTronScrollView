@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import ZTronScrollPhysics
 
 // Refresh indicators (SPEC S9, design M8b §1.3): chrome leaves in the viewport overlay, on `ChromeLeaf`. During a pull only
@@ -211,6 +212,10 @@ extension RefreshIndicatorMath {
 /// publishes: holding it as a `@StateObject` keeps the objects alive without making any view observe them.
 @MainActor
 final class RefreshHolder: ObservableObject {
+    /// Stored (cost4-A): the synthesized `objectWillChange` reflects over every stored property for `@Published` fields
+    /// (one first-use conformance lookup per field type at the first appearance); this class has none.
+    nonisolated(unsafe) let objectWillChange = ObservableObjectPublisher()
+
     let coordinator: RefreshCoordinator
     /// The resolved refreshers of the latest evaluation; actions are read from here at trigger time, so a parent
     /// re-evaluation with a new closure never needs to rebuild an engine.
@@ -260,7 +265,7 @@ final class RefreshHolder: ObservableObject {
     }
 }
 
-private struct ReachSignature: Equatable {
+struct ReachSignature: Equatable {
     var edge: Edge
     var threshold: CGFloat
 }
@@ -289,7 +294,7 @@ struct RefreshOverlay: View {
     @ViewBuilder var body: some View {
         let resolved = resolve()
         if layer == .behind {
-            RefreshIndicatorsHost(coordinator: holder.coordinator, state: state, specs: resolved, layer: .behind)
+            RefreshHostSlot(coordinator: holder.coordinator, state: state, specs: resolved, layer: .behind)
                 .allowsHitTesting(false)
         } else {
             front(resolved)
@@ -305,11 +310,36 @@ struct RefreshOverlay: View {
     private func front(_ resolved: [Edge: RefresherSpec]) -> some View {
         holder.latest = resolved
         holder.reach = reachDecls
-        let signature = RefreshResolver.signature(resolved)
-        let reach = reachDecls.map { ReachSignature(edge: $0.edge, threshold: $0.threshold) }
-        return RefreshIndicatorsHost(coordinator: holder.coordinator, state: state, specs: resolved)
-            .allowsHitTesting(false)
+        let values = RefreshHookValues(signature: RefreshResolver.signature(resolved),
+                                       reach: reachDecls.map { ReachSignature(edge: $0.edge, threshold: $0.threshold) })
+        // The hooks hang on a leaf that always exists (cost5-A): the host slot below is empty without a refresher, and an
+        // empty view never appears, so a reach-only container (or one that gains a refresher later) would never wire the
+        // pan, the announcer or its reach-edge watchers.
+        return ZStack {
+            Color.clear   // the slot's own frame (the host below fills it too), drawing and hit-testing nothing
+                .modifier(RefreshHooks(state: state, pan: pan, holder: holder, values: values))
+            RefreshHostSlot(coordinator: holder.coordinator, state: state, specs: resolved)
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+/// The front slot's appear / disappear / change hooks in one modifier (cost5-A, as `ContainerHooks`): they were one
+/// `onAppear`, one `onDisappear` and two stacked `onChangeCompat` (each a wrapper type, on 17+ an `AnyView` too). Same
+/// actions, same order: a change runs `apply()` for a new refresher signature, then `syncReach` for new reach
+/// declarations, as the stacked chain did (inner first); the values a change compares against are the last ones seen.
+struct RefreshHooks: ViewModifier {
+    let state: ZTronScrollState
+    let pan: PanCoordinator
+    let holder: RefreshHolder
+    let values: RefreshHookValues
+    @State private var last = RefreshHookValues.Box()
+
+    func body(content: Content) -> some View {
+        let state = state, pan = pan, holder = holder, values = values, last = last
+        return content
             .onAppear {
+                last.value = values
                 pan.refresh = holder.coordinator
                 holder.coordinator.announce = RefreshAccessibility.announce
                 holder.apply()
@@ -319,8 +349,23 @@ struct RefreshOverlay: View {
                 holder.coordinator.cancelAll()
                 holder.removeReachWatchers(state: state)
             }
-            .onChangeCompat(of: signature) { _ in holder.apply() }
-            .onChangeCompat(of: reach) { _ in holder.syncReach(state: state) }
+            .onChangeCompat(of: values) { new in
+                let old = last.value
+                last.value = new
+                if old?.signature != new.signature { holder.apply() }
+                if old?.reach != new.reach { holder.syncReach(state: state) }
+            }
+    }
+}
+
+/// What `RefreshHooks` watches.
+struct RefreshHookValues: Equatable {
+    var signature: [Edge: RefreshResolver.Signature]
+    var reach: [ReachSignature]
+
+    /// The values the last appear or change saw (never published).
+    final class Box {
+        var value: RefreshHookValues?
     }
 }
 
@@ -350,6 +395,24 @@ enum RefreshLayerMath {
 /// Observes the coordinator (cold values that change per frame only during a pull) and lays out one leaf per active edge
 /// plus the accessibility elements. The haptic rides on the trigger serial. D80: the `.behind` slot's host lays out the
 /// leaves only (the front one carries the accessibility elements and the haptic, once).
+/// The indicators' host, only while a refresher is resolved (cost4-A). Without one the host draws nothing and holds no
+/// state (its leaves need a spec; the haptic fires on a trigger change only), so leaving it out changes nothing drawn; it
+/// keeps its subtree's view types (indicator leaves, haptic, accessibility elements) off a container's first appearance:
+/// building them there costs one first-use conformance lookup per type (about 50 on 27.0). A refresher resolved later
+/// installs the host in the same update that resolves it.
+struct RefreshHostSlot: View {
+    let coordinator: RefreshCoordinator
+    let state: ZTronScrollState
+    let specs: [Edge: RefresherSpec]
+    var layer: RefreshLayer = .front
+
+    var body: some View {
+        if !specs.isEmpty {
+            RefreshIndicatorsHost(coordinator: coordinator, state: state, specs: specs, layer: layer)
+        }
+    }
+}
+
 struct RefreshIndicatorsHost: View {
     @ObservedObject var coordinator: RefreshCoordinator
     let state: ZTronScrollState
@@ -520,6 +583,10 @@ struct RefreshEdgeIndicator: View {
 /// the gap on the screen). Otherwise it builds it again, as before (every other rig phase unchanged). Never publishes.
 @MainActor
 final class BuiltRefreshIndicator: ObservableObject {
+    /// Stored (cost4-A): the synthesized `objectWillChange` reflects over every stored property for `@Published` fields
+    /// (one first-use conformance lookup per field type at the first appearance); this class has none.
+    nonisolated(unsafe) let objectWillChange = ObservableObjectPublisher()
+
     private var last: (view: AnyView, state: ZTronRefreshState)?
 
     func view(reuse: Bool, state: ZTronRefreshState, build: () -> AnyView) -> AnyView {
@@ -542,6 +609,10 @@ final class BuiltRefreshIndicator: ObservableObject {
 /// reaches the trigger switches with nothing to animate (the same place and opacity 1: open item 31). Never publishes.
 @MainActor
 final class RefreshLookSwitch: ObservableObject {
+    /// Stored (cost4-A): the synthesized `objectWillChange` reflects over every stored property for `@Published` fields
+    /// (one first-use conformance lookup per field type at the first appearance); this class has none.
+    nonisolated(unsafe) let objectWillChange = ObservableObjectPublisher()
+
     struct Look: Equatable {
         /// The weight's target, flipped by every switch.
         var target: CGFloat = 1
@@ -692,6 +763,10 @@ nonisolated final class RefreshTransactionStash: @unchecked Sendable {
 /// The decision is made once per change and repeated only for the same values (a body run twice). Never publishes.
 @MainActor
 final class RefreshBaseFollow: ObservableObject {
+    /// Stored (cost4-A): the synthesized `objectWillChange` reflects over every stored property for `@Published` fields
+    /// (one first-use conformance lookup per field type at the first appearance); this class has none.
+    nonisolated(unsafe) let objectWillChange = ObservableObjectPublisher()
+
     private var last: (base: CGFloat, edge: CGFloat)?
     private var decided: (serial: UInt64, base: CGFloat, pull: CGFloat, animation: Animation?)?
 

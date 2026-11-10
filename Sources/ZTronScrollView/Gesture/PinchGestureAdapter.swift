@@ -6,13 +6,14 @@ import ZTronScrollPhysics
 /// `PinchEvent`s for the coordinator. Pinches never ask the arbiter. No logic here.
 enum PinchGestureAdapter {
     /// DEBUG launch argument `-ZTronPinchCentroid startOnly|dragFollow` (iOS 15-17 estimate comparison, M4-s2).
-    static var dragFollow: Bool {
+    /// Read once per process (the pan's change handler reads it per event).
+    static let dragFollow: Bool = {
         #if DEBUG
         let args = ProcessInfo.processInfo.arguments
         if let i = args.firstIndex(of: "-ZTronPinchCentroid"), i + 1 < args.count { return args[i + 1] != "startOnly" }
         #endif
         return true
-    }
+    }()
 
     @MainActor
     static func gesture(coordinator: PanCoordinator, observer: CatchObserverState) -> AnyGesture<Void> {

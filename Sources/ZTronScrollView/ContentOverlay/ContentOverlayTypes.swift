@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 // Content-integral overlay (SPEC S11 amendment 2026-10-21 (user), design M6b §1–§3): a view laid out in the unscaled
 // content space, under the transform, so it scrolls and zooms with the content like a marker drawn on a map. Placement
@@ -377,6 +378,10 @@ struct ContentOverlayEquality {
 /// The host's memory of the `Equatable` overlays it drew: per key, the value and the erased view shown for it.
 @MainActor
 final class ContentOverlayViewCache: ObservableObject {
+    /// Stored (cost4-A): the synthesized `objectWillChange` reflects over every stored property for `@Published` fields
+    /// (one first-use conformance lookup per field type at the first appearance); this class has none.
+    nonisolated(unsafe) let objectWillChange = ObservableObjectPublisher()
+
     private var entries: [AnyHashable: (value: Any, view: AnyView)] = [:]
 
     /// `decls` with every `Equatable` overlay whose value is `==` to the one shown under the same key carrying the

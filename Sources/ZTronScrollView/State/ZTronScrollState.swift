@@ -96,6 +96,10 @@ public final class ZTronScrollState {
     }
     /// The anchor's cold value (the container's body writes it; `alignmentChanged()` reads it).
     var alignmentAnchorCold: UnitPoint?
+    /// cost4-A: the container's header slots (`HeaderOverlay` with its lift) are attached from the first evaluation that
+    /// has a header and kept from then on (a cold latch, written by the container's body, never published). Before that
+    /// they drew nothing; leaving them out keeps their view types off a header-less container's first appearance.
+    var headerSlotsAttached = false
     private var alignmentTicketKey: AlignmentKey?
     private var alignmentTicketValue: Double = 0
     /// Keeps a `scrollPosition` binding and this view in step (M6 s3); cold.

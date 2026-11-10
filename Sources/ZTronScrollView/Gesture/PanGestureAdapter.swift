@@ -1,19 +1,21 @@
 import SwiftUI
+import Combine
 import ScrollArbitration
 
 /// How the pan and the observer attach to the viewport. The default is chosen empirically per OS (design §8).
 enum PanGestureMode: String {
     case gesture, simultaneous, high
 
-    /// DEBUG launch argument `-ZTronPanGestureMode <gesture|simultaneous|high>`.
-    static var current: PanGestureMode {
+    /// DEBUG launch argument `-ZTronPanGestureMode <gesture|simultaneous|high>`. Read once per process: every
+    /// adapter init reads it, and bridging argv on each one was first-appear work (cost5-A).
+    static let current: PanGestureMode = {
         #if DEBUG
         let args = ProcessInfo.processInfo.arguments
         if let i = args.firstIndex(of: "-ZTronPanGestureMode"), i + 1 < args.count,
            let m = PanGestureMode(rawValue: args[i + 1]) { return m }
         #endif
         return .simultaneous
-    }
+    }()
 }
 
 /// Thin SwiftUI layer: builds the gestures, forwards `PanEvent`s to the coordinator. No logic.
@@ -190,6 +192,10 @@ struct NativeEnabledBridge: ViewModifier {
 
 /// Arming state of the fallback catch observer (iOS < 18); publishes only when `isArmed` flips.
 final class CatchArming: ObservableObject, @unchecked Sendable {
+    /// Stored (cost4-A): the synthesized `objectWillChange` reflects over every stored property for `@Published` fields
+    /// (one first-use conformance lookup per field type at the first appearance); this class has none.
+    let objectWillChange = ObservableObjectPublisher()
+
     private(set) var isArmed = false
     private var moving = false
 

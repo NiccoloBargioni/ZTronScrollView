@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 // Scroll indicators (SPEC S6 "Also", S8 "Indicators", design M8-chrome §2; the exemplar of the M8 slice).
 // The thumbs are leaves in the viewport overlay (`ChromeLeaf`): they re-render every frame of motion and never re-evaluate
@@ -253,8 +254,14 @@ enum IndicatorResolution {
 /// frame clock, no polling; one one-shot timer per deadline (the refresh coordinator's pattern, tests fire it by hand).
 @MainActor
 final class IndicatorController: ObservableObject {
+    /// Stored (cost4-A): with a `@Published` property the synthesized `objectWillChange` reflects over every stored
+    /// property (one first-use conformance lookup per field type at the first appearance); `isShown` sends by hand,
+    /// before the change, as `@Published` does.
+    nonisolated(unsafe) let objectWillChange = ObservableObjectPublisher()
     /// The opacity target of the `.automatic` thumbs. Changes at most a few times per interaction.
-    @Published private(set) var isShown = false
+    private(set) var isShown = false {
+        willSet { objectWillChange.send() }
+    }
 
     /// Clock for the deadlines; the host sets it to the state's clock.
     var now: @MainActor () -> TimeInterval = { Date().timeIntervalSinceReferenceDate }

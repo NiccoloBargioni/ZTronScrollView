@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import ZTronScrollPhysics
 import ScrollArbitration
 
@@ -14,6 +15,10 @@ struct PanSettings: Equatable {
 /// arbitration participant; here `askOwner` is a pass-through (we are always the participant).
 @MainActor
 final class PanCoordinator: ObservableObject {
+    /// Stored (cost4-A): the synthesized `objectWillChange` reflects over every stored property for `@Published` fields
+    /// (one first-use conformance lookup per field type at the first appearance); this class has none.
+    nonisolated(unsafe) let objectWillChange = ObservableObjectPublisher()
+
     let state: ZTronScrollState
     var axes: Axis.Set
     var settings = PanSettings()
