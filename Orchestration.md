@@ -746,8 +746,9 @@ header behaviors review, 2026-11-02), and a `.fit` header inside the band steps 
 - D9 `onGeometryChange`: iOS 16 for the `(newValue)` overload only; `(old, new)` is iOS 18.
 - D10 Render path: transform host wakes only on the `.target` channel (presentation writes never wake it); the
   fallback layout host uses `Color.clear.overlay(alignment: .topLeading)`, not a flexible frame.
-- D11 Content hit-testing gate = `allowsHitTesting(false)` **and** `.disabled(true)` while moving without a finger,
-  dragging or catch-locked (`allowsHitTesting` alone doesn't cancel an in-progress Button press).
+- D11 Content and header interaction gate = `allowsHitTesting(false)` while moving without a finger or dragging;
+  `.disabled(true)` only while dragging (`allowsHitTesting` alone doesn't cancel an in-progress Button press; narrowed by
+  ruling 16.11.1, 2026-11-09: no disabled state during a deceleration or an app animation, as native).
 - D12 Default gesture mode is `.simultaneousGesture` (27.0: `high` breaks Button/Slider). DEBUG launch arg
   `-ZTronPanGestureMode gesture|simultaneous|high`; `-ZTronForceAllFallbacks` forces the 15–16 paths.
 - D13 Default zoom range is 1…1 (UIKit); zoom bounce phase is `.decelerating`; content centers when zoom is enabled.

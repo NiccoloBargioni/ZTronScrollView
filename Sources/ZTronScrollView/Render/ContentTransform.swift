@@ -222,13 +222,16 @@ struct TransformHost: ViewModifier {
             offset = CGPoint(x: ContentGeometry.snap(offset.x, scale: displayScale),
                              y: ContentGeometry.snap(offset.y, scale: displayScale))
         }
-        // Content is not hit-testable while it moves without a finger (a catching touch must not fire a Button) or
-        // while a drag is recognized (a Button under the finger is cancelled instead of firing on lift).
+        // D11 (narrowed 2026-11-09, user ruling 16.11.1): content is not hit-testable while it moves without a finger (a
+        // catching touch must not fire a Button) or while a drag is recognized; it takes the disabled state only while a
+        // drag is recognized (a Button under the finger is cancelled instead of firing on lift). Native parity: a
+        // UIScrollView never disables its content during a deceleration or a programmatic animation, and a press that
+        // began before an app-animated scroll still fires on lift.
         let blocked = (storage.phase == .decelerating || storage.phase == .animating) && !storage.isTracking || storage.isDragging
         let shape = metrics.shapeModel   // D75 (R1-RC1-1: the reflow of a resize in `shapeBase`)
         return content
             .modifier(ContentLayerGroup(useGeometryGroup: state.usesGeometryGroup, hasHeader: hasHeader))
-            .modifier(ContentInteractionGate(blocked: blocked))
+            .modifier(ContentInteractionGate(blocked: storage.isDragging))   // D11 narrowed (ruling 16.11.1): .disabled only while dragging
             .modifier(ContentTransform(offset: offset, scale: scale, insets: metrics.adjustedContentInset,
                                        commit: metrics.resize, limits: state.zoomLimits, alignment: metrics.alignment.content,
                                        paging: state.isPagingEnabled ? axes : [], probe: state.probe, warm: warm)
@@ -250,7 +253,8 @@ struct TransformHost: ViewModifier {
 /// padding: equal and byte-identical while unchanged (D43). The header's controls have their own gate: two leaves
 /// on `.phase`, `.disabled` on the header content (`HeaderInteractionGate`) and hit-testing above the header's layer
 /// group (`HeaderHitGate`), so a phase edge never re-configures the header's drawn layers (27.0). This leaf holds the
-/// content's `.disabled` half; the hit-testing half is `ContentHitGate`, above the content transform.
+/// content's `.disabled` half; the hit-testing half is `ContentHitGate`, above the content transform. Since the D11
+/// narrowing (2026-11-09) `blocked` here is `isDragging` only: no disabled state during a deceleration or an app animation.
 struct ContentInteractionGate: ViewModifier {
     let blocked: Bool
 

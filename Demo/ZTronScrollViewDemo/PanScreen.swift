@@ -41,6 +41,7 @@ struct PanContent: View {
                 } label: {
                     Text("Row \(i)").frame(maxWidth: .infinity).padding(.vertical, 12).background(Color.green.opacity(0.2))
                 }
+                .pressScrollHooked()
                 .accessibilityIdentifier("row.\(i)")
             }
         }
@@ -66,6 +67,9 @@ struct PanScreen: View {
     /// `-ZTronCancelProbe`: 300 ms after the first touch-down the app tries to make UIKit cancel the touch in flight (see
     /// `cancelTouchesInFlight`); the outcome per mechanism lands in `probe=` of the state readout.
     private static let cancelProbe = ProcessInfo.processInfo.arguments.contains("-ZTronCancelProbe")
+    /// `-ZTronPanNative 1` (D11 narrowing harness): the same rows in a native `ScrollView` (the native reference rows).
+    private static let native = ProcessInfo.processInfo.arguments.firstIndex(of: "-ZTronPanNative").map {
+        $0 + 1 < ProcessInfo.processInfo.arguments.count && ProcessInfo.processInfo.arguments[$0 + 1] == "1" } ?? false
     @State private var state = ZTronScrollState()
     @State private var probe = PanProbe()
     @State private var snapshot: [String: Int] = [:]
@@ -81,7 +85,13 @@ struct PanScreen: View {
                 Button("Snapshot") { takeSnapshot() }.accessibilityIdentifier("Snapshot")
                 if Self.showToggle { Button("Toggle") { shown.toggle() }.accessibilityIdentifier("Toggle") }
             }
-            if shown {
+            if shown, Self.native {
+                ScrollView(.vertical) { PanContent() }
+                    .frame(height: 360)
+                    .border(Color.gray)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("scroller")
+            } else if shown {
                 ZTronScrollView(.vertical, state: state) { PanContent() }
                     .frame(height: 360)
                     .border(Color.gray)
@@ -99,7 +109,14 @@ struct PanScreen: View {
             Text(stateInfo).font(.caption2).accessibilityIdentifier("stateInfo").accessibilityValue(stateInfo)
         }
         .padding(8)
-        .onAppear { state.delegate = probe }
+        .onAppear {
+            state.delegate = probe
+            #if canImport(UIKit)
+            PressScrollHook.scroll = Self.native ? PressScrollHook.native() : PressScrollHook.ztron(state)
+            #else
+            PressScrollHook.scroll = PressScrollHook.ztron(state)
+            #endif
+        }
         .background { if Self.cancelProbe { CancelProbeTicker { armCancelProbe() } } }
     }
 
@@ -138,6 +155,10 @@ struct PanScreen: View {
         state.stopScrollingAndZooming()
         state.setContentOffset(.zero, animated: false)
         probe.reset()
+        PressScrollHook.rearm()
+        #if canImport(UIKit)
+        if Self.native { PressScrollHook.firstScrollView()?.setContentOffset(.zero, animated: false) }
+        #endif
         probeScheduled = false
         probeLog = ""
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -151,6 +172,10 @@ struct PanScreen: View {
         #if DEBUG
         snapshot = ZTronRenderCounters.snapshot
         #endif
-        stateInfo = "phase=\(state.phase.rawValue) tracking=\(state.isTracking ? 1 : 0) y=\(Int(state.contentOffset.y)) minY=\(Int(probe.minY)) maxY=\(Int(probe.maxY)) probe=\(probeLog) order=\(probe.order.joined(separator: ",")) \(snapshot.keys.filter { $0.hasPrefix("lag=") }.joined(separator: ","))"
+        var y = Int(state.contentOffset.y)
+        #if canImport(UIKit)
+        if Self.native { y = Int(PressScrollHook.firstScrollView()?.contentOffset.y ?? -9999) }
+        #endif
+        stateInfo = "phase=\(state.phase.rawValue) tracking=\(state.isTracking ? 1 : 0) y=\(y) hookScrolls=\(PressScrollHook.fired) minY=\(Int(probe.minY)) maxY=\(Int(probe.maxY)) probe=\(probeLog) order=\(probe.order.joined(separator: ",")) \(snapshot.keys.filter { $0.hasPrefix("lag=") }.joined(separator: ","))"
     }
 }

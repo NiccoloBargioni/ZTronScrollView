@@ -868,15 +868,16 @@ struct HeaderLayerGroup: ViewModifier {
 
 /// The content's interaction gate (D11) for the header, in its own leaf on `.phase` (so the frame leaf never wakes on a
 /// phase edge): no press while the content moves without a finger or while a drag is recognized; a drag that starts on
-/// a header button scrolls. This leaf holds the `.disabled` half (on the header content only); the hit-testing half is
-/// `HeaderHitGate`, outside the header's layer group.
+/// a header button scrolls. This leaf holds the `.disabled` half (on the header content only), applied only while a drag
+/// is recognized (D11 narrowed 2026-11-09: no disabled state during a deceleration or an app animation, as native); the
+/// hit-testing half is `HeaderHitGate`, outside the header's layer group.
 struct HeaderInteractionGate: ViewModifier {
     let state: ZTronScrollState
     @StateObject private var relay = ChannelRelay()
 
     func body(content: Content) -> some View {
         if let storage = state.storage as? ChannelStorage { relay.subscribe(to: [.phase], of: storage) }
-        return content.disabled(HeaderHitGate.blocked(state.storage))
+        return content.disabled(state.storage.isDragging)   // D11 narrowed (ruling 16.11.1)
     }
 }
 

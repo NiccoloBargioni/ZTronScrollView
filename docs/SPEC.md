@@ -113,7 +113,7 @@ Requirements:
    | view reading only zoom | zoom changes only, not pure panning |
    | `ZoomScrollReader` / geometry-change modifiers | only when the derived Equatable value changes |
    | view reading phase / flags | phase transitions only |
-   | content-integral overlay host (S11, Amendment 2026-10-21 (user)) | layout only, never a body: the overlays are re-placed when the content's size changes (one pass; SwiftUI interpolates the frames with the content's curve) and, on 16+, when a control inside an overlay changes state (the content gate's `.disabled` flip at the start and end of a motion, a press: about 2 placements per gesture, measured M6b L2); no host body, no placement and no overlay body during scroll, zoom, refresh or collapse otherwise. iOS 15 host: its `GeometryReader` closure (library code) runs on content-size changes and container evaluations, never on motion (measured on the 17.5 / 27.0 runtimes with forced fallbacks; the iOS 15 runtime itself is unmeasured) |
+   | content-integral overlay host (S11, Amendment 2026-10-21 (user)) | layout only, never a body: the overlays are re-placed when the content's size changes (one pass; SwiftUI interpolates the frames with the content's curve) and, on 16+, when a control inside an overlay changes state (the content gate's `.disabled` flip at the start and end of a drag, a press: about 2 placements per gesture, measured M6b L2); no host body, no placement and no overlay body during scroll, zoom, refresh or collapse otherwise. iOS 15 host: its `GeometryReader` closure (library code) runs on content-size changes and container evaluations, never on motion (measured on the 17.5 / 27.0 runtimes with forced fallbacks; the iOS 15 runtime itself is unmeasured) |
 5. **Hot and cold values stay separate:** separate stored properties on 17+, separate channels on 15–16. Never put them in one struct, which would wake every reader every frame. Guard writes with `!=` and publish at most once per frame.
 6. **Never mirror hot values into a parent's state through a Binding.** That re-runs the parent body and rebuilds the content every frame. Document why.
 7. **Zero idle cost:** the frame clock is paused whenever nothing moves.
@@ -213,6 +213,9 @@ The transform is driven by *target* values. The public `contentOffset`/`zoomScal
 - **Touch during motion:** a touch during deceleration, bounce or animation stops the motion instantly.
   - That touch must not activate content controls.
   - Implement this by disabling content hit-testing while the content moves without a finger, via a leaf modifier.
+  - The content and the header take the disabled state (`.disabled`) only while a drag is recognized (a Button under the finger is
+    cancelled). A deceleration or an app-animated scroll never disables them: a press that began before an app-animated
+    `scroll(to:)` fires on lift, as in a UIScrollView (ruling 16.11.1, 2026-11-09).
 - **Paging:** `isPagingEnabled` behaves the same as `.scrollTargetBehavior(.paging)`. Page size = viewport size; at most one page per gesture.
 
 ### Programmatic

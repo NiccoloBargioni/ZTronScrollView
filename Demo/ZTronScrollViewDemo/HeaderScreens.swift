@@ -179,9 +179,9 @@ struct HeaderDemoChrome: View {
         #endif
         voiceOver = VoiceOverTree.identifiers(prefix: "header.").joined(separator: ",")
         let g = state.headerGeometry
-        info = String(format: "y=%.1f p=%.4f h=%.1f R=%.3f smax=%.1f hmax=%.1f taps=%d phase=%d bmax=%.2f wmax=%.2f",
+        info = String(format: "y=%.1f p=%.4f h=%.1f R=%.3f smax=%.1f hmax=%.1f taps=%d phase=%d bmax=%.2f wmax=%.2f hook=%d",
                       state.contentOffset.y, g?.progress ?? -1, g?.height ?? -1, g?.restingHeight ?? -1, HeaderDemo.maxStretch,
-                      HeaderDemo.maxHeight, HeaderDemo.taps, state.phase.rawValue, HeaderDemo.maxBottom, HeaderDemo.maxWidth)
+                      HeaderDemo.maxHeight, HeaderDemo.taps, state.phase.rawValue, HeaderDemo.maxBottom, HeaderDemo.maxWidth, PressScrollHook.fired)
     }
 }
 
@@ -189,6 +189,7 @@ struct HeaderDemoChrome: View {
 struct HeaderTapButton: View {
     var body: some View {
         Button("Follow") { HeaderDemo.taps += 1 }
+            .pressScrollHooked()
             .padding(.horizontal, 10).padding(.vertical, 4)
             .background(Capsule().fill(Color.white.opacity(0.85)))
             .accessibilityIdentifier("header.button")
@@ -328,6 +329,7 @@ struct BannerScreen: View {
                 .accessibilityIdentifier("header.scroller")
         }
         .padding(.horizontal, 6)
+        .onAppear { PressScrollHook.scroll = PressScrollHook.ztron(state) }
     }
 
     private var scroller: some View {
