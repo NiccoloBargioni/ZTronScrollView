@@ -87,8 +87,6 @@ struct HeaderFrameModifier: ViewModifier {
     @StateObject private var relay = ChannelRelay()
     @StateObject private var reporter = HeaderNaturalReporter()
     @State private var liftMemo = HeaderStretchLiftMemo()
-    /// `FirstUseWarm`: 1 -> 0 at appear, added to the share outside [0, 1] (clamped away: drawn identically).
-    @State private var warm: CGFloat = 1
     /// D76: the clip snaps a grown frame's side inset to the pixel grid (`HeaderMath.stretchClip`).
     @Environment(\.displayScale) private var displayScale
 
@@ -131,7 +129,7 @@ struct HeaderFrameModifier: ViewModifier {
                                            viewport: viewport, stretch: stretch, chain: chain)
         return content.modifier(HeaderStretchLiftBase(base: base, viewport: viewport, stretch: stretch, shift: shift)
                                     .pinned(stretch ? state.catchPinRef : nil))
-            .onAppear { if warm != 0 { FirstUseWarm.run { warm = 0 } } }   // FirstUseWarm (cost3-O, mapped by cost3-V)
+            .background(HeaderWarmLeaf(state: state, reporter: reporter))   // FirstUseWarm (cost3-O): a leaf of its own
     }
 
     /// Subscribes (15–16 channels; 17+ tracks the reads below), counts the run and reads the state's half of the frame.
@@ -154,7 +152,6 @@ struct HeaderFrameModifier: ViewModifier {
         if live.followsOffset { reporter.heldOffset = live.offset }
         live.natural = state.headerNatural
         live.layoutShare = Self.layoutShare(stretchContent, metrics: metrics.header)
-        if warm != 0 { live.layoutShare = live.layoutShare >= 1 ? 1 + warm : (live.layoutShare <= 0 ? -warm : live.layoutShare) }
         // D79: after a drawn catch every effect that interpolates `o′` draws the model's until its interpolation reaches it.
         if live.followsOffset, let ref = state.catchPinRef { live.catchPin = HeaderCatchPin(ref: ref, model: live.offset) }
         return live
@@ -410,8 +407,9 @@ struct HeaderSlotLayout: Layout {
             return me.placeSubviews(in: bounds, proposal: proposal, subviews: subviews, cache: &cache)
         }
         #if DEBUG
-        // The slot's size (C16: the 15 path's `HeaderSlotReader` notes the same key).
-        if Thread.isMainThread {
+        // The slot's size (C16: the 15 path's `HeaderSlotReader` notes the same key). Not `HeaderWarmLeaf`'s slot (no
+        // metrics: it is never a header's).
+        if Thread.isMainThread, live.metrics != nil {
             let note = "\(bounds.width)x\(bounds.height)"
             MainActor.assumeIsolated { ZTronRenderCounters.notes["header.slot.size"] = note }
         }

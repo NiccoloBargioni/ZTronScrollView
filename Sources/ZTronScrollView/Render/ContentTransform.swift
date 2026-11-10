@@ -13,7 +13,7 @@ enum ContentGeometry {
 struct TransformVector: VectorArithmetic {
     var ox: CGFloat = 0, oy: CGFloat = 0, s: CGFloat = 0
     var top: CGFloat = 0, leading: CGFloat = 0, bottom: CGFloat = 0, trailing: CGFloat = 0
-    /// A spare scalar that feeds nothing drawn (`FirstUseWarm`).
+    /// A spare scalar that feeds nothing drawn: only `FirstUseWarm`'s leaf (`ContentWarmLeaf`) changes it.
     var w: CGFloat = 0
 
     static var zero: TransformVector { TransformVector() }
@@ -53,8 +53,10 @@ struct ContentTransform: GeometryEffect {
     /// D79: the values this effect is built with when the host tracks rest (`tracksRest()`); the probe learns a frame
     /// drawn at them (the drawn motion ended).
     var restModel: TransformVector?
-    /// `FirstUseWarm`'s spare scalar (drawn nowhere).
+    /// `FirstUseWarm`'s spare scalar (drawn nowhere); 0 on every drawing instance.
     var warm: CGFloat = 0
+    /// `FirstUseWarm`'s own instance (`ContentWarmLeaf`): draws the identity and records nothing (no probe, no counters).
+    var warmOnly = false
 
     var animatableData: TransformVector {
         get { TransformVector(ox: offset.x, oy: offset.y, s: scale, top: insets.top, leading: insets.leading,
@@ -105,6 +107,7 @@ struct ContentTransform: GeometryEffect {
     }
 
     func effectValue(size: CGSize) -> ProjectionTransform {
+        if warmOnly { return ProjectionTransform() }
         if let pin {
             var me = self
             me.pin = nil
@@ -205,7 +208,6 @@ struct TransformHost: ViewModifier {
     var hasHeader = false
     @Environment(\.displayScale) private var displayScale
     @StateObject private var relay = ChannelRelay()
-    @State private var warm: CGFloat = 1     // `FirstUseWarm`: 1 -> 0 at appear
 
     func body(content: Content) -> some View {
         if let storage = state.storage as? ChannelStorage {
@@ -235,13 +237,12 @@ struct TransformHost: ViewModifier {
             .modifier(ContentInteractionGate(blocked: storage.isDragging))   // D11 narrowed (ruling 16.11.1): .disabled only while dragging
             .modifier(ContentTransform(offset: offset, scale: scale, insets: metrics.adjustedContentInset,
                                        commit: metrics.resize, limits: state.zoomLimits, alignment: metrics.alignment.content,
-                                       paging: state.isPagingEnabled ? axes : [], probe: state.probe, warm: warm)
+                                       paging: state.isPagingEnabled ? axes : [], probe: state.probe)
                 .pinned(state.catchPinRef).tracksRest())
             .modifier(ContentShapeShift(shape: shape, committed: shape, scale: scale, insets: metrics.adjustedContentInset,
                                         commit: metrics.resize, base: metrics.shapeBase))   // D75: the drawn shape's padding (ContentShape.swift)
             .modifier(CompletionObserver(state: state))
             .modifier(ContentHitGate(blocked: blocked))   // above the transform: no content re-configuration on a phase edge
-            .onAppear { if warm != 0 { FirstUseWarm.run { warm = 0 } } }
     }
 }
 

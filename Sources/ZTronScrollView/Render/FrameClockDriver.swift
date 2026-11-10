@@ -30,6 +30,7 @@ struct FrameClockDriver: View {
                     state.step(to: date)
                 }
         }
+        .background(ContentWarmLeaf())   // `FirstUseWarm`: the content transform's type, in a leaf of its own
     }
 }
 
