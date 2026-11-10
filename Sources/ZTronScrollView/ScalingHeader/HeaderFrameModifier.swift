@@ -875,7 +875,7 @@ struct HeaderInteractionGate: ViewModifier {
 
     func body(content: Content) -> some View {
         if let storage = state.storage as? ChannelStorage { relay.subscribe(to: [.phase], of: storage) }
-        return content.disabled(state.storage.isDragging)   // D11 narrowed (ruling 16.11.1)
+        return content.disabled(InteractionGate.disabled(state.storage))   // D11 narrowed (ruling 16.11.1)
     }
 }
 
@@ -888,13 +888,9 @@ struct HeaderHitGate: ViewModifier {
     let state: ZTronScrollState
     @StateObject private var relay = ChannelRelay()
 
-    @MainActor static func blocked(_ storage: any StateStorage) -> Bool {
-        (storage.phase == .decelerating || storage.phase == .animating) && !storage.isTracking || storage.isDragging
-    }
-
     func body(content: Content) -> some View {
         if let storage = state.storage as? ChannelStorage { relay.subscribe(to: [.phase], of: storage) }
-        return content.allowsHitTesting(!Self.blocked(state.storage))
+        return content.allowsHitTesting(!InteractionGate.hitBlocked(state.storage))
     }
 }
 

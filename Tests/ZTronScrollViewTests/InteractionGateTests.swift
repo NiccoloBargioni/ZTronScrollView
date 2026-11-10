@@ -46,11 +46,13 @@ struct InteractionGateTests {
     }
 
     /// The gate's two halves as functions of the phase flags: hit-testing blocks every motion without a finger and a
-    /// recognized drag; the disabled state is the drag only.
+    /// recognized drag; the disabled state is the drag only. `InteractionGate` is the one definition all four gate leaves
+    /// read (content: `ContentHitGate` / `ContentInteractionGate` from `TransformHost`; header: `HeaderHitGate` /
+    /// `HeaderInteractionGate`), so this pins the content's halves as well as the header's (fold review F3).
     @Test(arguments: OSPath.allCases) func hitTestingBlocksMotionTheDisabledStateOnlyADrag(path: OSPath) {
         let s = makeState(path)
         let st = s.storage
-        func both() -> (hit: Bool, disabled: Bool) { (HeaderHitGate.blocked(st), st.isDragging) }
+        func both() -> (hit: Bool, disabled: Bool) { (InteractionGate.hitBlocked(st), InteractionGate.disabled(st)) }
         #expect(both() == (false, false), "at rest")
         s.setPhase(.animating)
         #expect(both() == (true, false), "an app animation: not hit-testable, not disabled")

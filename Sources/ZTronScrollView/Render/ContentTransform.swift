@@ -230,11 +230,11 @@ struct TransformHost: ViewModifier {
         // drag is recognized (a Button under the finger is cancelled instead of firing on lift). Native parity: a
         // UIScrollView never disables its content during a deceleration or a programmatic animation, and a press that
         // began before an app-animated scroll still fires on lift.
-        let blocked = (storage.phase == .decelerating || storage.phase == .animating) && !storage.isTracking || storage.isDragging
+        let blocked = InteractionGate.hitBlocked(storage)
         let shape = metrics.shapeModel   // D75 (R1-RC1-1: the reflow of a resize in `shapeBase`)
         return content
             .modifier(ContentLayerGroup(useGeometryGroup: state.usesGeometryGroup, hasHeader: hasHeader))
-            .modifier(ContentInteractionGate(blocked: storage.isDragging))   // D11 narrowed (ruling 16.11.1): .disabled only while dragging
+            .modifier(ContentInteractionGate(blocked: InteractionGate.disabled(storage)))   // D11 narrowed (ruling 16.11.1)
             .modifier(ContentTransform(offset: offset, scale: scale, insets: metrics.adjustedContentInset,
                                        commit: metrics.resize, limits: state.zoomLimits, alignment: metrics.alignment.content,
                                        paging: state.isPagingEnabled ? axes : [], probe: state.probe)
@@ -244,6 +244,18 @@ struct TransformHost: ViewModifier {
             .modifier(CompletionObserver(state: state))
             .modifier(ContentHitGate(blocked: blocked))   // above the transform: no content re-configuration on a phase edge
     }
+}
+
+/// D11's two predicates, one definition for the content's gates (`TransformHost`: `ContentHitGate`, `ContentInteractionGate`)
+/// and the header's (`HeaderHitGate`, `HeaderInteractionGate`); `InteractionGateTests` pins both.
+enum InteractionGate {
+    /// Not hit-testable: a motion without a finger (a catching touch must not fire a Button) or a recognized drag.
+    @MainActor static func hitBlocked(_ storage: any StateStorage) -> Bool {
+        (storage.phase == .decelerating || storage.phase == .animating) && !storage.isTracking || storage.isDragging
+    }
+
+    /// Disabled (`.disabled`): a recognized drag only (D11 narrowed, ruling 16.11.1; a Button under the finger is cancelled).
+    @MainActor static func disabled(_ storage: any StateStorage) -> Bool { storage.isDragging }
 }
 
 /// The content's interaction gate (D11), in a leaf of its own: its only input is `blocked`, so its body (and with it the
